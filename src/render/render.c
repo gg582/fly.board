@@ -194,7 +194,7 @@ static const char *login_register_script =
     "const buf=await crypto.subtle.digest('SHA-512',new TextEncoder().encode(str));"
     "return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');"
     "}"
-    "document.querySelectorAll('form[action=\"/login\"],form[action=\"/register\"]').forEach(function(form){"
+    "document.querySelectorAll('form[action=\"/login\"],form[action=\"/register\"],form[action=\"/account/password\"]').forEach(function(form){"
     "form.addEventListener('submit',async function(e){"
     "var pw=form.querySelector('input[type=\"password\"]');"
     "if(pw&&!pw.dataset.hashed){"
@@ -354,6 +354,9 @@ cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *profi
     cwist_sstring_append(b, "</form>");
 
     cwist_sstring_append(b, "<hr style='margin:24px 0;border:0;border-top:1px solid var(--border)'>");
+    cwist_sstring_append(b, "<a href='/account/password' class='btn btn-outline'>Change Password</a>");
+
+    cwist_sstring_append(b, "<hr style='margin:24px 0;border:0;border-top:1px solid var(--border)'>");
     cwist_sstring_append(b, "<p style='color:var(--muted);font-size:13px'>Username: ");
     cwist_sstring_append_escaped(b, username);
     cwist_sstring_append(b, "<br>Email: ");
@@ -388,6 +391,19 @@ cwist_sstring *render_register(bool dark, const char *error) {
     cwist_sstring_append(body, "<p style='text-align:center'><a href='/login'>Already have an account?</a></p>");
     cwist_sstring_append(body, login_register_script);
     cwist_sstring *page = render_page("Register", body->data, dark, NULL, NULL);
+    cwist_sstring_destroy(body);
+    return page;
+}
+
+cwist_sstring *render_password_change(bool dark, const char *error) {
+    const char *fields =
+        "<label>Current Password</label><input name='current_password' type='password' placeholder='Current password' required>"
+        "<label>New Password</label><input name='new_password' type='password' placeholder='min 6 chars' required>"
+        "<label>Confirm New Password</label><input name='confirm_password' type='password' placeholder='Confirm new password' required>";
+    cwist_sstring *body = build_form("Change Password", "/account/password", "post", fields, "Update Password", error, dark);
+    cwist_sstring_append(body, "<p style='text-align:center'><a href='/account/settings'>Back to settings</a></p>");
+    cwist_sstring_append(body, login_register_script);
+    cwist_sstring *page = render_page("Change Password", body->data, dark, "user", NULL);
     cwist_sstring_destroy(body);
     return page;
 }

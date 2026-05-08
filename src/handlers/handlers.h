@@ -17,6 +17,8 @@ void handler_profile_get(cwist_http_request *req, cwist_http_response *res);
 void handler_profile_post(cwist_http_request *req, cwist_http_response *res);
 void handler_account_settings_get(cwist_http_request *req, cwist_http_response *res);
 void handler_account_settings_post(cwist_http_request *req, cwist_http_response *res);
+void handler_password_change_get(cwist_http_request *req, cwist_http_response *res);
+void handler_password_change_post(cwist_http_request *req, cwist_http_response *res);
 void handler_user_profile_get(cwist_http_request *req, cwist_http_response *res);
 
 void handler_board_list(cwist_http_request *req, cwist_http_response *res);

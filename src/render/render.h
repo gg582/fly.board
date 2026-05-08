@@ -7,6 +7,7 @@
 cwist_sstring *render_page(const char *title, const char *body_html, bool dark, const char *user_role, const char *profile_pic);
 cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, const char *profile_pic, bool is_own_profile);
 cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *profile_pic, const char *error);
+cwist_sstring *render_password_change(bool dark, const char *error);
 cwist_sstring *render_login(bool dark, const char *error);
 cwist_sstring *render_register(bool dark, const char *error);
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *profile_pic);
