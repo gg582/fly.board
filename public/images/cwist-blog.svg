@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 420" role="img" aria-labelledby="title desc">
+  <title id="title">CWIST Simple Blog</title>
+  <desc id="desc">A simple geometric banner for the CWIST Markdown blog example.</desc>
+  <rect width="960" height="420" fill="#f8fafc"/>
+  <rect x="64" y="64" width="832" height="292" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="3"/>
+  <circle cx="138" cy="132" r="22" fill="#0f766e"/>
+  <circle cx="202" cy="132" r="22" fill="#7c3aed"/>
+  <circle cx="266" cy="132" r="22" fill="#f59e0b"/>
+  <rect x="128" y="202" width="456" height="24" rx="4" fill="#0f172a"/>
+  <rect x="128" y="250" width="704" height="18" rx="4" fill="#64748b"/>
+  <rect x="128" y="286" width="592" height="18" rx="4" fill="#94a3b8"/>
+  <path d="M676 130h132v72H676z" fill="#ccfbf1" stroke="#0f766e" stroke-width="3"/>
+  <path d="M704 178l28-30 28 22 18-16 30 24" fill="none" stroke="#0f766e" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

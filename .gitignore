@@ -1,0 +1,13 @@
+*.o
+fly_board
+data/blog.db
+public/uploads/*.log
+admin.settings
+server.crt
+server.key
+tests/test_mp_dash
+tests/test_mp_file
+tests/test_mp_raw
+tests/test_mp_real
+tests/test_multipart
+tests/test_multipart_debug
