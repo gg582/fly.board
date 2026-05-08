@@ -363,6 +363,69 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
     redirect(res, "/profile");
 }
 
+void handler_password_change_get(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    char *pp = get_profile_pic(req->db, uid, role);
+    send_html_res(res, render_password_change(is_dark(req), NULL));
+    free(pp);
+}
+
+void handler_password_change_post(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    bool dark = is_dark(req);
+
+    form_kv_t *kv = parse_urlencoded(req->body->data);
+    const char *current = form_kv_get(kv, "current_password");
+    const char *new_pw = form_kv_get(kv, "new_password");
+    const char *confirm = form_kv_get(kv, "confirm_password");
+
+    if (!current || !new_pw || !confirm || strlen(new_pw) < 6) {
+        send_html_res(res, render_password_change(dark, "Invalid input (password min 6 chars)"));
+        form_kv_free(kv);
+        return;
+    }
+    if (strcmp(new_pw, confirm) != 0) {
+        send_html_res(res, render_password_change(dark, "New passwords do not match"));
+        form_kv_free(kv);
+        return;
+    }
+
+    cJSON *user = db_user_get_by_id(req->db, uid);
+    if (!user) {
+        send_html_res(res, render_password_change(dark, "User not found"));
+        form_kv_free(kv);
+        return;
+    }
+
+    cJSON *hash = cJSON_GetObjectItem(user, "password_hash");
+    if (!hash || !hash->valuestring || !auth_verify_password(current, hash->valuestring)) {
+        cJSON_Delete(user);
+        send_html_res(res, render_password_change(dark, "Current password is incorrect"));
+        form_kv_free(kv);
+        return;
+    }
+
+    char new_hash[256];
+    if (!auth_hash_password(new_pw, new_hash, sizeof(new_hash))) {
+        cJSON_Delete(user);
+        send_html_res(res, render_password_change(dark, "Server error"));
+        form_kv_free(kv);
+        return;
+    }
+
+    char *h = sql_esc(new_hash);
+    db_user_update_password(req->db, uid, h);
+    cwist_free(h);
+    cJSON_Delete(user);
+    form_kv_free(kv);
+
+    redirect(res, "/profile");
+}
+
 void handler_user_profile_get(cwist_http_request *req, cwist_http_response *res) {
     bool dark = is_dark(req);
     int viewer_uid = 0;

@@ -16,6 +16,7 @@ bool db_user_delete(cwist_db *db, int id);
 bool db_user_update_role(cwist_db *db, int id, const char *role);
 bool db_user_update_profile_pic(cwist_db *db, int id, const char *profile_pic);
 bool db_user_update_profile(cwist_db *db, int id, const char *nickname, const char *bio, const char *profile_pic);
+bool db_user_update_password(cwist_db *db, int id, const char *password_hash);
 cJSON *db_user_list(cwist_db *db);
 
 /* Boards */

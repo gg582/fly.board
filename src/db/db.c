@@ -154,6 +154,12 @@ bool db_user_update_profile(cwist_db *db, int id, const char *nickname, const ch
     return exec_sql(db, sql);
 }
 
+bool db_user_update_password(cwist_db *db, int id, const char *password_hash) {
+    char sql[1024];
+    snprintf(sql, sizeof(sql), "UPDATE users SET password_hash='%s' WHERE id=%d", password_hash, id);
+    return exec_sql(db, sql);
+}
+
 cJSON *db_user_list(cwist_db *db) {
     const char *sql = "SELECT id, username, email, role, profile_pic, created_at, active FROM users ORDER BY id";
     cJSON *res = NULL;

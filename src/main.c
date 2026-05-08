@@ -111,6 +111,8 @@ int main(void) {
     cwist_app_post(app, "/profile", handler_profile_post);
     cwist_app_get(app, "/account/settings", handler_account_settings_get);
     cwist_app_post(app, "/account/settings", handler_account_settings_post);
+    cwist_app_get(app, "/account/password", handler_password_change_get);
+    cwist_app_post(app, "/account/password", handler_password_change_post);
     cwist_app_get(app, "/user/:id", handler_user_profile_get);
 
     cwist_app_get(app, "/boards", handler_board_list);
