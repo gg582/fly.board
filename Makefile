@@ -8,7 +8,7 @@ MD4C_OBJS := $(MD4C_DIR)/build/md4c.o $(MD4C_DIR)/build/md4c-html.o $(MD4C_DIR)/
 
 MULTIPART_DIR := third_party/multipart-parser-c
 
-SRCS := src/main.c src/db/db.c src/auth/auth.c src/crypto/fly_crypto.c src/render/theme.c src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/handlers/handlers.c src/utils/utils.c src/nats/fly_nats.c src/core/log.c src/config/config.c $(MULTIPART_DIR)/multipart_parser.c
+SRCS := src/main.c src/db/db.c src/auth/auth.c src/crypto/fly_crypto.c src/render/theme_json.c src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/handlers/handlers.c src/utils/utils.c src/nats/fly_nats.c src/core/log.c src/config/config.c $(MULTIPART_DIR)/multipart_parser.c
 OBJS := $(SRCS:.c=.o)
 
 CFLAGS := -Wall -Wextra -O2 \
@@ -31,7 +31,15 @@ ifeq ($(wildcard $(CWIST_LIB)),)
 endif
 
 # Only system libs remain; libttak, cjson, uriparser, sqlite3, cnats are all embedded in libcwist.a
-LIBS := -lssl -lcrypto -lngtcp2 -lngtcp2_crypto_ossl -lnghttp3 -lpthread -ldl
+LIBS := -lssl -lcrypto -lpthread -ldl
+HAS_NGTCP2 := $(shell pkg-config --exists ngtcp2 2>/dev/null && echo 1 || echo 0)
+HAS_NGHTTP3 := $(shell pkg-config --exists nghttp3 2>/dev/null && echo 1 || echo 0)
+ifeq ($(HAS_NGTCP2),1)
+LIBS += -lngtcp2 -lngtcp2_crypto_ossl
+endif
+ifeq ($(HAS_NGHTTP3),1)
+LIBS += -lnghttp3
+endif
 
 TARGET := fly_board
 

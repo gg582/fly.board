@@ -4,7 +4,10 @@
 #include <cwist/net/http/http.h>
 
 void handler_home(cwist_http_request *req, cwist_http_response *res);
-void handler_theme_css(cwist_http_request *req, cwist_http_response *res);
+void handler_theme_json(cwist_http_request *req, cwist_http_response *res);
+void handler_themes_json(cwist_http_request *req, cwist_http_response *res);
+void handler_rss_xml(cwist_http_request *req, cwist_http_response *res);
+void handler_post_vote(cwist_http_request *req, cwist_http_response *res);
 
 void handler_login_get(cwist_http_request *req, cwist_http_response *res);
 void handler_login_post(cwist_http_request *req, cwist_http_response *res);

@@ -2,6 +2,7 @@
 #include "render.h"
 #include "render_internal.h"
 #include <cwist/core/sstring/sstring.h>
+#include <stdio.h>
 #include <string.h>
 
 cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, const char *profile_pic, bool is_own_profile) {

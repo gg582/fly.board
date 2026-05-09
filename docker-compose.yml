@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  flyboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flyboard
+    ports:
+      - "8443:8443/tcp"
+      - "8443:8443/udp"
+    volumes:
+      - ./data:/app/data
+      - ./public:/app/public
+      - ./posts:/app/posts
+    environment:
+      - NATS_URL=${NATS_URL:-}
+      - BLOG_ECH_KEY=${BLOG_ECH_KEY:-}
+      - BLOG_ECH_DIR=${BLOG_ECH_DIR:-}
+    restart: unless-stopped
