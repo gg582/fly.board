@@ -62,7 +62,7 @@ void rule_layout(cJSON *rules) {
     cJSON *shell = create_rule(".shell");
     add_decl(shell, "max-width", "1400px");
     add_decl(shell, "margin", "0 auto");
-    add_decl(shell, "padding", "24px");
+    add_decl(shell, "padding", "16px");
     cJSON_AddItemToArray(rules, shell);
 
     cJSON *nav = create_rule(".topbar");
