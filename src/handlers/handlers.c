@@ -469,6 +469,19 @@ void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *boards = db_board_list(req->db);
+    if (boards) {
+        int n = cJSON_GetArraySize(boards);
+        for (int i = 0; i < n; i++) {
+            cJSON *bo = cJSON_GetArrayItem(boards, i);
+            cJSON *bid = cJSON_GetObjectItem(bo, "id");
+            if (bid) {
+                cJSON *posts = db_post_recent_by_board(req->db, bid->valueint, 5);
+                if (posts) {
+                    cJSON_AddItemToObject(bo, "posts", posts);
+                }
+            }
+        }
+    }
     cwist_sstring *page = render_board_list(boards, dark, role, pp);
     if (boards) cJSON_Delete(boards);
     send_html_res(res, page);

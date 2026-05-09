@@ -1,6 +1,7 @@
-#ifndef DOCKER_BLOG_RENDER_H
-#define DOCKER_BLOG_RENDER_H
+#ifndef FLYBOARD_RENDER_H
+#define FLYBOARD_RENDER_H
 
+#include <stdbool.h>
 #include <cwist/core/sstring/sstring.h>
 #include <cjson/cJSON.h>
 
