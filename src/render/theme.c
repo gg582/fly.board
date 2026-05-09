@@ -16,29 +16,29 @@ typedef struct theme_color {
 } theme_color_t;
 
 static theme_color_t light = {
-    .bg = "#f8fafc",
-    .fg = "#0f172a",
-    .muted = "#64748b",
+    .bg = "#f6f7f9",
+    .fg = "#1a1a2e",
+    .muted = "#6b7280",
     .panel = "#ffffff",
-    .accent = "#0f766e",
-    .accent2 = "#14b8a6",
-    .border = "#e2e8f0",
+    .accent = "#4f46e5",
+    .accent2 = "#6366f1",
+    .border = "#e5e7eb",
     .shadow = "rgba(0,0,0,0.06)",
-    .hover = "#f1f5f9",
-    .code_bg = "#f1f5f9"
+    .hover = "#f3f4f6",
+    .code_bg = "#f4f4f5"
 };
 
 static theme_color_t dark = {
-    .bg = "#0b0f19",
-    .fg = "#e2e8f0",
-    .muted = "#94a3b8",
-    .panel = "#111827",
-    .accent = "#2dd4bf",
-    .accent2 = "#5eead4",
-    .border = "#1f2937",
-    .shadow = "rgba(0,0,0,0.35)",
-    .hover = "#1e293b",
-    .code_bg = "#1e293b"
+    .bg = "#0f0f13",
+    .fg = "#e4e4e7",
+    .muted = "#a1a1aa",
+    .panel = "#18181b",
+    .accent = "#818cf8",
+    .accent2 = "#a5b4fc",
+    .border = "#3f3f46",
+    .shadow = "rgba(0,0,0,0.4)",
+    .hover = "#27272a",
+    .code_bg = "#27272a"
 };
 
 static void add_decl(cwist_css_rule_t *r, const char *p, const char *v) { cwist_css_rule_add_decl(r, p, v); }
@@ -359,7 +359,15 @@ static void rule_markdown(cwist_css_builder_t *css) {
     add_decl(md_pre, "border-radius", "10px");
     add_decl(md_pre, "overflow", "auto");
     add_decl(md_pre, "border", "1px solid var(--border)");
+    add_decl(md_pre, "font-family", "'Fira Code', 'JetBrains Mono', Consolas, Monaco, 'Courier New', monospace");
+    add_decl(md_pre, "font-size", "14px");
+    add_decl(md_pre, "line-height", "1.6");
     cwist_css_builder_add_rule(css, md_pre);
+
+    cwist_css_rule_t *md_pre_code = cwist_css_rule_create(".markdown-body pre code");
+    add_decl(md_pre_code, "font-family", "inherit");
+    add_decl(md_pre_code, "font-size", "inherit");
+    cwist_css_builder_add_rule(css, md_pre_code);
 
     cwist_css_rule_t *md_code = cwist_css_rule_create(".markdown-body code:not(pre code)");
     add_decl(md_code, "background", "var(--code-bg)");
@@ -387,6 +395,11 @@ static void rule_markdown(cwist_css_builder_t *css) {
     add_decl(md_thtd, "border", "1px solid var(--border)");
     add_decl(md_thtd, "padding", "8px 10px");
     cwist_css_builder_add_rule(css, md_thtd);
+
+    cwist_css_rule_t *md_th = cwist_css_rule_create(".markdown-body th");
+    add_decl(md_th, "background", "var(--hover)");
+    add_decl(md_th, "font-weight", "600");
+    cwist_css_builder_add_rule(css, md_th);
 
     cwist_css_rule_t *md_zebra = cwist_css_rule_create(".markdown-body tbody tr:nth-child(even)");
     add_decl(md_zebra, "background", "var(--hover)");
