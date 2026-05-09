@@ -126,11 +126,6 @@ static void rule_layout(cwist_css_builder_t *css) {
     add_decl(brand, "line-height", "1.2");
     cwist_css_builder_add_rule(css, brand);
 
-    cwist_css_rule_t *brand_logo = cwist_css_rule_create(".topbar-logo");
-    add_decl(brand_logo, "height", "24px");
-    add_decl(brand_logo, "width", "auto");
-    cwist_css_builder_add_rule(css, brand_logo);
-
     cwist_css_rule_t *brand_title = cwist_css_rule_create(".topbar-title");
     add_decl(brand_title, "font-weight", "800");
     add_decl(brand_title, "font-size", "18px");
@@ -260,6 +255,12 @@ static void rule_home(cwist_css_builder_t *css) {
     add_decl(hero_h1, "letter-spacing", "-0.5px");
     cwist_css_builder_add_rule(css, hero_h1);
 
+    cwist_css_rule_t *hero_logo = cwist_css_rule_create(".hero-logo");
+    add_decl(hero_logo, "height", "48px");
+    add_decl(hero_logo, "width", "auto");
+    add_decl(hero_logo, "margin-bottom", "12px");
+    cwist_css_builder_add_rule(css, hero_logo);
+
     cwist_css_rule_t *hero_p = cwist_css_rule_create(".hero p");
     add_decl(hero_p, "color", "var(--muted)");
     add_decl(hero_p, "font-size", "18px");
@@ -349,7 +350,7 @@ static void rule_media(cwist_css_builder_t *css) {
     add_decl(mq, ".topbar", "padding: 0");
     add_decl(mq, ".nav-links", "width: 100%");
     add_decl(mq, ".nav-links", "justify-content: flex-start");
-    add_decl(mq, ".topbar-logo", "height: 20px");
+    add_decl(mq, ".hero-logo", "height: 40px");
     add_decl(mq, ".hero h1", "font-size: 30px");
     add_decl(mq, ".post-grid", "grid-template-columns: 1fr");
     cwist_css_builder_add_rule(css, mq);
