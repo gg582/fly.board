@@ -321,6 +321,9 @@ static void rule_media(cwist_css_builder_t *css) {
     cwist_css_rule_t *mq = cwist_css_rule_create("@media (max-width: 768px)");
     add_decl(mq, ".shell", "padding: 16px");
     add_decl(mq, ".topbar", "flex-wrap: wrap");
+    add_decl(mq, ".topbar", "width: 100%");
+    add_decl(mq, ".topbar", "margin: 0");
+    add_decl(mq, ".topbar", "padding: 0");
     add_decl(mq, ".hero h1", "font-size: 30px");
     add_decl(mq, ".post-grid", "grid-template-columns: 1fr");
     cwist_css_builder_add_rule(css, mq);
