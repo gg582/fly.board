@@ -15,6 +15,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <limits.h>
 #include <time.h>
 #include <sqlite3.h>
@@ -73,9 +74,10 @@ static int json_int(cJSON *obj, const char *key, int def) {
 
 static cJSON *board_by_route_key(cwist_db *db, const char *key) {
     if (!key || !key[0]) return NULL;
+    errno = 0;
     char *end;
     long id = strtol(key, &end, 10);
-    if (*end == '\0' && id > 0 && id <= INT_MAX) return db_board_get_by_id(db, (int)id);
+    if (errno == 0 && *end == '\0' && id > 0 && id <= INT_MAX) return db_board_get_by_id(db, (int)id);
     return db_board_get_by_slug(db, key);
 }
 
