@@ -78,8 +78,16 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_class(nav, "topbar");
     cwist_html_element_t *brand = cwist_html_element_create("a");
     cwist_html_element_add_attr(brand, "href", "/");
-    cwist_html_element_add_attr(brand, "style", "font-weight:800;font-size:18px;");
-    cwist_html_element_set_text(brand, g_config.title);
+    cwist_html_element_add_class(brand, "topbar-brand");
+    cwist_html_element_t *brand_logo = cwist_html_element_create("img");
+    cwist_html_element_add_attr(brand_logo, "src", "/img/logo.png");
+    cwist_html_element_add_attr(brand_logo, "alt", "Logo");
+    cwist_html_element_add_class(brand_logo, "topbar-logo");
+    cwist_html_element_t *brand_title = cwist_html_element_create("span");
+    cwist_html_element_add_class(brand_title, "topbar-title");
+    cwist_html_element_set_text(brand_title, g_config.title);
+    cwist_html_element_add_child(brand, brand_logo);
+    cwist_html_element_add_child(brand, brand_title);
     cwist_html_element_add_child(nav, brand);
 
     cwist_html_element_t *navlinks = cwist_html_element_create("div");
