@@ -14,7 +14,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     cwist_sstring_append_escaped(b, g_config.subtitle);
     cwist_sstring_append(b, "</p></div>");
     if (user_role && strcmp(user_role, "admin") == 0) {
-        cwist_sstring_append(b, "<a href='/board/new' class='btn' style='margin-bottom:18px'>New Board</a>");
+        cwist_sstring_append(b, "<div style='text-align:center;margin-bottom:24px'><a href='/board/new' class='btn'>New Board</a></div>");
     }
     if (boards) {
         int n = cJSON_GetArraySize(boards);
@@ -24,8 +24,12 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
             cJSON *slug = cJSON_GetObjectItem(bo, "slug");
             cJSON *name = cJSON_GetObjectItem(bo, "name");
             cJSON *desc = cJSON_GetObjectItem(bo, "description");
-            cwist_sstring_append(b, "<div class='board-card'>");
-            cwist_sstring_append(b, "<div style='display:flex;justify-content:space-between;align-items:flex-start;gap:8px'>");
+            char delay_buf[32];
+            snprintf(delay_buf, sizeof(delay_buf), "%.2fs", i * 0.05);
+            cwist_sstring_append(b, "<div class='board-card fade-in' style='animation-delay:");
+            cwist_sstring_append(b, delay_buf);
+            cwist_sstring_append(b, "'>");
+            cwist_sstring_append(b, "<div class='board-card-header'>");
             cwist_sstring_append(b, "<a href='/board/");
             cwist_sstring_append(b, slug->valuestring);
             cwist_sstring_append(b, "' style='text-decoration:none'><h2>");
@@ -53,22 +57,62 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
                     cJSON *pslug = cJSON_GetObjectItem(p, "slug");
                     cJSON *ptitle = cJSON_GetObjectItem(p, "title");
                     cJSON *pdate = cJSON_GetObjectItem(p, "created_at");
+                    cJSON *psummary = cJSON_GetObjectItem(p, "summary");
+                    cJSON *pcontent = cJSON_GetObjectItem(p, "content");
+                    cJSON *pauthor = cJSON_GetObjectItem(p, "author_name");
+                    cJSON *pviews = cJSON_GetObjectItem(p, "view_count");
                     cwist_sstring_append(b, "<li class='board-post-item'>");
                     cwist_sstring_append(b, "<a class='board-post-title' href='/post/");
                     cwist_sstring_append(b, pslug->valuestring);
                     cwist_sstring_append(b, "'>");
                     cwist_sstring_append_escaped(b, ptitle->valuestring);
                     cwist_sstring_append(b, "</a>");
+
+                    const char *summary_text = NULL;
+                    if (psummary && psummary->valuestring && psummary->valuestring[0]) {
+                        summary_text = psummary->valuestring;
+                    } else if (pcontent && pcontent->valuestring && pcontent->valuestring[0]) {
+                        summary_text = pcontent->valuestring;
+                    }
+                    if (summary_text) {
+                        cwist_sstring_append(b, "<p class='board-post-summary'>");
+                        size_t sum_len = strlen(summary_text);
+                        if (sum_len > 120) {
+                            char tmp[121];
+                            strncpy(tmp, summary_text, 120);
+                            tmp[120] = '\0';
+                            cwist_sstring_append_escaped(b, tmp);
+                            cwist_sstring_append(b, "…");
+                        } else {
+                            cwist_sstring_append_escaped(b, summary_text);
+                        }
+                        cwist_sstring_append(b, "</p>");
+                    }
+
+                    cwist_sstring_append(b, "<div class='board-post-meta'>");
+                    if (pauthor && pauthor->valuestring && pauthor->valuestring[0]) {
+                        cwist_sstring_append(b, "<span class='post-badge'>&#128100; ");
+                        cwist_sstring_append_escaped(b, pauthor->valuestring);
+                        cwist_sstring_append(b, "</span>");
+                    }
+                    if (pviews) {
+                        cwist_sstring_append(b, "<span class='post-badge'>&#128065; ");
+                        char views_buf[32];
+                        snprintf(views_buf, sizeof(views_buf), "%d", pviews->valueint);
+                        cwist_sstring_append(b, views_buf);
+                        cwist_sstring_append(b, "</span>");
+                    }
                     if (pdate && pdate->valuestring) {
-                        cwist_sstring_append(b, "<span class='board-post-date'>");
+                        cwist_sstring_append(b, "<span class='post-badge'>&#128197; ");
                         cwist_sstring_append_escaped(b, pdate->valuestring);
                         cwist_sstring_append(b, "</span>");
                     }
+                    cwist_sstring_append(b, "</div>");
                     cwist_sstring_append(b, "</li>");
                 }
                 cwist_sstring_append(b, "</ul>");
             } else {
-                cwist_sstring_append(b, "<p style='color:var(--muted);font-size:13px;margin:0'>No posts yet.</p>");
+                cwist_sstring_append(b, "<p class='board-card-empty'>No posts yet.</p>");
             }
             cwist_sstring_append(b, "</div>");
         }

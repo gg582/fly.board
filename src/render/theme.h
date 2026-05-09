@@ -15,6 +15,8 @@ typedef struct theme_color {
     const char *shadow;
     const char *hover;
     const char *code_bg;
+    const char *glass_bg;
+    const char *glass_border;
 } theme_color_t;
 
 extern theme_color_t light;

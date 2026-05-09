@@ -8,35 +8,40 @@ theme_color_t light = {
     .bg = "#f6f7f9", .fg = "#1a1a2e", .muted = "#6b7280",
     .panel = "#ffffff", .accent = "#4f46e5", .accent2 = "#6366f1",
     .border = "#e5e7eb", .shadow = "rgba(0,0,0,0.06)",
-    .hover = "#f3f4f6", .code_bg = "#f4f4f5"
+    .hover = "#f3f4f6", .code_bg = "#f4f4f5",
+    .glass_bg = "rgba(255,255,255,0.65)", .glass_border = "rgba(255,255,255,0.5)"
 };
 
 theme_color_t dark = {
     .bg = "#0f0f13", .fg = "#e4e4e7", .muted = "#a1a1aa",
     .panel = "#18181b", .accent = "#818cf8", .accent2 = "#a5b4fc",
     .border = "#3f3f46", .shadow = "rgba(0,0,0,0.4)",
-    .hover = "#27272a", .code_bg = "#27272a"
+    .hover = "#27272a", .code_bg = "#27272a",
+    .glass_bg = "rgba(24,24,27,0.6)", .glass_border = "rgba(255,255,255,0.08)"
 };
 
 theme_color_t ocean = {
     .bg = "#0b1d2e", .fg = "#c8e1f4", .muted = "#7a9ab8",
     .panel = "#11283d", .accent = "#38bdf8", .accent2 = "#7dd3fc",
     .border = "#1e3a5f", .shadow = "rgba(0,0,0,0.4)",
-    .hover = "#163450", .code_bg = "#0f172a"
+    .hover = "#163450", .code_bg = "#0f172a",
+    .glass_bg = "rgba(17,40,61,0.6)", .glass_border = "rgba(56,189,248,0.15)"
 };
 
 theme_color_t forest = {
     .bg = "#0f1f17", .fg = "#d1e7dd", .muted = "#8fb39a",
     .panel = "#162b20", .accent = "#34d399", .accent2 = "#6ee7b7",
     .border = "#22543d", .shadow = "rgba(0,0,0,0.4)",
-    .hover = "#1c3a2a", .code_bg = "#14281e"
+    .hover = "#1c3a2a", .code_bg = "#14281e",
+    .glass_bg = "rgba(22,43,32,0.6)", .glass_border = "rgba(52,211,153,0.15)"
 };
 
 theme_color_t sepia = {
     .bg = "#f4ecd8", .fg = "#433422", .muted = "#8c7b66",
     .panel = "#efe6d0", .accent = "#b45309", .accent2 = "#d97706",
     .border = "#d6c6a8", .shadow = "rgba(67,52,34,0.08)",
-    .hover = "#eaddc5", .code_bg = "#e8dec3"
+    .hover = "#eaddc5", .code_bg = "#e8dec3",
+    .glass_bg = "rgba(239,230,208,0.7)", .glass_border = "rgba(255,255,255,0.4)"
 };
 
 theme_color_t *theme_by_name(const char *name) {
@@ -55,6 +60,7 @@ void rule_base(cJSON *rules);
 void rule_layout(cJSON *rules);
 void rule_components(cJSON *rules);
 void rule_home(cJSON *rules);
+void rule_boards(cJSON *rules);
 void rule_markdown(cJSON *rules);
 void rule_animations(cJSON *rules);
 void rule_media(cJSON *rules);
@@ -72,6 +78,7 @@ cJSON *build_theme_object(const char *name, theme_color_t *t) {
     rule_layout(rules);
     rule_components(rules);
     rule_home(rules);
+    rule_boards(rules);
     rule_markdown(rules);
     rule_animations(rules);
     rule_media(rules);
