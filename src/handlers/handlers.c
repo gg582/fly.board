@@ -847,7 +847,35 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     fly_crypto_sign((const uint8_t *)msg, strlen(msg), &sig_b64);
     cwist_free(msg);
 
-    db_post_create(req->db, board_id, uid, t, sl, c, sm, sig_b64 ? sig_b64 : "");
+    bool created = false;
+    int slug_idx = 0;
+    while (!created && slug_idx < 100) {
+        char *final_slug = NULL;
+        if (slug_idx == 0) {
+            final_slug = strdup(sl);
+        } else {
+            final_slug = (char *)cwist_alloc(strlen(sl) + 16);
+            snprintf(final_slug, strlen(sl) + 16, "%s%d", sl, slug_idx);
+        }
+
+        cJSON *existing = db_post_get_by_slug(req->db, final_slug);
+        if (existing) {
+            cJSON_Delete(existing);
+            slug_idx++;
+            cwist_free(final_slug);
+        } else {
+            created = db_post_create(req->db, board_id, uid, t, final_slug, c, sm, sig_b64 ? sig_b64 : "");
+            
+            /* The final_slug isn't strictly needed later but we update 'sl' to point to the created slug so publish_post uses the right slug. */
+            if (created) {
+                 cwist_free(sl);
+                 sl = final_slug;
+            } else {
+                 cwist_free(final_slug);
+                 break;
+            }
+        }
+    }
     if (sig_b64) cwist_free(sig_b64);
 
     /* Publish post metadata to NATS for distributed subscribers */
