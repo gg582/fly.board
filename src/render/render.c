@@ -79,14 +79,9 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *brand = cwist_html_element_create("a");
     cwist_html_element_add_attr(brand, "href", "/");
     cwist_html_element_add_class(brand, "topbar-brand");
-    cwist_html_element_t *brand_logo = cwist_html_element_create("img");
-    cwist_html_element_add_attr(brand_logo, "src", "/img/logo.png");
-    cwist_html_element_add_attr(brand_logo, "alt", "Logo");
-    cwist_html_element_add_class(brand_logo, "topbar-logo");
     cwist_html_element_t *brand_title = cwist_html_element_create("span");
     cwist_html_element_add_class(brand_title, "topbar-title");
     cwist_html_element_set_text(brand_title, g_config.title);
-    cwist_html_element_add_child(brand, brand_logo);
     cwist_html_element_add_child(brand, brand_title);
     cwist_html_element_add_child(nav, brand);
 
@@ -414,7 +409,7 @@ cwist_sstring *render_password_change(bool dark, const char *error) {
 
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *profile_pic) {
     cwist_sstring *b = cwist_sstring_create();
-    cwist_sstring_assign(b, "<div class='hero'><h1>");
+    cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/img/logo.png' alt='Logo'><h1>");
     cwist_sstring_append_escaped(b, g_config.title);
     cwist_sstring_append(b, "</h1><p>");
     cwist_sstring_append_escaped(b, g_config.subtitle);
@@ -755,7 +750,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, bool dark, const c
 
 cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role, const char *profile_pic) {
     cwist_sstring *b = cwist_sstring_create();
-    cwist_sstring_assign(b, "<div class='hero'><h1>");
+    cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/img/logo.png' alt='Logo'><h1>");
     cwist_sstring_append_escaped(b, g_config.title);
     cwist_sstring_append(b, "</h1><p>");
     cwist_sstring_append_escaped(b, g_config.subtitle);
