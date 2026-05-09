@@ -71,7 +71,7 @@ static void rule_base(cwist_css_builder_t *css) {
     cwist_css_rule_t *body = cwist_css_rule_create("body");
     add_decl(body, "background", "var(--bg)");
     add_decl(body, "color", "var(--fg)");
-    add_decl(body, "font", "16px/1.65 'Inter', system-ui, -apple-system, Arial, sans-serif");
+    add_decl(body, "font", "16px/1.65 'Pretendard GOV', 'Pretendard', system-ui, -apple-system, Arial, sans-serif");
     add_decl(body, "transition", "background 0.4s ease, color 0.4s ease");
     cwist_css_builder_add_rule(css, body);
 
@@ -112,9 +112,29 @@ static void rule_layout(cwist_css_builder_t *css) {
 
     cwist_css_rule_t *navlinks = cwist_css_rule_create(".nav-links");
     add_decl(navlinks, "display", "flex");
-    add_decl(navlinks, "gap", "18px");
+    add_decl(navlinks, "gap", "12px");
     add_decl(navlinks, "align-items", "center");
+    add_decl(navlinks, "flex-wrap", "wrap");
+    add_decl(navlinks, "min-width", "0");
     cwist_css_builder_add_rule(css, navlinks);
+
+    cwist_css_rule_t *brand = cwist_css_rule_create(".topbar-brand");
+    add_decl(brand, "display", "flex");
+    add_decl(brand, "flex-direction", "column");
+    add_decl(brand, "align-items", "flex-start");
+    add_decl(brand, "gap", "4px");
+    add_decl(brand, "line-height", "1.2");
+    cwist_css_builder_add_rule(css, brand);
+
+    cwist_css_rule_t *brand_logo = cwist_css_rule_create(".topbar-logo");
+    add_decl(brand_logo, "height", "24px");
+    add_decl(brand_logo, "width", "auto");
+    cwist_css_builder_add_rule(css, brand_logo);
+
+    cwist_css_rule_t *brand_title = cwist_css_rule_create(".topbar-title");
+    add_decl(brand_title, "font-weight", "800");
+    add_decl(brand_title, "font-size", "18px");
+    cwist_css_builder_add_rule(css, brand_title);
 
     cwist_css_rule_t *footer = cwist_css_rule_create(".site-footer");
     add_decl(footer, "text-align", "center");
@@ -323,9 +343,13 @@ static void rule_media(cwist_css_builder_t *css) {
     cwist_css_rule_t *mq = cwist_css_rule_create("@media (max-width: 768px)");
     add_decl(mq, ".shell", "padding: 16px");
     add_decl(mq, ".topbar", "flex-wrap: wrap");
+    add_decl(mq, ".topbar", "align-items: flex-start");
     add_decl(mq, ".topbar", "width: 100%");
     add_decl(mq, ".topbar", "margin: 0");
     add_decl(mq, ".topbar", "padding: 0");
+    add_decl(mq, ".nav-links", "width: 100%");
+    add_decl(mq, ".nav-links", "justify-content: flex-start");
+    add_decl(mq, ".topbar-logo", "height: 20px");
     add_decl(mq, ".hero h1", "font-size: 30px");
     add_decl(mq, ".post-grid", "grid-template-columns: 1fr");
     cwist_css_builder_add_rule(css, mq);
