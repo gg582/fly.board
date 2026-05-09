@@ -19,7 +19,7 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
     char fid_buf[32];
     if (fid) snprintf(fid_buf, sizeof(fid_buf), "%d", fid->valueint);
     char sz_buf[32];
-    snprintf(sz_buf, sizeof(sz_buf), "%lld", (long long)(sz ? sz->valueint : 0));
+    snprintf(sz_buf, sizeof(sz_buf), "%lld", (long long)(sz ? (sz->type == cJSON_String ? atoll(sz->valuestring) : sz->valuedouble) : 0));
 
     cwist_sstring_assign(b, "<div class='hero'><h1>");
     cwist_sstring_append_escaped(b, fname ? fname->valuestring : "Unknown File");
@@ -59,14 +59,15 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *profile_pic
         int n = cJSON_GetArraySize(files);
         for (int i = 0; i < n; i++) {
             cJSON *f = cJSON_GetArrayItem(files, i);
-            cJSON *fid = cJSON_GetObjectItem(f, "id");
             cJSON *fname = cJSON_GetObjectItem(f, "filename");
+            if (!fname || !fname->valuestring || fname->valuestring[0] == '\0') continue;
+            cJSON *fid = cJSON_GetObjectItem(f, "id");
             cJSON *stype = cJSON_GetObjectItem(f, "mime_type");
             cJSON *sz = cJSON_GetObjectItem(f, "size");
             char fid_buf[32];
             snprintf(fid_buf, sizeof(fid_buf), "%d", fid->valueint);
             char sz_buf[32];
-            snprintf(sz_buf, sizeof(sz_buf), "%lld", (long long)(sz ? sz->valueint : 0));
+            snprintf(sz_buf, sizeof(sz_buf), "%lld", (long long)(sz ? (sz->type == cJSON_String ? atoll(sz->valuestring) : sz->valuedouble) : 0));
             cwist_sstring_append(b, "<article class='card'>");
             cwist_sstring_append(b, "<h4 style='margin-top:0'>");
             cwist_sstring_append_escaped(b, fname ? fname->valuestring : "Unknown");

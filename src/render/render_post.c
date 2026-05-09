@@ -45,12 +45,16 @@ static void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_com
 
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *profile_pic) {
     cwist_sstring *b = cwist_sstring_create();
-    if (!board_slug) {
-        cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/img/logo.png' alt='Logo'><h1>");
-        cwist_sstring_append_escaped(b, g_config.title);
-        cwist_sstring_append(b, "</h1><p>");
-        cwist_sstring_append_escaped(b, g_config.subtitle);
-        cwist_sstring_append(b, "</p></div>");
+    if (!board_slug || board_slug[0] == '\0') {
+        if (!board_slug) {
+            cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/img/logo.png' alt='Logo'><h1>");
+            cwist_sstring_append_escaped(b, g_config.title);
+            cwist_sstring_append(b, "</h1><p>");
+            cwist_sstring_append_escaped(b, g_config.subtitle);
+            cwist_sstring_append(b, "</p></div>");
+        } else {
+            cwist_sstring_assign(b, "<div class='hero'><h1>All Boards</h1></div>");
+        }
 
         /* Board chips */
         if (boards && cJSON_GetArraySize(boards) > 0) {
@@ -110,6 +114,14 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cJSON *is_notice = cJSON_GetObjectItem(p, "is_notice");
             if (is_notice && is_notice->valueint) {
                 cwist_sstring_append(b, "<span style='color:var(--accent);font-size:12px;font-weight:700;margin-right:6px'>[Notice]</span>");
+            }
+            if (!board_slug || board_slug[0] == '\0') {
+                cJSON *board_name = cJSON_GetObjectItem(p, "board_name");
+                if (board_name && board_name->valuestring && board_name->valuestring[0]) {
+                    cwist_sstring_append(b, "<span class='tag' style='font-size:11px;padding:2px 6px;margin-right:6px;vertical-align:middle;'>");
+                    cwist_sstring_append_escaped(b, board_name->valuestring);
+                    cwist_sstring_append(b, "</span>");
+                }
             }
             cwist_sstring_append(b, "<a href='/post/");
             cwist_sstring_append(b, slug->valuestring);
@@ -283,21 +295,32 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
 
     /* Files */
     if (files && cJSON_GetArraySize(files) > 0) {
-        cwist_sstring_append(b, "<h3 style='margin-top:32px'>Attachments</h3><ul>");
         int n = cJSON_GetArraySize(files);
+        int valid_files = 0;
         for (int i = 0; i < n; i++) {
             cJSON *f = cJSON_GetArrayItem(files, i);
-            cJSON *fid = cJSON_GetObjectItem(f, "id");
             cJSON *fname = cJSON_GetObjectItem(f, "filename");
-            char fid_buf2[32];
-            snprintf(fid_buf2, sizeof(fid_buf2), "%d", fid->valueint);
-            cwist_sstring_append(b, "<li><a href='/file/");
-            cwist_sstring_append(b, fid_buf2);
-            cwist_sstring_append(b, "'>");
-            cwist_sstring_append_escaped(b, fname->valuestring);
-            cwist_sstring_append(b, "</a></li>");
+            if (fname && fname->valuestring && fname->valuestring[0] != '\0') {
+                valid_files++;
+            }
         }
-        cwist_sstring_append(b, "</ul>");
+        if (valid_files > 0) {
+            cwist_sstring_append(b, "<h3 style='margin-top:32px'>Attachments</h3><ul>");
+            for (int i = 0; i < n; i++) {
+                cJSON *f = cJSON_GetArrayItem(files, i);
+                cJSON *fname = cJSON_GetObjectItem(f, "filename");
+                if (!fname || !fname->valuestring || fname->valuestring[0] == '\0') continue;
+                cJSON *fid = cJSON_GetObjectItem(f, "id");
+                char fid_buf2[32];
+                snprintf(fid_buf2, sizeof(fid_buf2), "%d", fid->valueint);
+                cwist_sstring_append(b, "<li><a href='/file/");
+                cwist_sstring_append(b, fid_buf2);
+                cwist_sstring_append(b, "'>");
+                cwist_sstring_append_escaped(b, fname->valuestring);
+                cwist_sstring_append(b, "</a></li>");
+            }
+            cwist_sstring_append(b, "</ul>");
+        }
     }
 
     cwist_sstring_append(b, "</article>");

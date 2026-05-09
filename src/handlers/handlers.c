@@ -105,7 +105,7 @@ void handler_home(cwist_http_request *req, cwist_http_response *res) {
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *posts = db_post_recent(req->db, 12);
     cJSON *boards = db_board_list(req->db);
-    cwist_sstring *page = render_post_list(posts, boards, dark, role, 1, 1, NULL, NULL, pp);
+    cwist_sstring *page = render_post_list(posts, boards, dark, role, 1, 1, "", NULL, pp);
     if (posts) cJSON_Delete(posts);
     if (boards) cJSON_Delete(boards);
     send_html_res(res, page);
@@ -910,11 +910,8 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     if (files) {
         int post_id = (int)sqlite3_last_insert_rowid(req->db->conn);
         for (form_field_t *f = files; f; f = f->next) {
-            if (f->filename && f->filename[0] != '\0' && f->data) {
-                char fpath[512];
-                snprintf(fpath, sizeof(fpath), "public/uploads/%s", f->filename);
-                file_write(fpath, f->data, f->file_size);
-                db_file_create_volume(req->db, post_id, uid, f->filename, mime_type(f->filename), fpath, f->file_size);
+            if (f->filename && f->filename[0] != '\0' && f->data && f->data[0] != '\0') {
+                db_file_create_volume(req->db, post_id, uid, f->filename, mime_type(f->filename), f->data, f->file_size);
             }
         }
     }
@@ -980,7 +977,7 @@ void handler_file_repo(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
-    char sql[] = "SELECT id, filename, mime_type, file_path, size, created_at FROM files ORDER BY id DESC LIMIT 200";
+    char sql[] = "SELECT id, filename, mime_type, file_path, size, created_at FROM files WHERE post_id=0 OR post_id IS NULL ORDER BY id DESC LIMIT 200";
     cJSON *files = NULL;
     cwist_db_query(req->db, sql, &files);
     char *pp = get_profile_pic(req->db, uid, role);
@@ -1001,11 +998,8 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     bnd += 9;
     form_field_t *fields = multipart_parse(req->body->data, req->body->size, bnd);
     form_field_t *f = form_find(fields, "file");
-    if (f && f->filename && f->filename[0] != '\0' && f->data) {
-        char fpath[512];
-        snprintf(fpath, sizeof(fpath), "public/uploads/%s", f->filename);
-        file_write(fpath, f->data, f->file_size);
-        db_file_create_volume(req->db, 0, uid, f->filename, mime_type(f->filename), fpath, f->file_size);
+    if (f && f->filename && f->filename[0] != '\0' && f->data && f->data[0] != '\0') {
+        db_file_create_volume(req->db, 0, uid, f->filename, mime_type(f->filename), f->data, f->file_size);
     }
     multipart_free(fields);
     redirect(res, "/files");

@@ -346,11 +346,11 @@ cJSON *db_post_list(cwist_db *db, int board_id, int limit, int offset) {
     char sql[1024];
     if (board_id > 0) {
         snprintf(sql, sizeof(sql),
-            "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.board_id=%d ORDER BY p.created_at DESC LIMIT %d OFFSET %d",
+            "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE p.board_id=%d ORDER BY p.created_at DESC LIMIT %d OFFSET %d",
             board_id, limit, offset);
     } else {
         snprintf(sql, sizeof(sql),
-            "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id ORDER BY p.created_at DESC LIMIT %d OFFSET %d",
+            "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id ORDER BY p.created_at DESC LIMIT %d OFFSET %d",
             limit, offset);
     }
     cJSON *res = NULL;
@@ -365,7 +365,7 @@ cJSON *db_post_recent(cwist_db *db, int limit) {
 cJSON *db_post_recent_by_board(cwist_db *db, int board_id, int limit) {
     char sql[1024];
     snprintf(sql, sizeof(sql),
-        "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.board_id=%d ORDER BY p.created_at DESC LIMIT %d",
+        "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE p.board_id=%d ORDER BY p.created_at DESC LIMIT %d",
         board_id, limit);
     cJSON *res = NULL;
     cwist_db_query(db, sql, &res);
@@ -537,21 +537,21 @@ cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, int l
     if (board_id > 0) {
         if (search && search[0]) {
             snprintf(sql, sizeof(sql),
-                "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.board_id=%d AND (p.title LIKE '%%%s%%' OR p.content LIKE '%%%s%%') ORDER BY p.is_notice DESC, p.created_at DESC LIMIT %d OFFSET %d",
+                "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE p.board_id=%d AND (p.title LIKE '%%%s%%' OR p.content LIKE '%%%s%%') ORDER BY p.is_notice DESC, p.created_at DESC LIMIT %d OFFSET %d",
                 board_id, esc, esc, limit, offset);
         } else {
             snprintf(sql, sizeof(sql),
-                "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.board_id=%d ORDER BY p.is_notice DESC, p.created_at DESC LIMIT %d OFFSET %d",
+                "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE p.board_id=%d ORDER BY p.is_notice DESC, p.created_at DESC LIMIT %d OFFSET %d",
                 board_id, limit, offset);
         }
     } else {
         if (search && search[0]) {
             snprintf(sql, sizeof(sql),
-                "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.title LIKE '%%%s%%' OR p.content LIKE '%%%s%%' ORDER BY p.is_notice DESC, p.created_at DESC LIMIT %d OFFSET %d",
+                "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE p.title LIKE '%%%s%%' OR p.content LIKE '%%%s%%' ORDER BY p.is_notice DESC, p.created_at DESC LIMIT %d OFFSET %d",
                 esc, esc, limit, offset);
         } else {
             snprintf(sql, sizeof(sql),
-                "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id ORDER BY p.is_notice DESC, p.created_at DESC LIMIT %d OFFSET %d",
+                "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id ORDER BY p.is_notice DESC, p.created_at DESC LIMIT %d OFFSET %d",
                 limit, offset);
         }
     }
