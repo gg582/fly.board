@@ -214,7 +214,6 @@ static char *format_join_date(const char *iso_date) {
         snprintf(buf, sizeof(buf), "Joined recently");
         return buf;
     }
-    struct tm tm = {0};
     int year, mon, day;
     if (sscanf(iso_date, "%d-%d-%d", &year, &mon, &day) == 3) {
         const char *months[] = {"January","February","March","April","May","June",
