@@ -41,7 +41,7 @@ ifeq ($(wildcard $(CWIST_LIB)),)
   CWIST_LIB := $(CWIST_PREFIX)/libcwist.a
 endif
 
-LIBS := -lssl -lcrypto -lpthread -ldl -lcjson -luriparser $(CWIST_PREFIX)/lib/libttak.a
+LIBS := -lssl -lcrypto -lpthread -ldl
 HAS_NGTCP2 := $(shell pkg-config --exists ngtcp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGHTTP3 := $(shell pkg-config --exists nghttp3 2>/dev/null && echo 1 || echo 0)
 ifeq ($(HAS_NGTCP2),1)
