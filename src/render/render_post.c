@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "render.h"
+#include "render_internal.h"
 #include "config/config.h"
 #include <cwist/core/sstring/sstring.h>
 #include <string.h>
@@ -43,7 +44,7 @@ static void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_com
     }
 }
 
-cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *profile_pic) {
+cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *profile_pic, int user_id) {
     cwist_sstring *b = cwist_sstring_create();
     if (!board_slug || board_slug[0] == '\0') {
         if (!board_slug) {
@@ -155,6 +156,19 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cwist_sstring_append(b, "<span class='post-badge'>&#128197; ");
             cwist_sstring_append_escaped(b, date && date->valuestring ? date->valuestring : "");
             cwist_sstring_append(b, "</span>");
+            bool can_edit = (user_id > 0 && json_int(p, "user_id", 0) == user_id) || (user_role && strcmp(user_role, "admin") == 0);
+            if (can_edit) {
+                cwist_sstring_append(b, "<div style='margin-top:8px;display:flex;gap:8px'>");
+                char pid_buf[32];
+                snprintf(pid_buf, sizeof(pid_buf), "%d", json_int(p, "id", 0));
+                cwist_sstring_append(b, "<a href='/post/");
+                cwist_sstring_append(b, pid_buf);
+                cwist_sstring_append(b, "/edit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Edit</a>");
+                cwist_sstring_append(b, "<a href='/post/");
+                cwist_sstring_append(b, pid_buf);
+                cwist_sstring_append(b, "/delete' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete this post?\")'>Delete</a>");
+                cwist_sstring_append(b, "</div>");
+            }
             cwist_sstring_append(b, "</div>");
             cwist_sstring_append(b, "</div>");
         }
@@ -215,7 +229,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     return page_html;
 }
 
-cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic) {
+cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, int user_id) {
     cwist_sstring *b = cwist_sstring_create();
     cJSON *title = cJSON_GetObjectItem(post, "title");
     cJSON *content = cJSON_GetObjectItem(post, "content");
@@ -326,10 +340,14 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     /* Actions */
     cwist_sstring_append(b, "<div style='margin-top:24px;display:flex;gap:10px;flex-wrap:wrap'>");
     cwist_sstring_append(b, "<a href='/' class='btn btn-outline'>Back</a>");
-    if (user_role && user_role[0]) {
+    bool can_edit = (user_id > 0 && json_int(post, "user_id", 0) == user_id) || (user_role && strcmp(user_role, "admin") == 0);
+    if (can_edit) {
         cwist_sstring_append(b, "<a href='/post/");
         cwist_sstring_append(b, pid_buf);
         cwist_sstring_append(b, "/edit' class='btn'>Edit</a>");
+        cwist_sstring_append(b, "<a href='/post/");
+        cwist_sstring_append(b, pid_buf);
+        cwist_sstring_append(b, "/delete' class='btn btn-outline' onclick='return confirm(\"Delete this post?\")'>Delete</a>");
     }
     cwist_sstring_append(b, "</div>");
 
@@ -398,13 +416,16 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, bool dark, const c
         int n = cJSON_GetArraySize(boards);
         for (int i = 0; i < n; i++) {
             cJSON *bo = cJSON_GetArrayItem(boards, i);
-            cJSON *bid = cJSON_GetObjectItem(bo, "id");
             cJSON *bname = cJSON_GetObjectItem(bo, "name");
+            int bid_val = json_int(bo, "id", 0);
             char bid_buf[32];
-            snprintf(bid_buf, sizeof(bid_buf), "%d", bid->valueint);
+            snprintf(bid_buf, sizeof(bid_buf), "%d", bid_val);
+            int post_board_id = post ? json_int(post, "board_id", 0) : 0;
             cwist_sstring_append(b, "<option value='");
             cwist_sstring_append(b, bid_buf);
-            cwist_sstring_append(b, "'>");
+            cwist_sstring_append(b, "'");
+            if (post_board_id > 0 && post_board_id == bid_val) cwist_sstring_append(b, " selected");
+            cwist_sstring_append(b, ">");
             cwist_sstring_append_escaped(b, bname->valuestring);
             cwist_sstring_append(b, "</option>");
         }

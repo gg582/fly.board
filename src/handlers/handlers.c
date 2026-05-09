@@ -73,6 +73,13 @@ int json_int(cJSON *obj, const char *key, int def) {
     return def;
 }
 
+bool is_author_or_admin(cJSON *post, int uid, const char *role) {
+    if (!post) return false;
+    if (role && strcmp(role, "admin") == 0) return true;
+    int author_id = json_int(post, "user_id", 0);
+    return author_id > 0 && author_id == uid;
+}
+
 cJSON *board_by_route_key(cwist_db *db, const char *key) {
     if (!key || !key[0]) return NULL;
     errno = 0;
