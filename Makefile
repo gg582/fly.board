@@ -41,8 +41,7 @@ ifeq ($(wildcard $(CWIST_LIB)),)
   CWIST_LIB := $(CWIST_PREFIX)/libcwist.a
 endif
 
-# Only system libs remain; libttak, cjson, uriparser, sqlite3, cnats are all embedded in libcwist.a
-LIBS := -lssl -lcrypto -lpthread -ldl
+LIBS := -lssl -lcrypto -lpthread -ldl -lcjson -luriparser $(CWIST_PREFIX)/lib/libttak.a
 HAS_NGTCP2 := $(shell pkg-config --exists ngtcp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGHTTP3 := $(shell pkg-config --exists nghttp3 2>/dev/null && echo 1 || echo 0)
 ifeq ($(HAS_NGTCP2),1)
