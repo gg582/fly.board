@@ -26,6 +26,8 @@ void rule_root(cJSON *vars, theme_color_t *t) {
     cJSON_AddStringToObject(vars, "--shadow", t->shadow);
     cJSON_AddStringToObject(vars, "--hover", t->hover);
     cJSON_AddStringToObject(vars, "--code-bg", t->code_bg);
+    cJSON_AddStringToObject(vars, "--glass-bg", t->glass_bg);
+    cJSON_AddStringToObject(vars, "--glass-border", t->glass_border);
 }
 
 void rule_base(cJSON *rules) {
@@ -308,6 +310,162 @@ void rule_home(cJSON *rules) {
     cJSON_AddItemToArray(rules, board_sec);
 }
 
+void rule_boards(cJSON *rules) {
+    cJSON *grid = create_rule(".board-grid");
+    add_decl(grid, "display", "grid");
+    add_decl(grid, "grid-template-columns", "repeat(auto-fill, minmax(360px, 1fr))");
+    add_decl(grid, "gap", "24px");
+    add_decl(grid, "max-width", "1200px");
+    add_decl(grid, "margin", "0 auto");
+    add_decl(grid, "padding", "0 0 40px");
+    cJSON_AddItemToArray(rules, grid);
+
+    cJSON *card = create_rule(".board-card");
+    add_decl(card, "background", "var(--glass-bg)");
+    add_decl(card, "backdrop-filter", "blur(20px) saturate(180%)");
+    add_decl(card, "-webkit-backdrop-filter", "blur(20px) saturate(180%)");
+    add_decl(card, "border", "1px solid var(--glass-border)");
+    add_decl(card, "border-radius", "20px");
+    add_decl(card, "padding", "28px");
+    add_decl(card, "box-shadow", "0 8px 32px var(--shadow)");
+    add_decl(card, "transition", "transform 0.35s ease, box-shadow 0.35s ease, background 0.5s ease, border-color 0.5s ease");
+    add_decl(card, "display", "flex");
+    add_decl(card, "flex-direction", "column");
+    add_decl(card, "gap", "16px");
+    cJSON_AddItemToArray(rules, card);
+
+    cJSON *cardh = create_rule(".board-card:hover");
+    add_decl(cardh, "transform", "translateY(-6px) scale(1.01)");
+    add_decl(cardh, "box-shadow", "0 16px 48px var(--shadow)");
+    cJSON_AddItemToArray(rules, cardh);
+
+    cJSON *ch = create_rule(".board-card-header");
+    add_decl(ch, "display", "flex");
+    add_decl(ch, "justify-content", "space-between");
+    add_decl(ch, "align-items", "flex-start");
+    add_decl(ch, "gap", "12px");
+    cJSON_AddItemToArray(rules, ch);
+
+    cJSON *ch2 = create_rule(".board-card h2");
+    add_decl(ch2, "margin", "0");
+    add_decl(ch2, "font-size", "22px");
+    add_decl(ch2, "font-weight", "700");
+    add_decl(ch2, "color", "var(--fg)");
+    add_decl(ch2, "letter-spacing", "-0.3px");
+    cJSON_AddItemToArray(rules, ch2);
+
+    cJSON *ch2a = create_rule(".board-card h2 a");
+    add_decl(ch2a, "color", "inherit");
+    add_decl(ch2a, "text-decoration", "none");
+    add_decl(ch2a, "transition", "color 0.2s ease");
+    cJSON_AddItemToArray(rules, ch2a);
+
+    cJSON *ch2ah = create_rule(".board-card h2 a:hover");
+    add_decl(ch2ah, "color", "var(--accent)");
+    cJSON_AddItemToArray(rules, ch2ah);
+
+    cJSON *desc = create_rule(".board-card-desc");
+    add_decl(desc, "color", "var(--muted)");
+    add_decl(desc, "font-size", "14px");
+    add_decl(desc, "line-height", "1.6");
+    add_decl(desc, "margin", "0");
+    add_decl(desc, "min-height", "22px");
+    cJSON_AddItemToArray(rules, desc);
+
+    cJSON *list = create_rule(".board-post-list");
+    add_decl(list, "list-style", "none");
+    add_decl(list, "padding", "0");
+    add_decl(list, "margin", "0");
+    add_decl(list, "display", "flex");
+    add_decl(list, "flex-direction", "column");
+    add_decl(list, "gap", "10px");
+    cJSON_AddItemToArray(rules, list);
+
+    cJSON *item = create_rule(".board-post-item");
+    add_decl(item, "display", "flex");
+    add_decl(item, "flex-direction", "column");
+    add_decl(item, "gap", "8px");
+    add_decl(item, "padding", "14px 16px");
+    add_decl(item, "background", "var(--panel)");
+    add_decl(item, "border-radius", "14px");
+    add_decl(item, "border", "1px solid var(--border)");
+    add_decl(item, "transition", "background 0.2s ease, border-color 0.2s ease, transform 0.2s ease");
+    cJSON_AddItemToArray(rules, item);
+
+    cJSON *itemh = create_rule(".board-post-item:hover");
+    add_decl(itemh, "background", "var(--hover)");
+    add_decl(itemh, "border-color", "var(--accent)");
+    add_decl(itemh, "transform", "translateX(4px)");
+    cJSON_AddItemToArray(rules, itemh);
+
+    cJSON *ptitle = create_rule(".board-post-title");
+    add_decl(ptitle, "font-size", "15px");
+    add_decl(ptitle, "font-weight", "700");
+    add_decl(ptitle, "color", "var(--fg)");
+    add_decl(ptitle, "text-decoration", "none");
+    add_decl(ptitle, "white-space", "nowrap");
+    add_decl(ptitle, "overflow", "hidden");
+    add_decl(ptitle, "text-overflow", "ellipsis");
+    add_decl(ptitle, "display", "block");
+    add_decl(ptitle, "transition", "color 0.2s ease");
+    cJSON_AddItemToArray(rules, ptitle);
+
+    cJSON *ptitleh = create_rule(".board-post-title:hover");
+    add_decl(ptitleh, "color", "var(--accent)");
+    cJSON_AddItemToArray(rules, ptitleh);
+
+    cJSON *psum = create_rule(".board-post-summary");
+    add_decl(psum, "font-size", "13px");
+    add_decl(psum, "color", "var(--muted)");
+    add_decl(psum, "line-height", "1.5");
+    add_decl(psum, "margin", "0");
+    add_decl(psum, "display", "-webkit-box");
+    add_decl(psum, "-webkit-line-clamp", "2");
+    add_decl(psum, "-webkit-box-orient", "vertical");
+    add_decl(psum, "overflow", "hidden");
+    cJSON_AddItemToArray(rules, psum);
+
+    cJSON *meta = create_rule(".board-post-meta");
+    add_decl(meta, "display", "flex");
+    add_decl(meta, "flex-wrap", "wrap");
+    add_decl(meta, "gap", "8px");
+    add_decl(meta, "align-items", "center");
+    add_decl(meta, "margin-top", "2px");
+    cJSON_AddItemToArray(rules, meta);
+
+    cJSON *badge = create_rule(".post-badge");
+    add_decl(badge, "display", "inline-flex");
+    add_decl(badge, "align-items", "center");
+    add_decl(badge, "gap", "4px");
+    add_decl(badge, "padding", "3px 10px");
+    add_decl(badge, "border-radius", "999px");
+    add_decl(badge, "background", "var(--hover)");
+    add_decl(badge, "border", "1px solid var(--border)");
+    add_decl(badge, "font-size", "12px");
+    add_decl(badge, "color", "var(--muted)");
+    add_decl(badge, "font-weight", "500");
+    add_decl(badge, "transition", "background 0.2s ease, border-color 0.2s ease");
+    cJSON_AddItemToArray(rules, badge);
+
+    cJSON *pdate = create_rule(".board-post-date");
+    add_decl(pdate, "font-size", "12px");
+    add_decl(pdate, "color", "var(--muted)");
+    add_decl(pdate, "white-space", "nowrap");
+    add_decl(pdate, "font-variant-numeric", "tabular-nums");
+    cJSON_AddItemToArray(rules, pdate);
+
+    cJSON *empty = create_rule(".board-card-empty");
+    add_decl(empty, "color", "var(--muted)");
+    add_decl(empty, "font-size", "13px");
+    add_decl(empty, "text-align", "center");
+    add_decl(empty, "padding", "16px");
+    add_decl(empty, "background", "var(--panel)");
+    add_decl(empty, "border-radius", "12px");
+    add_decl(empty, "border", "1px dashed var(--border)");
+    add_decl(empty, "margin", "0");
+    cJSON_AddItemToArray(rules, empty);
+}
+
 void rule_markdown(cJSON *rules) {
     cJSON *md = create_rule(".markdown-body");
     add_decl(md, "max-width", "720px");
@@ -415,6 +573,9 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".hero-logo", "height: 40px");
     add_decl(mq, ".hero h1", "font-size: 30px");
     add_decl(mq, ".post-grid", "grid-template-columns: 1fr");
+    add_decl(mq, ".board-grid", "grid-template-columns: 1fr");
+    add_decl(mq, ".board-card", "padding: 20px");
+    add_decl(mq, ".board-card h2", "font-size: 20px");
     cJSON_AddItemToArray(rules, mq);
 }
 
