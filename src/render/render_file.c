@@ -4,8 +4,44 @@
 #include <stdio.h>
 
 cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const char *user_role, const char *profile_pic) {
-    (void)file; (void)comments;
-    return render_page("File Detail", "<p>File detail page</p>", dark, user_role, profile_pic);
+    cwist_sstring *b = cwist_sstring_create();
+    if (!file) {
+        cwist_sstring_assign(b, "<h1>File Not Found</h1>");
+        cwist_sstring *page = render_page("File Detail", b->data, dark, user_role, profile_pic);
+        cwist_sstring_destroy(b);
+        return page;
+    }
+
+    cJSON *fid = cJSON_GetObjectItem(file, "id");
+    cJSON *fname = cJSON_GetObjectItem(file, "filename");
+    cJSON *stype = cJSON_GetObjectItem(file, "mime_type");
+    cJSON *sz = cJSON_GetObjectItem(file, "size");
+    char fid_buf[32];
+    if (fid) snprintf(fid_buf, sizeof(fid_buf), "%d", fid->valueint);
+    char sz_buf[32];
+    snprintf(sz_buf, sizeof(sz_buf), "%lld", (long long)(sz ? sz->valueint : 0));
+
+    cwist_sstring_assign(b, "<div class='hero'><h1>");
+    cwist_sstring_append_escaped(b, fname ? fname->valuestring : "Unknown File");
+    cwist_sstring_append(b, "</h1><p>File details</p></div>");
+
+    cwist_sstring_append(b, "<div class='card'>");
+    cwist_sstring_append(b, "<p><strong>MIME Type:</strong> ");
+    cwist_sstring_append_escaped(b, stype && stype->valuestring ? stype->valuestring : "unknown");
+    cwist_sstring_append(b, "</p><p><strong>Size:</strong> ");
+    cwist_sstring_append(b, sz_buf);
+    cwist_sstring_append(b, " bytes</p>");
+
+    if (fid) {
+        cwist_sstring_append(b, "<a href='/file/");
+        cwist_sstring_append(b, fid_buf);
+        cwist_sstring_append(b, "' class='btn'>Download File</a>");
+    }
+    cwist_sstring_append(b, "</div>");
+
+    cwist_sstring *page = render_page(fname && fname->valuestring ? fname->valuestring : "File Detail", b->data, dark, user_role, profile_pic);
+    cwist_sstring_destroy(b);
+    return page;
 }
 
 cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *profile_pic) {
@@ -24,18 +60,18 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *profile_pic
             cJSON *f = cJSON_GetArrayItem(files, i);
             cJSON *fid = cJSON_GetObjectItem(f, "id");
             cJSON *fname = cJSON_GetObjectItem(f, "filename");
-            cJSON *stype = cJSON_GetObjectItem(f, "storage_type");
+            cJSON *stype = cJSON_GetObjectItem(f, "mime_type");
             cJSON *sz = cJSON_GetObjectItem(f, "size");
             char fid_buf[32];
             snprintf(fid_buf, sizeof(fid_buf), "%d", fid->valueint);
             char sz_buf[32];
-            snprintf(sz_buf, sizeof(sz_buf), "%lld", (long long)sz->valueint);
+            snprintf(sz_buf, sizeof(sz_buf), "%lld", (long long)(sz ? sz->valueint : 0));
             cwist_sstring_append(b, "<article class='card'>");
             cwist_sstring_append(b, "<h4 style='margin-top:0'>");
-            cwist_sstring_append_escaped(b, fname->valuestring);
+            cwist_sstring_append_escaped(b, fname ? fname->valuestring : "Unknown");
             cwist_sstring_append(b, "</h4>");
             cwist_sstring_append(b, "<p style='color:var(--muted);font-size:13px'>");
-            cwist_sstring_append(b, stype->valuestring);
+            cwist_sstring_append(b, stype && stype->valuestring ? stype->valuestring : "unknown/mime");
             cwist_sstring_append(b, " &middot; ");
             cwist_sstring_append(b, sz_buf);
             cwist_sstring_append(b, " bytes</p>");
