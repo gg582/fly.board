@@ -241,6 +241,37 @@ static void rule_components(cwist_css_builder_t *css) {
     add_decl(alert, "border", "1px solid rgba(239,68,68,0.25)");
     add_decl(alert, "margin-bottom", "14px");
     cwist_css_builder_add_rule(css, alert);
+
+    cwist_css_rule_t *tbl_scroll = cwist_css_rule_create(".table-scroll");
+    add_decl(tbl_scroll, "width", "100%");
+    add_decl(tbl_scroll, "overflow-x", "auto");
+    cwist_css_builder_add_rule(css, tbl_scroll);
+
+    cwist_css_rule_t *admin_tbl = cwist_css_rule_create(".admin-user-table");
+    add_decl(admin_tbl, "min-width", "680px");
+    cwist_css_builder_add_rule(css, admin_tbl);
+
+    cwist_css_rule_t *admin_role_col = cwist_css_rule_create(".admin-user-table .admin-role-col");
+    add_decl(admin_role_col, "width", "120px");
+    cwist_css_builder_add_rule(css, admin_role_col);
+
+    cwist_css_rule_t *admin_action_col = cwist_css_rule_create(".admin-user-table .admin-action-col");
+    add_decl(admin_action_col, "width", "270px");
+    cwist_css_builder_add_rule(css, admin_action_col);
+
+    cwist_css_rule_t *admin_action_cell = cwist_css_rule_create(".admin-user-table .admin-action-cell");
+    add_decl(admin_action_cell, "white-space", "nowrap");
+    cwist_css_builder_add_rule(css, admin_action_cell);
+
+    cwist_css_rule_t *admin_form = cwist_css_rule_create(".admin-role-form, .admin-delete-form");
+    add_decl(admin_form, "display", "inline-flex");
+    add_decl(admin_form, "align-items", "center");
+    cwist_css_builder_add_rule(css, admin_form);
+
+    cwist_css_rule_t *admin_select = cwist_css_rule_create(".admin-role-select");
+    add_decl(admin_select, "width", "auto");
+    add_decl(admin_select, "min-width", "96px");
+    cwist_css_builder_add_rule(css, admin_select);
 }
 
 static void rule_home(cwist_css_builder_t *css) {
