@@ -16,7 +16,7 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
 cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, bool dark, const char *user_role, const char *error, const char *profile_pic);
 cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role, const char *profile_pic);
 cwist_sstring *render_board_form(cJSON *board, bool dark, const char *error, const char *profile_pic);
-cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool dark, const char *profile_pic);
+cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool dark, const char *msg, const char *profile_pic);
 cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pic);
 cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *profile_pic);
 cwist_sstring *render_markdown_to_html(const char *md);

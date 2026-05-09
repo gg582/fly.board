@@ -840,18 +840,28 @@ cwist_sstring *render_board_form(cJSON *board, bool dark, const char *error, con
     return page;
 }
 
-cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool dark, const char *profile_pic) {
+cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool dark, const char *msg, const char *profile_pic) {
     cwist_sstring *b = cwist_sstring_create();
     cJSON *bname = cJSON_GetObjectItem(board, "name");
     cwist_sstring_assign(b, "<div class='hero'><h1>Permissions: ");
-    cwist_sstring_append_escaped(b, bname->valuestring);
+    cwist_sstring_append_escaped(b, bname ? bname->valuestring : "Unknown");
     cwist_sstring_append(b, "</h1></div>");
 
     cwist_sstring_append(b, "<div class='card' style='max-width:520px;margin:0 auto'>");
+
+    if (msg && msg[0]) {
+        cwist_sstring_append(b, "<div class='alert'>");
+        if (strcmp(msg, "granted") == 0) cwist_sstring_append(b, "Permission granted.");
+        else if (strcmp(msg, "revoked") == 0) cwist_sstring_append(b, "Permission revoked.");
+        else if (strcmp(msg, "exists") == 0) cwist_sstring_append(b, "User already has permission.");
+        else cwist_sstring_append(b, "Operation failed.");
+        cwist_sstring_append(b, "</div>");
+    }
+
     cwist_sstring_append(b, "<form action='/board/perms' method='post'>");
     cJSON *bid = cJSON_GetObjectItem(board, "id");
     char bid_buf[32];
-    snprintf(bid_buf, sizeof(bid_buf), "%d", bid->valueint);
+    snprintf(bid_buf, sizeof(bid_buf), "%d", bid ? bid->valueint : 0);
     cwist_sstring_append(b, "<input type='hidden' name='board_id' value='");
     cwist_sstring_append(b, bid_buf);
     cwist_sstring_append(b, "'>");
@@ -860,8 +870,25 @@ cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool
         int n = cJSON_GetArraySize(users);
         for (int i = 0; i < n; i++) {
             cJSON *u = cJSON_GetArrayItem(users, i);
+            if (!u) continue;
             cJSON *uid = cJSON_GetObjectItem(u, "id");
             cJSON *uname = cJSON_GetObjectItem(u, "username");
+            if (!uid || !uname) continue;
+
+            bool has_perm = false;
+            if (perms) {
+                int pn = cJSON_GetArraySize(perms);
+                for (int j = 0; j < pn; j++) {
+                    cJSON *pu = cJSON_GetArrayItem(perms, j);
+                    cJSON *puid = cJSON_GetObjectItem(pu, "id");
+                    if (puid && puid->valueint == uid->valueint) {
+                        has_perm = true;
+                        break;
+                    }
+                }
+            }
+            if (has_perm) continue;
+
             char uid_buf[32];
             snprintf(uid_buf, sizeof(uid_buf), "%d", uid->valueint);
             cwist_sstring_append(b, "<option value='");
@@ -875,28 +902,33 @@ cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool
     cwist_sstring_append(b, "<button type='submit' class='btn' style='margin-top:8px'>Grant</button>");
     cwist_sstring_append(b, "</form>");
 
-    cwist_sstring_append(b, "<h3 style='margin-top:24px'>Allowed users</h3><ul>");
-    if (perms) {
+    cwist_sstring_append(b, "<h3 style='margin-top:24px'>Allowed users</h3>");
+    if (perms && cJSON_GetArraySize(perms) > 0) {
+        cwist_sstring_append(b, "<ul>");
         int n = cJSON_GetArraySize(perms);
         for (int i = 0; i < n; i++) {
             cJSON *u = cJSON_GetArrayItem(perms, i);
+            if (!u) continue;
             cJSON *uid = cJSON_GetObjectItem(u, "id");
             cJSON *uname = cJSON_GetObjectItem(u, "username");
             cwist_sstring_append(b, "<li>");
-            cwist_sstring_append_escaped(b, uname->valuestring);
+            cwist_sstring_append_escaped(b, uname ? uname->valuestring : "?");
             cwist_sstring_append(b, " <form style='display:inline' action='/board/perms/revoke' method='post'>");
             cwist_sstring_append(b, "<input type='hidden' name='board_id' value='");
             cwist_sstring_append(b, bid_buf);
             cwist_sstring_append(b, "'>");
             cwist_sstring_append(b, "<input type='hidden' name='user_id' value='");
             char uid_buf[32];
-            snprintf(uid_buf, sizeof(uid_buf), "%d", uid->valueint);
+            snprintf(uid_buf, sizeof(uid_buf), "%d", uid ? uid->valueint : 0);
             cwist_sstring_append(b, uid_buf);
             cwist_sstring_append(b, "'>");
             cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Revoke</button></form></li>");
         }
+        cwist_sstring_append(b, "</ul>");
+    } else {
+        cwist_sstring_append(b, "<p style='color:var(--muted);font-size:14px'>No users have been granted access yet.</p>");
     }
-    cwist_sstring_append(b, "</ul></div>");
+    cwist_sstring_append(b, "</div>");
 
     cwist_sstring *page = render_page("Board Permissions", b->data, dark, "admin", profile_pic);
     cwist_sstring_destroy(b);
