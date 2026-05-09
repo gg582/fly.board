@@ -15,6 +15,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <limits.h>
 #include <time.h>
 #include <sqlite3.h>
 
@@ -74,7 +75,7 @@ static cJSON *board_by_route_key(cwist_db *db, const char *key) {
     if (!key || !key[0]) return NULL;
     char *end = NULL;
     long id = strtol(key, &end, 10);
-    if (end && *end == '\0' && id > 0) return db_board_get_by_id(db, (int)id);
+    if (end && *end == '\0' && id > 0 && id <= INT_MAX) return db_board_get_by_id(db, (int)id);
     return db_board_get_by_slug(db, key);
 }
 
