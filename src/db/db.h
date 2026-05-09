@@ -6,6 +6,7 @@
 #include <stdbool.h>
 
 bool db_init(cwist_db *db);
+bool db_exec_sql(cwist_db *db, const char *sql);
 bool db_migrate(cwist_db *db);
 
 /* Users */
@@ -34,7 +35,7 @@ bool db_board_perm_revoke(cwist_db *db, int board_id, int user_id);
 cJSON *db_board_perm_list(cwist_db *db, int board_id);
 
 /* Posts */
-bool db_post_create(cwist_db *db, int board_id, int user_id, const char *title, const char *slug, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
+int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, const char *slug, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
 bool db_post_update(cwist_db *db, int id, const char *title, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
 bool db_post_delete(cwist_db *db, int id);
 cJSON *db_post_get_by_slug(cwist_db *db, const char *slug);

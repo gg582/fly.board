@@ -6,7 +6,12 @@
 #include "nats/fly_nats.h"
 #include "config/config.h"
 #include <cwist/sys/app/app.h>
-#include <cwist/security/tls/ech.h>
+#if defined __has_include
+#  if __has_include (<cwist/security/tls/ech.h>)
+#    define HAVE_ECH 1
+#    include <cwist/security/tls/ech.h>
+#  endif
+#endif
 #include <cwist/core/log.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,7 +77,7 @@ int main(void) {
         return 1;
     }
 
-    cwist_app_use_https3(app, true);
+    /* cwist_app_use_https3(app, true); */
     cwist_error_t tls = cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
     if (tls.errtype != CWIST_ERR_INT16 || tls.error.err_i16 != 0) {
         FLY_LOG_ERROR("HTTPS init failed; run ./keygen.sh first");
@@ -80,6 +85,7 @@ int main(void) {
         return 1;
     }
 
+#ifdef HAVE_ECH
     const char *ech_key = getenv("BLOG_ECH_KEY");
     const char *ech_dir = getenv("BLOG_ECH_DIR");
     if (ech_key || ech_dir) {
@@ -91,6 +97,7 @@ int main(void) {
             cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
         }
     }
+#endif
 
     cwist_app_static(app, "/assets", "public");
     cwist_app_static(app, "/img", "img");

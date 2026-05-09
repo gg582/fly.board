@@ -25,6 +25,17 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(head, vp);
     cwist_html_element_add_child(head, title_el);
 
+    /* Web Fonts */
+    cwist_html_element_t *font_pretendard = cwist_html_element_create("link");
+    cwist_html_element_add_attr(font_pretendard, "rel", "stylesheet");
+    cwist_html_element_add_attr(font_pretendard, "href", "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-gov.min.css");
+    cwist_html_element_add_child(head, font_pretendard);
+
+    cwist_html_element_t *font_d2coding = cwist_html_element_create("link");
+    cwist_html_element_add_attr(font_d2coding, "rel", "stylesheet");
+    cwist_html_element_add_attr(font_d2coding, "href", "https://cdn.jsdelivr.net/gh/joungkyun/font-d2coding@master/d2coding.css");
+    cwist_html_element_add_child(head, font_d2coding);
+
     /* Highlight.js syntax highlighting */
     cwist_html_element_t *hl_css = cwist_html_element_create("link");
     cwist_html_element_add_attr(hl_css, "rel", "stylesheet");
@@ -39,15 +50,23 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js");
     cwist_html_element_add_child(head, hl_js);
 
+    cwist_html_element_t *hl_fortran = cwist_html_element_create("script");
+    cwist_html_element_add_attr(hl_fortran, "src",
+        "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/fortran.min.js");
+    cwist_html_element_add_child(head, hl_fortran);
+
     cwist_html_element_t *hl_init = cwist_html_element_create("script");
     cwist_html_element_set_text(hl_init,
         "document.addEventListener('DOMContentLoaded',function(){hljs.highlightAll();});");
     cwist_html_element_add_child(head, hl_init);
 
-    /* Progressive multi-theme loader */
+    /* Progressive multi-theme loader: inline critical CSS to prevent FOUC */
+    char *critical_css = theme_build_css(dark);
     cwist_html_element_t *dyn_style = cwist_html_element_create("style");
     cwist_html_element_add_attr(dyn_style, "id", "dyn-theme");
+    cwist_html_element_set_text(dyn_style, critical_css ? critical_css : "");
     cwist_html_element_add_child(head, dyn_style);
+    free(critical_css);
 
     cwist_html_element_t *script = cwist_html_element_create("script");
     cwist_html_element_set_text(script,

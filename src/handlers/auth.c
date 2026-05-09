@@ -1,0 +1,339 @@
+#define _POSIX_C_SOURCE 200809L
+#include "handlers_internal.h"
+
+void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
+    send_html_res(res, render_login(is_dark(req), NULL));
+}
+
+void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
+    bool dark = is_dark(req);
+    form_kv_t *kv = parse_urlencoded(req->body->data);
+    const char *username = form_kv_get(kv, "username");
+    const char *password = form_kv_get(kv, "password");
+    if (!username || !password) {
+        send_html_res(res, render_login(dark, "Missing fields"));
+        form_kv_free(kv);
+        return;
+    }
+    /* Admin login via admin.settings */
+    if (auth_admin_check(username, password)) {
+        char *token = auth_jwt_issue(1, username, "admin");
+        if (token) {
+            char cookie[2048];
+            snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax", SESSION_COOKIE_NAME, token);
+            cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+            cwist_free(token);
+        }
+        form_kv_free(kv);
+        redirect(res, "/");
+        return;
+    }
+    char *u = sql_esc(username);
+    cJSON *user = db_user_get_by_username(req->db, u);
+    cwist_free(u);
+    if (!user) {
+        send_html_res(res, render_login(dark, "Invalid credentials"));
+        form_kv_free(kv);
+        return;
+    }
+    cJSON *hash = cJSON_GetObjectItem(user, "password_hash");
+    if (!auth_verify_password(password, hash->valuestring)) {
+        cJSON_Delete(user);
+        send_html_res(res, render_login(dark, "Invalid credentials"));
+        form_kv_free(kv);
+        return;
+    }
+    int user_id = json_int(user, "id", 0);
+    cJSON *uname = cJSON_GetObjectItem(user, "username");
+    cJSON *role = cJSON_GetObjectItem(user, "role");
+    char *token = auth_jwt_issue(user_id, uname->valuestring, role->valuestring);
+    if (token) {
+        char cookie[2048];
+        snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax", SESSION_COOKIE_NAME, token);
+        cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+        cwist_free(token);
+    }
+    cJSON_Delete(user);
+    form_kv_free(kv);
+    redirect(res, "/");
+}
+
+void handler_logout(cwist_http_request *req, cwist_http_response *res) {
+    (void)req;
+    char cookie[256];
+    snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax", SESSION_COOKIE_NAME);
+    cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+    redirect(res, "/");
+}
+
+void handler_register_get(cwist_http_request *req, cwist_http_response *res) {
+    send_html_res(res, render_register(is_dark(req), NULL));
+}
+
+void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
+    bool dark = is_dark(req);
+    form_kv_t *kv = parse_urlencoded(req->body->data);
+    const char *username = form_kv_get(kv, "username");
+    const char *email = form_kv_get(kv, "email");
+    const char *password = form_kv_get(kv, "password");
+    if (!username || !email || !password || strlen(password) < 6) {
+        send_html_res(res, render_register(dark, "Invalid input (password min 6 chars)"));
+        form_kv_free(kv);
+        return;
+    }
+    char hash[256];
+    if (!auth_hash_password(password, hash, sizeof(hash))) {
+        send_html_res(res, render_register(dark, "Server error"));
+        form_kv_free(kv);
+        return;
+    }
+    char *u = sql_esc(username);
+    char *e = sql_esc(email);
+    char *h = sql_esc(hash);
+    bool ok = db_user_create(req->db, u, e, h);
+    cwist_free(u); cwist_free(e); cwist_free(h);
+    form_kv_free(kv);
+    if (!ok) {
+        send_html_res(res, render_register(dark, "Username or email already exists"));
+        return;
+    }
+    redirect(res, "/login");
+}
+
+void handler_unregister_post(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    form_kv_t *kv = parse_urlencoded(req->body->data);
+    const char *id_str = form_kv_get(kv, "id");
+    if (id_str) {
+        int target = atoi(id_str);
+        if (target == uid || strcmp(role, "admin") == 0) {
+            const char *cascade = form_kv_get(kv, "cascade");
+            if (cascade && atoi(cascade) == 1) {
+                db_user_delete_with_cascade(req->db, target, true);
+            } else {
+                db_user_delete_with_cascade(req->db, target, false);
+            }
+            if (target == uid) {
+                handler_logout(req, res);
+                form_kv_free(kv);
+                return;
+            }
+        }
+    }
+    form_kv_free(kv);
+    redirect(res, "/admin/users");
+}
+
+/* ---- Boards ---- */
+void handler_profile_get(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    cJSON *user = db_user_get_by_id(req->db, uid);
+    if (!user) {
+        redirect(res, "/login");
+        return;
+    }
+    char *pp = get_profile_pic(req->db, uid, role);
+    send_html_res(res, render_profile(user, is_dark(req), role, pp, true));
+    cJSON_Delete(user);
+    free(pp);
+}
+
+void handler_profile_post(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    redirect(res, "/account/settings");
+}
+
+void handler_account_settings_get(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    cJSON *user = db_user_get_by_id(req->db, uid);
+    if (!user) {
+        redirect(res, "/login");
+        return;
+    }
+    char *pp = get_profile_pic(req->db, uid, role);
+    send_html_res(res, render_account_settings(user, is_dark(req), pp, NULL));
+    cJSON_Delete(user);
+    free(pp);
+}
+
+void handler_account_settings_post(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+
+    const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
+    char *nickname = NULL, *bio = NULL;
+    char *profile_pic_url = NULL;
+
+    if (ctype && strstr(ctype, "multipart/form-data")) {
+        const char *bnd = strstr(ctype, "boundary=");
+        if (bnd) {
+            bnd += 9;
+            if (*bnd == '"') bnd++;
+            size_t bnd_len = strcspn(bnd, "\"\r\n; ");
+            char *boundary = (char *)cwist_alloc(bnd_len + 1);
+            memcpy(boundary, bnd, bnd_len);
+            boundary[bnd_len] = '\0';
+            form_field_t *fields = multipart_parse(req->body->data, req->body->size, boundary);
+            cwist_free(boundary);
+            form_field_t *f;
+            if ((f = form_find(fields, "nickname"))) {
+                nickname = (char *)cwist_alloc(f->len + 1);
+                memcpy(nickname, f->data, f->len);
+                nickname[f->len] = '\0';
+            }
+            if ((f = form_find(fields, "bio"))) {
+                bio = (char *)cwist_alloc(f->len + 1);
+                memcpy(bio, f->data, f->len);
+                bio[f->len] = '\0';
+            }
+            f = form_find(fields, "profile_pic");
+            if (f && f->filename && f->filename[0] && f->data && f->file_size > 0) {
+                const char *mt = mime_type(f->filename);
+                if (mt && strncmp(mt, "image/", 6) == 0) {
+                    const char *data_path = f->data;
+                    profile_pic_url = (char *)cwist_alloc(512);
+                    if (strncmp(data_path, "public/", 7) == 0) {
+                        snprintf(profile_pic_url, 512, "/assets/%s", data_path + 7);
+                    } else {
+                        snprintf(profile_pic_url, 512, "%s", data_path);
+                    }
+                }
+            }
+            multipart_free(fields);
+        }
+    } else {
+        form_kv_t *kv = parse_urlencoded(req->body->data);
+        const char *n = form_kv_get(kv, "nickname");
+        const char *b = form_kv_get(kv, "bio");
+        nickname = (char *)cwist_alloc(strlen(n ? n : "") + 1);
+        strcpy(nickname, n ? n : "");
+        bio = (char *)cwist_alloc(strlen(b ? b : "") + 1);
+        strcpy(bio, b ? b : "");
+        form_kv_free(kv);
+    }
+
+    if (!nickname || !bio) {
+        cJSON *user = db_user_get_by_id(req->db, uid);
+        char *pp = get_profile_pic(req->db, uid, role);
+        send_html_res(res, render_account_settings(user, is_dark(req), pp, "Invalid form data"));
+        if (user) cJSON_Delete(user);
+        free(pp);
+        cwist_free(nickname); cwist_free(bio); cwist_free(profile_pic_url);
+        return;
+    }
+
+    char *n_escaped = sql_esc(nickname);
+    char *b_escaped = sql_esc(bio);
+
+    cJSON *user = db_user_get_by_id(req->db, uid);
+    if (user) {
+        cJSON *pp_obj = cJSON_GetObjectItem(user, "profile_pic");
+        const char *existing_pic = (pp_obj && pp_obj->type == cJSON_String) ? pp_obj->valuestring : "";
+        db_user_update_profile(req->db, uid, n_escaped, b_escaped, profile_pic_url ? profile_pic_url : existing_pic);
+        cJSON_Delete(user);
+    } else {
+        db_user_update_profile(req->db, uid, n_escaped, b_escaped, profile_pic_url ? profile_pic_url : "");
+    }
+
+    cwist_free(n_escaped); cwist_free(b_escaped);
+    cwist_free(nickname); cwist_free(bio); cwist_free(profile_pic_url);
+    redirect(res, "/profile");
+}
+
+void handler_password_change_get(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    char *pp = get_profile_pic(req->db, uid, role);
+    send_html_res(res, render_password_change(is_dark(req), NULL));
+    free(pp);
+}
+
+void handler_password_change_post(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    bool dark = is_dark(req);
+
+    form_kv_t *kv = parse_urlencoded(req->body->data);
+    const char *current = form_kv_get(kv, "current_password");
+    const char *new_pw = form_kv_get(kv, "new_password");
+    const char *confirm = form_kv_get(kv, "confirm_password");
+
+    if (!current || !new_pw || !confirm || strlen(new_pw) < 6) {
+        send_html_res(res, render_password_change(dark, "Invalid input (password min 6 chars)"));
+        form_kv_free(kv);
+        return;
+    }
+    if (strcmp(new_pw, confirm) != 0) {
+        send_html_res(res, render_password_change(dark, "New passwords do not match"));
+        form_kv_free(kv);
+        return;
+    }
+
+    cJSON *user = db_user_get_by_id(req->db, uid);
+    if (!user) {
+        send_html_res(res, render_password_change(dark, "User not found"));
+        form_kv_free(kv);
+        return;
+    }
+
+    cJSON *hash = cJSON_GetObjectItem(user, "password_hash");
+    if (!hash || !hash->valuestring || !auth_verify_password(current, hash->valuestring)) {
+        cJSON_Delete(user);
+        send_html_res(res, render_password_change(dark, "Current password is incorrect"));
+        form_kv_free(kv);
+        return;
+    }
+
+    char new_hash[256];
+    if (!auth_hash_password(new_pw, new_hash, sizeof(new_hash))) {
+        cJSON_Delete(user);
+        send_html_res(res, render_password_change(dark, "Server error"));
+        form_kv_free(kv);
+        return;
+    }
+
+    char *h = sql_esc(new_hash);
+    db_user_update_password(req->db, uid, h);
+    cwist_free(h);
+    cJSON_Delete(user);
+    form_kv_free(kv);
+
+    redirect(res, "/profile");
+}
+
+void handler_user_profile_get(cwist_http_request *req, cwist_http_response *res) {
+    bool dark = is_dark(req);
+    int viewer_uid = 0;
+    char viewer_role[32] = {0};
+    auth_is_logged_in(req, &viewer_uid, viewer_role, sizeof(viewer_role));
+
+    const char *id_str = cwist_query_map_get(req->path_params, "id");
+    if (!id_str) { redirect(res, "/"); return; }
+    int target_uid = atoi(id_str);
+    if (target_uid <= 0) { redirect(res, "/"); return; }
+
+    cJSON *user = db_user_get_by_id(req->db, target_uid);
+    if (!user) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        cwist_sstring_assign(res->body, "User not found");
+        return;
+    }
+
+    char *pp = get_profile_pic(req->db, viewer_uid, viewer_role);
+    bool is_own = (viewer_uid == target_uid);
+    send_html_res(res, render_profile(user, dark, viewer_role, pp, is_own));
+    cJSON_Delete(user);
+    free(pp);
+}
+

@@ -1,64 +1,7 @@
-#include "theme.h"
+#include "../theme.h"
 #include <cjson/cJSON.h>
 #include <stdlib.h>
 #include <string.h>
-
-typedef struct theme_color {
-    const char *bg;
-    const char *fg;
-    const char *muted;
-    const char *panel;
-    const char *accent;
-    const char *accent2;
-    const char *border;
-    const char *shadow;
-    const char *hover;
-    const char *code_bg;
-} theme_color_t;
-
-static theme_color_t light = {
-    .bg = "#f6f7f9", .fg = "#1a1a2e", .muted = "#6b7280",
-    .panel = "#ffffff", .accent = "#4f46e5", .accent2 = "#6366f1",
-    .border = "#e5e7eb", .shadow = "rgba(0,0,0,0.06)",
-    .hover = "#f3f4f6", .code_bg = "#f4f4f5"
-};
-
-static theme_color_t dark = {
-    .bg = "#0f0f13", .fg = "#e4e4e7", .muted = "#a1a1aa",
-    .panel = "#18181b", .accent = "#818cf8", .accent2 = "#a5b4fc",
-    .border = "#3f3f46", .shadow = "rgba(0,0,0,0.4)",
-    .hover = "#27272a", .code_bg = "#27272a"
-};
-
-static theme_color_t ocean = {
-    .bg = "#0b1d2e", .fg = "#c8e1f4", .muted = "#7a9ab8",
-    .panel = "#11283d", .accent = "#38bdf8", .accent2 = "#7dd3fc",
-    .border = "#1e3a5f", .shadow = "rgba(0,0,0,0.4)",
-    .hover = "#163450", .code_bg = "#0f172a"
-};
-
-static theme_color_t forest = {
-    .bg = "#0f1f17", .fg = "#d1e7dd", .muted = "#8fb39a",
-    .panel = "#162b20", .accent = "#34d399", .accent2 = "#6ee7b7",
-    .border = "#22543d", .shadow = "rgba(0,0,0,0.4)",
-    .hover = "#1c3a2a", .code_bg = "#14281e"
-};
-
-static theme_color_t sepia = {
-    .bg = "#f4ecd8", .fg = "#433422", .muted = "#8c7b66",
-    .panel = "#efe6d0", .accent = "#b45309", .accent2 = "#d97706",
-    .border = "#d6c6a8", .shadow = "rgba(67,52,34,0.08)",
-    .hover = "#eaddc5", .code_bg = "#e8dec3"
-};
-
-static theme_color_t *theme_by_name(const char *name) {
-    if (!name) return &light;
-    if (strcmp(name, "dark") == 0) return &dark;
-    if (strcmp(name, "ocean") == 0) return &ocean;
-    if (strcmp(name, "forest") == 0) return &forest;
-    if (strcmp(name, "sepia") == 0) return &sepia;
-    return &light;
-}
 
 static cJSON *create_rule(const char *sel) {
     cJSON *r = cJSON_CreateObject();
@@ -72,7 +15,7 @@ static void add_decl(cJSON *r, const char *p, const char *v) {
     if (decls) cJSON_AddStringToObject(decls, p, v);
 }
 
-static void rule_root(cJSON *vars, theme_color_t *t) {
+void rule_root(cJSON *vars, theme_color_t *t) {
     cJSON_AddStringToObject(vars, "--bg", t->bg);
     cJSON_AddStringToObject(vars, "--fg", t->fg);
     cJSON_AddStringToObject(vars, "--muted", t->muted);
@@ -85,7 +28,7 @@ static void rule_root(cJSON *vars, theme_color_t *t) {
     cJSON_AddStringToObject(vars, "--code-bg", t->code_bg);
 }
 
-static void rule_base(cJSON *rules) {
+void rule_base(cJSON *rules) {
     cJSON *a = create_rule("*");
     add_decl(a, "box-sizing", "border-box");
     cJSON_AddItemToArray(rules, a);
@@ -113,7 +56,7 @@ static void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, linkh);
 }
 
-static void rule_layout(cJSON *rules) {
+void rule_layout(cJSON *rules) {
     cJSON *shell = create_rule(".shell");
     add_decl(shell, "max-width", "1400px");
     add_decl(shell, "margin", "0 auto");
@@ -197,7 +140,7 @@ static void rule_layout(cJSON *rules) {
     cJSON_AddItemToArray(rules, pp_s);
 }
 
-static void rule_components(cJSON *rules) {
+void rule_components(cJSON *rules) {
     cJSON *card = create_rule(".card");
     add_decl(card, "background", "var(--panel)");
     add_decl(card, "border", "1px solid var(--border)");
@@ -311,7 +254,7 @@ static void rule_components(cJSON *rules) {
     cJSON_AddItemToArray(rules, admin_select);
 }
 
-static void rule_home(cJSON *rules) {
+void rule_home(cJSON *rules) {
     cJSON *hero = create_rule(".hero");
     add_decl(hero, "padding", "48px 0 36px");
     add_decl(hero, "text-align", "center");
@@ -365,7 +308,7 @@ static void rule_home(cJSON *rules) {
     cJSON_AddItemToArray(rules, board_sec);
 }
 
-static void rule_markdown(cJSON *rules) {
+void rule_markdown(cJSON *rules) {
     cJSON *md = create_rule(".markdown-body");
     add_decl(md, "max-width", "720px");
     add_decl(md, "margin", "0 auto");
@@ -448,7 +391,7 @@ static void rule_markdown(cJSON *rules) {
     cJSON_AddItemToArray(rules, md_h);
 }
 
-static void rule_animations(cJSON *rules) {
+void rule_animations(cJSON *rules) {
     cJSON *kf = create_rule("@keyframes fadeIn");
     add_decl(kf, "from", "opacity:0; transform: translateY(8px)");
     add_decl(kf, "to", "opacity:1; transform: translateY(0)");
@@ -459,7 +402,7 @@ static void rule_animations(cJSON *rules) {
     cJSON_AddItemToArray(rules, anim);
 }
 
-static void rule_media(cJSON *rules) {
+void rule_media(cJSON *rules) {
     cJSON *mq = create_rule("@media (max-width: 768px)");
     add_decl(mq, ".shell", "padding: 16px");
     add_decl(mq, ".topbar", "flex-wrap: wrap");
@@ -475,41 +418,3 @@ static void rule_media(cJSON *rules) {
     cJSON_AddItemToArray(rules, mq);
 }
 
-static cJSON *build_theme_object(const char *name, theme_color_t *t) {
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "name", name);
-
-    cJSON *vars = cJSON_CreateObject();
-    rule_root(vars, t);
-    cJSON_AddItemToObject(root, "vars", vars);
-
-    cJSON *rules = cJSON_CreateArray();
-    rule_base(rules);
-    rule_layout(rules);
-    rule_components(rules);
-    rule_home(rules);
-    rule_markdown(rules);
-    rule_animations(rules);
-    rule_media(rules);
-    cJSON_AddItemToObject(root, "rules", rules);
-    return root;
-}
-
-char *theme_build_json(bool dark_mode) {
-    cJSON *root = build_theme_object(dark_mode ? "dark" : "light", dark_mode ? &dark : &light);
-    char *out = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
-    return out;
-}
-
-char *theme_build_all_json(void) {
-    cJSON *arr = cJSON_CreateArray();
-    cJSON_AddItemToArray(arr, build_theme_object("light", &light));
-    cJSON_AddItemToArray(arr, build_theme_object("dark", &dark));
-    cJSON_AddItemToArray(arr, build_theme_object("ocean", &ocean));
-    cJSON_AddItemToArray(arr, build_theme_object("forest", &forest));
-    cJSON_AddItemToArray(arr, build_theme_object("sepia", &sepia));
-    char *out = cJSON_PrintUnformatted(arr);
-    cJSON_Delete(arr);
-    return out;
-}
