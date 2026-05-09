@@ -27,7 +27,7 @@ static bool is_dark(cwist_http_request *req) {
 }
 
 static void redirect(cwist_http_response *res, const char *url) {
-    res->status_code = CWIST_HTTP_FOUND;
+    res->status_code = (cwist_http_status_t)302;
     cwist_http_header_add(&res->headers, "Location", url);
     cwist_sstring_assign(res->body, "Redirecting...");
 }
@@ -910,8 +910,11 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     if (files) {
         int post_id = (int)sqlite3_last_insert_rowid(req->db->conn);
         for (form_field_t *f = files; f; f = f->next) {
-            if (f->filename && f->data) {
-                db_file_create_volume(req->db, post_id, uid, f->filename, mime_type(f->filename), f->data, f->file_size);
+            if (f->filename && f->filename[0] != '\0' && f->data) {
+                char fpath[512];
+                snprintf(fpath, sizeof(fpath), "public/uploads/%s", f->filename);
+                file_write(fpath, f->data, f->file_size);
+                db_file_create_volume(req->db, post_id, uid, f->filename, mime_type(f->filename), fpath, f->file_size);
             }
         }
     }
@@ -998,8 +1001,11 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     bnd += 9;
     form_field_t *fields = multipart_parse(req->body->data, req->body->size, bnd);
     form_field_t *f = form_find(fields, "file");
-    if (f && f->filename && f->data) {
-        db_file_create_volume(req->db, 0, uid, f->filename, mime_type(f->filename), f->data, f->file_size);
+    if (f && f->filename && f->filename[0] != '\0' && f->data) {
+        char fpath[512];
+        snprintf(fpath, sizeof(fpath), "public/uploads/%s", f->filename);
+        file_write(fpath, f->data, f->file_size);
+        db_file_create_volume(req->db, 0, uid, f->filename, mime_type(f->filename), fpath, f->file_size);
     }
     multipart_free(fields);
     redirect(res, "/files");
@@ -1033,16 +1039,12 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
 
     char cdisp[512];
     snprintf(cdisp, sizeof(cdisp), "attachment; filename=\"%s\"", fname->valuestring);
-    cwist_http_header_add(&res->headers, "Content-Type", mtype && mtype->valuestring[0] ? mtype->valuestring : "application/octet-stream");
     cwist_http_header_add(&res->headers, "Content-Disposition", cdisp);
 
     if (fpath && fpath->valuestring[0]) {
         size_t sz = 0;
-        char *data = file_read(fpath->valuestring, &sz);
-        if (data) {
-            cwist_sstring_assign_len(res->body, data, sz);
-            cwist_free(data);
-        } else {
+        cwist_error_t err = cwist_http_response_send_file(res, fpath->valuestring, mtype && mtype->valuestring[0] ? mtype->valuestring : "application/octet-stream", &sz);
+        if (err.error.err_i32 != 0) {
             res->status_code = CWIST_HTTP_NOT_FOUND;
         }
     } else {
