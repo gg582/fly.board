@@ -8,7 +8,18 @@ MD4C_OBJS := $(MD4C_DIR)/build/md4c.o $(MD4C_DIR)/build/md4c-html.o $(MD4C_DIR)/
 
 MULTIPART_DIR := third_party/multipart-parser-c
 
-SRCS := src/main.c src/db/db.c src/auth/auth.c src/crypto/fly_crypto.c src/render/theme_json.c src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/handlers/handlers.c src/utils/utils.c src/nats/fly_nats.c src/core/log.c src/config/config.c $(MULTIPART_DIR)/multipart_parser.c
+SRCS := src/main.c \
+        src/db/db.c src/db/user.c src/db/board.c src/db/post.c src/db/file.c src/db/comment.c src/db/vote.c src/db/tag.c \
+        src/auth/auth.c \
+        src/crypto/fly_crypto.c \
+        src/render/theme/theme.c src/render/theme/rules.c src/render/theme/json.c src/render/theme/css.c \
+        src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c \
+        src/handlers/handlers.c src/handlers/home.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/file.c src/handlers/admin.c src/handlers/api.c \
+        src/utils/utils.c \
+        src/nats/fly_nats.c \
+        src/core/log.c \
+        src/config/config.c \
+        $(MULTIPART_DIR)/multipart_parser.c
 OBJS := $(SRCS:.c=.o)
 
 CFLAGS := -Wall -Wextra -O2 \
@@ -31,7 +42,7 @@ ifeq ($(wildcard $(CWIST_LIB)),)
 endif
 
 # Only system libs remain; libttak, cjson, uriparser, sqlite3, cnats are all embedded in libcwist.a
-LIBS := -lssl -lcrypto -lpthread -ldl
+LIBS := -lssl -lcrypto -lpthread -ldl -lcjson -luriparser -lttak
 HAS_NGTCP2 := $(shell pkg-config --exists ngtcp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGHTTP3 := $(shell pkg-config --exists nghttp3 2>/dev/null && echo 1 || echo 0)
 ifeq ($(HAS_NGTCP2),1)
@@ -71,7 +82,7 @@ $(MD4C_LIB): $(MD4C_OBJS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET): $(OBJS) $(MD4C_LIB)
-	$(CC) $(CFLAGS) -o $@ $(OBJS) $(MD4C_LIB) $(CWIST_LIB) $(LDFLAGS) $(LIBS)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(MD4C_LIB) $(LDFLAGS) $(CWIST_LIB) $(LIBS)
 
 clean:
 	rm -f $(OBJS) $(TARGET)

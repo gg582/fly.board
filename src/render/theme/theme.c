@@ -1,0 +1,81 @@
+#include "../theme.h"
+#include <cjson/cJSON.h>
+#include <stdlib.h>
+#include <string.h>
+
+
+theme_color_t light = {
+    .bg = "#f6f7f9", .fg = "#1a1a2e", .muted = "#6b7280",
+    .panel = "#ffffff", .accent = "#4f46e5", .accent2 = "#6366f1",
+    .border = "#e5e7eb", .shadow = "rgba(0,0,0,0.06)",
+    .hover = "#f3f4f6", .code_bg = "#f4f4f5"
+};
+
+theme_color_t dark = {
+    .bg = "#0f0f13", .fg = "#e4e4e7", .muted = "#a1a1aa",
+    .panel = "#18181b", .accent = "#818cf8", .accent2 = "#a5b4fc",
+    .border = "#3f3f46", .shadow = "rgba(0,0,0,0.4)",
+    .hover = "#27272a", .code_bg = "#27272a"
+};
+
+theme_color_t ocean = {
+    .bg = "#0b1d2e", .fg = "#c8e1f4", .muted = "#7a9ab8",
+    .panel = "#11283d", .accent = "#38bdf8", .accent2 = "#7dd3fc",
+    .border = "#1e3a5f", .shadow = "rgba(0,0,0,0.4)",
+    .hover = "#163450", .code_bg = "#0f172a"
+};
+
+theme_color_t forest = {
+    .bg = "#0f1f17", .fg = "#d1e7dd", .muted = "#8fb39a",
+    .panel = "#162b20", .accent = "#34d399", .accent2 = "#6ee7b7",
+    .border = "#22543d", .shadow = "rgba(0,0,0,0.4)",
+    .hover = "#1c3a2a", .code_bg = "#14281e"
+};
+
+theme_color_t sepia = {
+    .bg = "#f4ecd8", .fg = "#433422", .muted = "#8c7b66",
+    .panel = "#efe6d0", .accent = "#b45309", .accent2 = "#d97706",
+    .border = "#d6c6a8", .shadow = "rgba(67,52,34,0.08)",
+    .hover = "#eaddc5", .code_bg = "#e8dec3"
+};
+
+theme_color_t *theme_by_name(const char *name) {
+    if (!name) return &light;
+    if (strcmp(name, "dark") == 0) return &dark;
+    if (strcmp(name, "ocean") == 0) return &ocean;
+    if (strcmp(name, "forest") == 0) return &forest;
+    if (strcmp(name, "sepia") == 0) return &sepia;
+    return &light;
+}
+
+
+/* Forward declarations from rules.c */
+void rule_root(cJSON *vars, theme_color_t *t);
+void rule_base(cJSON *rules);
+void rule_layout(cJSON *rules);
+void rule_components(cJSON *rules);
+void rule_home(cJSON *rules);
+void rule_markdown(cJSON *rules);
+void rule_animations(cJSON *rules);
+void rule_media(cJSON *rules);
+
+cJSON *build_theme_object(const char *name, theme_color_t *t) {
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "name", name);
+
+    cJSON *vars = cJSON_CreateObject();
+    rule_root(vars, t);
+    cJSON_AddItemToObject(root, "vars", vars);
+
+    cJSON *rules = cJSON_CreateArray();
+    rule_base(rules);
+    rule_layout(rules);
+    rule_components(rules);
+    rule_home(rules);
+    rule_markdown(rules);
+    rule_animations(rules);
+    rule_media(rules);
+    cJSON_AddItemToObject(root, "rules", rules);
+    return root;
+}
+

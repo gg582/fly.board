@@ -91,14 +91,8 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     }
     cwist_sstring_append(b, "</form>");
 
-    /* Table view for scalability */
-    cwist_sstring_append(b, "<div class='card' style='overflow-x:auto'><table style='width:100%;border-collapse:collapse'>");
-    cwist_sstring_append(b, "<thead><tr style='border-bottom:2px solid var(--border)'>");
-    cwist_sstring_append(b, "<th style='text-align:left;padding:10px'>Title</th>");
-    cwist_sstring_append(b, "<th style='text-align:left;padding:10px'>Author</th>");
-    cwist_sstring_append(b, "<th style='text-align:left;padding:10px'>Views</th>");
-    cwist_sstring_append(b, "<th style='text-align:left;padding:10px'>Date</th>");
-    cwist_sstring_append(b, "</tr></thead><tbody>");
+    /* Modern card list view */
+    cwist_sstring_append(b, "<div class='post-list'>");
 
     if (posts) {
         int n = cJSON_GetArraySize(posts);
@@ -109,32 +103,33 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cJSON *summary = cJSON_GetObjectItem(p, "summary");
             cJSON *author = cJSON_GetObjectItem(p, "author_name");
             cJSON *date = cJSON_GetObjectItem(p, "created_at");
-            cwist_sstring_append(b, "<tr style='border-bottom:1px solid var(--border)'>");
-            cwist_sstring_append(b, "<td style='padding:10px'>");
+            cJSON *views = cJSON_GetObjectItem(p, "view_count");
+            cwist_sstring_append(b, "<div class='post-row'>");
+            cwist_sstring_append(b, "<div class='post-row-head'>");
             cJSON *is_notice = cJSON_GetObjectItem(p, "is_notice");
             if (is_notice && is_notice->valueint) {
-                cwist_sstring_append(b, "<span style='color:var(--accent);font-size:12px;font-weight:700;margin-right:6px'>[Notice]</span>");
+                cwist_sstring_append(b, "<span class='tag' style='background:var(--accent);color:#fff'>Notice</span>");
             }
             if (!board_slug || board_slug[0] == '\0') {
                 cJSON *board_name = cJSON_GetObjectItem(p, "board_name");
                 if (board_name && board_name->valuestring && board_name->valuestring[0]) {
-                    cwist_sstring_append(b, "<span class='tag' style='font-size:11px;padding:2px 6px;margin-right:6px;vertical-align:middle;'>");
+                    cwist_sstring_append(b, "<span class='tag'>");
                     cwist_sstring_append_escaped(b, board_name->valuestring);
                     cwist_sstring_append(b, "</span>");
                 }
             }
-            cwist_sstring_append(b, "<a href='/post/");
+            cwist_sstring_append(b, "</div>");
+            cwist_sstring_append(b, "<a class='post-row-title' href='/post/");
             cwist_sstring_append(b, slug->valuestring);
             cwist_sstring_append(b, "'>");
             cwist_sstring_append_escaped(b, title->valuestring);
             cwist_sstring_append(b, "</a>");
             if (summary && summary->valuestring && summary->valuestring[0]) {
-                cwist_sstring_append(b, "<p style='margin:4px 0 0;color:var(--muted);font-size:13px'>");
+                cwist_sstring_append(b, "<p class='post-row-summary'>");
                 cwist_sstring_append_escaped(b, summary->valuestring);
                 cwist_sstring_append(b, "</p>");
             }
-            cwist_sstring_append(b, "</td>");
-            cwist_sstring_append(b, "<td style='padding:10px;color:var(--muted)'>");
+            cwist_sstring_append(b, "<div class='post-row-meta'>");
             if (author && author->valuestring) {
                 cJSON *author_id = cJSON_GetObjectItem(p, "user_id");
                 if (author_id && author_id->valueint > 0) {
@@ -151,20 +146,20 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             } else {
                 cwist_sstring_append(b, "unknown");
             }
-            cwist_sstring_append(b, "</td>");
-            cwist_sstring_append(b, "<td style='padding:10px;color:var(--muted)'>");
-            cJSON *views = cJSON_GetObjectItem(p, "view_count");
+            cwist_sstring_append(b, "<span class='dot'></span>");
             char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%d", views ? views->valueint : 0);
             cwist_sstring_append(b, vbuf);
-            cwist_sstring_append(b, "</td>");
-            cwist_sstring_append(b, "<td style='padding:10px;color:var(--muted);font-size:13px'>");
-            cwist_sstring_append_escaped(b, date->valuestring);
-            cwist_sstring_append(b, "</td>");
-            cwist_sstring_append(b, "</tr>");
+            cwist_sstring_append(b, " views");
+            cwist_sstring_append(b, "<span class='dot'></span>");
+            cwist_sstring_append_escaped(b, date && date->valuestring ? date->valuestring : "");
+            cwist_sstring_append(b, "</div>");
+            cwist_sstring_append(b, "</div>");
         }
+    } else {
+        cwist_sstring_append(b, "<p style='color:var(--muted);text-align:center;padding:40px 0'>No posts found.</p>");
     }
 
-    cwist_sstring_append(b, "</tbody></table></div>");
+    cwist_sstring_append(b, "</div>");
 
     /* Pagination */
     if (total_pages > 1) {

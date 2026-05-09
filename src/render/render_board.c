@@ -18,50 +18,49 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     }
     if (boards) {
         int n = cJSON_GetArraySize(boards);
+        cwist_sstring_append(b, "<div class='board-grid'>");
         for (int i = 0; i < n; i++) {
             cJSON *bo = cJSON_GetArrayItem(boards, i);
             cJSON *slug = cJSON_GetObjectItem(bo, "slug");
             cJSON *name = cJSON_GetObjectItem(bo, "name");
             cJSON *desc = cJSON_GetObjectItem(bo, "description");
-            cwist_sstring_append(b, "<div class='board-section card' style='margin-bottom:18px'>");
-            cwist_sstring_append(b, "<div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px'>");
+            cwist_sstring_append(b, "<div class='board-card'>");
+            cwist_sstring_append(b, "<div style='display:flex;justify-content:space-between;align-items:flex-start;gap:8px'>");
             cwist_sstring_append(b, "<a href='/board/");
             cwist_sstring_append(b, slug->valuestring);
-            cwist_sstring_append(b, "'><h3 style='margin:0'>");
+            cwist_sstring_append(b, "' style='text-decoration:none'><h2>");
             cwist_sstring_append_escaped(b, name->valuestring);
-            cwist_sstring_append(b, "</h3></a>");
+            cwist_sstring_append(b, "</h2></a>");
             if (user_role && strcmp(user_role, "admin") == 0) {
                 cJSON *bid = cJSON_GetObjectItem(bo, "id");
                 char bid_buf[32];
                 snprintf(bid_buf, sizeof(bid_buf), "%d", bid->valueint);
-                cwist_sstring_append(b, "<div style='display:flex;gap:8px'>");
                 cwist_sstring_append(b, "<a href='/board/");
                 cwist_sstring_append(b, bid_buf);
                 cwist_sstring_append(b, "/delete' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete this board? This action cannot be undone.\")'>Delete</a>");
-                cwist_sstring_append(b, "</div>");
             }
             cwist_sstring_append(b, "</div>");
-            cwist_sstring_append(b, "<p style='color:var(--muted);font-size:14px;margin-top:8px'>");
-            cwist_sstring_append_escaped(b, desc && desc->valuestring[0] ? desc->valuestring : "");
+            cwist_sstring_append(b, "<p class='board-card-desc'>");
+            cwist_sstring_append_escaped(b, desc && desc->valuestring && desc->valuestring[0] ? desc->valuestring : "");
             cwist_sstring_append(b, "</p>");
 
             cJSON *posts = cJSON_GetObjectItem(bo, "posts");
             if (posts && cJSON_GetArraySize(posts) > 0) {
-                cwist_sstring_append(b, "<ul style='margin:12px 0 0;padding-left:18px'>");
+                cwist_sstring_append(b, "<ul class='board-post-list'>");
                 int pn = cJSON_GetArraySize(posts);
                 for (int j = 0; j < pn; j++) {
                     cJSON *p = cJSON_GetArrayItem(posts, j);
                     cJSON *pslug = cJSON_GetObjectItem(p, "slug");
                     cJSON *ptitle = cJSON_GetObjectItem(p, "title");
                     cJSON *pdate = cJSON_GetObjectItem(p, "created_at");
-                    cwist_sstring_append(b, "<li style='margin-bottom:6px'>");
-                    cwist_sstring_append(b, "<a href='/post/");
+                    cwist_sstring_append(b, "<li class='board-post-item'>");
+                    cwist_sstring_append(b, "<a class='board-post-title' href='/post/");
                     cwist_sstring_append(b, pslug->valuestring);
                     cwist_sstring_append(b, "'>");
                     cwist_sstring_append_escaped(b, ptitle->valuestring);
                     cwist_sstring_append(b, "</a>");
                     if (pdate && pdate->valuestring) {
-                        cwist_sstring_append(b, " <span style='color:var(--muted);font-size:12px'>");
+                        cwist_sstring_append(b, "<span class='board-post-date'>");
                         cwist_sstring_append_escaped(b, pdate->valuestring);
                         cwist_sstring_append(b, "</span>");
                     }
@@ -69,10 +68,11 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
                 }
                 cwist_sstring_append(b, "</ul>");
             } else {
-                cwist_sstring_append(b, "<p style='color:var(--muted);font-size:13px;margin-top:10px'>No posts yet.</p>");
+                cwist_sstring_append(b, "<p style='color:var(--muted);font-size:13px;margin:0'>No posts yet.</p>");
             }
             cwist_sstring_append(b, "</div>");
         }
+        cwist_sstring_append(b, "</div>");
     } else {
         cwist_sstring_append(b, "<p style='color:var(--muted)'>No boards available.</p>");
     }
@@ -204,14 +204,14 @@ cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool
             snprintf(uid_buf, sizeof(uid_buf), "%d", uid ? uid->valueint : 0);
             cwist_sstring_append(b, uid_buf);
             cwist_sstring_append(b, "'>");
-            cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Revoke</button></form></li>");
+            cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Revoke</button>");
+            cwist_sstring_append(b, "</form></li>");
         }
         cwist_sstring_append(b, "</ul>");
     } else {
-        cwist_sstring_append(b, "<p style='color:var(--muted);font-size:14px'>No users have been granted access yet.</p>");
+        cwist_sstring_append(b, "<p style='color:var(--muted)'>No allowed users.</p>");
     }
     cwist_sstring_append(b, "</div>");
-
     cwist_sstring *page = render_page("Board Permissions", b->data, dark, "admin", profile_pic);
     cwist_sstring_destroy(b);
     return page;
