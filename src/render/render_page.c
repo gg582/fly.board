@@ -81,7 +81,9 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
     cwist_html_element_t *navlinks = cwist_html_element_create("div");
     cwist_html_element_add_class(navlinks, "nav-links");
+    cwist_html_element_add_child(navlinks, nav_link("/", "Home"));
     cwist_html_element_add_child(navlinks, nav_link("/boards", "Boards"));
+    cwist_html_element_add_child(navlinks, nav_link("/files", "Files"));
     if (user_role && strcmp(user_role, "admin") == 0) {
         cwist_html_element_add_child(navlinks, nav_link("/admin/users", "Admin"));
     }
