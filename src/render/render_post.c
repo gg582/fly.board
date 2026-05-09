@@ -135,23 +135,26 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
                 if (author_id && author_id->valueint > 0) {
                     char uid_buf[32];
                     snprintf(uid_buf, sizeof(uid_buf), "%d", author_id->valueint);
-                    cwist_sstring_append(b, "<a href='/user/");
+                    cwist_sstring_append(b, "<span class='post-badge'>&#128100; <a href='/user/");
                     cwist_sstring_append(b, uid_buf);
                     cwist_sstring_append(b, "'>");
                     cwist_sstring_append_escaped(b, author->valuestring);
-                    cwist_sstring_append(b, "</a>");
+                    cwist_sstring_append(b, "</a></span>");
                 } else {
+                    cwist_sstring_append(b, "<span class='post-badge'>&#128100; ");
                     cwist_sstring_append_escaped(b, author->valuestring);
+                    cwist_sstring_append(b, "</span>");
                 }
             } else {
-                cwist_sstring_append(b, "unknown");
+                cwist_sstring_append(b, "<span class='post-badge'>&#128100; unknown</span>");
             }
-            cwist_sstring_append(b, "<span class='dot'></span>");
+            cwist_sstring_append(b, "<span class='post-badge'>&#128065; ");
             char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%d", views ? views->valueint : 0);
             cwist_sstring_append(b, vbuf);
-            cwist_sstring_append(b, " views");
-            cwist_sstring_append(b, "<span class='dot'></span>");
+            cwist_sstring_append(b, " views</span>");
+            cwist_sstring_append(b, "<span class='post-badge'>&#128197; ");
             cwist_sstring_append_escaped(b, date && date->valuestring ? date->valuestring : "");
+            cwist_sstring_append(b, "</span>");
             cwist_sstring_append(b, "</div>");
             cwist_sstring_append(b, "</div>");
         }
