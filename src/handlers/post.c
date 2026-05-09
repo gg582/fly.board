@@ -46,7 +46,7 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
         posts = db_post_list_search(req->db, 0, search, per_page, (page - 1) * per_page);
     }
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page_html = render_post_list(posts, boards, dark, role, page, total_pages, slug, search, pp);
+    cwist_sstring *page_html = render_post_list(posts, boards, dark, role, page, total_pages, slug, search, pp, uid);
     if (posts) cJSON_Delete(posts);
     if (boards) cJSON_Delete(boards);
     send_html_res(res, page_html);
@@ -62,10 +62,10 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     auth_is_logged_in(req, &uid, role, sizeof(role));
     cJSON *post = db_post_get_by_slug(req->db, slug);
     if (!post) { res->status_code = CWIST_HTTP_NOT_FOUND; cwist_sstring_assign(res->body, "Not found"); return; }
-    cJSON *pid = cJSON_GetObjectItem(post, "id");
-    db_post_increment_view(req->db, pid->valueint);
-    cJSON *files = db_file_list_by_post(req->db, pid->valueint);
-    cJSON *comments = db_comment_list_by_target(req->db, "post", pid->valueint);
+    int post_id = json_int(post, "id", 0);
+    if (post_id > 0) db_post_increment_view(req->db, post_id);
+    cJSON *files = db_file_list_by_post(req->db, post_id);
+    cJSON *comments = db_comment_list_by_target(req->db, "post", post_id);
     bool verified = false;
     cJSON *sig_json = cJSON_GetObjectItem(post, "pqc_signature");
     if (sig_json && sig_json->valuestring && sig_json->valuestring[0]) {
@@ -79,8 +79,7 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
             cwist_free(msg);
         }
     }
-    pid = cJSON_GetObjectItem(post, "id");
-    cJSON *vote_counts = db_post_vote_counts(req->db, pid->valueint);
+    cJSON *vote_counts = db_post_vote_counts(req->db, post_id);
     int vote_up = 0, vote_down = 0, user_vote = 0;
     if (vote_counts) {
         cJSON *vu = cJSON_GetObjectItem(vote_counts, "up");
@@ -89,9 +88,9 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
         if (vd && vd->type == cJSON_Number) vote_down = (int)vd->valuedouble;
         cJSON_Delete(vote_counts);
     }
-    if (uid > 0) user_vote = db_post_user_vote(req->db, pid->valueint, uid);
+    if (uid > 0) user_vote = db_post_user_vote(req->db, post_id, uid);
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp);
+    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, uid);
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
     if (comments) cJSON_Delete(comments);
@@ -243,6 +242,12 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res) {
     if (!id_str) { redirect(res, "/"); return; }
     cJSON *post = db_post_get_by_id(req->db, atoi(id_str));
     if (!post) { redirect(res, "/"); return; }
+    if (!is_author_or_admin(post, uid, role)) {
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Forbidden");
+        cJSON_Delete(post);
+        return;
+    }
     cJSON *boards = db_board_list(req->db);
     char *pp = get_profile_pic(req->db, uid, role);
     cwist_sstring *page = render_post_editor(boards, post, is_dark(req), role, NULL, pp);
@@ -262,6 +267,16 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     const char *content = form_kv_get(kv, "content");
     const char *summary = form_kv_get(kv, "summary");
     if (!id_str || !title || !content) { redirect(res, "/"); form_kv_free(kv); return; }
+    cJSON *post = db_post_get_by_id(req->db, atoi(id_str));
+    if (!post) { redirect(res, "/"); form_kv_free(kv); return; }
+    if (!is_author_or_admin(post, uid, role)) {
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Forbidden");
+        cJSON_Delete(post);
+        form_kv_free(kv);
+        return;
+    }
+    cJSON_Delete(post);
     char *t = sql_esc(title); char *c = sql_esc(content); char *s = sql_esc(summary ? summary : "");
     size_t msg_len2 = (title ? strlen(title) : 0) + 1 + (content ? strlen(content) : 0);
     char *msg2 = (char *)cwist_alloc(msg_len2 + 1);
@@ -280,7 +295,17 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     const char *id_str = cwist_query_map_get(req->path_params, "id");
-    if (id_str) db_post_delete(req->db, atoi(id_str));
+    if (!id_str) { redirect(res, "/"); return; }
+    cJSON *post = db_post_get_by_id(req->db, atoi(id_str));
+    if (!post) { redirect(res, "/"); return; }
+    if (!is_author_or_admin(post, uid, role)) {
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Forbidden");
+        cJSON_Delete(post);
+        return;
+    }
+    cJSON_Delete(post);
+    db_post_delete(req->db, atoi(id_str));
     redirect(res, "/");
 }
 

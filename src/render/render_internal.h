@@ -10,5 +10,6 @@ cwist_sstring *build_form(const char *title, const char *action, const char *met
 char *format_join_date(const char *iso_date);
 
 extern const char *login_register_script;
+int json_int(cJSON *obj, const char *key, int def);
 
 #endif

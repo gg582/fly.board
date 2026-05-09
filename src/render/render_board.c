@@ -36,9 +36,8 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
             cwist_sstring_append_escaped(b, name->valuestring);
             cwist_sstring_append(b, "</h2></a>");
             if (user_role && strcmp(user_role, "admin") == 0) {
-                cJSON *bid = cJSON_GetObjectItem(bo, "id");
                 char bid_buf[32];
-                snprintf(bid_buf, sizeof(bid_buf), "%d", bid->valueint);
+                snprintf(bid_buf, sizeof(bid_buf), "%d", json_int(bo, "id", 0));
                 cwist_sstring_append(b, "<a href='/board/");
                 cwist_sstring_append(b, bid_buf);
                 cwist_sstring_append(b, "/delete' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete this board? This action cannot be undone.\")'>Delete</a>");
@@ -98,7 +97,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
                     if (pviews) {
                         cwist_sstring_append(b, "<span class='post-badge'>&#128065; ");
                         char views_buf[32];
-                        snprintf(views_buf, sizeof(views_buf), "%d", pviews->valueint);
+                        snprintf(views_buf, sizeof(views_buf), "%d", json_int(p, "view_count", 0));
                         cwist_sstring_append(b, views_buf);
                         cwist_sstring_append(b, "</span>");
                     }
@@ -147,14 +146,12 @@ cwist_sstring *render_board_form(cJSON *board, bool dark, const char *error, con
     cwist_sstring_append(fields, "'>");
     cwist_sstring_append(fields, "<label><input type='checkbox' name='admin_only' value='1' ");
     if (board) {
-        cJSON *ao = cJSON_GetObjectItem(board, "admin_only");
-        if (ao && ao->valueint) cwist_sstring_append(fields, "checked");
+        if (json_int(board, "admin_only", 0)) cwist_sstring_append(fields, "checked");
     }
     cwist_sstring_append(fields, "> Admin-only board</label>");
     if (board) {
-        cJSON *bid = cJSON_GetObjectItem(board, "id");
         char bid_buf[32];
-        snprintf(bid_buf, sizeof(bid_buf), "%d", bid->valueint);
+        snprintf(bid_buf, sizeof(bid_buf), "%d", json_int(board, "id", 0));
         cwist_sstring_append(fields, "<input type='hidden' name='id' value='");
         cwist_sstring_append(fields, bid_buf);
         cwist_sstring_append(fields, "'>");
@@ -185,9 +182,8 @@ cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool
     }
 
     cwist_sstring_append(b, "<form action='/board/perms' method='post'>");
-    cJSON *bid = cJSON_GetObjectItem(board, "id");
     char bid_buf[32];
-    snprintf(bid_buf, sizeof(bid_buf), "%d", bid ? bid->valueint : 0);
+    snprintf(bid_buf, sizeof(bid_buf), "%d", json_int(board, "id", 0));
     cwist_sstring_append(b, "<input type='hidden' name='board_id' value='");
     cwist_sstring_append(b, bid_buf);
     cwist_sstring_append(b, "'>");
@@ -197,17 +193,15 @@ cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool
         for (int i = 0; i < n; i++) {
             cJSON *u = cJSON_GetArrayItem(users, i);
             if (!u) continue;
-            cJSON *uid = cJSON_GetObjectItem(u, "id");
             cJSON *uname = cJSON_GetObjectItem(u, "username");
-            if (!uid || !uname) continue;
+            if (!uname) continue;
 
             bool has_perm = false;
             if (perms) {
                 int pn = cJSON_GetArraySize(perms);
                 for (int j = 0; j < pn; j++) {
                     cJSON *pu = cJSON_GetArrayItem(perms, j);
-                    cJSON *puid = cJSON_GetObjectItem(pu, "id");
-                    if (puid && puid->valueint == uid->valueint) {
+                    if (json_int(pu, "id", 0) == json_int(u, "id", 0)) {
                         has_perm = true;
                         break;
                     }
@@ -216,7 +210,7 @@ cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool
             if (has_perm) continue;
 
             char uid_buf[32];
-            snprintf(uid_buf, sizeof(uid_buf), "%d", uid->valueint);
+            snprintf(uid_buf, sizeof(uid_buf), "%d", json_int(u, "id", 0));
             cwist_sstring_append(b, "<option value='");
             cwist_sstring_append(b, uid_buf);
             cwist_sstring_append(b, "'>");
@@ -235,7 +229,6 @@ cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool
         for (int i = 0; i < n; i++) {
             cJSON *u = cJSON_GetArrayItem(perms, i);
             if (!u) continue;
-            cJSON *uid = cJSON_GetObjectItem(u, "id");
             cJSON *uname = cJSON_GetObjectItem(u, "username");
             cwist_sstring_append(b, "<li>");
             cwist_sstring_append_escaped(b, uname ? uname->valuestring : "?");
@@ -245,7 +238,7 @@ cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool
             cwist_sstring_append(b, "'>");
             cwist_sstring_append(b, "<input type='hidden' name='user_id' value='");
             char uid_buf[32];
-            snprintf(uid_buf, sizeof(uid_buf), "%d", uid ? uid->valueint : 0);
+            snprintf(uid_buf, sizeof(uid_buf), "%d", json_int(u, "id", 0));
             cwist_sstring_append(b, uid_buf);
             cwist_sstring_append(b, "'>");
             cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Revoke</button>");
