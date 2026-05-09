@@ -783,10 +783,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
                 cwist_sstring_append(b, "<div style='margin-top:10px;display:flex;gap:8px'>");
                 cwist_sstring_append(b, "<a href='/board/");
                 cwist_sstring_append(b, bid_buf);
-                cwist_sstring_append(b, "/edit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Edit</a>");
-                cwist_sstring_append(b, "<a href='/board/");
-                cwist_sstring_append(b, bid_buf);
-                cwist_sstring_append(b, "/perms' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Perms</a>");
+                cwist_sstring_append(b, "/delete' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete this board? This action cannot be undone.\")'>Delete</a>");
                 cwist_sstring_append(b, "</div>");
             }
             cwist_sstring_append(b, "</article>");
