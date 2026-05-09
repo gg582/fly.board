@@ -542,7 +542,6 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     if (pqc_verified) {
         cwist_sstring_append(b, "<span style='color:var(--accent);font-size:13px;font-weight:700'>&#128274; PQC Verified</span>");
     } else {
-        cwist_sstring_append(b, "<span style='color:#ef4444;font-size:13px;font-weight:700'>&#9888; Signature Invalid</span>");
     }
     cwist_sstring_append(b, "</div>");
     cwist_sstring_append(b, "<h1 style='margin-bottom:6px'>");
