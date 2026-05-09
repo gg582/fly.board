@@ -53,8 +53,9 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *profile_pic
     cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>Large files (&gt;1MB) are stored on volume; small files in DB.</small>");
     cwist_sstring_append(b, "</form></div>");
 
-    cwist_sstring_append(b, "<h3 style='margin-top:28px'>Files</h3><div class='post-grid'>");
-    if (files) {
+    cwist_sstring_append(b, "<h3 style='margin-top:28px'>Files</h3>");
+    if (files && cJSON_GetArraySize(files) > 0) {
+        cwist_sstring_append(b, "<div class='post-grid'>");
         int n = cJSON_GetArraySize(files);
         for (int i = 0; i < n; i++) {
             cJSON *f = cJSON_GetArrayItem(files, i);
@@ -85,8 +86,10 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *profile_pic
             cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Delete</button></form></div>");
             cwist_sstring_append(b, "</article>");
         }
+        cwist_sstring_append(b, "</div>");
+    } else {
+        cwist_sstring_append(b, "<div class='card' style='text-align:center;padding:40px 20px;color:var(--muted);'>No files uploaded yet.</div>");
     }
-    cwist_sstring_append(b, "</div>");
     cwist_sstring *page = render_page("Files", b->data, dark, "", profile_pic);
     cwist_sstring_destroy(b);
     return page;
