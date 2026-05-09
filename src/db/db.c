@@ -351,6 +351,16 @@ cJSON *db_post_recent(cwist_db *db, int limit) {
     return db_post_list(db, 0, limit, 0);
 }
 
+cJSON *db_post_recent_by_board(cwist_db *db, int board_id, int limit) {
+    char sql[1024];
+    snprintf(sql, sizeof(sql),
+        "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.board_id=%d ORDER BY p.created_at DESC LIMIT %d",
+        board_id, limit);
+    cJSON *res = NULL;
+    cwist_db_query(db, sql, &res);
+    return res;
+}
+
 int db_post_count(cwist_db *db, int board_id) {
     char sql[512];
     if (board_id > 0) {

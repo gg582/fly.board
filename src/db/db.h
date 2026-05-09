@@ -41,6 +41,7 @@ cJSON *db_post_get_by_slug(cwist_db *db, const char *slug);
 cJSON *db_post_get_by_id(cwist_db *db, int id);
 cJSON *db_post_list(cwist_db *db, int board_id, int limit, int offset);
 cJSON *db_post_recent(cwist_db *db, int limit);
+cJSON *db_post_recent_by_board(cwist_db *db, int board_id, int limit);
 int db_post_count(cwist_db *db, int board_id);
 
 /* Files */

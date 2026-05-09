@@ -1,5 +1,5 @@
-#ifndef DOCKER_BLOG_HANDLERS_H
-#define DOCKER_BLOG_HANDLERS_H
+#ifndef FLYBOARD_HANDLERS_H
+#define FLYBOARD_HANDLERS_H
 
 #include <cwist/net/http/http.h>
 

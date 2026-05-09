@@ -88,7 +88,7 @@ static void rule_base(cwist_css_builder_t *css) {
 
 static void rule_layout(cwist_css_builder_t *css) {
     cwist_css_rule_t *shell = cwist_css_rule_create(".shell");
-    add_decl(shell, "max-width", "1100px");
+    add_decl(shell, "max-width", "1400px");
     add_decl(shell, "margin", "0 auto");
     add_decl(shell, "padding", "24px");
     cwist_css_builder_add_rule(css, shell);
@@ -203,6 +203,10 @@ static void rule_components(cwist_css_builder_t *css) {
     add_decl(btnh, "transform", "scale(1.02)");
     cwist_css_builder_add_rule(css, btnh);
 
+    cwist_css_rule_t *btna = cwist_css_rule_create(".btn:active");
+    add_decl(btna, "transform", "scale(0.98)");
+    cwist_css_builder_add_rule(css, btna);
+
     cwist_css_rule_t *btn2 = cwist_css_rule_create(".btn-outline");
     add_decl(btn2, "background", "transparent");
     add_decl(btn2, "color", "var(--accent)");
@@ -225,6 +229,11 @@ static void rule_components(cwist_css_builder_t *css) {
     add_decl(inputf, "border-color", "var(--accent)");
     add_decl(inputf, "box-shadow", "0 0 0 3px rgba(20,184,166,0.15)");
     cwist_css_builder_add_rule(css, inputf);
+
+    cwist_css_rule_t *placeholder = cwist_css_rule_create("::placeholder");
+    add_decl(placeholder, "color", "var(--muted)");
+    add_decl(placeholder, "opacity", "0.7");
+    cwist_css_builder_add_rule(css, placeholder);
 
     cwist_css_rule_t *label = cwist_css_rule_create("label");
     add_decl(label, "display", "block");
@@ -316,11 +325,21 @@ static void rule_home(cwist_css_builder_t *css) {
     add_decl(tag, "color", "var(--accent)");
     add_decl(tag, "margin-right", "6px");
     cwist_css_builder_add_rule(css, tag);
+
+    cwist_css_rule_t *board_sec = cwist_css_rule_create(".board-section");
+    add_decl(board_sec, "background", "var(--panel)");
+    add_decl(board_sec, "border", "1px solid var(--border)");
+    add_decl(board_sec, "border-radius", "12px");
+    add_decl(board_sec, "padding", "20px");
+    add_decl(board_sec, "box-shadow", "0 2px 8px var(--shadow)");
+    cwist_css_builder_add_rule(css, board_sec);
 }
 
 static void rule_markdown(cwist_css_builder_t *css) {
     cwist_css_rule_t *md = cwist_css_rule_create(".markdown-body");
-    add_decl(md, "line-height", "1.75");
+    add_decl(md, "max-width", "720px");
+    add_decl(md, "margin", "0 auto");
+    add_decl(md, "line-height", "1.8");
     cwist_css_builder_add_rule(css, md);
 
     cwist_css_rule_t *md_img = cwist_css_rule_create(".markdown-body img, .markdown-body video, .markdown-body audio");
@@ -342,6 +361,22 @@ static void rule_markdown(cwist_css_builder_t *css) {
     add_decl(md_pre, "border", "1px solid var(--border)");
     cwist_css_builder_add_rule(css, md_pre);
 
+    cwist_css_rule_t *md_code = cwist_css_rule_create(".markdown-body code:not(pre code)");
+    add_decl(md_code, "background", "var(--code-bg)");
+    add_decl(md_code, "padding", "2px 6px");
+    add_decl(md_code, "border-radius", "4px");
+    add_decl(md_code, "font-size", "0.92em");
+    cwist_css_builder_add_rule(css, md_code);
+
+    cwist_css_rule_t *md_blockquote = cwist_css_rule_create(".markdown-body blockquote");
+    add_decl(md_blockquote, "border-left", "4px solid var(--accent)");
+    add_decl(md_blockquote, "background", "var(--hover)");
+    add_decl(md_blockquote, "padding", "12px 16px");
+    add_decl(md_blockquote, "margin", "18px 0");
+    add_decl(md_blockquote, "border-radius", "0 8px 8px 0");
+    add_decl(md_blockquote, "font-style", "italic");
+    cwist_css_builder_add_rule(css, md_blockquote);
+
     cwist_css_rule_t *md_tbl = cwist_css_rule_create(".markdown-body table");
     add_decl(md_tbl, "border-collapse", "collapse");
     add_decl(md_tbl, "width", "100%");
@@ -353,9 +388,13 @@ static void rule_markdown(cwist_css_builder_t *css) {
     add_decl(md_thtd, "padding", "8px 10px");
     cwist_css_builder_add_rule(css, md_thtd);
 
+    cwist_css_rule_t *md_zebra = cwist_css_rule_create(".markdown-body tbody tr:nth-child(even)");
+    add_decl(md_zebra, "background", "var(--hover)");
+    cwist_css_builder_add_rule(css, md_zebra);
+
     cwist_css_rule_t *md_h = cwist_css_rule_create(".markdown-body h1, .markdown-body h2, .markdown-body h3");
-    add_decl(md_h, "margin-top", "28px");
-    add_decl(md_h, "margin-bottom", "12px");
+    add_decl(md_h, "margin-top", "36px");
+    add_decl(md_h, "margin-bottom", "16px");
     add_decl(md_h, "letter-spacing", "-0.3px");
     cwist_css_builder_add_rule(css, md_h);
 }

@@ -8,7 +8,7 @@ MD4C_OBJS := $(MD4C_DIR)/build/md4c.o $(MD4C_DIR)/build/md4c-html.o $(MD4C_DIR)/
 
 MULTIPART_DIR := third_party/multipart-parser-c
 
-SRCS := src/main.c src/db/db.c src/auth/auth.c src/crypto/fly_crypto.c src/render/theme.c src/render/render.c src/handlers/handlers.c src/utils/utils.c src/nats/fly_nats.c src/core/log.c src/config/config.c $(MULTIPART_DIR)/multipart_parser.c
+SRCS := src/main.c src/db/db.c src/auth/auth.c src/crypto/fly_crypto.c src/render/theme.c src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/handlers/handlers.c src/utils/utils.c src/nats/fly_nats.c src/core/log.c src/config/config.c $(MULTIPART_DIR)/multipart_parser.c
 OBJS := $(SRCS:.c=.o)
 
 CFLAGS := -Wall -Wextra -O2 \
