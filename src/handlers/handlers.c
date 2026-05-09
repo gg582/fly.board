@@ -73,9 +73,9 @@ static int json_int(cJSON *obj, const char *key, int def) {
 
 static cJSON *board_by_route_key(cwist_db *db, const char *key) {
     if (!key || !key[0]) return NULL;
-    char *end = NULL;
+    char *end;
     long id = strtol(key, &end, 10);
-    if (end && *end == '\0' && id > 0 && id <= INT_MAX) return db_board_get_by_id(db, (int)id);
+    if (*end == '\0' && id > 0 && id <= INT_MAX) return db_board_get_by_id(db, (int)id);
     return db_board_get_by_slug(db, key);
 }
 
