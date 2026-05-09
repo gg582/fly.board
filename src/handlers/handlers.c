@@ -511,12 +511,84 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
     const char *slug = form_kv_get(kv, "slug");
     const char *desc = form_kv_get(kv, "description");
     const char *ao = form_kv_get(kv, "admin_only");
-    if (!id_str || !name || !slug) { redirect(res, "/boards"); form_kv_free(kv); return; }
+
+    int uid = 0; char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    char *pp = get_profile_pic(req->db, uid, role);
+
+    const char *error = NULL;
+    cJSON *board = NULL;
+    int bid = 0;
+
+    if (id_str) {
+        bid = atoi(id_str);
+        board = db_board_get_by_id(req->db, bid);
+    }
+
+    if (!id_str || !name || !slug) {
+        error = "All fields are required.";
+    } else {
+        size_t name_len = strlen(name);
+        size_t slug_len = strlen(slug);
+        if (name_len == 0 || slug_len == 0) error = "Name and slug cannot be empty.";
+        else if (name_len > 80) error = "Name is too long (max 80 characters).";
+        else if (slug_len > 80) error = "Slug is too long (max 80 characters).";
+        else {
+            for (const char *p = slug; *p && !error; p++) {
+                if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '-' || *p == '_')) {
+                    error = "Slug may only contain lowercase letters, numbers, hyphens and underscores.";
+                }
+            }
+        }
+    }
+
+    if (!error && !board) {
+        error = "Board not found.";
+    }
+
+    if (!error) {
+        cJSON *existing = db_board_get_by_slug(req->db, slug);
+        if (existing) {
+            cJSON *eid = cJSON_GetObjectItem(existing, "id");
+            if (!eid || eid->valueint != bid) {
+                error = "A board with this slug already exists.";
+            }
+            cJSON_Delete(existing);
+        }
+    }
+
+    if (error) {
+        cwist_sstring *page = render_board_form(board, is_dark(req), error, pp);
+        if (board) cJSON_Delete(board);
+        send_html_res(res, page);
+        free(pp);
+        form_kv_free(kv);
+        return;
+    }
+
     char *n = sql_esc(name); char *s = sql_esc(slug); char *d = sql_esc(desc ? desc : "");
-    db_board_update(req->db, atoi(id_str), n, s, d, ao != NULL);
+    if (!db_board_update(req->db, bid, n, s, d, ao != NULL)) {
+        cwist_sstring *page = render_board_form(board, is_dark(req), "Failed to update board.", pp);
+        send_html_res(res, page);
+        cJSON_Delete(board);
+        cwist_free(n); cwist_free(s); cwist_free(d);
+        free(pp);
+        form_kv_free(kv);
+        return;
+    }
+
+    cJSON *slug_obj = cJSON_GetObjectItem(board, "slug");
+    char redirect_url[128];
+    if (slug_obj && slug_obj->valuestring) {
+        snprintf(redirect_url, sizeof(redirect_url), "/board/%s", slug_obj->valuestring);
+    } else {
+        strcpy(redirect_url, "/boards");
+    }
+    cJSON_Delete(board);
     cwist_free(n); cwist_free(s); cwist_free(d);
+    free(pp);
     form_kv_free(kv);
-    redirect(res, "/boards");
+    redirect(res, redirect_url);
 }
 
 void handler_board_delete(cwist_http_request *req, cwist_http_response *res) {
@@ -532,12 +604,14 @@ void handler_board_perms_get(cwist_http_request *req, cwist_http_response *res) 
     if (!id_str) { redirect(res, "/boards"); return; }
     int bid = atoi(id_str);
     cJSON *board = db_board_get_by_id(req->db, bid);
+    if (!board) { redirect(res, "/boards"); return; }
     cJSON *perms = db_board_perm_list(req->db, bid);
     cJSON *users = db_user_list(req->db);
     int uid = 0; char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page = render_board_perms(board, perms, users, is_dark(req), pp);
+    const char *msg = cwist_query_map_get(req->query_params, "msg");
+    cwist_sstring *page = render_board_perms(board, perms, users, is_dark(req), msg, pp);
     cJSON_Delete(board);
     if (perms) cJSON_Delete(perms);
     if (users) cJSON_Delete(users);
@@ -549,10 +623,23 @@ void handler_board_perms_post(cwist_http_request *req, cwist_http_response *res)
     if (!auth_require_admin(req, res)) return;
     form_kv_t *kv = parse_urlencoded(req->body->data);
     const char *bid = form_kv_get(kv, "board_id");
-    const char *uid = form_kv_get(kv, "user_id");
-    if (bid && uid) db_board_perm_grant(req->db, atoi(bid), atoi(uid));
+    const char *uid_str = form_kv_get(kv, "user_id");
+    const char *msg = "error";
+    if (bid && uid_str) {
+        int board_id = atoi(bid);
+        int user_id = atoi(uid_str);
+        if (board_id > 0 && user_id > 0) {
+            if (db_board_perm_grant(req->db, board_id, user_id)) {
+                msg = "granted";
+            } else {
+                msg = "exists";
+            }
+        }
+    }
     form_kv_free(kv);
-    char url[128]; snprintf(url, sizeof(url), "/board/%s/perms", bid ? bid : "");
+    if (!bid) { redirect(res, "/boards"); return; }
+    char url[128];
+    snprintf(url, sizeof(url), "/board/%s/perms?msg=%s", bid, msg);
     redirect(res, url);
 }
 
@@ -560,10 +647,19 @@ void handler_board_perms_revoke_post(cwist_http_request *req, cwist_http_respons
     if (!auth_require_admin(req, res)) return;
     form_kv_t *kv = parse_urlencoded(req->body->data);
     const char *bid = form_kv_get(kv, "board_id");
-    const char *uid = form_kv_get(kv, "user_id");
-    if (bid && uid) db_board_perm_revoke(req->db, atoi(bid), atoi(uid));
+    const char *uid_str = form_kv_get(kv, "user_id");
+    const char *msg = "error";
+    if (bid && uid_str) {
+        int board_id = atoi(bid);
+        int user_id = atoi(uid_str);
+        if (board_id > 0 && user_id > 0 && db_board_perm_revoke(req->db, board_id, user_id)) {
+            msg = "revoked";
+        }
+    }
     form_kv_free(kv);
-    char url[128]; snprintf(url, sizeof(url), "/board/%s/perms", bid ? bid : "");
+    if (!bid) { redirect(res, "/boards"); return; }
+    char url[128];
+    snprintf(url, sizeof(url), "/board/%s/perms?msg=%s", bid, msg);
     redirect(res, url);
 }
 
