@@ -21,16 +21,9 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(vp, "content", "width=device-width, initial-scale=1");
     cwist_html_element_t *title_el = cwist_html_element_create("title");
     cwist_html_element_set_text(title_el, title);
-    cwist_html_element_t *style = cwist_html_element_create("link");
-    cwist_html_element_add_attr(style, "rel", "stylesheet");
-    char css_url[64];
-    snprintf(css_url, sizeof(css_url), "/theme.css?mode=%s", dark ? "dark" : "light");
-    cwist_html_element_add_attr(style, "href", css_url);
-
     cwist_html_element_add_child(head, meta);
     cwist_html_element_add_child(head, vp);
     cwist_html_element_add_child(head, title_el);
-    cwist_html_element_add_child(head, style);
 
     /* Highlight.js syntax highlighting */
     cwist_html_element_t *hl_css = cwist_html_element_create("link");
@@ -51,16 +44,34 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "document.addEventListener('DOMContentLoaded',function(){hljs.highlightAll();});");
     cwist_html_element_add_child(head, hl_init);
 
-    /* Inline theme toggle script */
+    /* Progressive multi-theme loader */
+    cwist_html_element_t *dyn_style = cwist_html_element_create("style");
+    cwist_html_element_add_attr(dyn_style, "id", "dyn-theme");
+    cwist_html_element_add_child(head, dyn_style);
+
     cwist_html_element_t *script = cwist_html_element_create("script");
     cwist_html_element_set_text(script,
         "(function(){"
-        "var d=document.documentElement,c=document.cookie.match(/theme=dark/);"
-        "if(c)d.classList.add('dark');"
-        "window.toggleTheme=function(){"
-        "var nd=!d.classList.contains('dark');"
-        "document.cookie='theme='+(nd?'dark':'light')+';path=/;max-age=31536000';"
-        "location.reload();};"
+        "var CACHE_KEY='fly_themes';"
+        "function buildCss(t){var css='';for(var k in t.vars)css+=k+':'+t.vars[k]+';';css=':root{'+css+'}';"
+        "for(var i=0;i<t.rules.length;i++){var r=t.rules[i];css+=r.sel+'{';for(var d in r.decls)css+=d+':'+r.decls[d]+';';css+='}';}return css;}"
+        "function applyTheme(t){var s=document.getElementById('dyn-theme');if(s)s.textContent=buildCss(t);}"
+        "function findTheme(arr,name){for(var i=0;i<arr.length;i++)if(arr[i].name===name)return arr[i];return arr[0];}"
+        "var d=document.documentElement;var stored=localStorage.getItem(CACHE_KEY);var themes=null;"
+        "try{var p=JSON.parse(stored);if(Array.isArray(p))themes=p;}catch(e){}"
+        "var c=document.cookie.match(/theme=(\\w+)/);var mode=c?c[1]:(d.classList.contains('dark')?'dark':'light');"
+        "if(!/^(light|dark|ocean|forest|sepia)$/.test(mode))mode='light';"
+        "function applyCached(){if(themes){applyTheme(findTheme(themes,mode));}}"
+        "applyCached();"
+        "fetch('/themes.json').then(function(r){return r.json();}).then(function(arr){"
+        "localStorage.setItem(CACHE_KEY,JSON.stringify(arr));themes=arr;applyTheme(findTheme(arr,mode));});"
+        "window.toggleTheme=function(name){"
+        "if(!name)name=(mode==='light'?'dark':'light');mode=name;"
+        "document.cookie='theme='+mode+';path=/;max-age=31536000';"
+        "if(themes){applyTheme(findTheme(themes,mode));return;}"
+        "fetch('/themes.json').then(function(r){return r.json();}).then(function(arr){"
+        "localStorage.setItem(CACHE_KEY,JSON.stringify(arr));themes=arr;applyTheme(findTheme(arr,mode));});"
+        "};"
         "})();");
     cwist_html_element_add_child(head, script);
 

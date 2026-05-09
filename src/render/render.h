@@ -11,8 +11,8 @@ cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *profi
 cwist_sstring *render_password_change(bool dark, const char *error);
 cwist_sstring *render_login(bool dark, const char *error);
 cwist_sstring *render_register(bool dark, const char *error);
-cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *profile_pic);
-cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, const char *profile_pic);
+cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *profile_pic);
+cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic);
 cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const char *user_role, const char *profile_pic);
 cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, bool dark, const char *user_role, const char *error, const char *profile_pic);
 cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role, const char *profile_pic);

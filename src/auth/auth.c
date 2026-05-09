@@ -6,8 +6,11 @@
 #include <openssl/rand.h>
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
+#include <openssl/opensslv.h>
+#if OPENSSL_VERSION_MAJOR >= 3
 #include <openssl/core_names.h>
 #include <openssl/params.h>
+#endif
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,15 +60,34 @@ static bool legacy_verify_password(const char *prehash, const char *hash) {
     return strcmp(derived, key_hex) == 0;
 }
 
+/* PBKDF2-HMAC-SHA256 hash for OpenSSL < 3 or fallback */
+static bool pbkdf2_hash(const char *password, char *out_hash, size_t out_len) {
+    unsigned char salt[16];
+    if (RAND_bytes(salt, sizeof(salt)) != 1) return false;
+    int iterations = 100000;
+    unsigned char key[32];
+    if (!PKCS5_PBKDF2_HMAC(password, (int)strlen(password), salt, sizeof(salt), iterations, EVP_sha256(), sizeof(key), key))
+        return false;
+    char salt_hex[33];
+    for (int i = 0; i < 16; i++) snprintf(salt_hex + i*2, 3, "%02x", salt[i]);
+    salt_hex[32] = '\0';
+    char key_hex[65];
+    for (int i = 0; i < 32; i++) snprintf(key_hex + i*2, 3, "%02x", key[i]);
+    key_hex[64] = '\0';
+    snprintf(out_hash, out_len, "%s:%d:%s", salt_hex, iterations, key_hex);
+    return true;
+}
+
+#if OPENSSL_VERSION_MAJOR >= 3
 static bool argon2id_hash(const char *password, char *out_hash, size_t out_len) {
     unsigned char salt[32];
     if (RAND_bytes(salt, sizeof(salt)) != 1) return false;
 
     EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2ID", NULL);
-    if (!kdf) return false;
+    if (!kdf) return pbkdf2_hash(password, out_hash, out_len);
     EVP_KDF_CTX *kctx = EVP_KDF_CTX_new(kdf);
     EVP_KDF_free(kdf);
-    if (!kctx) return false;
+    if (!kctx) return pbkdf2_hash(password, out_hash, out_len);
 
     int lanes = 4;
     size_t memcost = 65536;
@@ -85,7 +107,7 @@ static bool argon2id_hash(const char *password, char *out_hash, size_t out_len) 
     unsigned char key[64];
     if (EVP_KDF_derive(kctx, key, sizeof(key), params) != 1) {
         EVP_KDF_CTX_free(kctx);
-        return false;
+        return pbkdf2_hash(password, out_hash, out_len);
     }
     EVP_KDF_CTX_free(kctx);
 
@@ -143,6 +165,15 @@ static bool argon2id_verify(const char *password, const char *hash) {
     derived_hex[128] = '\0';
     return strcmp(derived_hex, key_hex) == 0;
 }
+#else
+static bool argon2id_hash(const char *password, char *out_hash, size_t out_len) {
+    return pbkdf2_hash(password, out_hash, out_len);
+}
+static bool argon2id_verify(const char *password, const char *hash) {
+    (void)password; (void)hash;
+    return false;
+}
+#endif
 
 bool auth_hash_password(const char *password, char *out_hash, size_t out_len) {
     char combined[512];

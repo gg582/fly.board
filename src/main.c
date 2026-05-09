@@ -98,7 +98,9 @@ int main(void) {
 
     /* Routes */
     cwist_app_get(app, "/", handler_home);
-    cwist_app_get(app, "/theme.css", handler_theme_css);
+    cwist_app_get(app, "/theme.json", handler_theme_json);
+    cwist_app_get(app, "/themes.json", handler_themes_json);
+    cwist_app_get(app, "/rss.xml", handler_rss_xml);
 
     cwist_app_get(app, "/login", handler_login_get);
     cwist_app_post(app, "/login", handler_login_post);
@@ -145,6 +147,7 @@ int main(void) {
 
     cwist_app_post(app, "/api/preview", handler_api_preview);
     cwist_app_post(app, "/api/upload", handler_api_upload);
+    cwist_app_post(app, "/post/vote", handler_post_vote);
 
     printf("Docker Blog: https://localhost:%d (HTTP/3 on UDP %d)\n", g_config.port, g_config.port);
     int rc = cwist_app_listen(app, g_config.port);

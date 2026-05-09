@@ -7,6 +7,7 @@
 #include "../render/render.h"
 #include "../render/theme.h"
 #include "../utils/utils.h"
+#include "../config/config.h"
 #include <cwist/core/sstring/sstring.h>
 #include <unistd.h>
 #include <cwist/core/mem/alloc.h>
@@ -104,24 +105,22 @@ void handler_home(cwist_http_request *req, cwist_http_response *res) {
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *posts = db_post_recent(req->db, 12);
     cJSON *boards = db_board_list(req->db);
-    cwist_sstring *page = render_post_list(posts, boards, dark, role, 1, 1, NULL, pp);
+    cwist_sstring *page = render_post_list(posts, boards, dark, role, 1, 1, NULL, NULL, pp);
     if (posts) cJSON_Delete(posts);
     if (boards) cJSON_Delete(boards);
     send_html_res(res, page);
     free(pp);
 }
 
-/* ---- Theme CSS ---- */
-void handler_theme_css(cwist_http_request *req, cwist_http_response *res) {
+/* ---- Theme JSON ---- */
+void handler_theme_json(cwist_http_request *req, cwist_http_response *res) {
     const char *mode = cwist_query_map_get(req->query_params, "mode");
     bool dark = mode && strcmp(mode, "dark") == 0;
-    cwist_css_builder_t *css = theme_build(dark);
-    cwist_sstring *rendered = cwist_css_render(css);
-    cwist_css_builder_destroy(css);
-    cwist_http_header_add(&res->headers, "Content-Type", "text/css; charset=utf-8");
-    if (rendered) {
-        cwist_sstring_assign(res->body, rendered->data);
-        cwist_sstring_destroy(rendered);
+    char *json = theme_build_json(dark);
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
+    if (json) {
+        cwist_sstring_assign(res->body, json);
+        free(json);
     }
 }
 
@@ -506,7 +505,7 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
     const char *ao = form_kv_get(kv, "admin_only");
     if (!name || !slug) { redirect(res, "/board/new"); form_kv_free(kv); return; }
     char *n = sql_esc(name); char *s = sql_esc(slug); char *d = sql_esc(desc ? desc : "");
-    db_board_create(req->db, n, s, d, ao != NULL);
+    db_board_create(req->db, n, s, d, ao != NULL, 0, 0, 0);
     cwist_free(n); cwist_free(s); cwist_free(d);
     form_kv_free(kv);
     redirect(res, "/boards");
@@ -591,7 +590,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
     }
 
     char *n = sql_esc(name); char *s = sql_esc(slug); char *d = sql_esc(desc ? desc : "");
-    if (!db_board_update(req->db, bid, n, s, d, ao != NULL)) {
+    if (!db_board_update(req->db, bid, n, s, d, ao != NULL, 0, 0, 0)) {
         cwist_sstring *page = render_board_form(board, is_dark(req), "Failed to update board.", pp);
         send_html_res(res, page);
         cJSON_Delete(board);
@@ -702,6 +701,7 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     if (page_str) page = atoi(page_str);
     if (page < 1) page = 1;
     int per_page = 20;
+    const char *search = cwist_query_map_get(req->query_params, "search");
     if (slug) {
         cJSON *board = db_board_get_by_slug(req->db, slug);
         if (board) {
@@ -718,22 +718,22 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
                 if (boards) cJSON_Delete(boards);
                 return;
             }
-            int total = db_post_count(req->db, bid);
+            int total = db_post_count_search(req->db, bid, search);
             total_pages = (total + per_page - 1) / per_page;
             if (total_pages < 1) total_pages = 1;
             if (page > total_pages) page = total_pages;
-            posts = db_post_list(req->db, bid, per_page, (page - 1) * per_page);
+            posts = db_post_list_search(req->db, bid, search, per_page, (page - 1) * per_page);
             cJSON_Delete(board);
         }
     } else {
-        int total = db_post_count(req->db, 0);
+        int total = db_post_count_search(req->db, 0, search);
         total_pages = (total + per_page - 1) / per_page;
         if (total_pages < 1) total_pages = 1;
         if (page > total_pages) page = total_pages;
-        posts = db_post_list(req->db, 0, per_page, (page - 1) * per_page);
+        posts = db_post_list_search(req->db, 0, search, per_page, (page - 1) * per_page);
     }
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page_html = render_post_list(posts, boards, dark, role, page, total_pages, slug, pp);
+    cwist_sstring *page_html = render_post_list(posts, boards, dark, role, page, total_pages, slug, search, pp);
     if (posts) cJSON_Delete(posts);
     if (boards) cJSON_Delete(boards);
     send_html_res(res, page_html);
@@ -750,6 +750,7 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     cJSON *post = db_post_get_by_slug(req->db, slug);
     if (!post) { res->status_code = CWIST_HTTP_NOT_FOUND; cwist_sstring_assign(res->body, "Not found"); return; }
     cJSON *pid = cJSON_GetObjectItem(post, "id");
+    db_post_increment_view(req->db, pid->valueint);
     cJSON *files = db_file_list_by_post(req->db, pid->valueint);
     cJSON *comments = db_comment_list_by_target(req->db, "post", pid->valueint);
     bool verified = false;
@@ -765,8 +766,19 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
             cwist_free(msg);
         }
     }
+    pid = cJSON_GetObjectItem(post, "id");
+    cJSON *vote_counts = db_post_vote_counts(req->db, pid->valueint);
+    int vote_up = 0, vote_down = 0, user_vote = 0;
+    if (vote_counts) {
+        cJSON *vu = cJSON_GetObjectItem(vote_counts, "up");
+        cJSON *vd = cJSON_GetObjectItem(vote_counts, "down");
+        if (vu && vu->type == cJSON_Number) vote_up = (int)vu->valuedouble;
+        if (vd && vd->type == cJSON_Number) vote_down = (int)vd->valuedouble;
+        cJSON_Delete(vote_counts);
+    }
+    if (uid > 0) user_vote = db_post_user_vote(req->db, pid->valueint, uid);
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, pp);
+    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp);
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
     if (comments) cJSON_Delete(comments);
@@ -877,7 +889,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             slug_idx++;
             cwist_free(final_slug);
         } else {
-            created = db_post_create(req->db, board_id, uid, t, final_slug, c, sm, sig_b64 ? sig_b64 : "");
+            created = db_post_create(req->db, board_id, uid, t, final_slug, c, sm, sig_b64 ? sig_b64 : "", 0, 0, "");
             
             /* The final_slug isn't strictly needed later but we update 'sl' to point to the created slug so publish_post uses the right slug. */
             if (created) {
@@ -944,7 +956,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     char *sig_b642 = NULL;
     fly_crypto_sign((const uint8_t *)msg2, strlen(msg2), &sig_b642);
     cwist_free(msg2);
-    db_post_update(req->db, atoi(id_str), t, c, s, sig_b642 ? sig_b642 : "");
+    db_post_update(req->db, atoi(id_str), t, c, s, sig_b642 ? sig_b642 : "", 0, 0, "");
     if (sig_b642) cwist_free(sig_b642);
     cwist_free(t); cwist_free(c); cwist_free(s);
     form_kv_free(kv);
@@ -1211,4 +1223,130 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
     cwist_sstring_assign(res->body, json ? json : "{}");
     if (json) free(json);
+}
+
+/* ---- Progressive Themes ---- */
+void handler_themes_json(cwist_http_request *req, cwist_http_response *res) {
+    (void)req;
+    char *json = theme_build_all_json();
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=3600");
+    if (json) {
+        cwist_sstring_assign(res->body, json);
+        free(json);
+    }
+}
+
+/* ---- RSS Feed with footprint optimization ---- */
+static char *rfc822_time(const char *iso) {
+    static char buf[64];
+    struct tm tm = {0};
+    sscanf(iso, "%d-%d-%d %d:%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec);
+    tm.tm_year -= 1900;
+    tm.tm_mon -= 1;
+    strftime(buf, sizeof(buf), "%a, %d %b %Y %H:%M:%S GMT", &tm);
+    return buf;
+}
+
+void handler_rss_xml(cwist_http_request *req, cwist_http_response *res) {
+    cJSON *posts = db_post_list_search(req->db, 0, NULL, 20, 0);
+    const char *last_modified = "";
+    char etag_buf[128] = {0};
+    if (posts && cJSON_GetArraySize(posts) > 0) {
+        cJSON *first = cJSON_GetArrayItem(posts, 0);
+        cJSON *upd = cJSON_GetObjectItem(first, "updated_at");
+        if (upd && upd->valuestring) last_modified = upd->valuestring;
+        snprintf(etag_buf, sizeof(etag_buf), "\"fly-%s\"", last_modified);
+    }
+
+    const char *if_none = cwist_http_header_get(req->headers, "If-None-Match");
+    const char *if_mod = cwist_http_header_get(req->headers, "If-Modified-Since");
+    if ((if_none && strcmp(if_none, etag_buf) == 0) || (if_mod && strcmp(if_mod, last_modified) == 0)) {
+        res->status_code = 304;
+        if (posts) cJSON_Delete(posts);
+        return;
+    }
+
+    cwist_sstring *rss = cwist_sstring_create();
+    cwist_sstring_append(rss, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n<channel>\n");
+    cwist_sstring_append(rss, "<title>"); cwist_sstring_append_escaped(rss, g_config.title); cwist_sstring_append(rss, "</title>\n");
+    cwist_sstring_append(rss, "<link>/</link>\n");
+    cwist_sstring_append(rss, "<description>"); cwist_sstring_append_escaped(rss, g_config.subtitle); cwist_sstring_append(rss, "</description>\n");
+    cwist_sstring_append(rss, "<language>ko</language>\n");
+    if (last_modified[0]) {
+        cwist_sstring_append(rss, "<lastBuildDate>"); cwist_sstring_append(rss, rfc822_time(last_modified)); cwist_sstring_append(rss, "</lastBuildDate>\n");
+    }
+
+    if (posts) {
+        int n = cJSON_GetArraySize(posts);
+        for (int i = 0; i < n; i++) {
+            cJSON *p = cJSON_GetArrayItem(posts, i);
+            cJSON *slug = cJSON_GetObjectItem(p, "slug");
+            cJSON *title = cJSON_GetObjectItem(p, "title");
+            cJSON *summary = cJSON_GetObjectItem(p, "summary");
+            cJSON *date = cJSON_GetObjectItem(p, "created_at");
+            cwist_sstring_append(rss, "<item>\n");
+            cwist_sstring_append(rss, "<title>"); cwist_sstring_append_escaped(rss, title ? title->valuestring : ""); cwist_sstring_append(rss, "</title>\n");
+            cwist_sstring_append(rss, "<link>/post/"); cwist_sstring_append(rss, slug->valuestring); cwist_sstring_append(rss, "</link>\n");
+            cwist_sstring_append(rss, "<guid>/post/"); cwist_sstring_append(rss, slug->valuestring); cwist_sstring_append(rss, "</guid>\n");
+            cwist_sstring_append(rss, "<description>"); cwist_sstring_append_escaped(rss, summary && summary->valuestring ? summary->valuestring : ""); cwist_sstring_append(rss, "</description>\n");
+            if (date && date->valuestring) {
+                cwist_sstring_append(rss, "<pubDate>"); cwist_sstring_append(rss, rfc822_time(date->valuestring)); cwist_sstring_append(rss, "</pubDate>\n");
+            }
+            cwist_sstring_append(rss, "</item>\n");
+        }
+    }
+    cwist_sstring_append(rss, "</channel>\n</rss>");
+    if (posts) cJSON_Delete(posts);
+
+    cwist_http_header_add(&res->headers, "Content-Type", "application/rss+xml; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=60");
+    if (etag_buf[0]) cwist_http_header_add(&res->headers, "ETag", etag_buf);
+    if (last_modified[0]) cwist_http_header_add(&res->headers, "Last-Modified", last_modified);
+    cwist_sstring_assign(res->body, rss->data);
+    cwist_sstring_destroy(rss);
+}
+
+/* ---- Post vote ---- */
+void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    form_kv_t *kv = parse_urlencoded(req->body->data);
+    const char *post_id_str = form_kv_get(kv, "post_id");
+    const char *vote_type_str = form_kv_get(kv, "vote_type");
+    if (!post_id_str || !vote_type_str) {
+        res->status_code = CWIST_HTTP_BAD_REQUEST;
+        cwist_sstring_assign(res->body, "Missing parameters");
+        form_kv_free(kv);
+        return;
+    }
+    int post_id = atoi(post_id_str);
+    int vote_type = atoi(vote_type_str);
+    if (vote_type == 0) {
+        db_post_vote_remove(req->db, post_id, uid);
+    } else {
+        db_post_vote(req->db, post_id, uid, vote_type);
+    }
+    cJSON *counts = db_post_vote_counts(req->db, post_id);
+    int user_vote = db_post_user_vote(req->db, post_id, uid);
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddBoolToObject(obj, "ok", true);
+    if (counts) {
+        cJSON *up = cJSON_GetObjectItem(counts, "up");
+        cJSON *down = cJSON_GetObjectItem(counts, "down");
+        cJSON_AddNumberToObject(obj, "up", up && up->type == cJSON_Number ? up->valuedouble : 0);
+        cJSON_AddNumberToObject(obj, "down", down && down->type == cJSON_Number ? down->valuedouble : 0);
+        cJSON_Delete(counts);
+    } else {
+        cJSON_AddNumberToObject(obj, "up", 0);
+        cJSON_AddNumberToObject(obj, "down", 0);
+    }
+    cJSON_AddNumberToObject(obj, "user_vote", user_vote);
+    char *json = cJSON_PrintUnformatted(obj);
+    cJSON_Delete(obj);
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+    cwist_sstring_assign(res->body, json ? json : "{}");
+    if (json) free(json);
+    form_kv_free(kv);
 }

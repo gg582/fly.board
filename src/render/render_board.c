@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "render.h"
 #include "render_internal.h"
+#include "config/config.h"
 #include <cwist/core/sstring/sstring.h>
 #include <string.h>
 #include <stdio.h>
