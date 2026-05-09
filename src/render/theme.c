@@ -98,7 +98,9 @@ static void rule_layout(cwist_css_builder_t *css) {
     add_decl(nav, "align-items", "center");
     add_decl(nav, "justify-content", "space-between");
     add_decl(nav, "gap", "16px");
-    add_decl(nav, "padding", "14px 24px");
+    add_decl(nav, "width", "100%");
+    add_decl(nav, "margin", "0");
+    add_decl(nav, "padding", "0");
     add_decl(nav, "background", "var(--panel)");
     add_decl(nav, "border-bottom", "1px solid var(--border)");
     add_decl(nav, "position", "sticky");
