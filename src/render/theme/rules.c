@@ -372,6 +372,79 @@ void rule_boards(cJSON *rules) {
     add_decl(desc, "min-height", "22px");
     cJSON_AddItemToArray(rules, desc);
 
+    cJSON *plist = create_rule(".post-list");
+    add_decl(plist, "display", "flex");
+    add_decl(plist, "flex-direction", "column");
+    add_decl(plist, "gap", "12px");
+    add_decl(plist, "max-width", "800px");
+    add_decl(plist, "margin", "0 auto");
+    cJSON_AddItemToArray(rules, plist);
+
+    cJSON *prow = create_rule(".post-row");
+    add_decl(prow, "background", "var(--panel)");
+    add_decl(prow, "border", "1px solid var(--border)");
+    add_decl(prow, "border-radius", "12px");
+    add_decl(prow, "text-align", "center");
+    add_decl(prow, "overflow", "hidden");
+    add_decl(prow, "transition", "background 0.2s ease, border-color 0.2s ease, transform 0.2s ease");
+    cJSON_AddItemToArray(rules, prow);
+
+    cJSON *prow_h = create_rule(".post-row:hover");
+    add_decl(prow_h, "background", "var(--hover)");
+    add_decl(prow_h, "border-color", "var(--accent)");
+    cJSON_AddItemToArray(rules, prow_h);
+
+    cJSON *prow_head = create_rule(".post-row-head");
+    add_decl(prow_head, "display", "flex");
+    add_decl(prow_head, "justify-content", "center");
+    add_decl(prow_head, "gap", "8px");
+    add_decl(prow_head, "padding", "10px 16px");
+    add_decl(prow_head, "border-bottom", "1px solid var(--border)");
+    cJSON_AddItemToArray(rules, prow_head);
+
+    cJSON *prow_title = create_rule(".post-row-title");
+    add_decl(prow_title, "font-size", "16px");
+    add_decl(prow_title, "font-weight", "700");
+    add_decl(prow_title, "color", "var(--fg)");
+    add_decl(prow_title, "text-decoration", "none");
+    add_decl(prow_title, "display", "block");
+    add_decl(prow_title, "padding", "12px 16px");
+    add_decl(prow_title, "border-bottom", "1px solid var(--border)");
+    add_decl(prow_title, "transition", "color 0.2s ease");
+    cJSON_AddItemToArray(rules, prow_title);
+
+    cJSON *prow_title_h = create_rule(".post-row-title:hover");
+    add_decl(prow_title_h, "color", "var(--accent)");
+    cJSON_AddItemToArray(rules, prow_title_h);
+
+    cJSON *prow_sum = create_rule(".post-row-summary");
+    add_decl(prow_sum, "font-size", "13px");
+    add_decl(prow_sum, "color", "var(--muted)");
+    add_decl(prow_sum, "line-height", "1.5");
+    add_decl(prow_sum, "margin", "0");
+    add_decl(prow_sum, "padding", "10px 16px");
+    add_decl(prow_sum, "border-bottom", "1px solid var(--border)");
+    cJSON_AddItemToArray(rules, prow_sum);
+
+    cJSON *prow_meta = create_rule(".post-row-meta");
+    add_decl(prow_meta, "display", "flex");
+    add_decl(prow_meta, "flex-wrap", "wrap");
+    add_decl(prow_meta, "gap", "10px");
+    add_decl(prow_meta, "align-items", "center");
+    add_decl(prow_meta, "justify-content", "center");
+    add_decl(prow_meta, "padding", "10px 16px");
+    add_decl(prow_meta, "color", "var(--muted)");
+    add_decl(prow_meta, "font-size", "13px");
+    cJSON_AddItemToArray(rules, prow_meta);
+
+    cJSON *dot = create_rule(".dot");
+    add_decl(dot, "width", "4px");
+    add_decl(dot, "height", "4px");
+    add_decl(dot, "background", "var(--muted)");
+    add_decl(dot, "border-radius", "50%");
+    add_decl(dot, "display", "inline-block");
+    cJSON_AddItemToArray(rules, dot);
+
     cJSON *list = create_rule(".board-post-list");
     add_decl(list, "list-style", "none");
     add_decl(list, "padding", "0");
@@ -384,18 +457,17 @@ void rule_boards(cJSON *rules) {
     cJSON *item = create_rule(".board-post-item");
     add_decl(item, "display", "flex");
     add_decl(item, "flex-direction", "column");
-    add_decl(item, "gap", "8px");
-    add_decl(item, "padding", "14px 16px");
     add_decl(item, "background", "var(--panel)");
     add_decl(item, "border-radius", "14px");
     add_decl(item, "border", "1px solid var(--border)");
     add_decl(item, "transition", "background 0.2s ease, border-color 0.2s ease, transform 0.2s ease");
+    add_decl(item, "text-align", "center");
+    add_decl(item, "overflow", "hidden");
     cJSON_AddItemToArray(rules, item);
 
     cJSON *itemh = create_rule(".board-post-item:hover");
     add_decl(itemh, "background", "var(--hover)");
     add_decl(itemh, "border-color", "var(--accent)");
-    add_decl(itemh, "transform", "translateX(4px)");
     cJSON_AddItemToArray(rules, itemh);
 
     cJSON *ptitle = create_rule(".board-post-title");
@@ -403,10 +475,9 @@ void rule_boards(cJSON *rules) {
     add_decl(ptitle, "font-weight", "700");
     add_decl(ptitle, "color", "var(--fg)");
     add_decl(ptitle, "text-decoration", "none");
-    add_decl(ptitle, "white-space", "nowrap");
-    add_decl(ptitle, "overflow", "hidden");
-    add_decl(ptitle, "text-overflow", "ellipsis");
     add_decl(ptitle, "display", "block");
+    add_decl(ptitle, "padding", "12px 16px");
+    add_decl(ptitle, "border-bottom", "1px solid var(--border)");
     add_decl(ptitle, "transition", "color 0.2s ease");
     cJSON_AddItemToArray(rules, ptitle);
 
@@ -419,6 +490,8 @@ void rule_boards(cJSON *rules) {
     add_decl(psum, "color", "var(--muted)");
     add_decl(psum, "line-height", "1.5");
     add_decl(psum, "margin", "0");
+    add_decl(psum, "padding", "10px 16px");
+    add_decl(psum, "border-bottom", "1px solid var(--border)");
     add_decl(psum, "display", "-webkit-box");
     add_decl(psum, "-webkit-line-clamp", "2");
     add_decl(psum, "-webkit-box-orient", "vertical");
@@ -430,7 +503,8 @@ void rule_boards(cJSON *rules) {
     add_decl(meta, "flex-wrap", "wrap");
     add_decl(meta, "gap", "8px");
     add_decl(meta, "align-items", "center");
-    add_decl(meta, "margin-top", "2px");
+    add_decl(meta, "justify-content", "center");
+    add_decl(meta, "padding", "10px 16px");
     cJSON_AddItemToArray(rules, meta);
 
     cJSON *badge = create_rule(".post-badge");
