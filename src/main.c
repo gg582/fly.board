@@ -133,6 +133,7 @@ int main(void) {
     cwist_app_post(app, "/post/edit", handler_post_edit_post);
     cwist_app_get(app, "/post/:id/delete", handler_post_delete);
 
+    cwist_app_get(app, "/files", handler_file_repo);
     cwist_app_get(app, "/file/:id", handler_file_detail_get);
 
     cwist_app_post(app, "/comment/new", handler_comment_new_post);

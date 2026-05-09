@@ -6,27 +6,29 @@
 
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *profile_pic) {
     cwist_sstring *b = cwist_sstring_create();
-    cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/img/logo.png' alt='Logo'><h1>");
-    cwist_sstring_append_escaped(b, g_config.title);
-    cwist_sstring_append(b, "</h1><p>");
-    cwist_sstring_append_escaped(b, g_config.subtitle);
-    cwist_sstring_append(b, "</p></div>");
+    if (!board_slug) {
+        cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/img/logo.png' alt='Logo'><h1>");
+        cwist_sstring_append_escaped(b, g_config.title);
+        cwist_sstring_append(b, "</h1><p>");
+        cwist_sstring_append_escaped(b, g_config.subtitle);
+        cwist_sstring_append(b, "</p></div>");
 
-    /* Board chips */
-    if (boards && cJSON_GetArraySize(boards) > 0) {
-        cwist_sstring_append(b, "<div style='margin-bottom:18px'>");
-        int n = cJSON_GetArraySize(boards);
-        for (int i = 0; i < n; i++) {
-            cJSON *bo = cJSON_GetArrayItem(boards, i);
-            cJSON *slug = cJSON_GetObjectItem(bo, "slug");
-            cJSON *name = cJSON_GetObjectItem(bo, "name");
-            cwist_sstring_append(b, "<a class='tag' href='/board/");
-            cwist_sstring_append(b, slug->valuestring);
-            cwist_sstring_append(b, "'>");
-            cwist_sstring_append_escaped(b, name->valuestring);
-            cwist_sstring_append(b, "</a>");
+        /* Board chips */
+        if (boards && cJSON_GetArraySize(boards) > 0) {
+            cwist_sstring_append(b, "<div style='margin-bottom:18px'>");
+            int n = cJSON_GetArraySize(boards);
+            for (int i = 0; i < n; i++) {
+                cJSON *bo = cJSON_GetArrayItem(boards, i);
+                cJSON *slug = cJSON_GetObjectItem(bo, "slug");
+                cJSON *name = cJSON_GetObjectItem(bo, "name");
+                cwist_sstring_append(b, "<a class='tag' href='/board/");
+                cwist_sstring_append(b, slug->valuestring);
+                cwist_sstring_append(b, "'>");
+                cwist_sstring_append_escaped(b, name->valuestring);
+                cwist_sstring_append(b, "</a>");
+            }
+            cwist_sstring_append(b, "</div>");
         }
-        cwist_sstring_append(b, "</div>");
     }
 
     if (user_role && user_role[0]) {
@@ -47,14 +49,22 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cJSON *p = cJSON_GetArrayItem(posts, i);
             cJSON *slug = cJSON_GetObjectItem(p, "slug");
             cJSON *title = cJSON_GetObjectItem(p, "title");
+            cJSON *summary = cJSON_GetObjectItem(p, "summary");
             cJSON *author = cJSON_GetObjectItem(p, "author_name");
             cJSON *date = cJSON_GetObjectItem(p, "created_at");
             cwist_sstring_append(b, "<tr style='border-bottom:1px solid var(--border)'>");
-            cwist_sstring_append(b, "<td style='padding:10px'><a href='/post/");
+            cwist_sstring_append(b, "<td style='padding:10px'>");
+            cwist_sstring_append(b, "<a href='/post/");
             cwist_sstring_append(b, slug->valuestring);
             cwist_sstring_append(b, "'>");
             cwist_sstring_append_escaped(b, title->valuestring);
-            cwist_sstring_append(b, "</a></td>");
+            cwist_sstring_append(b, "</a>");
+            if (summary && summary->valuestring && summary->valuestring[0]) {
+                cwist_sstring_append(b, "<p style='margin:4px 0 0;color:var(--muted);font-size:13px'>");
+                cwist_sstring_append_escaped(b, summary->valuestring);
+                cwist_sstring_append(b, "</p>");
+            }
+            cwist_sstring_append(b, "</td>");
             cwist_sstring_append(b, "<td style='padding:10px;color:var(--muted)'>");
             if (author && author->valuestring) {
                 cJSON *author_id = cJSON_GetObjectItem(p, "user_id");
@@ -267,17 +277,32 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, bool dark, const c
     cwist_sstring_append(b, "'>");
 
     cwist_sstring_append(b, "<label>Content (Markdown)</label>");
-    cwist_sstring_append(b, "<div style='display:flex;gap:12px;align-items:flex-start;'>");
-    cwist_sstring_append(b, "<div style='flex:1;'>");
+    cwist_sstring_append(b, "<div style='display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;'>");
+    cwist_sstring_append(b, "<div style='flex:1;min-width:300px;'>");
     cwist_sstring_append(b, "<textarea id='md-editor' name='content' rows='18' style='width:100%;font-family:monospace;font-size:15px;' required>");
     if (post) {
         cJSON *c = cJSON_GetObjectItem(post, "content");
         cwist_sstring_append_escaped(b, c->valuestring);
     }
     cwist_sstring_append(b, "</textarea></div>");
-    cwist_sstring_append(b, "<div style='flex:1;' class='card'><div id='md-preview' style='padding:12px;min-height:360px;overflow:auto;'>");
+    cwist_sstring_append(b, "<div style='flex:1;min-width:300px;' class='card'><div id='md-preview' style='padding:12px;min-height:360px;overflow:auto;'>");
     cwist_sstring_append(b, "<p style='color:var(--muted)'>Preview will appear here...</p>");
-    cwist_sstring_append(b, "</div></div></div>");
+    cwist_sstring_append(b, "</div></div>");
+    cwist_sstring_append(b, "<div style='width:260px;flex-shrink:0;' class='card'><div style='padding:12px;'>");
+    cwist_sstring_append(b, "<h4 style='margin-top:0;font-size:14px'>Markdown Guide</h4>");
+    cwist_sstring_append(b, "<pre style='font-size:12px;background:var(--code-bg);padding:8px;border-radius:6px;overflow:auto;white-space:pre-wrap;word-break:break-word;'>");
+    cwist_sstring_append(b, "# Heading\n");
+    cwist_sstring_append(b, "## Subheading\n");
+    cwist_sstring_append(b, "**bold**  *italic*\n");
+    cwist_sstring_append(b, "`inline code`\n\n");
+    cwist_sstring_append(b, "```c\n");
+    cwist_sstring_append(b, "int main() {}\n");
+    cwist_sstring_append(b, "```\n\n");
+    cwist_sstring_append(b, "[link](url)\n");
+    cwist_sstring_append(b, "![img](url)\n");
+    cwist_sstring_append(b, "- list item\n");
+    cwist_sstring_append(b, "> quote\n");
+    cwist_sstring_append(b, "</pre></div></div></div>");
     cwist_sstring_append(b, "<script>");
     cwist_sstring_append(b, "(function(){");
     cwist_sstring_append(b, "var ta=document.getElementById('md-editor');");
