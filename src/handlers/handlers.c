@@ -70,6 +70,14 @@ static int json_int(cJSON *obj, const char *key, int def) {
     return def;
 }
 
+static cJSON *board_by_route_key(cwist_db *db, const char *key) {
+    if (!key || !key[0]) return NULL;
+    char *end = NULL;
+    long id = strtol(key, &end, 10);
+    if (end && *end == '\0' && id > 0) return db_board_get_by_id(db, (int)id);
+    return db_board_get_by_slug(db, key);
+}
+
 static char *sql_esc(const char *src) {
     size_t len = strlen(src);
     char *out = (char *)cwist_alloc(len * 2 + 1);
@@ -492,7 +500,7 @@ void handler_board_edit_get(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
     const char *id_str = cwist_query_map_get(req->path_params, "id");
     if (!id_str) { redirect(res, "/boards"); return; }
-    cJSON *board = db_board_get_by_id(req->db, atoi(id_str));
+    cJSON *board = board_by_route_key(req->db, id_str);
     if (!board) { redirect(res, "/boards"); return; }
     int uid = 0; char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
@@ -602,9 +610,10 @@ void handler_board_perms_get(cwist_http_request *req, cwist_http_response *res) 
     if (!auth_require_admin(req, res)) return;
     const char *id_str = cwist_query_map_get(req->path_params, "id");
     if (!id_str) { redirect(res, "/boards"); return; }
-    int bid = atoi(id_str);
-    cJSON *board = db_board_get_by_id(req->db, bid);
+    cJSON *board = board_by_route_key(req->db, id_str);
     if (!board) { redirect(res, "/boards"); return; }
+    int bid = json_int(board, "id", 0);
+    if (bid <= 0) { cJSON_Delete(board); redirect(res, "/boards"); return; }
     cJSON *perms = db_board_perm_list(req->db, bid);
     cJSON *users = db_user_list(req->db);
     int uid = 0; char role[32] = {0};

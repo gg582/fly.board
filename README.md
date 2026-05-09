@@ -1,5 +1,7 @@
 # fly.board
 
+![fly.board logo](img/logo.png)
+
 > **8–16 MB RSS**로 동작하는 몇 안 되는 심플 블로그 계통.  
 > C 기반 CWIST 웹 프레임워크 위에 HTTPS/3, Argon2id, PQC 서명, NATS 메시징을 올린 가벼운 게시판 겸 블로그 엔진입니다.
 
