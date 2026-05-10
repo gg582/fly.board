@@ -77,6 +77,9 @@ $(MD4C_DIR)/build/entity.o: $(MD4C_DIR) $(MD4C_DIR)/build
 $(MD4C_LIB): $(MD4C_OBJS)
 	ar rcs $@ $(MD4C_OBJS)
 
+src/crypto/fly_crypto.o: src/crypto/fly_crypto.c
+	$(CC) $(CFLAGS) -D__has_include\(x\)=0 -c $< -o $@
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
