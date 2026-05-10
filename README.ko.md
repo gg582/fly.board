@@ -127,7 +127,7 @@ MIT License
 | 디스크 | Samsung SSD 980 1TB (NVMe) |
 | OpenSSL | 3.5.5 |
 | 벤치 도구 | wrk |
-| CWIST | `patches/cwist` (SIGPIPE 패치 적용) |
+| CWIST | `patches/cwist` |
 
 ### 최대 처리량 (RPS)
 
