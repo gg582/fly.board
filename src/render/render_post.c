@@ -610,6 +610,13 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "}");
     cwist_sstring_append(b, "})();");
     cwist_sstring_append(b, "</script>");
+    cwist_sstring_append(b, "<script>");
+    cwist_sstring_append(b, "function deleteFile(btn,fid){");
+    cwist_sstring_append(b, "if(!confirm('Delete this file?'))return;");
+    cwist_sstring_append(b, "fetch('/file/delete',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'id='+encodeURIComponent(fid)})");
+    cwist_sstring_append(b, ".then(function(r){if(r.redirected||(r.status>=200&&r.status<400)){var li=btn.closest('li');if(li)li.remove();}else{alert('Failed to delete file');}});");
+    cwist_sstring_append(b, "}");
+    cwist_sstring_append(b, "</script>");
 
     if (post && files && cJSON_GetArraySize(files) > 0) {
         cwist_sstring_append(b, "<div style='margin-top:12px'><h4>Existing Attachments</h4><ul>");
@@ -624,10 +631,9 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
             cwist_sstring_append(b, " <a href='/file/");
             cwist_sstring_append(b, fid_buf);
             cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px' target='_blank'>View</a>");
-            cwist_sstring_append(b, " <form action='/file/delete' method='post' style='display:inline'>");
-            cwist_sstring_append(b, "<input type='hidden' name='id' value='");
+            cwist_sstring_append(b, " <button type='button' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='deleteFile(this,\"");
             cwist_sstring_append(b, fid_buf);
-            cwist_sstring_append(b, "'><button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete this file?\")'>Delete</button></form>");
+            cwist_sstring_append(b, "\")'>Delete</button>");
             cwist_sstring_append(b, "</li>");
         }
         cwist_sstring_append(b, "</ul></div>");
