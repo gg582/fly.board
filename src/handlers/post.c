@@ -1,6 +1,63 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 
+static char *build_media_embed(const char *filename, const char *file_path) {
+    const char *url = file_path;
+    if (strncmp(url, "public/", 7) == 0) url += 6; /* "/uploads/..." */
+
+    const char *mt = mime_type(filename);
+    cwist_sstring *s = cwist_sstring_create();
+    if (strncmp(mt, "image/", 6) == 0) {
+        cwist_sstring_append(s, "![");
+        cwist_sstring_append(s, filename);
+        cwist_sstring_append(s, "](");
+        cwist_sstring_append(s, url);
+        cwist_sstring_append(s, ")");
+    } else if (strncmp(mt, "video/", 6) == 0) {
+        cwist_sstring_append(s, "<video controls src=\"");
+        cwist_sstring_append(s, url);
+        cwist_sstring_append(s, "\" style=\"max-width:100%\"></video>");
+    } else if (strncmp(mt, "audio/", 6) == 0) {
+        cwist_sstring_append(s, "<audio controls src=\"");
+        cwist_sstring_append(s, url);
+        cwist_sstring_append(s, "\"></audio>");
+    } else {
+        cwist_sstring_append(s, "[");
+        cwist_sstring_append(s, filename);
+        cwist_sstring_append(s, "](");
+        cwist_sstring_append(s, url);
+        cwist_sstring_append(s, ")");
+    }
+    char *result = (char *)cwist_alloc(strlen(s->data) + 1);
+    if (result) strcpy(result, s->data);
+    cwist_sstring_destroy(s);
+    return result;
+}
+
+static void append_media_to_content(char **content, form_field_t *files) {
+    if (!files || !*content) return;
+    cwist_sstring *s = cwist_sstring_create();
+    cwist_sstring_append(s, *content);
+    bool appended = false;
+    for (form_field_t *f = files; f; f = f->next) {
+        if (f->filename && f->filename[0] != '\0' && f->data && f->data[0] != '\0') {
+            char *embed = build_media_embed(f->filename, f->data);
+            if (embed) {
+                cwist_sstring_append(s, "\n\n");
+                cwist_sstring_append(s, embed);
+                cwist_free(embed);
+                appended = true;
+            }
+        }
+    }
+    if (appended) {
+        cwist_free(*content);
+        *content = (char *)cwist_alloc(strlen(s->data) + 1);
+        if (*content) strcpy(*content, s->data);
+    }
+    cwist_sstring_destroy(s);
+}
+
 void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     const char *slug = cwist_query_map_get(req->path_params, "slug");
     bool dark = is_dark(req);
@@ -170,6 +227,8 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
+    append_media_to_content(&content, files);
+
     int board_id = board_id_str ? atoi(board_id_str) : 0;
     char *t = sql_esc(title);
     char *sl = generate_slug(title);
@@ -261,23 +320,70 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *id_str = form_kv_get(kv, "id");
-    const char *title = form_kv_get(kv, "title");
-    const char *content = form_kv_get(kv, "content");
-    const char *summary = form_kv_get(kv, "summary");
-    if (!id_str || !title || !content) { redirect(res, "/"); form_kv_free(kv); return; }
+
+    const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
+    char *title = NULL, *content = NULL, *summary = NULL, *id_str = NULL;
+    form_field_t *files = NULL;
+
+    if (ctype && strstr(ctype, "multipart/form-data")) {
+        const char *bnd = strstr(ctype, "boundary=");
+        if (bnd) {
+            bnd += 9;
+            if (*bnd == '"') bnd++;
+            size_t bnd_len = strcspn(bnd, "\"\r\n; ");
+            char *boundary = (char *)cwist_alloc(bnd_len + 1);
+            memcpy(boundary, bnd, bnd_len);
+            boundary[bnd_len] = '\0';
+            files = multipart_parse(req->body->data, req->body->size, boundary);
+            cwist_free(boundary);
+            form_field_t *f;
+            if ((f = form_find(files, "id"))) id_str = (char *)cwist_alloc(f->len+1), memcpy(id_str, f->data, f->len), id_str[f->len]=0;
+            if ((f = form_find(files, "title"))) title = (char *)cwist_alloc(f->len+1), memcpy(title, f->data, f->len), title[f->len]=0;
+            if ((f = form_find(files, "content"))) content = (char *)cwist_alloc(f->len+1), memcpy(content, f->data, f->len), content[f->len]=0;
+            if ((f = form_find(files, "summary"))) summary = (char *)cwist_alloc(f->len+1), memcpy(summary, f->data, f->len), summary[f->len]=0;
+        }
+    } else {
+        form_kv_t *kv = parse_urlencoded(req->body->data);
+        id_str = (char *)cwist_alloc(strlen(form_kv_get(kv, "id") ? form_kv_get(kv, "id") : "")+1);
+        strcpy(id_str, form_kv_get(kv, "id") ? form_kv_get(kv, "id") : "");
+        title = (char *)cwist_alloc(strlen(form_kv_get(kv, "title") ? form_kv_get(kv, "title") : "")+1);
+        strcpy(title, form_kv_get(kv, "title") ? form_kv_get(kv, "title") : "");
+        content = (char *)cwist_alloc(strlen(form_kv_get(kv, "content") ? form_kv_get(kv, "content") : "")+1);
+        strcpy(content, form_kv_get(kv, "content") ? form_kv_get(kv, "content") : "");
+        summary = (char *)cwist_alloc(strlen(form_kv_get(kv, "summary") ? form_kv_get(kv, "summary") : "")+1);
+        strcpy(summary, form_kv_get(kv, "summary") ? form_kv_get(kv, "summary") : "");
+        form_kv_free(kv);
+    }
+
+    if (!id_str || !title || !content || !title[0] || !content[0]) {
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str);
+        multipart_free(files);
+        redirect(res, "/");
+        return;
+    }
+
     cJSON *post = db_post_get_by_id(req->db, atoi(id_str));
-    if (!post) { redirect(res, "/"); form_kv_free(kv); return; }
+    if (!post) {
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str);
+        multipart_free(files);
+        redirect(res, "/");
+        return;
+    }
     if (!is_author_or_admin(post, uid, role)) {
         res->status_code = CWIST_HTTP_FORBIDDEN;
         cwist_sstring_assign(res->body, "Forbidden");
         cJSON_Delete(post);
-        form_kv_free(kv);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str);
+        multipart_free(files);
         return;
     }
     cJSON_Delete(post);
-    char *t = sql_esc(title); char *c = sql_esc(content); char *s = sql_esc(summary ? summary : "");
+
+    append_media_to_content(&content, files);
+
+    char *t = sql_esc(title);
+    char *c = sql_esc(content);
+    char *s = sql_esc(summary ? summary : "");
     size_t msg_len2 = (title ? strlen(title) : 0) + 1 + (content ? strlen(content) : 0);
     char *msg2 = (char *)cwist_alloc(msg_len2 + 1);
     snprintf(msg2, msg_len2 + 1, "%s\n%s", title ? title : "", content ? content : "");
@@ -286,8 +392,19 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     cwist_free(msg2);
     db_post_update(req->db, atoi(id_str), t, c, s, sig_b642 ? sig_b642 : "", 0, 0, "");
     if (sig_b642) cwist_free(sig_b642);
+
+    /* Handle new attachments during edit */
+    if (files) {
+        for (form_field_t *f = files; f; f = f->next) {
+            if (f->filename && f->filename[0] != '\0' && f->data && f->data[0] != '\0') {
+                db_file_create_volume(req->db, atoi(id_str), uid, f->filename, mime_type(f->filename), f->data, f->file_size);
+            }
+        }
+    }
+
     cwist_free(t); cwist_free(c); cwist_free(s);
-    form_kv_free(kv);
+    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str);
+    multipart_free(files);
     redirect(res, "/");
 }
 void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
