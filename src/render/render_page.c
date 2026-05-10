@@ -104,11 +104,6 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "var l=document.getElementById('hl-theme');if(l)l.href=(name==='light'?HL_LIGHT:HL_DARK);"
         "setTimeout(function(){for(var i=0;i<pres.length;i++)pres[i].style.opacity='';},200);}"
         "function updateBtn(name){var b=document.querySelector('button[onclick*=\"toggleTheme\"]');if(b)b.textContent=(name==='light'?'Dark':'Light');}"
-        "var slider=document.getElementById('theme-slider');"
-        "var lightT=null,darkT=null;"
-        "function applyCustom(){if(!lightT||!darkT||!slider)return;var r=slider.value/100;"
-        "applyTheme(lerpTheme(lightT,darkT,r));setHlCss(r>0.5?'dark':'light');updateBtn(r>0.5?'dark':'light');}"
-        "if(slider){slider.addEventListener('input',function(){applyCustom();localStorage.setItem(MIX_KEY,slider.value);});}"
         "var d=document.documentElement;var stored=localStorage.getItem(CACHE_KEY);var themes=null;"
         "try{var p=JSON.parse(stored);if(Array.isArray(p))themes=p;}catch(e){}"
         "var c=document.cookie.match(/theme=(\\w+)/);var mode=c?c[1]:(d.classList.contains('dark')?'dark':'light');"
@@ -117,15 +112,10 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "applyCached();"
         "fetch('/themes.json').then(function(r){return r.json();}).then(function(arr){"
         "localStorage.setItem(CACHE_KEY,JSON.stringify(arr));themes=arr;"
-        "lightT=findTheme(arr,'light');darkT=findTheme(arr,'dark');"
-        "var mix=localStorage.getItem(MIX_KEY);"
-        "if(mix!==null&&slider){slider.value=parseInt(mix);applyCustom();}"
-        "else{applyTheme(findTheme(arr,mode));}});"
+        "applyTheme(findTheme(arr,mode));});"
         "window.toggleTheme=function(name){"
         "if(!name)name=(mode==='light'?'dark':'light');mode=name;"
         "document.cookie='theme='+mode+';path=/;max-age=31536000';"
-        "localStorage.removeItem(MIX_KEY);"
-        "if(slider)slider.value=(mode==='light'?0:100);"
         "setHlCss(mode);updateBtn(mode);"
         "if(themes){applyTheme(findTheme(themes,mode));return;}"
         "fetch('/themes.json').then(function(r){return r.json();}).then(function(arr){"
@@ -190,14 +180,6 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_set_text(theme_btn, dark ? "Light" : "Dark");
     cwist_html_element_add_child(theme_wrapper, theme_btn);
 
-    cwist_html_element_t *theme_slider = cwist_html_element_create("input");
-    cwist_html_element_add_attr(theme_slider, "type", "range");
-    cwist_html_element_add_attr(theme_slider, "id", "theme-slider");
-    cwist_html_element_add_attr(theme_slider, "min", "0");
-    cwist_html_element_add_attr(theme_slider, "max", "100");
-    cwist_html_element_add_attr(theme_slider, "value", dark ? "100" : "0");
-    cwist_html_element_add_attr(theme_slider, "style", "width:60px;height:16px;cursor:pointer;");
-    cwist_html_element_add_child(theme_wrapper, theme_slider);
 
     cwist_html_element_add_child(navlinks, theme_wrapper);
     cwist_html_element_add_child(nav, navlinks);
