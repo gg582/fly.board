@@ -22,7 +22,7 @@ SRCS := src/main.c \
         $(MULTIPART_DIR)/multipart_parser.c
 OBJS := $(SRCS:.c=.o)
 
-CFLAGS := -Wall -Wextra -O2 \
+CFLAGS := -Wall -Wextra -Ofast \
           -I$(CWIST_PREFIX)/include \
           -I$(MD4C_DIR)/src \
           -I$(MULTIPART_DIR) \
