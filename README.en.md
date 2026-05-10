@@ -127,7 +127,7 @@ MIT License
 | Disk | Samsung SSD 980 1TB (NVMe) |
 | OpenSSL | 3.5.5 |
 | Benchmark Tool | wrk |
-| CWIST | `patches/cwist` (SIGPIPE patch applied) |
+| CWIST | `patches/cwist` |
 
 ### Max Throughput (RPS)
 
