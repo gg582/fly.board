@@ -24,6 +24,14 @@
 #define DB_PATH   "data/blog.db"
 
 static volatile bool g_nats_running = false;
+static pthread_mutex_t g_req_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void serialize_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
+    (void)req;
+    pthread_mutex_lock(&g_req_mutex);
+    next(req, res);
+    pthread_mutex_unlock(&g_req_mutex);
+}
 
 static void *nats_worker(void *arg) {
     (void)arg;
@@ -98,6 +106,8 @@ int main(void) {
         }
     }
 #endif
+
+    cwist_app_use(app, serialize_middleware);
 
     cwist_app_static(app, "/assets", "public");
     cwist_app_static(app, "/img", "img");
