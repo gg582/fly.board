@@ -122,7 +122,9 @@ MIT License
 |------|-------|
 | OS | Linux 5.15.19 |
 | Architecture | x86_64 |
-| CPU | 4 core |
+| CPU | Intel Core i5-7200U @ 2.50GHz (2 cores / 4 threads) |
+| RAM | 8 GB |
+| Disk | Samsung SSD 980 1TB (NVMe) |
 | OpenSSL | 3.2.1 |
 | Benchmark Tool | wrk |
 | CWIST | `patches/cwist` (SIGPIPE patch applied) |

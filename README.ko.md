@@ -122,7 +122,9 @@ MIT License
 |------|-----|
 | OS | Linux 5.15.19 |
 | 아키텍처 | x86_64 |
-| CPU | 4 core |
+| CPU | Intel Core i5-7200U @ 2.50GHz (2 cores / 4 threads) |
+| RAM | 8 GB |
+| 디스크 | Samsung SSD 980 1TB (NVMe) |
 | OpenSSL | 3.2.1 |
 | 벤치 도구 | wrk |
 | CWIST | `patches/cwist` (SIGPIPE 패치 적용) |

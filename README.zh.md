@@ -122,7 +122,9 @@ MIT License
 |------|-----|
 | 操作系统 | Linux 5.15.19 |
 | 架构 | x86_64 |
-| CPU | 4 核 |
+| CPU | Intel Core i5-7200U @ 2.50GHz (2 核 / 4 线程) |
+| RAM | 8 GB |
+| 磁盘 | Samsung SSD 980 1TB (NVMe) |
 | OpenSSL | 3.2.1 |
 | 基准工具 | wrk |
 | CWIST | `patches/cwist` (已应用 SIGPIPE 补丁) |

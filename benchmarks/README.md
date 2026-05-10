@@ -6,8 +6,9 @@
 |------|-----|
 | OS | Linux 5.15.19 |
 | 아키텍처 | x86_64 |
-| CPU | 4 core |
-| RAM | 확인 필요 (시스템 전체) |
+| CPU | Intel Core i5-7200U @ 2.50GHz (2 cores / 4 threads) |
+| RAM | 8 GB (7.7 GiB) |
+| 디스크 | Samsung SSD 980 1TB (NVMe) |
 | OpenSSL | 3.2.1 (커스텀 빌드) |
 | CWIST | `patches/cwist` (SIGPIPE 패치 적용) |
 | 벤치 도구 | wrk |
