@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 
-static void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, int depth, int current_user_id, const char *user_role, int post_id) {
+void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, int depth, int current_user_id, const char *user_role, int target_id) {
     int cid = json_int(comment, "id", 0);
     int comment_user_id = json_int(comment, "user_id", 0);
     cJSON *content = cJSON_GetObjectItem(comment, "content");
@@ -33,7 +33,7 @@ static void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_com
 
     bool can_edit_comment = (current_user_id > 0 && comment_user_id == current_user_id) || (user_role && strcmp(user_role, "admin") == 0);
     char cid_buf[32]; snprintf(cid_buf, sizeof(cid_buf), "%d", cid);
-    char post_id_buf[32]; snprintf(post_id_buf, sizeof(post_id_buf), "%d", post_id);
+    char post_id_buf[32]; snprintf(post_id_buf, sizeof(post_id_buf), "%d", target_id);
 
     if (can_edit_comment && !(deleted && deleted->valueint)) {
         cwist_sstring_append(b, "<div style='margin-top:6px;display:flex;gap:8px;flex-wrap:wrap'>");
@@ -82,7 +82,7 @@ static void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_com
             cJSON *c = cJSON_GetArrayItem(all_comments, i);
             cJSON *parent = cJSON_GetObjectItem(c, "parent_id");
             if (parent && parent->valueint == cid) {
-                render_comment_node(b, c, all_comments, depth + 1, current_user_id, user_role, post_id);
+                render_comment_node(b, c, all_comments, depth + 1, current_user_id, user_role, target_id);
             }
         }
     }
@@ -320,11 +320,15 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
 
     /* Vote buttons */
     cwist_sstring_append(b, "<div style='margin:16px 0;display:flex;gap:10px;align-items:center'>");
-    cwist_sstring_append(b, "<button id='vote-up' class='btn btn-outline' style='padding:6px 12px;font-size:13px'>&#9650; ");
+    cwist_sstring_append(b, "<button id='vote-up' class='btn btn-outline' style='padding:6px 12px;font-size:13px");
+    if (user_vote == 1) cwist_sstring_append(b, ";border-color:var(--accent);color:var(--accent)");
+    cwist_sstring_append(b, "'>&#9650; ");
     char vup[32]; snprintf(vup, sizeof(vup), "%d", vote_up);
     cwist_sstring_append(b, vup);
     cwist_sstring_append(b, "</button>");
-    cwist_sstring_append(b, "<button id='vote-down' class='btn btn-outline' style='padding:6px 12px;font-size:13px'>&#9660; ");
+    cwist_sstring_append(b, "<button id='vote-down' class='btn btn-outline' style='padding:6px 12px;font-size:13px");
+    if (user_vote == -1) cwist_sstring_append(b, ";border-color:var(--accent);color:var(--accent)");
+    cwist_sstring_append(b, "'>&#9660; ");
     char vdown[32]; snprintf(vdown, sizeof(vdown), "%d", vote_down);
     cwist_sstring_append(b, vdown);
     cwist_sstring_append(b, "</button>");
@@ -333,10 +337,19 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring_append(b, "<script>");
     cwist_sstring_append(b, "(function(){");
     cwist_sstring_append(b, "var pid="); cwist_sstring_append(b, pid_buf); cwist_sstring_append(b, ";");
+    cwist_sstring_append(b, "var uv=");
+    char uv_buf[32]; snprintf(uv_buf, sizeof(uv_buf), "%d", user_vote);
+    cwist_sstring_append(b, uv_buf); cwist_sstring_append(b, ";");
+    cwist_sstring_append(b, "function updateVoteStyle(v){");
+    cwist_sstring_append(b, "var up=document.getElementById('vote-up');var down=document.getElementById('vote-down');");
+    cwist_sstring_append(b, "up.style.borderColor=v==1?'var(--accent)':'';up.style.color=v==1?'var(--accent)':'';");
+    cwist_sstring_append(b, "down.style.borderColor=v==-1?'var(--accent)':'';down.style.color=v==-1?'var(--accent)':'';");
+    cwist_sstring_append(b, "}");
+    cwist_sstring_append(b, "updateVoteStyle(uv);");
     cwist_sstring_append(b, "function sendVote(vt){");
     cwist_sstring_append(b, "fetch('/post/vote',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'post_id='+pid+'&vote_type='+vt})");
     cwist_sstring_append(b, ".then(function(r){return r.json();}).then(function(d){");
-    cwist_sstring_append(b, "if(d.ok){document.getElementById('vote-up').innerHTML='&#9650; '+d.up;document.getElementById('vote-down').innerHTML='&#9660; '+d.down;}");
+    cwist_sstring_append(b, "if(d.ok){document.getElementById('vote-up').innerHTML='&#9650; '+d.up;document.getElementById('vote-down').innerHTML='&#9660; '+d.down;updateVoteStyle(d.user_vote);}");
     cwist_sstring_append(b, "});}");
     cwist_sstring_append(b, "document.getElementById('vote-up').addEventListener('click',function(){sendVote(1);});");
     cwist_sstring_append(b, "document.getElementById('vote-down').addEventListener('click',function(){sendVote(-1);});");

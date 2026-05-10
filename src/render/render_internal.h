@@ -11,5 +11,6 @@ char *format_join_date(const char *iso_date);
 
 extern const char *login_register_script;
 int json_int(cJSON *obj, const char *key, int def);
+void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, int depth, int current_user_id, const char *user_role, int target_id);
 
 #endif

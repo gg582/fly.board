@@ -171,10 +171,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     int board_id = board_id_str ? atoi(board_id_str) : 0;
-    char *t = sql_esc(title);
     char *sl = generate_slug(title);
-    char *c = sql_esc(content);
-    char *sm = sql_esc(summary ? summary : "");
 
     /* PQC sign: title + "\n" + content */
     size_t msg_len = (title ? strlen(title) : 0) + 1 + (content ? strlen(content) : 0);
@@ -201,7 +198,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             slug_idx++;
             cwist_free(final_slug);
         } else {
-            created = db_post_create(req->db, board_id, uid, t, final_slug, c, sm, sig_b64 ? sig_b64 : "", 0, 0, "");
+            created = db_post_create(req->db, board_id, uid, title, final_slug, content, summary ? summary : "", sig_b64 ? sig_b64 : "", 0, 0, "");
             
             /* The final_slug isn't strictly needed later but we update 'sl' to point to the created slug so publish_post uses the right slug. */
             if (created) {
@@ -234,7 +231,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         }
     }
 
-    cwist_free(t); cwist_free(sl); cwist_free(c); cwist_free(sm);
+    cwist_free(sl);
     cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str);
     multipart_free(files);
     redirect(res, "/");
@@ -333,16 +330,13 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     cJSON_Delete(post);
 
     int board_id = board_id_str ? atoi(board_id_str) : 0;
-    char *t = sql_esc(title);
-    char *c = sql_esc(content);
-    char *s = sql_esc(summary ? summary : "");
     size_t msg_len2 = (title ? strlen(title) : 0) + 1 + (content ? strlen(content) : 0);
     char *msg2 = (char *)cwist_alloc(msg_len2 + 1);
     snprintf(msg2, msg_len2 + 1, "%s\n%s", title ? title : "", content ? content : "");
     char *sig_b642 = NULL;
     fly_crypto_sign((const uint8_t *)msg2, strlen(msg2), &sig_b642);
     cwist_free(msg2);
-    db_post_update(req->db, atoi(id_str), board_id, t, c, s, sig_b642 ? sig_b642 : "", 0, 0, "");
+    db_post_update(req->db, atoi(id_str), board_id, title, content, summary ? summary : "", sig_b642 ? sig_b642 : "", 0, 0, "");
     if (sig_b642) cwist_free(sig_b642);
 
     /* Handle new attachments during edit */
@@ -354,7 +348,6 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         }
     }
 
-    cwist_free(t); cwist_free(c); cwist_free(s);
     cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str);
     multipart_free(files);
     redirect(res, "/");

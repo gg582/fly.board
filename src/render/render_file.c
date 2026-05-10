@@ -1,9 +1,10 @@
 #define _POSIX_C_SOURCE 200809L
 #include "render.h"
+#include "render_internal.h"
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
 
-cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const char *user_role, const char *profile_pic) {
+cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const char *user_role, const char *profile_pic, int user_id) {
     cwist_sstring *b = cwist_sstring_create();
     if (!file) {
         cwist_sstring_assign(b, "<h1>File Not Found</h1>");
@@ -36,6 +37,34 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
         cwist_sstring_append(b, "<a href='/file/");
         cwist_sstring_append(b, fid_buf);
         cwist_sstring_append(b, "' class='btn'>Download File</a>");
+    }
+    cwist_sstring_append(b, "</div>");
+
+    /* Comments */
+    int file_id_val = json_int(file, "id", 0);
+    cwist_sstring_append(b, "<div style='margin-top:40px'><h2>Comments</h2>");
+    if (comments && cJSON_GetArraySize(comments) > 0) {
+        int n = cJSON_GetArraySize(comments);
+        for (int i = 0; i < n; i++) {
+            cJSON *c = cJSON_GetArrayItem(comments, i);
+            cJSON *parent_id = cJSON_GetObjectItem(c, "parent_id");
+            if (!parent_id || parent_id->valueint == 0) {
+                render_comment_node(b, c, comments, 0, user_id, user_role, file_id_val);
+            }
+        }
+    } else {
+        cwist_sstring_append(b, "<p style='color:var(--muted)'>No comments yet.</p>");
+    }
+    if (user_role && user_role[0]) {
+        char fid_buf2[32]; snprintf(fid_buf2, sizeof(fid_buf2), "%d", file_id_val);
+        cwist_sstring_append(b, "<form action='/comment/new' method='post' style='margin-top:18px'>");
+        cwist_sstring_append(b, "<input type='hidden' name='target_type' value='file'>");
+        cwist_sstring_append(b, "<input type='hidden' name='target_id' value='");
+        cwist_sstring_append(b, fid_buf2);
+        cwist_sstring_append(b, "'>");
+        cwist_sstring_append(b, "<textarea name='content' rows='3' placeholder='Write a comment...' required></textarea>");
+        cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div>");
+        cwist_sstring_append(b, "</form>");
     }
     cwist_sstring_append(b, "</div>");
 

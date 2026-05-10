@@ -44,9 +44,7 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
     const char *desc = form_kv_get(kv, "description");
     const char *ao = form_kv_get(kv, "admin_only");
     if (!name || !slug) { redirect(res, "/board/new"); form_kv_free(kv); return; }
-    char *n = sql_esc(name); char *s = sql_esc(slug); char *d = sql_esc(desc ? desc : "");
-    db_board_create(req->db, n, s, d, ao != NULL, 0, 0, 0);
-    cwist_free(n); cwist_free(s); cwist_free(d);
+    db_board_create(req->db, name, slug, desc ? desc : "", ao != NULL, 0, 0, 0);
     form_kv_free(kv);
     redirect(res, "/boards");
 }
@@ -129,12 +127,10 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
         return;
     }
 
-    char *n = sql_esc(name); char *s = sql_esc(slug); char *d = sql_esc(desc ? desc : "");
-    if (!db_board_update(req->db, bid, n, s, d, ao != NULL, 0, 0, 0)) {
+    if (!db_board_update(req->db, bid, name, slug, desc ? desc : "", ao != NULL, 0, 0, 0)) {
         cwist_sstring *page = render_board_form(board, is_dark(req), "Failed to update board.", pp);
         send_html_res(res, page);
         cJSON_Delete(board);
-        cwist_free(n); cwist_free(s); cwist_free(d);
         free(pp);
         form_kv_free(kv);
         return;
@@ -148,7 +144,6 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
         strcpy(redirect_url, "/boards");
     }
     cJSON_Delete(board);
-    cwist_free(n); cwist_free(s); cwist_free(d);
     free(pp);
     form_kv_free(kv);
     redirect(res, redirect_url);
