@@ -52,6 +52,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     /* Highlight.js syntax highlighting */
     cwist_html_element_t *hl_css = cwist_html_element_create("link");
     cwist_html_element_add_attr(hl_css, "rel", "stylesheet");
+    cwist_html_element_add_attr(hl_css, "id", "hl-theme");
     cwist_html_element_add_attr(hl_css, "href",
         dark
         ? "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
@@ -85,10 +86,29 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_set_text(script,
         "(function(){"
         "var CACHE_KEY='fly_themes';"
+        "var MIX_KEY='fly_theme_mix';"
+        "var HL_LIGHT='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css';"
+        "var HL_DARK='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css';"
         "function buildCss(t){var css='';for(var k in t.vars)css+=k+':'+t.vars[k]+';';css=':root{'+css+'}';"
         "for(var i=0;i<t.rules.length;i++){var r=t.rules[i];css+=r.sel+'{';for(var d in r.decls)css+=d+':'+r.decls[d]+';';css+='}';}return css;}"
         "function applyTheme(t){var s=document.getElementById('dyn-theme');if(s)s.textContent=buildCss(t);}"
         "function findTheme(arr,name){for(var i=0;i<arr.length;i++)if(arr[i].name===name)return arr[i];return arr[0];}"
+        "function lerpHex(a,b,t){var ar=parseInt(a.substr(1,2),16),ag=parseInt(a.substr(3,2),16),ab=parseInt(a.substr(5,2),16);"
+        "var br=parseInt(b.substr(1,2),16),bg=parseInt(b.substr(3,2),16),bb=parseInt(b.substr(5,2),16);"
+        "var rr=Math.round(ar+(br-ar)*t),rg=Math.round(ag+(bg-ag)*t),rb=Math.round(ab+(bb-ab)*t);"
+        "return '#'+((1<<24)+(rr<<16)+(rg<<8)+rb).toString(16).slice(1);}"
+        "function lerpTheme(t1,t2,ratio){var t={name:'custom',vars:{},rules:t1.rules};"
+        "for(var k in t1.vars){if(t2.vars[k]&&t1.vars[k][0]==='#'&&t2.vars[k][0]==='#'){t.vars[k]=lerpHex(t1.vars[k],t2.vars[k],ratio);}else{t.vars[k]=t1.vars[k];}}return t;}"
+        "function setHlCss(name){var pres=document.querySelectorAll('.markdown-body pre');"
+        "for(var i=0;i<pres.length;i++)pres[i].style.opacity='0.5';"
+        "var l=document.getElementById('hl-theme');if(l)l.href=(name==='light'?HL_LIGHT:HL_DARK);"
+        "setTimeout(function(){for(var i=0;i<pres.length;i++)pres[i].style.opacity='';},200);}"
+        "function updateBtn(name){var b=document.querySelector('button[onclick*=\"toggleTheme\"]');if(b)b.textContent=(name==='light'?'Dark':'Light');}"
+        "var slider=document.getElementById('theme-slider');"
+        "var lightT=null,darkT=null;"
+        "function applyCustom(){if(!lightT||!darkT||!slider)return;var r=slider.value/100;"
+        "applyTheme(lerpTheme(lightT,darkT,r));setHlCss(r>0.5?'dark':'light');updateBtn(r>0.5?'dark':'light');}"
+        "if(slider){slider.addEventListener('input',function(){applyCustom();localStorage.setItem(MIX_KEY,slider.value);});}"
         "var d=document.documentElement;var stored=localStorage.getItem(CACHE_KEY);var themes=null;"
         "try{var p=JSON.parse(stored);if(Array.isArray(p))themes=p;}catch(e){}"
         "var c=document.cookie.match(/theme=(\\w+)/);var mode=c?c[1]:(d.classList.contains('dark')?'dark':'light');"
@@ -96,10 +116,17 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "function applyCached(){if(themes){applyTheme(findTheme(themes,mode));}}"
         "applyCached();"
         "fetch('/themes.json').then(function(r){return r.json();}).then(function(arr){"
-        "localStorage.setItem(CACHE_KEY,JSON.stringify(arr));themes=arr;applyTheme(findTheme(arr,mode));});"
+        "localStorage.setItem(CACHE_KEY,JSON.stringify(arr));themes=arr;"
+        "lightT=findTheme(arr,'light');darkT=findTheme(arr,'dark');"
+        "var mix=localStorage.getItem(MIX_KEY);"
+        "if(mix!==null&&slider){slider.value=parseInt(mix);applyCustom();}"
+        "else{applyTheme(findTheme(arr,mode));}});"
         "window.toggleTheme=function(name){"
         "if(!name)name=(mode==='light'?'dark':'light');mode=name;"
         "document.cookie='theme='+mode+';path=/;max-age=31536000';"
+        "localStorage.removeItem(MIX_KEY);"
+        "if(slider)slider.value=(mode==='light'?0:100);"
+        "setHlCss(mode);updateBtn(mode);"
         "if(themes){applyTheme(findTheme(themes,mode));return;}"
         "fetch('/themes.json').then(function(r){return r.json();}).then(function(arr){"
         "localStorage.setItem(CACHE_KEY,JSON.stringify(arr));themes=arr;applyTheme(findTheme(arr,mode));});"
@@ -151,12 +178,28 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         cwist_html_element_add_child(navlinks, nav_link("/login", "Login"));
         cwist_html_element_add_child(navlinks, nav_link("/register", "Register"));
     }
+
+    /* Theme toggle + slider wrapper */
+    cwist_html_element_t *theme_wrapper = cwist_html_element_create("div");
+    cwist_html_element_add_attr(theme_wrapper, "style", "display:flex;flex-direction:column;align-items:center;gap:4px;");
+
     cwist_html_element_t *theme_btn = cwist_html_element_create("button");
     cwist_html_element_add_attr(theme_btn, "onclick", "toggleTheme()");
     cwist_html_element_add_attr(theme_btn, "class", "btn btn-outline");
     cwist_html_element_add_attr(theme_btn, "style", "padding:6px 12px;font-size:13px;");
     cwist_html_element_set_text(theme_btn, dark ? "Light" : "Dark");
-    cwist_html_element_add_child(navlinks, theme_btn);
+    cwist_html_element_add_child(theme_wrapper, theme_btn);
+
+    cwist_html_element_t *theme_slider = cwist_html_element_create("input");
+    cwist_html_element_add_attr(theme_slider, "type", "range");
+    cwist_html_element_add_attr(theme_slider, "id", "theme-slider");
+    cwist_html_element_add_attr(theme_slider, "min", "0");
+    cwist_html_element_add_attr(theme_slider, "max", "100");
+    cwist_html_element_add_attr(theme_slider, "value", dark ? "100" : "0");
+    cwist_html_element_add_attr(theme_slider, "style", "width:60px;height:16px;cursor:pointer;");
+    cwist_html_element_add_child(theme_wrapper, theme_slider);
+
+    cwist_html_element_add_child(navlinks, theme_wrapper);
     cwist_html_element_add_child(nav, navlinks);
 
     cwist_html_element_t *shell = cwist_html_element_create("div");

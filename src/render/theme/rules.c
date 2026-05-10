@@ -567,13 +567,17 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_pre, "font-family", "'Fira Code', 'JetBrains Mono', Consolas, Monaco, 'Courier New', monospace");
     add_decl(md_pre, "font-size", "14px");
     add_decl(md_pre, "line-height", "1.6");
-    add_decl(md_pre, "transition", "background 0.5s ease, border-color 0.5s ease");
+    add_decl(md_pre, "transition", "background 0.5s ease, border-color 0.5s ease, opacity 0.2s ease");
     cJSON_AddItemToArray(rules, md_pre);
 
     cJSON *md_pre_code = create_rule(".markdown-body pre code");
     add_decl(md_pre_code, "font-family", "inherit");
     add_decl(md_pre_code, "font-size", "inherit");
     cJSON_AddItemToArray(rules, md_pre_code);
+
+    cJSON *md_pre_span = create_rule(".markdown-body pre code span");
+    add_decl(md_pre_span, "transition", "color 0.3s ease, background-color 0.3s ease");
+    cJSON_AddItemToArray(rules, md_pre_span);
 
     cJSON *md_code = create_rule(".markdown-body code:not(pre code)");
     add_decl(md_code, "background", "var(--code-bg)");
@@ -621,6 +625,35 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_h, "margin-bottom", "16px");
     add_decl(md_h, "letter-spacing", "-0.3px");
     cJSON_AddItemToArray(rules, md_h);
+
+    cJSON *slider = create_rule("#theme-slider");
+    add_decl(slider, "-webkit-appearance", "none");
+    add_decl(slider, "appearance", "none");
+    add_decl(slider, "height", "4px");
+    add_decl(slider, "background", "var(--border)");
+    add_decl(slider, "border-radius", "2px");
+    add_decl(slider, "outline", "none");
+    add_decl(slider, "margin", "0");
+    cJSON_AddItemToArray(rules, slider);
+
+    cJSON *slider_thumb = create_rule("#theme-slider::-webkit-slider-thumb");
+    add_decl(slider_thumb, "-webkit-appearance", "none");
+    add_decl(slider_thumb, "appearance", "none");
+    add_decl(slider_thumb, "width", "12px");
+    add_decl(slider_thumb, "height", "12px");
+    add_decl(slider_thumb, "border-radius", "50%");
+    add_decl(slider_thumb, "background", "var(--accent)");
+    add_decl(slider_thumb, "cursor", "pointer");
+    cJSON_AddItemToArray(rules, slider_thumb);
+
+    cJSON *slider_thumb_moz = create_rule("#theme-slider::-moz-range-thumb");
+    add_decl(slider_thumb_moz, "width", "12px");
+    add_decl(slider_thumb_moz, "height", "12px");
+    add_decl(slider_thumb_moz, "border-radius", "50%");
+    add_decl(slider_thumb_moz, "background", "var(--accent)");
+    add_decl(slider_thumb_moz, "cursor", "pointer");
+    add_decl(slider_thumb_moz, "border", "none");
+    cJSON_AddItemToArray(rules, slider_thumb_moz);
 }
 
 void rule_animations(cJSON *rules) {
