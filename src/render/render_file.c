@@ -93,8 +93,11 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *profile_pic
             cJSON *fid = cJSON_GetObjectItem(f, "id");
             cJSON *stype = cJSON_GetObjectItem(f, "mime_type");
             cJSON *sz = cJSON_GetObjectItem(f, "size");
+            int id_val = 0;
+            if (fid && fid->type == cJSON_String) id_val = atoi(fid->valuestring);
+            else if (fid && fid->type == cJSON_Number) id_val = fid->valueint;
             char fid_buf[32];
-            snprintf(fid_buf, sizeof(fid_buf), "%d", fid->valueint);
+            snprintf(fid_buf, sizeof(fid_buf), "%d", id_val);
             char sz_buf[32];
             snprintf(sz_buf, sizeof(sz_buf), "%lld", (long long)(sz ? (sz->type == cJSON_String ? atoll(sz->valuestring) : sz->valuedouble) : 0));
             cwist_sstring_append(b, "<article class='card'>");
