@@ -1,63 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 
-static char *build_media_embed(const char *filename, const char *file_path) {
-    const char *url = file_path;
-    if (strncmp(url, "public/", 7) == 0) url += 6; /* "/uploads/..." */
-
-    const char *mt = mime_type(filename);
-    cwist_sstring *s = cwist_sstring_create();
-    if (strncmp(mt, "image/", 6) == 0) {
-        cwist_sstring_append(s, "![");
-        cwist_sstring_append(s, filename);
-        cwist_sstring_append(s, "](");
-        cwist_sstring_append(s, url);
-        cwist_sstring_append(s, ")");
-    } else if (strncmp(mt, "video/", 6) == 0) {
-        cwist_sstring_append(s, "<video controls src=\"");
-        cwist_sstring_append(s, url);
-        cwist_sstring_append(s, "\" style=\"max-width:100%\"></video>");
-    } else if (strncmp(mt, "audio/", 6) == 0) {
-        cwist_sstring_append(s, "<audio controls src=\"");
-        cwist_sstring_append(s, url);
-        cwist_sstring_append(s, "\"></audio>");
-    } else {
-        cwist_sstring_append(s, "[");
-        cwist_sstring_append(s, filename);
-        cwist_sstring_append(s, "](");
-        cwist_sstring_append(s, url);
-        cwist_sstring_append(s, ")");
-    }
-    char *result = (char *)cwist_alloc(strlen(s->data) + 1);
-    if (result) strcpy(result, s->data);
-    cwist_sstring_destroy(s);
-    return result;
-}
-
-static void append_media_to_content(char **content, form_field_t *files) {
-    if (!files || !*content) return;
-    cwist_sstring *s = cwist_sstring_create();
-    cwist_sstring_append(s, *content);
-    bool appended = false;
-    for (form_field_t *f = files; f; f = f->next) {
-        if (f->filename && f->filename[0] != '\0' && f->data && f->data[0] != '\0') {
-            char *embed = build_media_embed(f->filename, f->data);
-            if (embed) {
-                cwist_sstring_append(s, "\n\n");
-                cwist_sstring_append(s, embed);
-                cwist_free(embed);
-                appended = true;
-            }
-        }
-    }
-    if (appended) {
-        cwist_free(*content);
-        *content = (char *)cwist_alloc(strlen(s->data) + 1);
-        if (*content) strcpy(*content, s->data);
-    }
-    cwist_sstring_destroy(s);
-}
-
 void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     const char *slug = cwist_query_map_get(req->path_params, "slug");
     bool dark = is_dark(req);
@@ -227,8 +170,6 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    append_media_to_content(&content, files);
-
     int board_id = board_id_str ? atoi(board_id_str) : 0;
     char *t = sql_esc(title);
     char *sl = generate_slug(title);
@@ -276,6 +217,12 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
 
     /* Publish post metadata to NATS for distributed subscribers */
     fly_nats_publish_post(title, sl, summary ? summary : "");
+
+    /* Link orphaned uploads to this post */
+    int post_id = (int)sqlite3_last_insert_rowid(req->db->conn);
+    char orphan_sql[256];
+    snprintf(orphan_sql, sizeof(orphan_sql), "UPDATE files SET post_id=%d WHERE post_id=0 AND user_id=%d", post_id, uid);
+    db_exec_sql(req->db, orphan_sql);
 
     /* Handle attachments */
     if (files) {
@@ -384,8 +331,6 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     cJSON_Delete(post);
-
-    append_media_to_content(&content, files);
 
     int board_id = board_id_str ? atoi(board_id_str) : 0;
     char *t = sql_esc(title);
