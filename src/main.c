@@ -151,6 +151,7 @@ int main(void) {
 
     cwist_app_get(app, "/files", handler_file_repo);
     cwist_app_get(app, "/file/:id", handler_file_detail_get);
+    cwist_app_get(app, "/file/download/:id", handler_file_download);
     cwist_app_post(app, "/file/delete", handler_file_delete);
 
     cwist_app_post(app, "/comment/new", handler_comment_new_post);

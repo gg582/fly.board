@@ -388,7 +388,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 cJSON *fid = cJSON_GetObjectItem(f, "id");
                 char fid_buf2[32];
                 snprintf(fid_buf2, sizeof(fid_buf2), "%d", fid->valueint);
-                cwist_sstring_append(b, "<li><a href='/file/");
+                cwist_sstring_append(b, "<li><a href='/file/download/");
                 cwist_sstring_append(b, fid_buf2);
                 cwist_sstring_append(b, "'>");
                 cwist_sstring_append_escaped(b, fname->valuestring);
@@ -651,7 +651,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
             char fid_buf[32]; snprintf(fid_buf, sizeof(fid_buf), "%d", json_int(f, "id", 0));
             cwist_sstring_append(b, "<li style='display:flex;align-items:center;gap:10px;margin-bottom:6px'>");
             cwist_sstring_append_escaped(b, fname->valuestring);
-            cwist_sstring_append(b, " <a href='/file/");
+            cwist_sstring_append(b, " <a href='/file/download/");
             cwist_sstring_append(b, fid_buf);
             cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px' target='_blank'>View</a>");
             cwist_sstring_append(b, " <button type='button' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='deleteFile(this,\"");

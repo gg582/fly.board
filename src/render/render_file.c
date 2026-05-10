@@ -34,7 +34,7 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
     cwist_sstring_append(b, " bytes</p>");
 
     if (fid) {
-        cwist_sstring_append(b, "<a href='/file/");
+        cwist_sstring_append(b, "<a href='/file/download/");
         cwist_sstring_append(b, fid_buf);
         cwist_sstring_append(b, "' class='btn'>Download File</a>");
     }
@@ -109,7 +109,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *profile_pic
             cwist_sstring_append(b, " &middot; ");
             cwist_sstring_append(b, sz_buf);
             cwist_sstring_append(b, " bytes</p>");
-            cwist_sstring_append(b, "<div style='display:flex;gap:8px'><a href='/file/");
+            cwist_sstring_append(b, "<div style='display:flex;gap:8px'><a href='/file/download/");
             cwist_sstring_append(b, fid_buf);
             cwist_sstring_append(b, "' class='btn' style='font-size:12px;padding:4px 10px'>Download</a>");
             cwist_sstring_append(b, "<form style='display:inline' action='/file/delete' method='post'>");
