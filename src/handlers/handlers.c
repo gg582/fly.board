@@ -89,17 +89,5 @@ cJSON *board_by_route_key(cwist_db *db, const char *key) {
     return db_board_get_by_slug(db, key);
 }
 
-char *sql_esc(const char *src) {
-    size_t len = strlen(src);
-    char *out = (char *)cwist_alloc(len * 2 + 1);
-    size_t j = 0;
-    for (size_t i = 0; i < len; i++) {
-        if (src[i] == '\'') out[j++] = '\'';
-        out[j++] = src[i];
-    }
-    out[j] = '\0';
-    return out;
-}
-
 /* render_file_detail declared in render.h */
 

@@ -30,6 +30,5 @@ void send_html_res(cwist_http_response *res, cwist_sstring *html);
 int json_int(cJSON *obj, const char *key, int def);
 bool is_author_or_admin(cJSON *post, int uid, const char *role);
 cJSON *board_by_route_key(cwist_db *db, const char *key);
-char *sql_esc(const char *src);
 
 #endif

@@ -43,7 +43,7 @@ void handler_file_detail_get(cwist_http_request *req, cwist_http_response *res) 
     if (!file) { res->status_code = CWIST_HTTP_NOT_FOUND; cwist_sstring_assign(res->body, "Not found"); return; }
     cJSON *comments = db_comment_list_by_target(req->db, "file", atoi(id_str));
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page = render_file_detail(file, comments, is_dark(req), role, pp);
+    cwist_sstring *page = render_file_detail(file, comments, is_dark(req), role, pp, uid);
     cJSON_Delete(file);
     if (comments) cJSON_Delete(comments);
     send_html_res(res, page);

@@ -28,9 +28,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         redirect(res, "/");
         return;
     }
-    char *u = sql_esc(username);
-    cJSON *user = db_user_get_by_username(req->db, u);
-    cwist_free(u);
+    cJSON *user = db_user_get_by_username(req->db, username);
     if (!user) {
         send_html_res(res, render_login(dark, "Invalid credentials"));
         form_kv_free(kv);
@@ -87,11 +85,7 @@ void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
         form_kv_free(kv);
         return;
     }
-    char *u = sql_esc(username);
-    char *e = sql_esc(email);
-    char *h = sql_esc(hash);
-    bool ok = db_user_create(req->db, u, e, h);
-    cwist_free(u); cwist_free(e); cwist_free(h);
+    bool ok = db_user_create(req->db, username, email, hash);
     form_kv_free(kv);
     if (!ok) {
         send_html_res(res, render_register(dark, "Username or email already exists"));
@@ -231,20 +225,15 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
         return;
     }
 
-    char *n_escaped = sql_esc(nickname);
-    char *b_escaped = sql_esc(bio);
-
     cJSON *user = db_user_get_by_id(req->db, uid);
     if (user) {
         cJSON *pp_obj = cJSON_GetObjectItem(user, "profile_pic");
         const char *existing_pic = (pp_obj && pp_obj->type == cJSON_String) ? pp_obj->valuestring : "";
-        db_user_update_profile(req->db, uid, n_escaped, b_escaped, profile_pic_url ? profile_pic_url : existing_pic);
+        db_user_update_profile(req->db, uid, nickname, bio, profile_pic_url ? profile_pic_url : existing_pic);
         cJSON_Delete(user);
     } else {
-        db_user_update_profile(req->db, uid, n_escaped, b_escaped, profile_pic_url ? profile_pic_url : "");
+        db_user_update_profile(req->db, uid, nickname, bio, profile_pic_url ? profile_pic_url : "");
     }
-
-    cwist_free(n_escaped); cwist_free(b_escaped);
     cwist_free(nickname); cwist_free(bio); cwist_free(profile_pic_url);
     redirect(res, "/profile");
 }
@@ -303,9 +292,7 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
         return;
     }
 
-    char *h = sql_esc(new_hash);
-    db_user_update_password(req->db, uid, h);
-    cwist_free(h);
+    db_user_update_password(req->db, uid, new_hash);
     cJSON_Delete(user);
     form_kv_free(kv);
 
