@@ -55,6 +55,7 @@ char *get_profile_pic(cwist_db *db, int uid, const char *role) {
 
 void send_html_res(cwist_http_response *res, cwist_sstring *html) {
     cwist_http_header_add(&res->headers, "Content-Type", "text/html; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
     if (html) {
         cwist_sstring_assign(res->body, html->data);
         cwist_sstring_destroy(html);
@@ -87,6 +88,18 @@ cJSON *board_by_route_key(cwist_db *db, const char *key) {
     long id = strtol(key, &end, 10);
     if (errno == 0 && *end == '\0' && id > 0 && id <= INT_MAX) return db_board_get_by_id(db, (int)id);
     return db_board_get_by_slug(db, key);
+}
+
+void cache_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
+    if (req && req->path && req->path->data) {
+        const char *path = req->path->data;
+        if (strncmp(path, "/assets/", 8) == 0 ||
+            strncmp(path, "/img/", 5) == 0 ||
+            strncmp(path, "/uploads/", 9) == 0) {
+            cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=31536000, immutable");
+        }
+    }
+    next(req, res);
 }
 
 /* render_file_detail declared in render.h */

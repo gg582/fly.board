@@ -62,6 +62,7 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     char cdisp[512];
     snprintf(cdisp, sizeof(cdisp), "attachment; filename=\"%s\"", fname->valuestring);
     cwist_http_header_add(&res->headers, "Content-Disposition", cdisp);
+    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
 
     if (fpath && fpath->valuestring[0]) {
         size_t sz = 0;

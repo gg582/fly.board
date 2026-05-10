@@ -120,30 +120,32 @@ MIT License
 
 | Item | Value |
 |------|-------|
-| OS | Linux 5.15.19 |
+| OS | Linux 7.0.0-mountain+ |
 | Architecture | x86_64 |
-| CPU | Intel Core i5-7200U @ 2.50GHz (2 cores / 4 threads) |
-| RAM | 8 GB |
+| CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
+| RAM | 64 GB |
 | Disk | Samsung SSD 980 1TB (NVMe) |
-| OpenSSL | 3.2.1 |
+| OpenSSL | 3.5.5 |
 | Benchmark Tool | wrk |
 | CWIST | `patches/cwist` (SIGPIPE patch applied) |
 
 ### Max Throughput (RPS)
 
+`wrk -t4 -c400 -d30s` (TLS 1.3, no serialization)
+
 | Endpoint | Peak RPS | Avg Latency | Notes |
 |----------|----------|-------------|-------|
-| `/` (Home) | **729.79** | 7.29ms | DB query + markdown rendering |
-| `/login` | **768.09** | 48.66ms | Static form (cacheable) |
-| `/boards` | **681.60** | 124.29ms | DB-driven list |
+| `/` (Home) | **3,409.92** | 121.84ms | DB query + markdown rendering |
+| `/login` | **3,948.77** | 18.03ms | Static form (cacheable) |
+| `/boards` | **3,901.77** | 17.26ms | DB-driven list |
 
 ### Resource Usage (Peak Load)
 
 | Item | Value |
 |------|-------|
-| CPU Usage | ~140% (on 4-core system) |
-| RAM (RSS) | ~11.5 MB |
-| Virtual Memory (VSZ) | ~1.1 GB |
+| CPU Usage | ~600% (on 12-thread system) |
+| RAM (RSS) | ~12 MB |
+| Virtual Memory (VSZ) | ~1.2 GB |
 
-> Note: Benchmarks were run with serialized concurrent requests (`pthread_mutex_t`).  
-> `ulimit -n` is limited to 1024, so connections above 400 may be refused due to `TIME_WAIT` accumulation.
+> Note: Benchmarks were run **without** request serialization (`pthread_mutex_t`).  
+> `ulimit -n` is set to 20,000, allowing stable measurement up to 400 connections.

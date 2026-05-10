@@ -104,6 +104,8 @@ int main(void) {
     }
 #endif
 
+    cwist_app_use(app, cache_middleware);
+
     cwist_app_static(app, "/assets", "public");
     cwist_app_static(app, "/img", "img");
     cwist_app_get(app, "/uploads/:filename", handler_uploads_static);
