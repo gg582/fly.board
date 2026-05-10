@@ -127,7 +127,7 @@ MIT License
 | 磁盘 | Samsung SSD 980 1TB (NVMe) |
 | OpenSSL | 3.5.5 |
 | 基准工具 | wrk |
-| CWIST | `patches/cwist` (已应用 SIGPIPE 补丁) |
+| CWIST | `patches/cwist` |
 
 ### 最大吞吐量 (RPS)
 
