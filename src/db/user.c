@@ -1,78 +1,93 @@
 #define _POSIX_C_SOURCE 200809L
 #include "db.h"
+#include "db_internal.h"
 #include <cwist/core/mem/alloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 cJSON *db_user_get_by_username(cwist_db *db, const char *username) {
-    char sql[512];
-    snprintf(sql, sizeof(sql), "SELECT * FROM users WHERE username='%s' LIMIT 1", username);
-    cJSON *res = NULL;
-    cwist_db_query(db, sql, &res);
-    if (res && cJSON_GetArraySize(res) > 0) {
-        cJSON *row = cJSON_GetArrayItem(res, 0);
-        cJSON *cpy = cJSON_Duplicate(row, 1);
-        cJSON_Delete(res);
-        return cpy;
-    }
-    if (res) cJSON_Delete(res);
-    return NULL;
+    const char *sql = "SELECT * FROM users WHERE username=? LIMIT 1";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
+    return db_sqlite3_row_to_json(stmt);
 }
 
 cJSON *db_user_get_by_id(cwist_db *db, int id) {
-    char sql[256];
-    snprintf(sql, sizeof(sql), "SELECT * FROM users WHERE id=%d LIMIT 1", id);
-    cJSON *res = NULL;
-    cwist_db_query(db, sql, &res);
-    if (res && cJSON_GetArraySize(res) > 0) {
-        cJSON *row = cJSON_GetArrayItem(res, 0);
-        cJSON *cpy = cJSON_Duplicate(row, 1);
-        cJSON_Delete(res);
-        return cpy;
-    }
-    if (res) cJSON_Delete(res);
-    return NULL;
+    const char *sql = "SELECT * FROM users WHERE id=? LIMIT 1";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_int(stmt, 1, id);
+    return db_sqlite3_row_to_json(stmt);
 }
 
 bool db_user_create(cwist_db *db, const char *username, const char *email, const char *password_hash) {
-    char sql[1024];
-    snprintf(sql, sizeof(sql),
-        "INSERT INTO users (username, email, password_hash) VALUES ('%s','%s','%s')",
-        username, email, password_hash);
-    return db_exec_sql(db, sql);
+    const char *sql = "INSERT INTO users (username, email, password_hash) VALUES (?,?,?)";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, email, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, password_hash, -1, SQLITE_STATIC);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
 bool db_user_delete(cwist_db *db, int id) {
-    char sql[256];
-    snprintf(sql, sizeof(sql), "DELETE FROM users WHERE id=%d", id);
-    return db_exec_sql(db, sql);
+    const char *sql = "DELETE FROM users WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
 bool db_user_update_role(cwist_db *db, int id, const char *role) {
-    char sql[256];
-    snprintf(sql, sizeof(sql), "UPDATE users SET role='%s' WHERE id=%d", role, id);
-    return db_exec_sql(db, sql);
+    const char *sql = "UPDATE users SET role=? WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, role, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
 bool db_user_update_profile_pic(cwist_db *db, int id, const char *profile_pic) {
-    char sql[512];
-    snprintf(sql, sizeof(sql), "UPDATE users SET profile_pic='%s' WHERE id=%d", profile_pic, id);
-    return db_exec_sql(db, sql);
+    const char *sql = "UPDATE users SET profile_pic=? WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, profile_pic, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
 bool db_user_update_profile(cwist_db *db, int id, const char *nickname, const char *bio, const char *profile_pic) {
-    char sql[2048];
-    snprintf(sql, sizeof(sql),
-        "UPDATE users SET nickname='%s', bio='%s', profile_pic='%s' WHERE id=%d",
-        nickname ? nickname : "", bio ? bio : "", profile_pic ? profile_pic : "", id);
-    return db_exec_sql(db, sql);
+    const char *sql = "UPDATE users SET nickname=?, bio=?, profile_pic=? WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, nickname ? nickname : "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, bio ? bio : "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, profile_pic ? profile_pic : "", -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 4, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
 bool db_user_update_password(cwist_db *db, int id, const char *password_hash) {
-    char sql[1024];
-    snprintf(sql, sizeof(sql), "UPDATE users SET password_hash='%s' WHERE id=%d", password_hash, id);
-    return db_exec_sql(db, sql);
+    const char *sql = "UPDATE users SET password_hash=? WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, password_hash, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
 cJSON *db_user_list(cwist_db *db) {
@@ -81,24 +96,51 @@ cJSON *db_user_list(cwist_db *db) {
     cwist_db_query(db, sql, &res);
     return res;
 }
+
 bool db_user_delete_with_cascade(cwist_db *db, int id, bool delete_replies) {
     if (delete_replies) {
-        char sql[256];
-        snprintf(sql, sizeof(sql), "DELETE FROM comments WHERE user_id=%d OR parent_id IN (SELECT id FROM comments WHERE user_id=%d)", id, id);
-        db_exec_sql(db, sql);
+        const char *sql = "DELETE FROM comments WHERE user_id=? OR parent_id IN (SELECT id FROM comments WHERE user_id=?)";
+        sqlite3_stmt *stmt = NULL;
+        if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, id);
+            sqlite3_bind_int(stmt, 2, id);
+            sqlite3_step(stmt);
+            sqlite3_finalize(stmt);
+        }
     } else {
-        char sql[256];
-        snprintf(sql, sizeof(sql), "UPDATE comments SET content='', deleted=1 WHERE user_id=%d", id);
-        db_exec_sql(db, sql);
+        const char *sql = "UPDATE comments SET content='', deleted=1 WHERE user_id=?";
+        sqlite3_stmt *stmt = NULL;
+        if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, id);
+            sqlite3_step(stmt);
+            sqlite3_finalize(stmt);
+        }
     }
-    char sql_posts[256];
-    snprintf(sql_posts, sizeof(sql_posts), "DELETE FROM posts WHERE user_id=%d", id);
-    db_exec_sql(db, sql_posts);
-    char sql_files[256];
-    snprintf(sql_files, sizeof(sql_files), "DELETE FROM files WHERE user_id=%d", id);
-    db_exec_sql(db, sql_files);
-    char sql_user[256];
-    snprintf(sql_user, sizeof(sql_user), "DELETE FROM users WHERE id=%d", id);
-    return db_exec_sql(db, sql_user);
+    {
+        const char *sql = "DELETE FROM posts WHERE user_id=?";
+        sqlite3_stmt *stmt = NULL;
+        if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, id);
+            sqlite3_step(stmt);
+            sqlite3_finalize(stmt);
+        }
+    }
+    {
+        const char *sql = "DELETE FROM files WHERE user_id=?";
+        sqlite3_stmt *stmt = NULL;
+        if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, id);
+            sqlite3_step(stmt);
+            sqlite3_finalize(stmt);
+        }
+    }
+    {
+        const char *sql = "DELETE FROM users WHERE id=?";
+        sqlite3_stmt *stmt = NULL;
+        if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+        sqlite3_bind_int(stmt, 1, id);
+        int rc = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        return rc == SQLITE_DONE;
+    }
 }
-

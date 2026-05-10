@@ -1,49 +1,58 @@
 #define _POSIX_C_SOURCE 200809L
 #include "db.h"
+#include "db_internal.h"
 #include <cwist/core/mem/alloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 bool db_file_create_volume(cwist_db *db, int post_id, int user_id, const char *filename, const char *mime_type, const char *file_path, size_t len) {
-    char sql[2048];
-    snprintf(sql, sizeof(sql),
-        "INSERT INTO files (post_id, user_id, filename, mime_type, file_path, size) VALUES (%d,%d,'%s','%s','%s',%lu)",
-        post_id, user_id, filename, mime_type ? mime_type : "application/octet-stream", file_path, (unsigned long)len);
-    return db_exec_sql(db, sql);
+    const char *sql = "INSERT INTO files (post_id, user_id, filename, mime_type, file_path, size) VALUES (?,?,?,?,?,?)";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, post_id);
+    sqlite3_bind_int(stmt, 2, user_id);
+    sqlite3_bind_text(stmt, 3, filename, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 4, mime_type ? mime_type : "application/octet-stream", -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 5, file_path, -1, SQLITE_STATIC);
+    sqlite3_bind_int64(stmt, 6, (sqlite3_int64)len);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
 cJSON *db_file_get(cwist_db *db, int id) {
-    char sql[256];
-    snprintf(sql, sizeof(sql), "SELECT * FROM files WHERE id=%d LIMIT 1", id);
-    cJSON *res = NULL;
-    cwist_db_query(db, sql, &res);
-    if (res && cJSON_GetArraySize(res) > 0) {
-        cJSON *row = cJSON_GetArrayItem(res, 0);
-        cJSON *cpy = cJSON_Duplicate(row, 1);
-        cJSON_Delete(res);
-        return cpy;
-    }
-    if (res) cJSON_Delete(res);
-    return NULL;
+    const char *sql = "SELECT * FROM files WHERE id=? LIMIT 1";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_int(stmt, 1, id);
+    return db_sqlite3_row_to_json(stmt);
 }
 
 cJSON *db_file_list_by_post(cwist_db *db, int post_id) {
-    char sql[512];
-    snprintf(sql, sizeof(sql), "SELECT id, filename, mime_type, file_path, size, created_at FROM files WHERE post_id=%d", post_id);
-    cJSON *res = NULL;
-    cwist_db_query(db, sql, &res);
-    return res;
+    const char *sql = "SELECT id, filename, mime_type, file_path, size, created_at FROM files WHERE post_id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_int(stmt, 1, post_id);
+    return db_sqlite3_rows_to_json(stmt);
 }
 
 bool db_file_delete(cwist_db *db, int id) {
-    char sql[256];
-    snprintf(sql, sizeof(sql), "DELETE FROM files WHERE id=%d", id);
-    return db_exec_sql(db, sql);
+    const char *sql = "DELETE FROM files WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
 bool db_file_increment_download(cwist_db *db, int id) {
-    char sql[256];
-    snprintf(sql, sizeof(sql), "UPDATE files SET download_count = download_count + 1 WHERE id=%d", id);
-    return db_exec_sql(db, sql);
+    const char *sql = "UPDATE files SET download_count = download_count + 1 WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }

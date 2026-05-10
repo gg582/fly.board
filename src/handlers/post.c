@@ -161,7 +161,7 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *boards = db_board_list(req->db);
-    cwist_sstring *page = render_post_editor(boards, NULL, is_dark(req), role, NULL, pp);
+    cwist_sstring *page = render_post_editor(boards, NULL, NULL, is_dark(req), role, NULL, pp);
     if (boards) cJSON_Delete(boards);
     send_html_res(res, page);
     free(pp);
@@ -218,7 +218,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     if (!title || !content || !title[0] || !content[0]) {
         cJSON *boards = db_board_list(req->db);
         char *pp = get_profile_pic(req->db, uid, role);
-        cwist_sstring *page = render_post_editor(boards, NULL, is_dark(req), role, "Title and content required", pp);
+        cwist_sstring *page = render_post_editor(boards, NULL, NULL, is_dark(req), role, "Title and content required", pp);
         if (boards) cJSON_Delete(boards);
         send_html_res(res, page);
         free(pp);
@@ -309,8 +309,11 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res) {
     }
     cJSON *boards = db_board_list(req->db);
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page = render_post_editor(boards, post, is_dark(req), role, NULL, pp);
+    int post_id_val = json_int(post, "id", 0);
+    cJSON *files = db_file_list_by_post(req->db, post_id_val);
+    cwist_sstring *page = render_post_editor(boards, post, files, is_dark(req), role, NULL, pp);
     cJSON_Delete(post);
+    if (files) cJSON_Delete(files);
     if (boards) cJSON_Delete(boards);
     send_html_res(res, page);
     free(pp);
@@ -322,7 +325,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
 
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
-    char *title = NULL, *content = NULL, *summary = NULL, *id_str = NULL;
+    char *title = NULL, *content = NULL, *summary = NULL, *id_str = NULL, *board_id_str = NULL;
     form_field_t *files = NULL;
 
     if (ctype && strstr(ctype, "multipart/form-data")) {
@@ -341,6 +344,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
             if ((f = form_find(files, "title"))) title = (char *)cwist_alloc(f->len+1), memcpy(title, f->data, f->len), title[f->len]=0;
             if ((f = form_find(files, "content"))) content = (char *)cwist_alloc(f->len+1), memcpy(content, f->data, f->len), content[f->len]=0;
             if ((f = form_find(files, "summary"))) summary = (char *)cwist_alloc(f->len+1), memcpy(summary, f->data, f->len), summary[f->len]=0;
+            if ((f = form_find(files, "board_id"))) board_id_str = (char *)cwist_alloc(f->len+1), memcpy(board_id_str, f->data, f->len), board_id_str[f->len]=0;
         }
     } else {
         form_kv_t *kv = parse_urlencoded(req->body->data);
@@ -352,6 +356,8 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         strcpy(content, form_kv_get(kv, "content") ? form_kv_get(kv, "content") : "");
         summary = (char *)cwist_alloc(strlen(form_kv_get(kv, "summary") ? form_kv_get(kv, "summary") : "")+1);
         strcpy(summary, form_kv_get(kv, "summary") ? form_kv_get(kv, "summary") : "");
+        board_id_str = (char *)cwist_alloc(strlen(form_kv_get(kv, "board_id") ? form_kv_get(kv, "board_id") : "0")+1);
+        strcpy(board_id_str, form_kv_get(kv, "board_id") ? form_kv_get(kv, "board_id") : "0");
         form_kv_free(kv);
     }
 
@@ -381,6 +387,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
 
     append_media_to_content(&content, files);
 
+    int board_id = board_id_str ? atoi(board_id_str) : 0;
     char *t = sql_esc(title);
     char *c = sql_esc(content);
     char *s = sql_esc(summary ? summary : "");
@@ -390,7 +397,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     char *sig_b642 = NULL;
     fly_crypto_sign((const uint8_t *)msg2, strlen(msg2), &sig_b642);
     cwist_free(msg2);
-    db_post_update(req->db, atoi(id_str), t, c, s, sig_b642 ? sig_b642 : "", 0, 0, "");
+    db_post_update(req->db, atoi(id_str), board_id, t, c, s, sig_b642 ? sig_b642 : "", 0, 0, "");
     if (sig_b642) cwist_free(sig_b642);
 
     /* Handle new attachments during edit */
@@ -403,7 +410,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     cwist_free(t); cwist_free(c); cwist_free(s);
-    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str);
+    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str);
     multipart_free(files);
     redirect(res, "/");
 }

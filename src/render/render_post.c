@@ -6,8 +6,9 @@
 #include <string.h>
 #include <stdio.h>
 
-static void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, int depth) {
-    cJSON *cid = cJSON_GetObjectItem(comment, "id");
+static void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, int depth, int current_user_id, const char *user_role, int post_id) {
+    int cid = json_int(comment, "id", 0);
+    int comment_user_id = json_int(comment, "user_id", 0);
     cJSON *content = cJSON_GetObjectItem(comment, "content");
     cJSON *username = cJSON_GetObjectItem(comment, "username");
     cJSON *date = cJSON_GetObjectItem(comment, "created_at");
@@ -29,16 +30,59 @@ static void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_com
         cwist_sstring_append_escaped(b, content && content->valuestring ? content->valuestring : "");
         cwist_sstring_append(b, "</p>");
     }
+
+    bool can_edit_comment = (current_user_id > 0 && comment_user_id == current_user_id) || (user_role && strcmp(user_role, "admin") == 0);
+    char cid_buf[32]; snprintf(cid_buf, sizeof(cid_buf), "%d", cid);
+    char post_id_buf[32]; snprintf(post_id_buf, sizeof(post_id_buf), "%d", post_id);
+
+    if (can_edit_comment && !(deleted && deleted->valueint)) {
+        cwist_sstring_append(b, "<div style='margin-top:6px;display:flex;gap:8px;flex-wrap:wrap'>");
+        cwist_sstring_append(b, "<form action='/comment/edit' method='post' style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>");
+        cwist_sstring_append(b, "<input type='hidden' name='id' value='");
+        cwist_sstring_append(b, cid_buf);
+        cwist_sstring_append(b, "'>");
+        cwist_sstring_append(b, "<textarea name='content' rows='2' required style='width:240px;font-family:inherit;font-size:14px'>");
+        cwist_sstring_append_escaped(b, content && content->valuestring ? content->valuestring : "");
+        cwist_sstring_append(b, "</textarea>");
+        cwist_sstring_append(b, "<button type='submit' class='btn' style='font-size:12px;padding:4px 10px'>Update</button>");
+        cwist_sstring_append(b, "</form>");
+        cwist_sstring_append(b, "<a href='/comment/");
+        cwist_sstring_append(b, cid_buf);
+        cwist_sstring_append(b, "/delete' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete?\")'>Delete</a>");
+        cwist_sstring_append(b, "</div>");
+    }
+
+    if (user_role && user_role[0] && !(deleted && deleted->valueint)) {
+        cwist_sstring_append(b, "<div style='margin-top:8px'>");
+        cwist_sstring_append(b, "<button type='button' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick=\"var el=document.getElementById('reply-");
+        cwist_sstring_append(b, cid_buf);
+        cwist_sstring_append(b, "');el.style.display=el.style.display==='none'?'block':'none';\">Reply</button>");
+        cwist_sstring_append(b, "<div id='reply-");
+        cwist_sstring_append(b, cid_buf);
+        cwist_sstring_append(b, "' style='display:none;margin-top:8px'>");
+        cwist_sstring_append(b, "<form action='/comment/new' method='post'>");
+        cwist_sstring_append(b, "<input type='hidden' name='target_type' value='post'>");
+        cwist_sstring_append(b, "<input type='hidden' name='target_id' value='");
+        cwist_sstring_append(b, post_id_buf);
+        cwist_sstring_append(b, "'>");
+        cwist_sstring_append(b, "<input type='hidden' name='parent_id' value='");
+        cwist_sstring_append(b, cid_buf);
+        cwist_sstring_append(b, "'>");
+        cwist_sstring_append(b, "<textarea name='content' rows='2' placeholder='Write a reply...' required style='width:100%;font-family:inherit;font-size:14px'></textarea>");
+        cwist_sstring_append(b, "<div style='margin-top:6px'><button type='submit' class='btn' style='font-size:12px;padding:4px 10px'>Reply</button></div>");
+        cwist_sstring_append(b, "</form></div></div>");
+    }
+
     cwist_sstring_append(b, "</div>");
 
     /* Find children */
-    if (all_comments && cid) {
+    if (all_comments && cid > 0) {
         int n = cJSON_GetArraySize(all_comments);
         for (int i = 0; i < n; i++) {
             cJSON *c = cJSON_GetArrayItem(all_comments, i);
             cJSON *parent = cJSON_GetObjectItem(c, "parent_id");
-            if (parent && parent->valueint == cid->valueint) {
-                render_comment_node(b, c, all_comments, depth + 1);
+            if (parent && parent->valueint == cid) {
+                render_comment_node(b, c, all_comments, depth + 1, current_user_id, user_role, post_id);
             }
         }
     }
@@ -235,9 +279,9 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cJSON *content = cJSON_GetObjectItem(post, "content");
     cJSON *date = cJSON_GetObjectItem(post, "created_at");
     cJSON *author = cJSON_GetObjectItem(post, "author_name");
-    cJSON *pid = cJSON_GetObjectItem(post, "id");
+    int post_id_val = json_int(post, "id", 0);
     cJSON *view_count = cJSON_GetObjectItem(post, "view_count");
-    char pid_buf[32]; snprintf(pid_buf, sizeof(pid_buf), "%d", pid ? pid->valueint : 0);
+    char pid_buf[32]; snprintf(pid_buf, sizeof(pid_buf), "%d", post_id_val);
 
     cwist_sstring_append(b, "<article>");
     cwist_sstring_append(b, "<div style='margin-bottom:10px'>");
@@ -359,7 +403,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
             cJSON *c = cJSON_GetArrayItem(comments, i);
             cJSON *parent_id = cJSON_GetObjectItem(c, "parent_id");
             if (!parent_id || parent_id->valueint == 0) {
-                render_comment_node(b, c, comments, 0);
+                render_comment_node(b, c, comments, 0, user_id, user_role, post_id_val);
             }
         }
     } else {
@@ -382,7 +426,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     return page;
 }
 
-cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, bool dark, const char *user_role, const char *error, const char *profile_pic) {
+cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool dark, const char *user_role, const char *error, const char *profile_pic) {
     cwist_sstring *b = cwist_sstring_create();
     cwist_sstring_assign(b, "<div class='card' style='margin:24px 0;'>");
     if (error && error[0]) {
@@ -522,6 +566,27 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, bool dark, const c
     cwist_sstring_append(b, "})();");
     cwist_sstring_append(b, "</script>");
 
+    if (post && files && cJSON_GetArraySize(files) > 0) {
+        cwist_sstring_append(b, "<div style='margin-top:12px'><h4>Existing Attachments</h4><ul>");
+        int n = cJSON_GetArraySize(files);
+        for (int i = 0; i < n; i++) {
+            cJSON *f = cJSON_GetArrayItem(files, i);
+            cJSON *fname = cJSON_GetObjectItem(f, "filename");
+            if (!fname || !fname->valuestring) continue;
+            char fid_buf[32]; snprintf(fid_buf, sizeof(fid_buf), "%d", json_int(f, "id", 0));
+            cwist_sstring_append(b, "<li style='display:flex;align-items:center;gap:10px;margin-bottom:6px'>");
+            cwist_sstring_append_escaped(b, fname->valuestring);
+            cwist_sstring_append(b, " <a href='/file/");
+            cwist_sstring_append(b, fid_buf);
+            cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px' target='_blank'>View</a>");
+            cwist_sstring_append(b, " <form action='/file/delete' method='post' style='display:inline'>");
+            cwist_sstring_append(b, "<input type='hidden' name='id' value='");
+            cwist_sstring_append(b, fid_buf);
+            cwist_sstring_append(b, "'><button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete this file?\")'>Delete</button></form>");
+            cwist_sstring_append(b, "</li>");
+        }
+        cwist_sstring_append(b, "</ul></div>");
+    }
     cwist_sstring_append(b, "<label>Attachments</label><input type='file' name='attachments' multiple>");
     cwist_sstring_append(b, "<small style='color:var(--muted)'>Small files stored in DB; large files go to volume.</small>");
 

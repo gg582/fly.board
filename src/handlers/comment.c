@@ -14,7 +14,14 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
     if (target_type && target_id_str && content && content[0]) {
         int target_id = atoi(target_id_str);
         int parent_id = parent_id_str ? atoi(parent_id_str) : 0;
-        db_comment_create(req->db, target_type, target_id, uid, parent_id, content);
+        const char *author_name = NULL;
+        cJSON *u = db_user_get_by_id(req->db, uid);
+        if (u) {
+            cJSON *uname = cJSON_GetObjectItem(u, "username");
+            if (uname && uname->valuestring) author_name = uname->valuestring;
+        }
+        db_comment_create(req->db, target_type, target_id, uid, author_name, parent_id, content);
+        if (u) cJSON_Delete(u);
     }
     form_kv_free(kv);
     redirect(res, referer && referer[0] ? referer : "/");
