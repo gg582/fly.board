@@ -68,6 +68,8 @@ cJSON *db_file_get(cwist_db *db, int id);
 cJSON *db_file_list_by_post(cwist_db *db, int post_id);
 bool db_file_delete(cwist_db *db, int id);
 bool db_file_increment_download(cwist_db *db, int id);
+void db_file_replace_for_post(cwist_db *db, int post_id, const char *filename);
+void db_file_cleanup_duplicates(cwist_db *db);
 
 /* Comments (separate DB) */
 bool db_comment_init(const char *path);

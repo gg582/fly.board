@@ -214,6 +214,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         int post_id = (int)sqlite3_last_insert_rowid(req->db->conn);
         for (form_field_t *f = files; f; f = f->next) {
             if (f->filename && f->filename[0] != '\0' && f->data && f->data[0] != '\0') {
+                db_file_replace_for_post(req->db, post_id, f->filename);
                 db_file_create_volume(req->db, post_id, uid, f->filename, mime_type(f->filename), f->data, f->file_size);
             }
         }
@@ -331,6 +332,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     if (files) {
         for (form_field_t *f = files; f; f = f->next) {
             if (f->filename && f->filename[0] != '\0' && f->data && f->data[0] != '\0') {
+                db_file_replace_for_post(req->db, atoi(id_str), f->filename);
                 db_file_create_volume(req->db, atoi(id_str), uid, f->filename, mime_type(f->filename), f->data, f->file_size);
             }
         }

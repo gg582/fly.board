@@ -69,9 +69,10 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
         cJSON_AddStringToObject(obj, "filename", f->filename);
         cJSON_AddStringToObject(obj, "mime_type", mime_type(f->filename));
         const char *url = f->data;
-        if (strncmp(url, "public/uploads/", 15) == 0) url += 7;
+        if (strncmp(url, "public/uploads/", 15) == 0) url += 15;
         cJSON_AddStringToObject(obj, "url", url);
         cJSON_AddNumberToObject(obj, "size", (double)f->file_size);
+        db_file_replace_for_post(req->db, post_id, f->filename);
         db_file_create_volume(req->db, post_id, uid, f->filename, mime_type(f->filename), f->data, f->file_size);
     } else {
         cJSON_AddBoolToObject(obj, "ok", false);

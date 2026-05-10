@@ -82,6 +82,8 @@ int main(void) {
         return 1;
     }
 
+    db_file_cleanup_duplicates(db);
+
     cwist_app_use_https3(app, true);
     cwist_error_t tls = cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
     if (tls.errtype != CWIST_ERR_INT16 || tls.error.err_i16 != 0) {
