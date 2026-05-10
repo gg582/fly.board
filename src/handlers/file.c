@@ -24,7 +24,13 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     const char *bnd = strstr(ctype, "boundary=");
     if (!bnd) { redirect(res, "/files"); return; }
     bnd += 9;
-    form_field_t *fields = multipart_parse(req->body->data, req->body->size, bnd);
+    if (*bnd == '\"') bnd++;
+    size_t bnd_len = strcspn(bnd, "\"\r\n; ");
+    char *boundary = (char *)cwist_alloc(bnd_len + 1);
+    memcpy(boundary, bnd, bnd_len);
+    boundary[bnd_len] = '\0';
+    form_field_t *fields = multipart_parse(req->body->data, req->body->size, boundary);
+    cwist_free(boundary);
     form_field_t *f = form_find(fields, "file");
     if (f && f->filename && f->filename[0] != '\0' && f->data && f->data[0] != '\0') {
         db_file_create_volume(req->db, 0, uid, f->filename, mime_type(f->filename), f->data, f->file_size);
@@ -85,9 +91,8 @@ void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
     if (id_str) {
         cJSON *f = db_file_get(req->db, atoi(id_str));
         if (f) {
-            cJSON *stype = cJSON_GetObjectItem(f, "storage_type");
             cJSON *fpath = cJSON_GetObjectItem(f, "file_path");
-            if (strcmp(stype->valuestring, "volume") == 0 && fpath && fpath->valuestring[0]) {
+            if (fpath && fpath->valuestring && fpath->valuestring[0]) {
                 unlink(fpath->valuestring);
             }
             cJSON_Delete(f);
