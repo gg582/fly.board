@@ -19,7 +19,6 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
         cJSON *board = db_board_get_by_slug(req->db, slug);
         if (board) {
             int bid = json_int(board, "id", 0);
-            bool can = true;
             int total = db_post_count_search(req->db, bid, search);
             total_pages = (total + per_page - 1) / per_page;
             if (total_pages < 1) total_pages = 1;
