@@ -36,7 +36,7 @@ cJSON *db_board_perm_list(cwist_db *db, int board_id);
 
 /* Posts */
 int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, const char *slug, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
-bool db_post_update(cwist_db *db, int id, const char *title, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
+bool db_post_update(cwist_db *db, int id, int board_id, const char *title, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
 bool db_post_delete(cwist_db *db, int id);
 cJSON *db_post_get_by_slug(cwist_db *db, const char *slug);
 cJSON *db_post_get_by_id(cwist_db *db, int id);
@@ -69,8 +69,10 @@ cJSON *db_file_list_by_post(cwist_db *db, int post_id);
 bool db_file_delete(cwist_db *db, int id);
 bool db_file_increment_download(cwist_db *db, int id);
 
-/* Comments */
-bool db_comment_create(cwist_db *db, const char *target_type, int target_id, int user_id, int parent_id, const char *content);
+/* Comments (separate DB) */
+bool db_comment_init(const char *path);
+void db_comment_close(void);
+bool db_comment_create(cwist_db *db, const char *target_type, int target_id, int user_id, const char *author_name, int parent_id, const char *content);
 bool db_comment_update(cwist_db *db, int id, int user_id, const char *content);
 bool db_comment_delete(cwist_db *db, int id, int user_id);
 cJSON *db_comment_get_by_id(cwist_db *db, int id);

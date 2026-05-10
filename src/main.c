@@ -84,6 +84,11 @@ int main(void) {
         cwist_app_destroy(app);
         return 1;
     }
+    if (!db_comment_init("data/comments.db")) {
+        FLY_LOG_ERROR("Failed to initialize comments database");
+        cwist_app_destroy(app);
+        return 1;
+    }
 
     /* cwist_app_use_https3(app, true); */
     cwist_error_t tls = cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
@@ -154,6 +159,7 @@ int main(void) {
 
     cwist_app_get(app, "/files", handler_file_repo);
     cwist_app_get(app, "/file/:id", handler_file_detail_get);
+    cwist_app_post(app, "/file/delete", handler_file_delete);
 
     cwist_app_post(app, "/comment/new", handler_comment_new_post);
     cwist_app_post(app, "/comment/edit", handler_comment_edit_post);
@@ -170,6 +176,7 @@ int main(void) {
     int rc = cwist_app_listen(app, g_config.port);
     g_nats_running = false;
     fly_nats_close();
+    db_comment_close();
     cwist_app_destroy(app);
     fly_crypto_cleanup();
     return rc;

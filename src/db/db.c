@@ -10,6 +10,41 @@ bool db_exec_sql(cwist_db *db, const char *sql) {
     return err.errtype == CWIST_ERR_INT16 && err.error.err_i16 == 0;
 }
 
+cJSON *db_sqlite3_rows_to_json(sqlite3_stmt *stmt) {
+    cJSON *arr = cJSON_CreateArray();
+    int cols = sqlite3_column_count(stmt);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        cJSON *row = cJSON_CreateObject();
+        for (int i = 0; i < cols; i++) {
+            const char *name = sqlite3_column_name(stmt, i);
+            int type = sqlite3_column_type(stmt, i);
+            if (type == SQLITE_INTEGER) {
+                cJSON_AddNumberToObject(row, name, sqlite3_column_int(stmt, i));
+            } else if (type == SQLITE_FLOAT) {
+                cJSON_AddNumberToObject(row, name, sqlite3_column_double(stmt, i));
+            } else if (type == SQLITE_TEXT) {
+                cJSON_AddStringToObject(row, name, (const char *)sqlite3_column_text(stmt, i));
+            } else {
+                cJSON_AddNullToObject(row, name);
+            }
+        }
+        cJSON_AddItemToArray(arr, row);
+    }
+    sqlite3_finalize(stmt);
+    return arr;
+}
+
+cJSON *db_sqlite3_row_to_json(sqlite3_stmt *stmt) {
+    cJSON *arr = db_sqlite3_rows_to_json(stmt);
+    if (arr && cJSON_GetArraySize(arr) > 0) {
+        cJSON *row = cJSON_DetachItemFromArray(arr, 0);
+        cJSON_Delete(arr);
+        return row;
+    }
+    if (arr) cJSON_Delete(arr);
+    return NULL;
+}
+
 bool db_init(cwist_db *db) {
     if (!db || !db->conn) return false;
     return db_migrate(db);
