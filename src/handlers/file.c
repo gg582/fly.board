@@ -5,7 +5,13 @@ void handler_file_repo(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
-    char sql[] = "SELECT id, filename, mime_type, file_path, size, created_at FROM files WHERE post_id=0 OR post_id IS NULL ORDER BY id DESC LIMIT 200";
+    char sql[] =
+        "SELECT a.id, a.filename, a.mime_type, a.file_path, a.size, a.created_at "
+        "FROM files a "
+        "LEFT JOIN files b ON (a.post_id = b.post_id OR (a.post_id IS NULL AND b.post_id IS NULL)) "
+        "AND a.filename = b.filename AND a.id < b.id "
+        "WHERE (a.post_id = 0 OR a.post_id IS NULL) AND b.id IS NULL "
+        "ORDER BY a.id DESC LIMIT 200";
     cJSON *files = NULL;
     cwist_db_query(req->db, sql, &files);
     char *pp = get_profile_pic(req->db, uid, role);
@@ -33,6 +39,7 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     cwist_free(boundary);
     form_field_t *f = form_find(fields, "file");
     if (f && f->filename && f->filename[0] != '\0' && f->data && f->data[0] != '\0') {
+        db_file_replace_for_post(req->db, 0, f->filename);
         db_file_create_volume(req->db, 0, uid, f->filename, mime_type(f->filename), f->data, f->file_size);
     }
     multipart_free(fields);
@@ -65,19 +72,26 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     cJSON *mtype = cJSON_GetObjectItem(file, "mime_type");
     cJSON *fpath = cJSON_GetObjectItem(file, "file_path");
 
-    char cdisp[512];
-    snprintf(cdisp, sizeof(cdisp), "attachment; filename=\"%s\"", fname->valuestring);
-    cwist_http_header_add(&res->headers, "Content-Disposition", cdisp);
-    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
-
-    if (fpath && fpath->valuestring[0]) {
+    if (fpath && fpath->valuestring && fpath->valuestring[0]) {
         size_t sz = 0;
-        cwist_error_t err = cwist_http_response_send_file(res, fpath->valuestring, mtype && mtype->valuestring[0] ? mtype->valuestring : "application/octet-stream", &sz);
-        if (err.error.err_i32 != 0) {
+        char *data = file_read(fpath->valuestring, &sz);
+        if (data) {
+            const char *dn = fname && fname->valuestring ? fname->valuestring : "download";
+            char cdisp[512];
+            snprintf(cdisp, sizeof(cdisp), "attachment; filename=\"%s\"", dn);
+            cwist_http_header_add(&res->headers, "Content-Disposition", cdisp);
+            cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
+            cwist_http_header_add(&res->headers, "Content-Type", mtype && mtype->valuestring && mtype->valuestring[0] ? mtype->valuestring : "application/octet-stream");
+            cwist_sstring_assign_len(res->body, data, sz);
+            cwist_free(data);
+            db_file_increment_download(req->db, atoi(id_str));
+        } else {
             res->status_code = CWIST_HTTP_NOT_FOUND;
+            cwist_sstring_assign(res->body, "Not found");
         }
     } else {
         res->status_code = CWIST_HTTP_NOT_FOUND;
+        cwist_sstring_assign(res->body, "Not found");
     }
     cJSON_Delete(file);
 }
