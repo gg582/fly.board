@@ -25,10 +25,23 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(head, vp);
     cwist_html_element_add_child(head, title_el);
 
+    /* Preconnect to critical origins */
+    cwist_html_element_t *preconnect_jsdelivr = cwist_html_element_create("link");
+    cwist_html_element_add_attr(preconnect_jsdelivr, "rel", "preconnect");
+    cwist_html_element_add_attr(preconnect_jsdelivr, "href", "https://cdn.jsdelivr.net");
+    cwist_html_element_add_attr(preconnect_jsdelivr, "crossorigin", "");
+    cwist_html_element_add_child(head, preconnect_jsdelivr);
+
+    cwist_html_element_t *preconnect_cdnjs = cwist_html_element_create("link");
+    cwist_html_element_add_attr(preconnect_cdnjs, "rel", "preconnect");
+    cwist_html_element_add_attr(preconnect_cdnjs, "href", "https://cdnjs.cloudflare.com");
+    cwist_html_element_add_attr(preconnect_cdnjs, "crossorigin", "");
+    cwist_html_element_add_child(head, preconnect_cdnjs);
+
     /* Web Fonts */
     cwist_html_element_t *font_pretendard = cwist_html_element_create("link");
     cwist_html_element_add_attr(font_pretendard, "rel", "stylesheet");
-    cwist_html_element_add_attr(font_pretendard, "href", "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-gov.min.css");
+    cwist_html_element_add_attr(font_pretendard, "href", "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-gov-dynamic-subset.css");
     cwist_html_element_add_child(head, font_pretendard);
 
     cwist_html_element_t *font_d2coding = cwist_html_element_create("link");
@@ -125,6 +138,8 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             cwist_html_element_add_attr(p_link, "href", "/profile");
             cwist_html_element_t *img = cwist_html_element_create("img");
             cwist_html_element_add_attr(img, "src", display_pp);
+            cwist_html_element_add_attr(img, "width", "24");
+            cwist_html_element_add_attr(img, "height", "24");
             cwist_html_element_add_class(img, "profile-pic-small");
             cwist_html_element_add_child(p_link, img);
             cwist_html_element_add_child(navlinks, p_link);
@@ -165,6 +180,8 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *footer_logo = cwist_html_element_create("img");
     cwist_html_element_add_attr(footer_logo, "src", "/img/logo.png");
     cwist_html_element_add_attr(footer_logo, "alt", "Logo");
+    cwist_html_element_add_attr(footer_logo, "width", "24");
+    cwist_html_element_add_attr(footer_logo, "height", "16");
     cwist_html_element_add_class(footer_logo, "footer-logo");
     cwist_html_element_add_child(footer_content, footer_logo);
 
