@@ -269,7 +269,7 @@ void rule_home(cJSON *rules) {
     cJSON_AddItemToArray(rules, hero_h1);
 
     cJSON *hero_logo = create_rule(".hero-logo");
-    add_decl(hero_logo, "height", "48px");
+    add_decl(hero_logo, "height", "120px");
     add_decl(hero_logo, "width", "auto");
     add_decl(hero_logo, "margin-bottom", "12px");
     cJSON_AddItemToArray(rules, hero_logo);
@@ -644,7 +644,7 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".topbar", "padding: 0");
     add_decl(mq, ".nav-links", "width: 100%");
     add_decl(mq, ".nav-links", "justify-content: flex-start");
-    add_decl(mq, ".hero-logo", "height: 40px");
+    add_decl(mq, ".hero-logo", "height: 100px");
     add_decl(mq, ".hero h1", "font-size: 30px");
     add_decl(mq, ".post-grid", "grid-template-columns: 1fr");
     add_decl(mq, ".board-grid", "grid-template-columns: 1fr");

@@ -91,15 +91,17 @@ static void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_com
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *profile_pic, int user_id) {
     cwist_sstring *b = cwist_sstring_create();
     if (!board_slug || board_slug[0] == '\0') {
+        cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/img/logo.png' alt='Logo' style='height:120px'>");
         if (!board_slug) {
-            cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/img/logo.png' alt='Logo'><h1>");
+            cwist_sstring_append(b, "<h1>");
             cwist_sstring_append_escaped(b, g_config.title);
             cwist_sstring_append(b, "</h1><p>");
             cwist_sstring_append_escaped(b, g_config.subtitle);
-            cwist_sstring_append(b, "</p></div>");
+            cwist_sstring_append(b, "</p>");
         } else {
-            cwist_sstring_assign(b, "<div class='hero'><h1>All Boards</h1></div>");
+            cwist_sstring_append(b, "<h1>All Boards</h1>");
         }
+        cwist_sstring_append(b, "</div>");
 
         /* Board chips */
         if (boards && cJSON_GetArraySize(boards) > 0) {
@@ -516,6 +518,16 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "var ta=document.getElementById('md-editor');");
     cwist_sstring_append(b, "var preview=document.getElementById('md-preview');");
     cwist_sstring_append(b, "var timer;");
+    if (post) {
+        cJSON *pid = cJSON_GetObjectItem(post, "id");
+        char pid_buf2[32];
+        snprintf(pid_buf2, sizeof(pid_buf2), "%d", pid->valueint);
+        cwist_sstring_append(b, "var postId=");
+        cwist_sstring_append(b, pid_buf2);
+        cwist_sstring_append(b, ";");
+    } else {
+        cwist_sstring_append(b, "var postId=null;");
+    }
     cwist_sstring_append(b, "function update(){");
     cwist_sstring_append(b, "fetch('/api/preview',{method:'POST',headers:{'Content-Type':'text/plain'},body:ta.value})");
     cwist_sstring_append(b, ".then(function(r){return r.text();})");
@@ -542,7 +554,8 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "e.preventDefault();");
     cwist_sstring_append(b, "files.forEach(function(file){");
     cwist_sstring_append(b, "var fd=new FormData();fd.append('file',file);");
-    cwist_sstring_append(b, "fetch('/api/upload',{method:'POST',body:fd})");
+    cwist_sstring_append(b, "var pu='/api/upload';if(postId){pu+='?post_id='+postId;}");
+    cwist_sstring_append(b, "fetch(pu,{method:'POST',body:fd})");
     cwist_sstring_append(b, ".then(function(r){return r.json();})");
     cwist_sstring_append(b, ".then(function(data){");
     cwist_sstring_append(b, "if(!data.ok) return;");
@@ -563,6 +576,38 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "});");
     cwist_sstring_append(b, "});");
     cwist_sstring_append(b, "});");
+    cwist_sstring_append(b, "var att=form?form.querySelector('input[name=\\\"attachments\\\"]'):null;");
+    cwist_sstring_append(b, "if(att){");
+    cwist_sstring_append(b, "att.addEventListener('change',function(e){");
+    cwist_sstring_append(b, "var files=e.target.files;");
+    cwist_sstring_append(b, "if(!files.length) return;");
+    cwist_sstring_append(b, "if(!confirm('Insert selected files as media links?')) return;");
+    cwist_sstring_append(b, "Array.prototype.forEach.call(files,function(file){");
+    cwist_sstring_append(b, "var fd=new FormData();fd.append('file',file);");
+    cwist_sstring_append(b, "var u='/api/upload';if(postId){u+='?post_id='+postId;}");
+    cwist_sstring_append(b, "fetch(u,{method:'POST',body:fd})");
+    cwist_sstring_append(b, ".then(function(r){return r.json();})");
+    cwist_sstring_append(b, ".then(function(data){");
+    cwist_sstring_append(b, "if(!data.ok) return;");
+    cwist_sstring_append(b, "var url=data.url;var md='';");
+    cwist_sstring_append(b, "if(data.mime_type && data.mime_type.indexOf('image/')===0){");
+    cwist_sstring_append(b, "md='!['+data.filename+']('+url+')';");
+    cwist_sstring_append(b, "}else if(data.mime_type && data.mime_type.indexOf('video/')===0){");
+    cwist_sstring_append(b, "md='<video controls src=\"'+url+'\" style=\"max-width:100%\"></video>';");
+    cwist_sstring_append(b, "}else if(data.mime_type && data.mime_type.indexOf('audio/')===0){");
+    cwist_sstring_append(b, "md='<audio controls src=\"'+url+'\"></audio>';");
+    cwist_sstring_append(b, "}else{");
+    cwist_sstring_append(b, "md='['+data.filename+']('+url+')';");
+    cwist_sstring_append(b, "}");
+    cwist_sstring_append(b, "var start=ta.selectionStart;var end=ta.selectionEnd;var text=ta.value;");
+    cwist_sstring_append(b, "ta.value=text.substring(0,start)+md+text.substring(end);");
+    cwist_sstring_append(b, "ta.selectionStart=ta.selectionEnd=start+md.length;");
+    cwist_sstring_append(b, "ta.dispatchEvent(new Event('input'));");
+    cwist_sstring_append(b, "});");
+    cwist_sstring_append(b, "});");
+    cwist_sstring_append(b, "att.value='';");
+    cwist_sstring_append(b, "});");
+    cwist_sstring_append(b, "}");
     cwist_sstring_append(b, "})();");
     cwist_sstring_append(b, "</script>");
 

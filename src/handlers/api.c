@@ -61,6 +61,8 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
     cwist_free(boundary);
     form_field_t *f = form_find(fields, "file");
     FLY_LOG_DEBUG("[UPLOAD] after parse f=%p filename=%s data=%s file_size=%zu", (void*)f, f?f->filename:"(null)", f&&f->data?f->data:"(null)", f?f->file_size:0);
+    const char *post_id_str = cwist_query_map_get(req->query_params, "post_id");
+    int post_id = post_id_str ? atoi(post_id_str) : 0;
     cJSON *obj = cJSON_CreateObject();
     if (f && f->filename && f->data) {
         cJSON_AddBoolToObject(obj, "ok", true);
@@ -70,6 +72,7 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
         if (strncmp(url, "public/uploads/", 15) == 0) url += 7;
         cJSON_AddStringToObject(obj, "url", url);
         cJSON_AddNumberToObject(obj, "size", (double)f->file_size);
+        db_file_create_volume(req->db, post_id, uid, f->filename, mime_type(f->filename), f->data, f->file_size);
     } else {
         cJSON_AddBoolToObject(obj, "ok", false);
         cJSON_AddStringToObject(obj, "error", "no file");
