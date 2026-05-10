@@ -2,7 +2,9 @@
 #include "render.h"
 #include "render_internal.h"
 #include "config/config.h"
+#include "utils/utils.h"
 #include <cwist/core/sstring/sstring.h>
+#include <cwist/core/mem/alloc.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -27,7 +29,9 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
         cwist_sstring_append(b, "<p style='color:var(--muted);font-style:italic'>Deleted comment</p>");
     } else {
         cwist_sstring_append(b, "<p>");
-        cwist_sstring_append_escaped(b, content && content->valuestring ? content->valuestring : "");
+        char *tmp_content = unescape_html(content && content->valuestring ? content->valuestring : "");
+        cwist_sstring_append(b, tmp_content);
+        cwist_free(tmp_content);
         cwist_sstring_append(b, "</p>");
     }
 
@@ -466,7 +470,9 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<label>Title</label><input name='title' value='");
     if (post) {
         cJSON *t = cJSON_GetObjectItem(post, "title");
-        cwist_sstring_append_escaped(b, t->valuestring);
+        char *tmp_t = unescape_html(t->valuestring);
+        cwist_sstring_append(b, tmp_t);
+        cwist_free(tmp_t);
     }
     cwist_sstring_append(b, "' required>");
 
@@ -494,7 +500,9 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<label>Summary</label><input name='summary' value='");
     if (post) {
         cJSON *s = cJSON_GetObjectItem(post, "summary");
-        cwist_sstring_append_escaped(b, s && s->valuestring[0] ? s->valuestring : "");
+        char *tmp_s = unescape_html(s && s->valuestring[0] ? s->valuestring : "");
+        cwist_sstring_append(b, tmp_s);
+        cwist_free(tmp_s);
     }
     cwist_sstring_append(b, "'>");
 
@@ -504,7 +512,9 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<textarea id='md-editor' name='content' rows='18' style='width:100%;min-height:500px;height:60vh;font-family:monospace;font-size:15px;border:none;border-radius:0;padding:16px;background:transparent;resize:vertical;outline:none;' required>");
     if (post) {
         cJSON *c = cJSON_GetObjectItem(post, "content");
-        cwist_sstring_append_escaped(b, c->valuestring);
+        char *tmp_c = unescape_html(c->valuestring);
+        cwist_sstring_append(b, tmp_c);
+        cwist_free(tmp_c);
     }
     cwist_sstring_append(b, "</textarea></div>");
     cwist_sstring_append(b, "<div style='flex:1;min-width:400px;background:var(--panel);'>");

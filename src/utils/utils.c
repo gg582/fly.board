@@ -131,6 +131,30 @@ char *escape_html(const char *src) {
     return out;
 }
 
+char *unescape_html(const char *src) {
+    size_t len = strlen(src);
+    char *out = (char *)cwist_alloc(len + 1);
+    if (!out) return NULL;
+    size_t j = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (src[i] == '&' && strncmp(src + i, "&amp;", 5) == 0) {
+            out[j++] = '&'; i += 4;
+        } else if (src[i] == '&' && strncmp(src + i, "&lt;", 4) == 0) {
+            out[j++] = '<'; i += 3;
+        } else if (src[i] == '&' && strncmp(src + i, "&gt;", 4) == 0) {
+            out[j++] = '>'; i += 3;
+        } else if (src[i] == '&' && strncmp(src + i, "&quot;", 6) == 0) {
+            out[j++] = '"'; i += 5;
+        } else if (src[i] == '&' && strncmp(src + i, "&#x27;", 6) == 0) {
+            out[j++] = '\''; i += 5;
+        } else {
+            out[j++] = src[i];
+        }
+    }
+    out[j] = '\0';
+    return out;
+}
+
 /* ---- Multipart parser (via multipart-parser-c) ---- */
 #include "multipart_parser.h"
 
