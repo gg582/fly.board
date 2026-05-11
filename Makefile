@@ -34,7 +34,9 @@ CFLAGS += -DDEBUG=1
 endif
 
 LDFLAGS := -L$(CWIST_PREFIX)/lib \
-           -Wl,-rpath,$(CWIST_PREFIX)/lib
+           -L/usr/local/quictls/lib64 \
+           -Wl,-rpath,$(CWIST_PREFIX)/lib \
+           -Wl,-rpath,/usr/local/quictls/lib64
 
 CWIST_LIB := $(CWIST_PREFIX)/lib/libcwist.a
 ifeq ($(wildcard $(CWIST_LIB)),)
@@ -43,14 +45,19 @@ endif
 
 LIBS := -lssl -lcrypto -lpthread -ldl
 HAS_NGHTTP2 := $(shell pkg-config --exists libnghttp2 2>/dev/null && echo 1 || echo 0)
+<<<<<<< HEAD
 HAS_NGTCP2 := $(shell pkg-config --exists ngtcp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGHTTP3 := $(shell pkg-config --exists nghttp3 2>/dev/null && echo 1 || echo 0)
+=======
+HAS_NGTCP2 := $(shell pkg-config --exists libngtcp2 2>/dev/null && echo 1 || echo 0)
+HAS_NGHTTP3 := $(shell pkg-config --exists libnghttp3 2>/dev/null && echo 1 || echo 0)
+>>>>>>> 1921f27 (sync local change)
 
 ifeq ($(HAS_NGHTTP2),1)
 LIBS += -lnghttp2
 endif
 ifeq ($(HAS_NGTCP2),1)
-LIBS += -lngtcp2 -lngtcp2_crypto_ossl
+LIBS += -lngtcp2 -lngtcp2_crypto_quictls
 endif
 ifeq ($(HAS_NGHTTP3),1)
 LIBS += -lnghttp3
