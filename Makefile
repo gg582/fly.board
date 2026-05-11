@@ -42,8 +42,13 @@ ifeq ($(wildcard $(CWIST_LIB)),)
 endif
 
 LIBS := -lssl -lcrypto -lpthread -ldl
+HAS_NGHTTP2 := $(shell pkg-config --exists libnghttp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGTCP2 := $(shell pkg-config --exists ngtcp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGHTTP3 := $(shell pkg-config --exists nghttp3 2>/dev/null && echo 1 || echo 0)
+
+ifeq ($(HAS_NGHTTP2),1)
+LIBS += -lnghttp2
+endif
 ifeq ($(HAS_NGTCP2),1)
 LIBS += -lngtcp2 -lngtcp2_crypto_ossl
 endif

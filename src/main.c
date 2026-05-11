@@ -63,9 +63,9 @@ int main(void) {
         return 1;
     }
 
-    cwist_error_t dberr = cwist_app_use_db(app, DB_PATH);
+    cwist_error_t dberr = cwist_app_use_nuke_db(app, DB_PATH, 5000);
     if (dberr.errtype != CWIST_ERR_INT16 || dberr.error.err_i16 != 0) {
-        FLY_LOG_ERROR("Failed to open database");
+        FLY_LOG_ERROR("Failed to open database via NukeDB");
         cwist_app_destroy(app);
         return 1;
     }
@@ -84,6 +84,10 @@ int main(void) {
 
     db_file_cleanup_duplicates(db);
 
+    cwist_app_set_max_memspace(app, CWIST_MIB(64));
+    cwist_app_configure_bdr(app, CWIST_MIB(32), 300, 100000);
+
+    cwist_app_use_https2(app, true);
     cwist_app_use_https3(app, true);
     cwist_error_t tls = cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
     if (tls.errtype != CWIST_ERR_INT16 || tls.error.err_i16 != 0) {
