@@ -90,7 +90,11 @@ cJSON *board_by_route_key(cwist_db *db, const char *key) {
     return db_board_get_by_slug(db, key);
 }
 
-void cache_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
+void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
+    char alt_svc[128];
+    snprintf(alt_svc, sizeof(alt_svc), "h3=\":%d\"; ma=2592000, h3-29=\":%d\"; ma=2592000", g_config.port, g_config.port);
+    cwist_http_header_add(&res->headers, "Alt-Svc", alt_svc);
+
     if (req && req->path && req->path->data) {
         const char *path = req->path->data;
         if (strncmp(path, "/assets/", 8) == 0 ||

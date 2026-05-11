@@ -1,4 +1,4 @@
-version: '3.8'
+version: '3.'
 
 services:
   flyboard:
@@ -7,12 +7,14 @@ services:
       dockerfile: Dockerfile
     container_name: flyboard
     ports:
-      - "8443:8443/tcp"
-      - "8443:8443/udp"
+      - "443:443/tcp"
+      - "443:443/udp"
     volumes:
       - ./data:/app/data
       - ./public:/app/public
       - ./posts:/app/posts
+      - ./blog.settings:/app/blog.settings
+      - ./admin.settings:/app/admin.settings
     environment:
       - NATS_URL=${NATS_URL:-}
       - BLOG_ECH_KEY=${BLOG_ECH_KEY:-}

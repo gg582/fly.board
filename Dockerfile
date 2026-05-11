@@ -3,7 +3,7 @@ FROM archlinux:base-devel
 RUN pacman -Syu --noconfirm \
     && pacman -S --noconfirm \
         git cmake ninja gcc make pkgconf \
-        openssl libnghttp3 libngtcp2 nghttp2 \
+        openssl libnghttp3 libngtcp2 openssl-quic \
         sqlite cjson uriparser \
         curl wget \
     && pacman -Scc --noconfirm
