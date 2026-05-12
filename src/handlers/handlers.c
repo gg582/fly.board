@@ -34,12 +34,12 @@ void redirect(cwist_http_response *res, const char *url) {
 
 char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     if (uid <= 0) {
-        if (role && strcmp(role, "admin") == 0) return strdup("/img/logo.png");
+        if (role && strcmp(role, "admin") == 0) return strdup("/assets/img/logo.png");
         return NULL;
     }
     cJSON *user = db_user_get_by_id(db, uid);
     if (!user) {
-        if (role && strcmp(role, "admin") == 0) return strdup("/img/logo.png");
+        if (role && strcmp(role, "admin") == 0) return strdup("/assets/img/logo.png");
         return NULL;
     }
     cJSON *pp = cJSON_GetObjectItem(user, "profile_pic");
@@ -47,7 +47,7 @@ char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     if (pp && pp->type == cJSON_String && pp->valuestring[0]) {
         res = strdup(pp->valuestring);
     } else if (role && strcmp(role, "admin") == 0) {
-        res = strdup("/img/logo.png");
+        res = strdup("/assets/img/logo.png");
     }
     cJSON_Delete(user);
     return res;
@@ -91,10 +91,6 @@ cJSON *board_by_route_key(cwist_db *db, const char *key) {
 }
 
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
-    char alt_svc[128];
-    snprintf(alt_svc, sizeof(alt_svc), "h3=\":%d\"; ma=2592000, h3-29=\":%d\"; ma=2592000", g_config.port, g_config.port);
-    cwist_http_header_add(&res->headers, "Alt-Svc", alt_svc);
-
     next(req, res);
 }
 

@@ -27,7 +27,7 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
 
     const char *display_pic = user_profile_pic;
     if ((!display_pic || !display_pic[0]) && owner_role && strcmp(owner_role, "admin") == 0) {
-        display_pic = "/img/logo.png";
+        display_pic = "/assets/img/logo.png";
     }
 
     cwist_sstring_append(b, "<div class='card' style='max-width:600px;margin:20px auto;text-align:center'>");

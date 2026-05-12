@@ -95,7 +95,7 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *profile_pic, int user_id) {
     cwist_sstring *b = cwist_sstring_create();
     if (!board_slug || board_slug[0] == '\0') {
-        cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/img/logo.png' alt='Logo' style='height:120px'>");
+        cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/assets/img/logo.png' alt='Logo' style='height:120px'>");
         if (!board_slug) {
             cwist_sstring_append(b, "<h1>");
             cwist_sstring_append_escaped(b, g_config.title);
