@@ -63,11 +63,6 @@ void handler_file_detail_get(cwist_http_request *req, cwist_http_response *res) 
     free(pp);
 }
 
-static void fly_free_body_ptr(const void *ptr, size_t len, void *ctx) {
-    (void)len; (void)ctx;
-    cwist_free((void *)ptr);
-}
-
 void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     const char *id_str = cwist_query_map_get(req->path_params, "id");
     if (!id_str) { res->status_code = CWIST_HTTP_NOT_FOUND; cwist_sstring_assign(res->body, "Not found"); return; }
@@ -87,7 +82,15 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
             cwist_http_header_add(&res->headers, "Content-Disposition", cdisp);
             cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
             cwist_http_header_add(&res->headers, "Content-Type", mtype && mtype->valuestring && mtype->valuestring[0] ? mtype->valuestring : "application/octet-stream");
-            cwist_http_response_set_body_ptr_managed(res, data, sz, fly_free_body_ptr, NULL);
+            
+            char slen[32];
+            snprintf(slen, sizeof(slen), "%zu", sz);
+            cwist_http_header_add(&res->headers, "Content-Length", slen);
+            
+            cwist_sstring_assign(res->body, "");
+            cwist_sstring_append_len(res->body, data, sz);
+            cwist_free(data);
+            
             db_file_increment_download(req->db, atoi(id_str));
         } else {
             res->status_code = CWIST_HTTP_NOT_FOUND;

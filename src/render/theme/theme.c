@@ -1,4 +1,5 @@
 #include "../theme.h"
+#include "../../config/config.h"
 #include <cjson/cJSON.h>
 #include <stdlib.h>
 #include <string.h>
@@ -65,7 +66,25 @@ void rule_markdown(cJSON *rules);
 void rule_animations(cJSON *rules);
 void rule_media(cJSON *rules);
 
+void apply_config_accents() {
+    if (g_config.accent[0] != '\0') {
+        light.accent = g_config.accent;
+        dark.accent = g_config.accent;
+        ocean.accent = g_config.accent;
+        forest.accent = g_config.accent;
+        sepia.accent = g_config.accent;
+
+        /* For simplicity, we just reuse the accent color for accent2 as well if not doing complex logic */
+        light.accent2 = g_config.accent;
+        dark.accent2 = g_config.accent;
+        ocean.accent2 = g_config.accent;
+        forest.accent2 = g_config.accent;
+        sepia.accent2 = g_config.accent;
+    }
+}
+
 cJSON *build_theme_object(const char *name, theme_color_t *t) {
+    apply_config_accents();
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "name", name);
 

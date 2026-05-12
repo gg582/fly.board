@@ -13,27 +13,6 @@ void handler_api_preview(cwist_http_request *req, cwist_http_response *res) {
     }
 }
 
-void handler_uploads_static(cwist_http_request *req, cwist_http_response *res) {
-    const char *filename = cwist_query_map_get(req->path_params, "filename");
-    if (!filename || !filename[0] || strchr(filename, '/') || strchr(filename, '\\')) {
-        res->status_code = CWIST_HTTP_NOT_FOUND;
-        cwist_sstring_assign(res->body, "Not found");
-        return;
-    }
-    char path[512];
-    snprintf(path, sizeof(path), "public/uploads/%s", filename);
-    size_t sz = 0;
-    char *data = file_read(path, &sz);
-    if (data) {
-        cwist_http_header_add(&res->headers, "Content-Type", mime_type(filename));
-        cwist_sstring_assign_len(res->body, data, sz);
-        cwist_free(data);
-    } else {
-        res->status_code = CWIST_HTTP_NOT_FOUND;
-        cwist_sstring_assign(res->body, "Not found");
-    }
-}
-
 void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -68,8 +47,10 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
         cJSON_AddBoolToObject(obj, "ok", true);
         cJSON_AddStringToObject(obj, "filename", f->filename);
         cJSON_AddStringToObject(obj, "mime_type", mime_type(f->filename));
-        const char *url = f->data;
-        if (strncmp(url, "public/uploads/", 15) == 0) url += 15;
+        const char *url_raw = f->data;
+        if (strncmp(url_raw, "public/uploads/", 15) == 0) url_raw += 15;
+        char url[512];
+        snprintf(url, sizeof(url), "/uploads/%s", url_raw);
         cJSON_AddStringToObject(obj, "url", url);
         cJSON_AddNumberToObject(obj, "size", (double)f->file_size);
         db_file_replace_for_post(req->db, post_id, f->filename);

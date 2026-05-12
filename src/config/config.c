@@ -9,6 +9,7 @@ static void set_default(void) {
     snprintf(g_config.title, sizeof(g_config.title), "CWIST Docker Blog");
     snprintf(g_config.subtitle, sizeof(g_config.subtitle), "Explore boards and read stories.");
     snprintf(g_config.brand_footer, sizeof(g_config.brand_footer), "Built with CWIST C Framework");
+    snprintf(g_config.accent, sizeof(g_config.accent), "#3b82f6");
     g_config.port = 8443;
 }
 
@@ -29,6 +30,7 @@ bool blog_config_load(const char *path) {
             fprintf(f, "title=%s\n", g_config.title);
             fprintf(f, "subtitle=%s\n", g_config.subtitle);
             fprintf(f, "brand_footer=%s\n", g_config.brand_footer);
+            fprintf(f, "accent=%s\n", g_config.accent);
             fprintf(f, "port=%d\n", g_config.port);
             fclose(f);
         }
@@ -48,6 +50,8 @@ bool blog_config_load(const char *path) {
             snprintf(g_config.subtitle, sizeof(g_config.subtitle), "%s", val);
         } else if (strcmp(key, "brand_footer") == 0) {
             snprintf(g_config.brand_footer, sizeof(g_config.brand_footer), "%s", val);
+        } else if (strcmp(key, "accent") == 0) {
+            snprintf(g_config.accent, sizeof(g_config.accent), "%s", val);
         } else if (strcmp(key, "port") == 0) {
             g_config.port = atoi(val);
         }
@@ -56,6 +60,7 @@ bool blog_config_load(const char *path) {
     if (!g_config.title[0]) snprintf(g_config.title, sizeof(g_config.title), "CWIST Docker Blog");
     if (!g_config.subtitle[0]) snprintf(g_config.subtitle, sizeof(g_config.subtitle), "Explore boards and read stories.");
     if (!g_config.brand_footer[0]) snprintf(g_config.brand_footer, sizeof(g_config.brand_footer), "Built with CWIST C Framework");
+    if (!g_config.accent[0]) snprintf(g_config.accent, sizeof(g_config.accent), "#3b82f6");
     if (g_config.port <= 0 || g_config.port > 65535) g_config.port = 8443;
     return true;
 }
