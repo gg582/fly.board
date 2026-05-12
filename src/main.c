@@ -18,12 +18,41 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <limits.h>
+#include <libgen.h>
 
 #define BLOG_CERT "server.crt"
 #define BLOG_KEY  "server.key"
 #define DB_PATH   "data/blog.db"
 
 static volatile bool g_nats_running = false;
+
+static bool dir_exists(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static bool ensure_workdir_with_public(const char *root) {
+    if (!root || !root[0]) return false;
+    char public_path[PATH_MAX];
+    snprintf(public_path, sizeof(public_path), "%s/public", root);
+    if (!dir_exists(public_path)) return false;
+    return chdir(root) == 0;
+}
+
+static void ensure_asset_workdir(void) {
+    if (dir_exists("public")) return;
+    const char *env_root = getenv("BLOG_ROOT");
+    if (ensure_workdir_with_public(env_root)) return;
+    char exe_path[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    if (len <= 0) return;
+    exe_path[len] = '\0';
+    char *dir = dirname(exe_path);
+    ensure_workdir_with_public(dir);
+}
 
 static void *nats_worker(void *arg) {
     (void)arg;
@@ -34,6 +63,7 @@ static void *nats_worker(void *arg) {
 }
 
 int main(void) {
+    ensure_asset_workdir();
     fly_log_init();
     if (!fly_crypto_init()) {
         FLY_LOG_ERROR("PQC crypto init failed");
