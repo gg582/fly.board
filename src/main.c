@@ -36,8 +36,8 @@ static bool dir_exists(const char *path) {
 static bool ensure_workdir_with_public(const char *root) {
     if (!root || !root[0]) return false;
     char public_path[PATH_MAX];
-    int written = snprintf(public_path, sizeof(public_path), "%s/public", root);
-    if (written < 0 || written >= (int)sizeof(public_path)) return false;
+    int result = snprintf(public_path, sizeof(public_path), "%s/public", root);
+    if (result < 0 || result >= (int)sizeof(public_path)) return false;
     if (!dir_exists(public_path)) return false;
     return chdir(root) == 0;
 }
@@ -49,7 +49,7 @@ static bool ensure_asset_workdir(void) {
 #if defined(__linux__)
     char exe_path[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (len <= 0 || (size_t)len >= sizeof(exe_path) - 1) return dir_exists("public");
+    if (len <= 0 || len >= (ssize_t)(sizeof(exe_path) - 1)) return dir_exists("public");
     exe_path[len] = '\0';
     char *slash = strrchr(exe_path, '/');
     if (!slash) return dir_exists("public");
@@ -71,6 +71,7 @@ int main(void) {
     fly_log_init();
     if (!ensure_asset_workdir()) {
         FLY_LOG_ERROR("Public assets not found; set BLOG_ROOT or run from project root");
+        return 1;
     }
     if (!fly_crypto_init()) {
         FLY_LOG_ERROR("PQC crypto init failed");
