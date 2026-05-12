@@ -131,25 +131,25 @@ cwist_sstring *render_board_form(cJSON *board, bool dark, const char *error, con
     cwist_sstring_assign(fields, "<label>Name</label><input name='name' value='");
     if (board) {
         cJSON *n = cJSON_GetObjectItem(board, "name");
-        char *tmp_n = unescape_html(n->valuestring);
-        cwist_sstring_append(fields, tmp_n);
-        cwist_free(tmp_n);
+        cwist_sstring_append_escaped(fields, n->valuestring);
+         
+         
     }
     cwist_sstring_append(fields, "' required>");
     cwist_sstring_append(fields, "<label>Slug</label><input name='slug' value='");
     if (board) {
         cJSON *s = cJSON_GetObjectItem(board, "slug");
-        char *tmp_s = unescape_html(s->valuestring);
-        cwist_sstring_append(fields, tmp_s);
-        cwist_free(tmp_s);
+        cwist_sstring_append_escaped(fields, s->valuestring);
+         
+         
     }
     cwist_sstring_append(fields, "' required>");
     cwist_sstring_append(fields, "<label>Description</label><input name='description' value='");
     if (board) {
         cJSON *d = cJSON_GetObjectItem(board, "description");
-        char *tmp_d = unescape_html(d && d->valuestring[0] ? d->valuestring : "");
-        cwist_sstring_append(fields, tmp_d);
-        cwist_free(tmp_d);
+        cwist_sstring_append_escaped(fields, d && d->valuestring[0] ? d->valuestring : "");
+         
+         
     }
     cwist_sstring_append(fields, "'>");
     cwist_sstring_append(fields, "<label><input type='checkbox' name='admin_only' value='1' ");

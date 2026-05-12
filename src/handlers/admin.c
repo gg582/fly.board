@@ -15,11 +15,11 @@ void handler_admin_users(cwist_http_request *req, cwist_http_response *res) {
 
 void handler_admin_user_role(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *id_str = form_kv_get(kv, "id");
-    const char *role = form_kv_get(kv, "role");
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *id_str = cwist_query_map_get(kv, "id");
+    const char *role = cwist_query_map_get(kv, "role");
     if (id_str && role) db_user_update_role(req->db, atoi(id_str), role);
-    form_kv_free(kv);
+    cwist_query_map_destroy(kv);
     redirect(res, "/admin/users");
 }
 

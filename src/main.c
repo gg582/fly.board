@@ -122,8 +122,8 @@ int main(void) {
 
     db_file_cleanup_duplicates(db);
 
-    cwist_app_set_max_memspace(app, CWIST_MIB(64));
-    cwist_app_configure_bdr(app, CWIST_MIB(32), 300, 100000);
+    cwist_app_set_max_memspace(app, CWIST_MIB(128));
+    cwist_app_configure_bdr(app, CWIST_MIB(64), 300, 100000);
 
     cwist_app_use_https2(app, true);
     cwist_app_use_https3(app, true);
@@ -148,7 +148,7 @@ int main(void) {
     }
 #endif
 
-    // cwist_app_use(app, global_middleware);
+    cwist_app_use(app, global_middleware);
 
     cwist_app_static(app, "/assets", "public");
 

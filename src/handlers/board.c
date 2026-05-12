@@ -38,14 +38,14 @@ void handler_board_new_get(cwist_http_request *req, cwist_http_response *res) {
 
 void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *name = form_kv_get(kv, "name");
-    const char *slug = form_kv_get(kv, "slug");
-    const char *desc = form_kv_get(kv, "description");
-    const char *ao = form_kv_get(kv, "admin_only");
-    if (!name || !slug) { redirect(res, "/board/new"); form_kv_free(kv); return; }
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *name = cwist_query_map_get(kv, "name");
+    const char *slug = cwist_query_map_get(kv, "slug");
+    const char *desc = cwist_query_map_get(kv, "description");
+    const char *ao = cwist_query_map_get(kv, "admin_only");
+    if (!name || !slug) { redirect(res, "/board/new"); cwist_query_map_destroy(kv); return; }
     db_board_create(req->db, name, slug, desc ? desc : "", ao != NULL, 0, 0, 0);
-    form_kv_free(kv);
+    cwist_query_map_destroy(kv);
     redirect(res, "/boards");
 }
 
@@ -66,12 +66,12 @@ void handler_board_edit_get(cwist_http_request *req, cwist_http_response *res) {
 
 void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *id_str = form_kv_get(kv, "id");
-    const char *name = form_kv_get(kv, "name");
-    const char *slug = form_kv_get(kv, "slug");
-    const char *desc = form_kv_get(kv, "description");
-    const char *ao = form_kv_get(kv, "admin_only");
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *id_str = cwist_query_map_get(kv, "id");
+    const char *name = cwist_query_map_get(kv, "name");
+    const char *slug = cwist_query_map_get(kv, "slug");
+    const char *desc = cwist_query_map_get(kv, "description");
+    const char *ao = cwist_query_map_get(kv, "admin_only");
 
     int uid = 0; char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
@@ -123,7 +123,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
         if (board) cJSON_Delete(board);
         send_html_res(res, page);
         free(pp);
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         return;
     }
 
@@ -132,7 +132,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
         send_html_res(res, page);
         cJSON_Delete(board);
         free(pp);
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         return;
     }
 
@@ -145,7 +145,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
     }
     cJSON_Delete(board);
     free(pp);
-    form_kv_free(kv);
+    cwist_query_map_destroy(kv);
     redirect(res, redirect_url);
 }
 
@@ -180,9 +180,9 @@ void handler_board_perms_get(cwist_http_request *req, cwist_http_response *res) 
 
 void handler_board_perms_post(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *bid = form_kv_get(kv, "board_id");
-    const char *uid_str = form_kv_get(kv, "user_id");
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *bid = cwist_query_map_get(kv, "board_id");
+    const char *uid_str = cwist_query_map_get(kv, "user_id");
     const char *msg = "error";
     if (bid && uid_str) {
         int board_id = atoi(bid);
@@ -195,7 +195,7 @@ void handler_board_perms_post(cwist_http_request *req, cwist_http_response *res)
             }
         }
     }
-    form_kv_free(kv);
+    cwist_query_map_destroy(kv);
     if (!bid) { redirect(res, "/boards"); return; }
     char url[128];
     snprintf(url, sizeof(url), "/board/%s/perms?msg=%s", bid, msg);
@@ -204,9 +204,9 @@ void handler_board_perms_post(cwist_http_request *req, cwist_http_response *res)
 
 void handler_board_perms_revoke_post(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *bid = form_kv_get(kv, "board_id");
-    const char *uid_str = form_kv_get(kv, "user_id");
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *bid = cwist_query_map_get(kv, "board_id");
+    const char *uid_str = cwist_query_map_get(kv, "user_id");
     const char *msg = "error";
     if (bid && uid_str) {
         int board_id = atoi(bid);
@@ -215,7 +215,7 @@ void handler_board_perms_revoke_post(cwist_http_request *req, cwist_http_respons
             msg = "revoked";
         }
     }
-    form_kv_free(kv);
+    cwist_query_map_destroy(kv);
     if (!bid) { redirect(res, "/boards"); return; }
     char url[128];
     snprintf(url, sizeof(url), "/board/%s/perms?msg=%s", bid, msg);
