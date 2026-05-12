@@ -50,7 +50,7 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
         const char *url_raw = f->data;
         if (strncmp(url_raw, "public/uploads/", 15) == 0) url_raw += 15;
         char url[512];
-        snprintf(url, sizeof(url), "/uploads/%s", url_raw);
+        snprintf(url, sizeof(url), "/assets/uploads/%s", url_raw);
         cJSON_AddStringToObject(obj, "url", url);
         cJSON_AddNumberToObject(obj, "size", (double)f->file_size);
         db_file_replace_for_post(req->db, post_id, f->filename);

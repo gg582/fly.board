@@ -203,7 +203,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(footer_content, footer_text);
 
     cwist_html_element_t *footer_logo = cwist_html_element_create("img");
-    cwist_html_element_add_attr(footer_logo, "src", "/img/logo.png");
+    cwist_html_element_add_attr(footer_logo, "src", "/assets/img/logo.png");
     cwist_html_element_add_attr(footer_logo, "alt", "Logo");
     cwist_html_element_add_attr(footer_logo, "width", "24");
     cwist_html_element_add_attr(footer_logo, "height", "16");

@@ -110,11 +110,9 @@ int main(void) {
     }
 #endif
 
-    cwist_app_use(app, global_middleware);
+    // cwist_app_use(app, global_middleware);
 
     cwist_app_static(app, "/assets", "public");
-    cwist_app_static(app, "/img", "img");
-    cwist_app_static(app, "/uploads", "public/uploads");
 
     /* Routes */
     cwist_app_get(app, "/", handler_home);

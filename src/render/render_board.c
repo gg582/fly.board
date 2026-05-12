@@ -10,7 +10,7 @@
 
 cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role, const char *profile_pic) {
     cwist_sstring *b = cwist_sstring_create();
-    cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/img/logo.png' alt='Logo' style='height:120px'><h1>");
+    cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/assets/img/logo.png' alt='Logo' style='height:120px'><h1>");
     cwist_sstring_append_escaped(b, g_config.title);
     cwist_sstring_append(b, "</h1><p>");
     cwist_sstring_append_escaped(b, g_config.subtitle);
