@@ -9,8 +9,10 @@ RUN pacman -Syu --noconfirm \
     && pacman -Scc --noconfirm
 
 # Build and install cwist
+COPY cwist_http2.patch /tmp/cwist_http2.patch
 RUN git clone --depth 1 --recursive https://github.com/religiya-serdtsa/cwist.git /tmp/cwist \
     && cd /tmp/cwist \
+    && patch -p0 < /tmp/cwist_http2.patch \
     && make -j$(nproc) \
     && make install \
     && rm -rf /tmp/cwist

@@ -125,8 +125,8 @@ int main(void) {
     cwist_app_set_max_memspace(app, CWIST_MIB(128));
     cwist_app_configure_bdr(app, CWIST_MIB(64), 300, 100000);
 
-    cwist_app_use_https2(app, true);
-    cwist_app_use_https3(app, true);
+    cwist_app_use_https2(app, false);
+    cwist_app_use_https3(app, false);
     cwist_error_t tls = cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
     if (tls.errtype != CWIST_ERR_INT16 || tls.error.err_i16 != 0) {
         FLY_LOG_ERROR("HTTPS init failed; run ./keygen.sh first");
@@ -134,19 +134,9 @@ int main(void) {
         return 1;
     }
 
-#ifdef HAVE_ECH
     const char *ech_key = getenv("BLOG_ECH_KEY");
     const char *ech_dir = getenv("BLOG_ECH_DIR");
-    if (ech_key || ech_dir) {
-        cwist_ech_config ech = {.ech_key_file = ech_key, .ech_dir = ech_dir, .enforce_ech = false};
-        cwist_error_t ech_err = cwist_app_use_ech(app, &ech);
-        if (ech_err.errtype != CWIST_ERR_INT16 || ech_err.error.err_i16 != 0) {
-            FLY_LOG_ERROR("ECH not available in this build");
-            cwist_app_use_ech(app, NULL);
-            cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
-        }
-    }
-#endif
+    cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
 
     cwist_app_use(app, global_middleware);
 
