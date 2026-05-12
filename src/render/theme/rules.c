@@ -56,6 +56,11 @@ void rule_base(cJSON *rules) {
     cJSON *linkh = create_rule("a:hover");
     add_decl(linkh, "color", "var(--accent2)");
     cJSON_AddItemToArray(rules, linkh);
+
+    cJSON *sel = create_rule("::selection");
+    add_decl(sel, "background", "var(--fg)");
+    add_decl(sel, "color", "var(--bg)");
+    cJSON_AddItemToArray(rules, sel);
 }
 
 void rule_layout(cJSON *rules) {
