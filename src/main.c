@@ -6,6 +6,7 @@
 #include "nats/fly_nats.h"
 #include "config/config.h"
 #include <cwist/sys/app/app.h>
+#include <signal.h>
 #if defined __has_include
 #  if __has_include (<cwist/security/tls/ech.h>)
 #    define HAVE_ECH 1
@@ -68,6 +69,7 @@ static void *nats_worker(void *arg) {
 }
 
 int main(void) {
+    signal(SIGPIPE, SIG_IGN);
     fly_log_init();
     if (!ensure_asset_workdir()) {
         FLY_LOG_ERROR("Public assets not found; set BLOG_ROOT or run from project root");
@@ -125,8 +127,8 @@ int main(void) {
     cwist_app_set_max_memspace(app, CWIST_MIB(128));
     cwist_app_configure_bdr(app, CWIST_MIB(64), 300, 100000);
 
-    cwist_app_use_https2(app, false);
-    cwist_app_use_https3(app, false);
+//    cwist_app_use_https2(app, true);
+//    cwist_app_use_https3(app, true);
     cwist_error_t tls = cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
     if (tls.errtype != CWIST_ERR_INT16 || tls.error.err_i16 != 0) {
         FLY_LOG_ERROR("HTTPS init failed; run ./keygen.sh first");
