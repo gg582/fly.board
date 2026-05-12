@@ -18,12 +18,46 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <limits.h>
 
 #define BLOG_CERT "server.crt"
 #define BLOG_KEY  "server.key"
 #define DB_PATH   "data/blog.db"
 
 static volatile bool g_nats_running = false;
+
+static bool dir_exists(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static bool ensure_workdir_with_public(const char *root) {
+    if (!root || !root[0]) return false;
+    char public_path[PATH_MAX];
+    int result = snprintf(public_path, sizeof(public_path), "%s/public", root);
+    if (result < 0 || result >= (int)sizeof(public_path)) return false;
+    if (!dir_exists(public_path)) return false;
+    return chdir(root) == 0;
+}
+
+static bool ensure_asset_workdir(void) {
+    if (dir_exists("public")) return true;
+    const char *env_root = getenv("BLOG_ROOT");
+    if (ensure_workdir_with_public(env_root)) return true;
+#if defined(__linux__)
+    char exe_path[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    if (len <= 0 || len >= (ssize_t)(sizeof(exe_path) - 1)) return dir_exists("public");
+    exe_path[len] = '\0';
+    char *slash = strrchr(exe_path, '/');
+    if (!slash) return dir_exists("public");
+    *slash = '\0';
+    if (ensure_workdir_with_public(exe_path)) return true;
+#endif
+    return dir_exists("public");
+}
 
 static void *nats_worker(void *arg) {
     (void)arg;
@@ -35,6 +69,10 @@ static void *nats_worker(void *arg) {
 
 int main(void) {
     fly_log_init();
+    if (!ensure_asset_workdir()) {
+        FLY_LOG_ERROR("Public assets not found; set BLOG_ROOT or run from project root");
+        return 1;
+    }
     if (!fly_crypto_init()) {
         FLY_LOG_ERROR("PQC crypto init failed");
         return 1;
