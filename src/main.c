@@ -36,25 +36,27 @@ static bool dir_exists(const char *path) {
 static bool ensure_workdir_with_public(const char *root) {
     if (!root || !root[0]) return false;
     char public_path[PATH_MAX];
-    snprintf(public_path, sizeof(public_path), "%s/public", root);
+    int written = snprintf(public_path, sizeof(public_path), "%s/public", root);
+    if (written < 0 || written >= (int)sizeof(public_path)) return false;
     if (!dir_exists(public_path)) return false;
     return chdir(root) == 0;
 }
 
-static void ensure_asset_workdir(void) {
-    if (dir_exists("public")) return;
+static bool ensure_asset_workdir(void) {
+    if (dir_exists("public")) return true;
     const char *env_root = getenv("BLOG_ROOT");
-    if (ensure_workdir_with_public(env_root)) return;
+    if (ensure_workdir_with_public(env_root)) return true;
 #if defined(__linux__)
     char exe_path[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (len <= 0) return;
+    if (len <= 0 || (size_t)len >= sizeof(exe_path) - 1) return dir_exists("public");
     exe_path[len] = '\0';
     char *slash = strrchr(exe_path, '/');
-    if (!slash) return;
+    if (!slash) return dir_exists("public");
     *slash = '\0';
-    ensure_workdir_with_public(exe_path);
+    if (ensure_workdir_with_public(exe_path)) return true;
 #endif
+    return dir_exists("public");
 }
 
 static void *nats_worker(void *arg) {
@@ -66,8 +68,10 @@ static void *nats_worker(void *arg) {
 }
 
 int main(void) {
-    ensure_asset_workdir();
     fly_log_init();
+    if (!ensure_asset_workdir()) {
+        FLY_LOG_ERROR("Public assets not found; set BLOG_ROOT or run from project root");
+    }
     if (!fly_crypto_init()) {
         FLY_LOG_ERROR("PQC crypto init failed");
         return 1;
