@@ -31,7 +31,10 @@ cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pi
             cwist_sstring_append(b, "'>");
             cwist_sstring_append(b, "<select class='admin-role-select' name='role'><option value='user'>user</option><option value='admin'>admin</option></select>");
             cwist_sstring_append(b, "<button type='submit' class='btn' style='font-size:12px;padding:4px 10px;margin-left:6px'>Set</button></form>");
-            cwist_sstring_append(b, " <form class='admin-delete-form' action='/unregister' method='post'>");
+            cwist_sstring_append(b, " <a href='/account/settings?id=");
+            cwist_sstring_append(b, uid_buf);
+            cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px;text-decoration:none'>Edit</a>");
+            cwist_sstring_append(b, " <form class='admin-delete-form' action='/unregister' method='post' style='display:inline'>");
             cwist_sstring_append(b, "<input type='hidden' name='id' value='");
             cwist_sstring_append(b, uid_buf);
             cwist_sstring_append(b, "'>");

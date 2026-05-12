@@ -48,7 +48,7 @@ bool db_user_update_role(cwist_db *db, int id, const char *role) {
     const char *sql = "UPDATE users SET role=? WHERE id=?";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, role, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 1, role, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -59,7 +59,7 @@ bool db_user_update_profile_pic(cwist_db *db, int id, const char *profile_pic) {
     const char *sql = "UPDATE users SET profile_pic=? WHERE id=?";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, profile_pic, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 1, profile_pic, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -70,9 +70,9 @@ bool db_user_update_profile(cwist_db *db, int id, const char *nickname, const ch
     const char *sql = "UPDATE users SET nickname=?, bio=?, profile_pic=? WHERE id=?";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, nickname ? nickname : "", -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, bio ? bio : "", -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 3, profile_pic ? profile_pic : "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 1, nickname ? nickname : "", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, bio ? bio : "", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, profile_pic ? profile_pic : "", -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 4, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -83,7 +83,7 @@ bool db_user_update_password(cwist_db *db, int id, const char *password_hash) {
     const char *sql = "UPDATE users SET password_hash=? WHERE id=?";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, password_hash, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 1, password_hash, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);

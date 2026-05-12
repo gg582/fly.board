@@ -95,14 +95,6 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
     snprintf(alt_svc, sizeof(alt_svc), "h3=\":%d\"; ma=2592000, h3-29=\":%d\"; ma=2592000", g_config.port, g_config.port);
     cwist_http_header_add(&res->headers, "Alt-Svc", alt_svc);
 
-    if (req && req->path && req->path->data) {
-        const char *path = req->path->data;
-        if (strncmp(path, "/assets/", 8) == 0 ||
-            strncmp(path, "/img/", 5) == 0 ||
-            strncmp(path, "/uploads/", 9) == 0) {
-            cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=31536000, immutable");
-        }
-    }
     next(req, res);
 }
 

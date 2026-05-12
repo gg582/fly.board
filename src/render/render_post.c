@@ -532,7 +532,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "int main() {}\n");
     cwist_sstring_append(b, "```\n\n");
     cwist_sstring_append(b, "[link](url)\n");
-    cwist_sstring_append(b, "![img](url)\n");
+    cwist_sstring_append(b, "&lt;img src=\"url\"&gt;\n");
     cwist_sstring_append(b, "- list item\n");
     cwist_sstring_append(b, "> quote\n");
     cwist_sstring_append(b, "</pre></details>");
@@ -584,7 +584,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "if(!data.ok) return;");
     cwist_sstring_append(b, "var url=data.url;var md='';");
     cwist_sstring_append(b, "if(data.mime_type && data.mime_type.indexOf('image/')===0){");
-    cwist_sstring_append(b, "md='!['+data.filename+']('+url+')';");
+    cwist_sstring_append(b, "md='<img src=\"'+url+'\" alt=\"'+data.filename+'\" style=\"max-width:100%\">';");
     cwist_sstring_append(b, "}else if(data.mime_type && data.mime_type.indexOf('video/')===0){");
     cwist_sstring_append(b, "md='<video controls src=\"'+url+'\" style=\"max-width:100%\"></video>';");
     cwist_sstring_append(b, "}else if(data.mime_type && data.mime_type.indexOf('audio/')===0){");
@@ -614,7 +614,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "if(!data.ok) return;");
     cwist_sstring_append(b, "var url=data.url;var md='';");
     cwist_sstring_append(b, "if(data.mime_type && data.mime_type.indexOf('image/')===0){");
-    cwist_sstring_append(b, "md='!['+data.filename+']('+url+')';");
+    cwist_sstring_append(b, "md='<img src=\"'+url+'\" alt=\"'+data.filename+'\" style=\"max-width:100%\">';");
     cwist_sstring_append(b, "}else if(data.mime_type && data.mime_type.indexOf('video/')===0){");
     cwist_sstring_append(b, "md='<video controls src=\"'+url+'\" style=\"max-width:100%\"></video>';");
     cwist_sstring_append(b, "}else if(data.mime_type && data.mime_type.indexOf('audio/')===0){");

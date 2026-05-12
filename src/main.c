@@ -114,7 +114,7 @@ int main(void) {
 
     cwist_app_static(app, "/assets", "public");
     cwist_app_static(app, "/img", "img");
-    cwist_app_get(app, "/uploads/:filename", handler_uploads_static);
+    cwist_app_static(app, "/uploads", "public/uploads");
 
     /* Routes */
     cwist_app_get(app, "/", handler_home);

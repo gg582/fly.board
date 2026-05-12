@@ -22,8 +22,11 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
     cJSON *uid_obj = cJSON_GetObjectItem(user, "id");
     int user_id = uid_obj ? uid_obj->valueint : 0;
 
+    cJSON *owner_role_obj = cJSON_GetObjectItem(user, "role");
+    const char *owner_role = (owner_role_obj && owner_role_obj->type == cJSON_String) ? owner_role_obj->valuestring : "";
+
     const char *display_pic = user_profile_pic;
-    if ((!display_pic || !display_pic[0]) && user_role && strcmp(user_role, "admin") == 0) {
+    if ((!display_pic || !display_pic[0]) && owner_role && strcmp(owner_role, "admin") == 0) {
         display_pic = "/img/logo.png";
     }
 
@@ -71,9 +74,17 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
         cwist_sstring_append(b, "</div>");
     }
 
-    if (is_own_profile) {
+    if (is_own_profile || (user_role && strcmp(user_role, "admin") == 0)) {
         cwist_sstring_append(b, "<hr style='margin:20px 0;border:0;border-top:1px solid var(--border)'>");
-        cwist_sstring_append(b, "<a href='/account/settings' class='btn btn-outline'>Account Settings</a>");
+        if (is_own_profile) {
+            cwist_sstring_append(b, "<a href='/account/settings' class='btn btn-outline'>Account Settings</a>");
+        } else {
+            char uid_buf[32];
+            snprintf(uid_buf, sizeof(uid_buf), "%d", user_id);
+            cwist_sstring_append(b, "<a href='/account/settings?id=");
+            cwist_sstring_append(b, uid_buf);
+            cwist_sstring_append(b, "' class='btn btn-outline'>Edit User Profile (Admin)</a>");
+        }
     } else if (user_id > 0) {
         cwist_sstring_append(b, "<hr style='margin:20px 0;border:0;border-top:1px solid var(--border)'>");
         char uid_buf[32];
@@ -90,7 +101,7 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
     return res;
 }
 
-cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *profile_pic, const char *error) {
+cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewer_role, const char *profile_pic, const char *error) {
     cwist_sstring *b = cwist_sstring_create();
     const char *username = cJSON_GetObjectItem(user, "username")->valuestring;
     const char *email = cJSON_GetObjectItem(user, "email")->valuestring;
@@ -117,6 +128,15 @@ cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *profi
     }
 
     cwist_sstring_append(b, "<form action='/account/settings' method='POST' enctype='multipart/form-data'>");
+
+    cJSON *id_obj = cJSON_GetObjectItem(user, "id");
+    if (id_obj) {
+        char id_buf[32];
+        snprintf(id_buf, sizeof(id_buf), "%d", id_obj->valueint);
+        cwist_sstring_append(b, "<input type='hidden' name='id' value='");
+        cwist_sstring_append(b, id_buf);
+        cwist_sstring_append(b, "'>");
+    }
 
     cwist_sstring_append(b, "<label>Nickname</label><input name='nickname' value='");
     cwist_sstring_append_escaped(b, nickname);
@@ -148,7 +168,7 @@ cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *profi
 
     cwist_sstring_append(b, "</div>");
 
-    cwist_sstring *res = render_page("Account Settings", b->data, dark, "user", profile_pic);
+    cwist_sstring *res = render_page("Account Settings", b->data, dark, viewer_role, profile_pic);
     cwist_sstring_destroy(b);
     return res;
 }

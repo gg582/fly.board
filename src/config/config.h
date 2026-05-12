@@ -7,6 +7,7 @@ typedef struct {
     char title[128];
     char subtitle[256];
     char brand_footer[256];
+    char accent[16];
     int port;
 } blog_config_t;
 

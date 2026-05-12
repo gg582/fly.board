@@ -147,13 +147,29 @@ void handler_account_settings_get(cwist_http_request *req, cwist_http_response *
     int uid = 0;
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
-    cJSON *user = db_user_get_by_id(req->db, uid);
+
+    int target_uid = uid;
+    const char *id_str = cwist_query_map_get(req->query_params, "id");
+    if (id_str && strcmp(role, "admin") == 0) {
+        target_uid = atoi(id_str);
+    }
+
+    if (target_uid <= 0 && strcmp(role, "admin") == 0 && target_uid == uid) {
+        redirect(res, "/admin/users");
+        return;
+    }
+
+    cJSON *user = db_user_get_by_id(req->db, target_uid);
     if (!user) {
-        redirect(res, "/login");
+        if (target_uid == uid) redirect(res, "/login");
+        else {
+            res->status_code = CWIST_HTTP_NOT_FOUND;
+            cwist_sstring_assign(res->body, "User not found");
+        }
         return;
     }
     char *pp = get_profile_pic(req->db, uid, role);
-    send_html_res(res, render_account_settings(user, is_dark(req), pp, NULL));
+    send_html_res(res, render_account_settings(user, is_dark(req), role, pp, NULL));
     cJSON_Delete(user);
     free(pp);
 }
@@ -166,6 +182,7 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
     char *nickname = NULL, *bio = NULL;
     char *profile_pic_url = NULL;
+    int target_uid = uid;
 
     if (ctype && strstr(ctype, "multipart/form-data")) {
         const char *bnd = strstr(ctype, "boundary=");
@@ -179,6 +196,9 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
             form_field_t *fields = multipart_parse(req->body->data, req->body->size, boundary);
             cwist_free(boundary);
             form_field_t *f;
+            if ((f = form_find(fields, "id")) && strcmp(role, "admin") == 0) {
+                target_uid = atoi(f->data);
+            }
             if ((f = form_find(fields, "nickname"))) {
                 nickname = (char *)cwist_alloc(f->len + 1);
                 memcpy(nickname, f->data, f->len);
@@ -195,9 +215,12 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
                 if (mt && strncmp(mt, "image/", 6) == 0) {
                     const char *data_path = f->data;
                     profile_pic_url = (char *)cwist_alloc(512);
-                    if (strncmp(data_path, "public/", 7) == 0) {
+                    if (strncmp(data_path, "public/uploads/", 15) == 0) {
+                        snprintf(profile_pic_url, 512, "/uploads/%s", data_path + 15);
+                    } else if (strncmp(data_path, "public/", 7) == 0) {
                         snprintf(profile_pic_url, 512, "/assets/%s", data_path + 7);
                     } else {
+                        // If it's already an absolute or relative URL, keep it
                         snprintf(profile_pic_url, 512, "%s", data_path);
                     }
                 }
@@ -206,6 +229,10 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
         }
     } else {
         form_kv_t *kv = parse_urlencoded(req->body->data);
+        const char *id_str = form_kv_get(kv, "id");
+        if (id_str && strcmp(role, "admin") == 0) {
+            target_uid = atoi(id_str);
+        }
         const char *n = form_kv_get(kv, "nickname");
         const char *b = form_kv_get(kv, "bio");
         nickname = (char *)cwist_alloc(strlen(n ? n : "") + 1);
@@ -216,26 +243,31 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
     }
 
     if (!nickname || !bio) {
-        cJSON *user = db_user_get_by_id(req->db, uid);
+        cJSON *user = db_user_get_by_id(req->db, target_uid);
         char *pp = get_profile_pic(req->db, uid, role);
-        send_html_res(res, render_account_settings(user, is_dark(req), pp, "Invalid form data"));
+        send_html_res(res, render_account_settings(user, is_dark(req), role, pp, "Invalid form data"));
         if (user) cJSON_Delete(user);
         free(pp);
         cwist_free(nickname); cwist_free(bio); cwist_free(profile_pic_url);
         return;
     }
 
-    cJSON *user = db_user_get_by_id(req->db, uid);
+    cJSON *user = db_user_get_by_id(req->db, target_uid);
     if (user) {
         cJSON *pp_obj = cJSON_GetObjectItem(user, "profile_pic");
         const char *existing_pic = (pp_obj && pp_obj->type == cJSON_String) ? pp_obj->valuestring : "";
-        db_user_update_profile(req->db, uid, nickname, bio, profile_pic_url ? profile_pic_url : existing_pic);
+        db_user_update_profile(req->db, target_uid, nickname, bio, profile_pic_url ? profile_pic_url : existing_pic);
         cJSON_Delete(user);
-    } else {
-        db_user_update_profile(req->db, uid, nickname, bio, profile_pic_url ? profile_pic_url : "");
+    } else if (target_uid > 0) {
+        db_user_update_profile(req->db, target_uid, nickname, bio, profile_pic_url ? profile_pic_url : "");
     }
     cwist_free(nickname); cwist_free(bio); cwist_free(profile_pic_url);
-    redirect(res, "/profile");
+    
+    if (target_uid != uid) {
+        redirect(res, "/admin/users");
+    } else {
+        redirect(res, "/profile");
+    }
 }
 
 void handler_password_change_get(cwist_http_request *req, cwist_http_response *res) {
