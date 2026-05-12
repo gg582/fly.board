@@ -36,16 +36,17 @@ endif
 LDFLAGS := -L$(CWIST_PREFIX)/lib \
            -Wl,-rpath,$(CWIST_PREFIX)/lib
 
-CJSON_LIB := /root/cwist/lib/cjson/libcjson.a
-URIPARSER_LIB := /root/cwist/lib/uriparser/build/liburiparser.a
-LIBTTAK_LIB := /root/cwist/lib/libttak/lib/libttak.a
+CWIST_ROOT ?= /home/yjlee/cwist
+CJSON_LIB := $(CWIST_ROOT)/lib/cjson/libcjson.a
+URIPARSER_LIB := $(CWIST_ROOT)/lib/uriparser/build/liburiparser.a
+LIBTTAK_LIB := $(CWIST_ROOT)/lib/libttak/lib/libttak.a
 
 CWIST_LIB := $(CWIST_PREFIX)/lib/libcwist.a
 ifeq ($(wildcard $(CWIST_LIB)),)
   CWIST_LIB := $(CWIST_PREFIX)/libcwist.a
 endif
 
-LIBS := -lssl -lcrypto -lpthread -ldl -L/root/cwist/lib/cnats/build/lib -lnats_static
+LIBS := -lssl -lcrypto -lpthread -ldl
 HAS_NGHTTP2 := $(shell pkg-config --exists libnghttp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGTCP2 := $(shell pkg-config --exists libngtcp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGHTTP3 := $(shell pkg-config --exists libnghttp3 2>/dev/null && echo 1 || echo 0)
@@ -54,7 +55,13 @@ ifeq ($(HAS_NGHTTP2),1)
 LIBS += -lnghttp2
 endif
 ifeq ($(HAS_NGTCP2),1)
-LIBS += -lngtcp2 -lngtcp2_crypto_quictls
+HAS_NGTCP2_CRYPTO_OSSL := $(shell pkg-config --exists libngtcp2_crypto_ossl 2>/dev/null && echo 1 || echo 0)
+LIBS += -lngtcp2
+ifeq ($(HAS_NGTCP2_CRYPTO_OSSL),1)
+LIBS += -lngtcp2_crypto_ossl
+else
+LIBS += -lngtcp2_crypto_quictls
+endif
 endif
 ifeq ($(HAS_NGHTTP3),1)
 LIBS += -lnghttp3
