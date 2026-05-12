@@ -134,16 +134,16 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             FLY_LOG_DEBUG("boundary not found in ctype");
         }
     } else {
-        form_kv_t *kv = parse_urlencoded(req->body->data);
-        title = (char *)cwist_alloc(strlen(form_kv_get(kv, "title") ? form_kv_get(kv, "title") : "")+1);
-        strcpy(title, form_kv_get(kv, "title") ? form_kv_get(kv, "title") : "");
-        content = (char *)cwist_alloc(strlen(form_kv_get(kv, "content") ? form_kv_get(kv, "content") : "")+1);
-        strcpy(content, form_kv_get(kv, "content") ? form_kv_get(kv, "content") : "");
-        summary = (char *)cwist_alloc(strlen(form_kv_get(kv, "summary") ? form_kv_get(kv, "summary") : "")+1);
-        strcpy(summary, form_kv_get(kv, "summary") ? form_kv_get(kv, "summary") : "");
-        board_id_str = (char *)cwist_alloc(strlen(form_kv_get(kv, "board_id") ? form_kv_get(kv, "board_id") : "0")+1);
-        strcpy(board_id_str, form_kv_get(kv, "board_id") ? form_kv_get(kv, "board_id") : "0");
-        form_kv_free(kv);
+        cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+        title = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "title") ? cwist_query_map_get(kv, "title") : "")+1);
+        strcpy(title, cwist_query_map_get(kv, "title") ? cwist_query_map_get(kv, "title") : "");
+        content = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "content") ? cwist_query_map_get(kv, "content") : "")+1);
+        strcpy(content, cwist_query_map_get(kv, "content") ? cwist_query_map_get(kv, "content") : "");
+        summary = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "summary") ? cwist_query_map_get(kv, "summary") : "")+1);
+        strcpy(summary, cwist_query_map_get(kv, "summary") ? cwist_query_map_get(kv, "summary") : "");
+        board_id_str = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0")+1);
+        strcpy(board_id_str, cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0");
+        cwist_query_map_destroy(kv);
     }
 
     if (!title || !content || !title[0] || !content[0]) {
@@ -280,18 +280,18 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
             if ((f = form_find(files, "board_id"))) board_id_str = (char *)cwist_alloc(f->len+1), memcpy(board_id_str, f->data, f->len), board_id_str[f->len]=0;
         }
     } else {
-        form_kv_t *kv = parse_urlencoded(req->body->data);
-        id_str = (char *)cwist_alloc(strlen(form_kv_get(kv, "id") ? form_kv_get(kv, "id") : "")+1);
-        strcpy(id_str, form_kv_get(kv, "id") ? form_kv_get(kv, "id") : "");
-        title = (char *)cwist_alloc(strlen(form_kv_get(kv, "title") ? form_kv_get(kv, "title") : "")+1);
-        strcpy(title, form_kv_get(kv, "title") ? form_kv_get(kv, "title") : "");
-        content = (char *)cwist_alloc(strlen(form_kv_get(kv, "content") ? form_kv_get(kv, "content") : "")+1);
-        strcpy(content, form_kv_get(kv, "content") ? form_kv_get(kv, "content") : "");
-        summary = (char *)cwist_alloc(strlen(form_kv_get(kv, "summary") ? form_kv_get(kv, "summary") : "")+1);
-        strcpy(summary, form_kv_get(kv, "summary") ? form_kv_get(kv, "summary") : "");
-        board_id_str = (char *)cwist_alloc(strlen(form_kv_get(kv, "board_id") ? form_kv_get(kv, "board_id") : "0")+1);
-        strcpy(board_id_str, form_kv_get(kv, "board_id") ? form_kv_get(kv, "board_id") : "0");
-        form_kv_free(kv);
+        cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+        id_str = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "id") ? cwist_query_map_get(kv, "id") : "")+1);
+        strcpy(id_str, cwist_query_map_get(kv, "id") ? cwist_query_map_get(kv, "id") : "");
+        title = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "title") ? cwist_query_map_get(kv, "title") : "")+1);
+        strcpy(title, cwist_query_map_get(kv, "title") ? cwist_query_map_get(kv, "title") : "");
+        content = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "content") ? cwist_query_map_get(kv, "content") : "")+1);
+        strcpy(content, cwist_query_map_get(kv, "content") ? cwist_query_map_get(kv, "content") : "");
+        summary = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "summary") ? cwist_query_map_get(kv, "summary") : "")+1);
+        strcpy(summary, cwist_query_map_get(kv, "summary") ? cwist_query_map_get(kv, "summary") : "");
+        board_id_str = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0")+1);
+        strcpy(board_id_str, cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0");
+        cwist_query_map_destroy(kv);
     }
 
     if (!id_str || !title || !content || !title[0] || !content[0]) {

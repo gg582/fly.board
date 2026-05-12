@@ -5,11 +5,11 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
     int uid = 0;
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *target_type = form_kv_get(kv, "target_type");
-    const char *target_id_str = form_kv_get(kv, "target_id");
-    const char *parent_id_str = form_kv_get(kv, "parent_id");
-    const char *content = form_kv_get(kv, "content");
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *target_type = cwist_query_map_get(kv, "target_type");
+    const char *target_id_str = cwist_query_map_get(kv, "target_id");
+    const char *parent_id_str = cwist_query_map_get(kv, "parent_id");
+    const char *content = cwist_query_map_get(kv, "content");
     const char *referer = cwist_http_header_get(req->headers, "Referer");
     if (target_type && target_id_str && content && content[0]) {
         int target_id = atoi(target_id_str);
@@ -23,7 +23,7 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
         db_comment_create(req->db, target_type, target_id, uid, author_name, parent_id, content);
         if (u) cJSON_Delete(u);
     }
-    form_kv_free(kv);
+    cwist_query_map_destroy(kv);
     redirect(res, referer && referer[0] ? referer : "/");
 }
 
@@ -31,14 +31,14 @@ void handler_comment_edit_post(cwist_http_request *req, cwist_http_response *res
     int uid = 0;
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *id_str = form_kv_get(kv, "id");
-    const char *content = form_kv_get(kv, "content");
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *id_str = cwist_query_map_get(kv, "id");
+    const char *content = cwist_query_map_get(kv, "content");
     const char *referer = cwist_http_header_get(req->headers, "Referer");
     if (id_str && content && content[0]) {
         db_comment_update(req->db, atoi(id_str), uid, content);
     }
-    form_kv_free(kv);
+    cwist_query_map_destroy(kv);
     redirect(res, referer && referer[0] ? referer : "/");
 }
 

@@ -107,8 +107,8 @@ void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *id_str = form_kv_get(kv, "id");
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *id_str = cwist_query_map_get(kv, "id");
     if (id_str) {
         cJSON *f = db_file_get(req->db, atoi(id_str));
         if (f) {
@@ -120,6 +120,6 @@ void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
         }
         db_file_delete(req->db, atoi(id_str));
     }
-    form_kv_free(kv);
+    cwist_query_map_destroy(kv);
     redirect(res, "/files");
 }

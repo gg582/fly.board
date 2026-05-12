@@ -43,9 +43,9 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
 
     if (nickname && nickname[0]) {
         cwist_sstring_append(b, "<h3 style='margin-bottom:4px'>");
-        char *tmp_nick = unescape_html(nickname);
-    cwist_sstring_append(b, tmp_nick);
-    cwist_free(tmp_nick);
+        cwist_sstring_append_escaped(b, nickname);
+     
+     
         cwist_sstring_append(b, "</h3>");
         cwist_sstring_append(b, "<p style='color:var(--muted);margin-top:0'>@");
         cwist_sstring_append_escaped(b, username);
@@ -67,9 +67,9 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
     if (bio && bio[0]) {
         cwist_sstring_append(b, "<div style='margin:16px 0;padding:12px;background:var(--bg-alt);border-radius:8px;text-align:left'>");
         cwist_sstring_append(b, "<p style='margin:0;color:var(--fg)'>");
-        char *tmp_bio = unescape_html(bio);
-    cwist_sstring_append(b, tmp_bio);
-    cwist_free(tmp_bio);
+        cwist_sstring_append_escaped(b, bio);
+     
+     
         cwist_sstring_append(b, "</p>");
         cwist_sstring_append(b, "</div>");
     }

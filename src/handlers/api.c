@@ -154,13 +154,13 @@ void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *post_id_str = form_kv_get(kv, "post_id");
-    const char *vote_type_str = form_kv_get(kv, "vote_type");
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *post_id_str = cwist_query_map_get(kv, "post_id");
+    const char *vote_type_str = cwist_query_map_get(kv, "vote_type");
     if (!post_id_str || !vote_type_str) {
         res->status_code = CWIST_HTTP_BAD_REQUEST;
         cwist_sstring_assign(res->body, "Missing parameters");
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         return;
     }
     int post_id = atoi(post_id_str);
@@ -190,5 +190,5 @@ void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
     cwist_sstring_assign(res->body, json ? json : "{}");
     if (json) free(json);
-    form_kv_free(kv);
+    cwist_query_map_destroy(kv);
 }

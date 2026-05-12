@@ -7,12 +7,12 @@ void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
 
 void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     bool dark = is_dark(req);
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *username = form_kv_get(kv, "username");
-    const char *password = form_kv_get(kv, "password");
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *username = cwist_query_map_get(kv, "username");
+    const char *password = cwist_query_map_get(kv, "password");
     if (!username || !password) {
         send_html_res(res, render_login(dark, "Missing fields"));
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         return;
     }
     /* Admin login via admin.settings */
@@ -24,21 +24,21 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
             cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
             cwist_free(token);
         }
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         redirect(res, "/");
         return;
     }
     cJSON *user = db_user_get_by_username(req->db, username);
     if (!user) {
         send_html_res(res, render_login(dark, "Invalid credentials"));
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         return;
     }
     cJSON *hash = cJSON_GetObjectItem(user, "password_hash");
     if (!auth_verify_password(password, hash->valuestring)) {
         cJSON_Delete(user);
         send_html_res(res, render_login(dark, "Invalid credentials"));
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         return;
     }
     int user_id = json_int(user, "id", 0);
@@ -52,7 +52,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         cwist_free(token);
     }
     cJSON_Delete(user);
-    form_kv_free(kv);
+    cwist_query_map_destroy(kv);
     redirect(res, "/");
 }
 
@@ -70,23 +70,23 @@ void handler_register_get(cwist_http_request *req, cwist_http_response *res) {
 
 void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
     bool dark = is_dark(req);
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *username = form_kv_get(kv, "username");
-    const char *email = form_kv_get(kv, "email");
-    const char *password = form_kv_get(kv, "password");
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *username = cwist_query_map_get(kv, "username");
+    const char *email = cwist_query_map_get(kv, "email");
+    const char *password = cwist_query_map_get(kv, "password");
     if (!username || !email || !password || strlen(password) < 6) {
         send_html_res(res, render_register(dark, "Invalid input (password min 6 chars)"));
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         return;
     }
     char hash[256];
     if (!auth_hash_password(password, hash, sizeof(hash))) {
         send_html_res(res, render_register(dark, "Server error"));
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         return;
     }
     bool ok = db_user_create(req->db, username, email, hash);
-    form_kv_free(kv);
+    cwist_query_map_destroy(kv);
     if (!ok) {
         send_html_res(res, render_register(dark, "Username or email already exists"));
         return;
@@ -98,12 +98,12 @@ void handler_unregister_post(cwist_http_request *req, cwist_http_response *res) 
     int uid = 0;
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *id_str = form_kv_get(kv, "id");
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *id_str = cwist_query_map_get(kv, "id");
     if (id_str) {
         int target = atoi(id_str);
         if (target == uid || strcmp(role, "admin") == 0) {
-            const char *cascade = form_kv_get(kv, "cascade");
+            const char *cascade = cwist_query_map_get(kv, "cascade");
             if (cascade && atoi(cascade) == 1) {
                 db_user_delete_with_cascade(req->db, target, true);
             } else {
@@ -111,12 +111,12 @@ void handler_unregister_post(cwist_http_request *req, cwist_http_response *res) 
             }
             if (target == uid) {
                 handler_logout(req, res);
-                form_kv_free(kv);
+                cwist_query_map_destroy(kv);
                 return;
             }
         }
     }
-    form_kv_free(kv);
+    cwist_query_map_destroy(kv);
     redirect(res, "/admin/users");
 }
 
@@ -228,18 +228,18 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
             multipart_free(fields);
         }
     } else {
-        form_kv_t *kv = parse_urlencoded(req->body->data);
-        const char *id_str = form_kv_get(kv, "id");
+        cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+        const char *id_str = cwist_query_map_get(kv, "id");
         if (id_str && strcmp(role, "admin") == 0) {
             target_uid = atoi(id_str);
         }
-        const char *n = form_kv_get(kv, "nickname");
-        const char *b = form_kv_get(kv, "bio");
+        const char *n = cwist_query_map_get(kv, "nickname");
+        const char *b = cwist_query_map_get(kv, "bio");
         nickname = (char *)cwist_alloc(strlen(n ? n : "") + 1);
         strcpy(nickname, n ? n : "");
         bio = (char *)cwist_alloc(strlen(b ? b : "") + 1);
         strcpy(bio, b ? b : "");
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
     }
 
     if (!nickname || !bio) {
@@ -285,26 +285,26 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     bool dark = is_dark(req);
 
-    form_kv_t *kv = parse_urlencoded(req->body->data);
-    const char *current = form_kv_get(kv, "current_password");
-    const char *new_pw = form_kv_get(kv, "new_password");
-    const char *confirm = form_kv_get(kv, "confirm_password");
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *current = cwist_query_map_get(kv, "current_password");
+    const char *new_pw = cwist_query_map_get(kv, "new_password");
+    const char *confirm = cwist_query_map_get(kv, "confirm_password");
 
     if (!current || !new_pw || !confirm || strlen(new_pw) < 6) {
         send_html_res(res, render_password_change(dark, "Invalid input (password min 6 chars)"));
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         return;
     }
     if (strcmp(new_pw, confirm) != 0) {
         send_html_res(res, render_password_change(dark, "New passwords do not match"));
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         return;
     }
 
     cJSON *user = db_user_get_by_id(req->db, uid);
     if (!user) {
         send_html_res(res, render_password_change(dark, "User not found"));
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         return;
     }
 
@@ -312,7 +312,7 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
     if (!hash || !hash->valuestring || !auth_verify_password(current, hash->valuestring)) {
         cJSON_Delete(user);
         send_html_res(res, render_password_change(dark, "Current password is incorrect"));
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         return;
     }
 
@@ -320,13 +320,13 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
     if (!auth_hash_password(new_pw, new_hash, sizeof(new_hash))) {
         cJSON_Delete(user);
         send_html_res(res, render_password_change(dark, "Server error"));
-        form_kv_free(kv);
+        cwist_query_map_destroy(kv);
         return;
     }
 
     db_user_update_password(req->db, uid, new_hash);
     cJSON_Delete(user);
-    form_kv_free(kv);
+    cwist_query_map_destroy(kv);
 
     redirect(res, "/profile");
 }

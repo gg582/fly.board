@@ -91,6 +91,10 @@ cJSON *board_by_route_key(cwist_db *db, const char *key) {
 }
 
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
+    char altsvc[128];
+    // Advertise HTTP/3 and HTTP/2 fallback. h3 is prioritized.
+    snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"; ma=86400, h2=\":%d\"; ma=86400", g_config.port, g_config.port);
+    cwist_http_header_add(&res->headers, "Alt-Svc", altsvc);
     next(req, res);
 }
 
