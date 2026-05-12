@@ -21,7 +21,6 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <limits.h>
-#include <libgen.h>
 
 #define BLOG_CERT "server.crt"
 #define BLOG_KEY  "server.key"
@@ -46,12 +45,16 @@ static void ensure_asset_workdir(void) {
     if (dir_exists("public")) return;
     const char *env_root = getenv("BLOG_ROOT");
     if (ensure_workdir_with_public(env_root)) return;
+#if defined(__linux__)
     char exe_path[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
     if (len <= 0) return;
     exe_path[len] = '\0';
-    char *dir = dirname(exe_path);
-    ensure_workdir_with_public(dir);
+    char *slash = strrchr(exe_path, '/');
+    if (!slash) return;
+    *slash = '\0';
+    ensure_workdir_with_public(exe_path);
+#endif
 }
 
 static void *nats_worker(void *arg) {
