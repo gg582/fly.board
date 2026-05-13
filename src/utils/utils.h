@@ -29,4 +29,15 @@ form_field_t *multipart_parse(const char *body, size_t body_len, const char *bou
 void multipart_free(form_field_t *fields);
 form_field_t *form_find(form_field_t *fields, const char *name);
 
+/* Simple url-encoded body parser */
+typedef struct form_kv {
+    char *key;
+    char *value;
+    struct form_kv *next;
+} form_kv_t;
+
+form_kv_t *parse_urlencoded(const char *body);
+void form_kv_free(form_kv_t *kv);
+const char *form_kv_get(form_kv_t *kv, const char *key);
+
 #endif
