@@ -37,16 +37,13 @@ LDFLAGS := -L$(CWIST_PREFIX)/lib \
            -Wl,-rpath,$(CWIST_PREFIX)/lib
 
 CWIST_ROOT ?= /home/yjlee/cwist
-CJSON_LIB := $(CWIST_ROOT)/lib/cjson/libcjson.a
-URIPARSER_LIB := $(CWIST_ROOT)/lib/uriparser/build/liburiparser.a
-LIBTTAK_LIB := $(CWIST_ROOT)/lib/libttak/lib/libttak.a
 
 CWIST_LIB := $(CWIST_PREFIX)/lib/libcwist.a
 ifeq ($(wildcard $(CWIST_LIB)),)
   CWIST_LIB := $(CWIST_PREFIX)/libcwist.a
 endif
 
-LIBS := -lssl -lcrypto -lpthread -ldl
+LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++
 HAS_NGHTTP2 := $(shell pkg-config --exists libnghttp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGTCP2 := $(shell pkg-config --exists libngtcp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGHTTP3 := $(shell pkg-config --exists libnghttp3 2>/dev/null && echo 1 || echo 0)
@@ -100,7 +97,7 @@ src/crypto/fly_crypto.o: src/crypto/fly_crypto.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET): $(OBJS) $(MD4C_LIB)
-	$(CC) $(CFLAGS) -o $@ $(OBJS) $(MD4C_LIB) $(LDFLAGS) $(CWIST_LIB) $(CJSON_LIB) $(URIPARSER_LIB) $(LIBTTAK_LIB) $(LIBS)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(MD4C_LIB) $(LDFLAGS) $(CWIST_LIB) $(LIBS)
 
 clean:
 	rm -f $(OBJS) $(TARGET)
