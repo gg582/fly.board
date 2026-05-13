@@ -25,9 +25,9 @@ make
 ```
 
 依赖：
-- [CWIST](https://github.com/religiya-serdtsa/cwist)
-- OpenSSL 3.x (Argon2id KDF、TLS 1.3、QUIC)
-- ngtcp2 / nghttp3 (HTTP/3)
+- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3（QUIC）由 CWIST 内置的 BoringSSL 处理，无需额外安装。
+- OpenSSL 3.x（Argon2id KDF）
+- ngtcp2 / nghttp3（HTTP/3）
 - cJSON、SQLite3
 
 `Makefile` 会克隆并构建 `third_party/md4c` 为静态库。
