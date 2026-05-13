@@ -25,8 +25,8 @@ make
 ```
 
 Dependencias:
-- [CWIST](https://github.com/religiya-serdtsa/cwist)
-- OpenSSL 3.x (Argon2id KDF, TLS 1.3, QUIC)
+- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3 (QUIC) se gestiona mediante BoringSSL embebido en CWIST; no requiere configuración adicional.
+- OpenSSL 3.x (Argon2id KDF)
 - ngtcp2 / nghttp3 (HTTP/3)
 - cJSON, SQLite3
 

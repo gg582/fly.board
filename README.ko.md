@@ -25,8 +25,8 @@ make
 ```
 
 의존성:
-- [CWIST](https://github.com/religiya-serdtsa/cwist)
-- OpenSSL 3.x (Argon2id KDF, TLS 1.3, QUIC)
+- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3(QUIC)는 CWIST에 임베딩된 BoringSSL로 처리되며 별도 설치가 필요 없습니다.
+- OpenSSL 3.x (Argon2id KDF)
 - ngtcp2 / nghttp3 (HTTP/3)
 - cJSON, SQLite3
 
