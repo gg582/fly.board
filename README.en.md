@@ -7,7 +7,7 @@
 
 ## Features
 
-- **Memory Efficient** – Stack+heap C implementation. Production RSS stays around **8–16 MB**.
+- **Memory Efficient** – Stack+heap C implementation. Production RSS stays around **20-30 MB**.
 - **Modern Transport** – TLS 1.3 + HTTP/3 (QUIC) by default. Optional ECH (Encrypted Client Hello).
 - **Secure Auth** – Client-side SHA-512 prehash + server-side **Argon2id** (OpenSSL 3 KDF). JWT session cookies.
 - **Board / Blog Hybrid** – Slug-based markdown posts + multiple boards + nested comments.
