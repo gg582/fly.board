@@ -212,12 +212,12 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
                 cwist_sstring_append(b, "<div style='margin-top:8px;display:flex;gap:8px'>");
                 char pid_buf[32];
                 snprintf(pid_buf, sizeof(pid_buf), "%d", json_int(p, "id", 0));
-                cwist_sstring_append(b, "<a href='/post/");
+                cwist_sstring_append(b, "<a href='/post/edit/");
                 cwist_sstring_append(b, pid_buf);
-                cwist_sstring_append(b, "/edit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Edit</a>");
-                cwist_sstring_append(b, "<a href='/post/");
+                cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Edit</a>");
+                cwist_sstring_append(b, "<a href='/post/delete/");
                 cwist_sstring_append(b, pid_buf);
-                cwist_sstring_append(b, "/delete' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete this post?\")'>Delete</a>");
+                cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete this post?\")'>Delete</a>");
                 cwist_sstring_append(b, "</div>");
             }
             cwist_sstring_append(b, "</div>");
@@ -406,12 +406,12 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring_append(b, "<a href='/' class='btn btn-outline'>Back</a>");
     bool can_edit = (user_id > 0 && json_int(post, "user_id", 0) == user_id) || (user_role && strcmp(user_role, "admin") == 0);
     if (can_edit) {
-        cwist_sstring_append(b, "<a href='/post/");
+        cwist_sstring_append(b, "<a href='/post/edit/");
         cwist_sstring_append(b, pid_buf);
-        cwist_sstring_append(b, "/edit' class='btn'>Edit</a>");
-        cwist_sstring_append(b, "<a href='/post/");
+        cwist_sstring_append(b, "' class='btn'>Edit</a>");
+        cwist_sstring_append(b, "<a href='/post/delete/");
         cwist_sstring_append(b, pid_buf);
-        cwist_sstring_append(b, "/delete' class='btn btn-outline' onclick='return confirm(\"Delete this post?\")'>Delete</a>");
+        cwist_sstring_append(b, "' class='btn btn-outline' onclick='return confirm(\"Delete this post?\")'>Delete</a>");
     }
     cwist_sstring_append(b, "</div>");
 
