@@ -7,7 +7,7 @@
 
 ## 特性
 
-- **内存节省** – 栈+堆 C 实现。生产环境 RSS 维持在 **8–16 MB**。
+- **内存节省** – 栈+堆 C 实现。生产环境 RSS 维持在 **20-30 MB**。
 - **最新传输层** – 默认 TLS 1.3 + HTTP/3(QUIC)。可选 ECH(Encrypted Client Hello)。
 - **安全认证** – 客户端 SHA-512 预哈希 + 服务端 **Argon2id** (OpenSSL 3 KDF)。JWT 会话 Cookie。
 - **论坛 / 博客混合** – Slug 式 Markdown 文章 + 多板块 + 嵌套评论。
