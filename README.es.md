@@ -2,7 +2,7 @@
 
 ![fly.board logo](img/logo.png)
 
-> Uno de los pocos motores de blog sencillos que funciona con **8–16 MB RSS**.  
+> Uno de los pocos motores de blog sencillos que funciona con **20-30 MB RSS**.  
 > Motor híbrido de foro y blog ligero construido sobre el framework web CWIST en C, con soporte para HTTPS/3, Argon2id, firmas PQC y mensajería NATS.
 
 ## Características
