@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> 極少數能在 **8–16 MB RSS** 下執行的簡約部落格系統。  
+> 閒置時僅 **8–16 MB RSS**，C10k（10,000 併發連線）下峰值仍僅約 **369 MB** 的極簡部落格系統。  
 > 基於 C 語言 CWIST Web 框架，支援 HTTPS/3、Argon2id、PQC 簽章與 NATS 訊息的輕量化論壇兼部落格引擎。
 
 ## 特性
 
-- **記憶體節省** – 堆疊+堆積 C 實作。生產環境 RSS 維持在 **20-30 MB**。
+- **記憶體節省** – 堆疊+堆積 C 實作。閒置時 **8–16 MB**，10,000 併發連線（C10k）下最大 RSS 僅約 **369 MB**。
 - **最新傳輸層** – 預設 TLS 1.3 + HTTP/3（QUIC）。可選 ECH（Encrypted Client Hello）。
 - **安全認證** – 用戶端 SHA-512 預雜湊 + 伺服端 **Argon2id**（OpenSSL 3 KDF）。JWT 工作階段 Cookie。
 - **論壇 / 部落格混合** – Slug 式 Markdown 文章 + 多看板 + 巢狀評論。
@@ -149,3 +149,33 @@ MIT License
 
 > 注意：基準測試在**未**對請求進行序列化（`pthread_mutex_t`）的狀態下執行。  
 > `ulimit -n` 已設定為 20,000，因此最多 400 個併發連線均可穩定測量。
+
+### C10k 併發連線測試
+
+在實際執行環境中維持 10,000 個併發連線（C10k）進行測量（`sudo -E /usr/bin/time -v ./fly_board`）。
+
+| 項目 | 數值 |
+|------|-----|
+| 併發連線數 | 10,000 |
+| 持續時間 | 24 分 46 秒 |
+| 最大 RSS | **約 369 MB** (368,644 KB) |
+| 平均 CPU 併用率 | 約 93% |
+| User time | 444.17 秒 |
+| System time | 951.76 秒 |
+| Major page faults | **0** (無磁碟 I/O) |
+| Minor page faults | 219,629 |
+| Swaps | **0** |
+| File system inputs | **0** |
+| File system outputs | 89,208 (安全資料落盤) |
+| Voluntary context switches | 346,110,015 |
+| Involuntary context switches | 1,690,588 |
+| 結束狀態 | **0** (SIGINT 後正常結束) |
+
+> 注意：在 HTTP/3（QUIC）over TLS 1.3 環境下維持 10,000 個真實客戶端連線測得。
+
+**C10k 基準測試核心優勢**
+- **記憶體高效**: 10,000 併發連線下 RSS 仍低於 400 MB（每連線約 37 KB）
+- **零磁碟 I/O**: Major page faults 0、Swaps 0、FS inputs 0 — 高負載下仍純記憶體處理
+- **CPU 充分利用**: 93% CPU 佔用率下依然穩定運行
+- **長時間穩定性**: 持續 24 分 46 秒的 C10k 滿載後正常結束（Exit status 0）
+- **資料安全**: 收到 SIGINT 後 NukeDB 仍安全保存全部資料

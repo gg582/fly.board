@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> **8–16 MB RSS**로 동작하는 몇 안 되는 심플 블로그 계통.  
+> idle 시 **8–16 MB RSS**, C10k(10,000 동시 연결)에서도 **약 369 MB**로 동작하는 몇 안 되는 심플 블로그 계통.  
 > C 기반 CWIST 웹 프레임워크 위에 HTTPS/3, Argon2id, PQC 서명, NATS 메시징을 올린 가벼운 게시판 겸 블로그 엔진입니다.
 
 ## 특징
 
-- **메모리 절약** – 스택+힙 기반 C 구현. 운영 환경에서 RSS가 **20-30 MB** 수준에 머무릅니다.
+- **메모리 절약** – 스택+힙 기반 C 구현. idle 시 **8–16 MB**, 10,000 동시 연결(C10k)에서도 최대 RSS **약 369 MB**에 머무릅니다.
 - **최신 전송 계층** – TLS 1.3 + HTTP/3(QUIC) 기본 지원. 선택적 ECH(Encrypted Client Hello).
 - **안전한 인증** – 클라이언트 사이드 SHA-512 프리해시 + 서버 사이드 **Argon2id** (OpenSSL 3 KDF). JWT 세션 쿠키.
 - **게시판 / 블로그 하이브리드** – 슬러그 기반 마크다운 포스트 + 다중 게시판(Board) + 댓글(계층형).
@@ -149,3 +149,33 @@ MIT License
 
 > 참고: 본 벤치마크는 동시 요청 직렬화(`pthread_mutex_t`) **없이** 수행되었습니다.  
 > `ulimit -n`은 20,000으로 설정되어 있어 400 connections까지 안정적으로 측정 가능합니다.
+
+### C10k 동시 연결 테스트
+
+실제 운영 환경에서 10,000개의 동시 연결(C10k)을 유지하며 측정 (`sudo -E /usr/bin/time -v ./fly_board`).
+
+| 항목 | 값 |
+|------|-----|
+| 동시 연결 수 | 10,000 |
+| 지속 시간 | 24분 46초 |
+| 최대 RSS | **약 369 MB** (368,644 KB) |
+| 평균 CPU 점유율 | 약 93% |
+| User time | 444.17초 |
+| System time | 951.76초 |
+| Major page faults | **0** (디스크 I/O 없음) |
+| Minor page faults | 219,629 |
+| Swaps | **0** |
+| File system inputs | **0** |
+| File system outputs | 89,208 (안전한 데이터 저장) |
+| Voluntary context switches | 346,110,015 |
+| Involuntary context switches | 1,690,588 |
+| 종료 상태 | **0** (SIGINT 후에도 정상 종료) |
+
+> 참고: HTTP/3(QUIC) over TLS 1.3 환경에서 실제 10,000개의 클라이언트 연결을 유지하며 측정된 값입니다.
+
+**C10k 벤치마크 주요 장점**
+- **메모리 효율**: 10,000 동시 연결에서도 RSS가 400 MB 미만 (연결당 약 37 KB)
+- **I/O 프리**: Major page faults 0, Swaps 0, FS inputs 0 — 디스크 I/O 부하 없이 순수 메모리 기반 처리
+- **CPU 활용**: 93% CPU 사용률로 거의 풀 로드를 활용하면서도 안정적
+- **장시간 안정성**: 24분 46초 동안 지속적 C10k 부하를 받으며도 정상 종료 (Exit status 0)
+- **데이터 안전성**: SIGINT 수신 후에도 NukeDB가 데이터를 안전하게 저장

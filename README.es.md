@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> Uno de los pocos motores de blog sencillos que funciona con **20-30 MB RSS**.  
+> Uno de los pocos motores de blog sencillos que funciona con **8–16 MB RSS** en reposo y **~369 MB** bajo C10k (10 000 conexiones simultáneas).  
 > Motor híbrido de foro y blog ligero construido sobre el framework web CWIST en C, con soporte para HTTPS/3, Argon2id, firmas PQC y mensajería NATS.
 
 ## Características
 
-- **Eficiente en memoria** – Implementación en C con pila y montón. El RSS en producción se mantiene alrededor de **8–16 MB**.
+- **Eficiente en memoria** – Implementación en C con pila y montón. **8–16 MB RSS** en reposo; **~369 MB** de RSS máximo con 10 000 conexiones simultáneas (C10k).
 - **Transporte moderno** – TLS 1.3 + HTTP/3 (QUIC) por defecto. ECH (Encrypted Client Hello) opcional.
 - **Autenticación segura** – Prehash SHA-512 del lado del cliente + **Argon2id** del lado del servidor (KDF de OpenSSL 3). Cookies de sesión JWT.
 - **Híbrido foro / blog** – Publicaciones Markdown basadas en slug + múltiples tableros + comentarios anidados.
@@ -149,3 +149,33 @@ MIT License
 
 > Nota: Las pruebas se ejecutaron **sin** serialización de solicitudes (`pthread_mutex_t`).  
 > `ulimit -n` se configuró en 20.000, permitiendo mediciones estables hasta 400 conexiones.
+
+### Prueba de conexiones simultáneas C10k
+
+Medición manteniendo 10 000 conexiones simultáneas en un entorno real (`sudo -E /usr/bin/time -v ./fly_board`).
+
+| Elemento | Valor |
+|------|-------|
+| Conexiones simultáneas | 10 000 |
+| Duración | 24 min 46 s |
+| RSS máximo | **~369 MB** (368 644 KB) |
+| Uso medio de CPU | ~93% |
+| User time | 444,17 s |
+| System time | 951,76 s |
+| Major page faults | **0** (sin E/S de disco) |
+| Minor page faults | 219.629 |
+| Swaps | **0** |
+| File system inputs | **0** |
+| File system outputs | 89.208 (persistencia segura) |
+| Voluntary context switches | 346.110.015 |
+| Involuntary context switches | 1.690.588 |
+| Estado de salida | **0** (cierre limpio tras SIGINT) |
+
+> Nota: Valores medidos manteniendo 10 000 conexiones de cliente reales sobre HTTP/3 (QUIC) con TLS 1.3.
+
+**Puntos fuertes del benchmark C10k**
+- **Eficiencia de memoria**: RSS inferior a 400 MB con 10 000 conexiones simultáneas (~37 KB por conexión)
+- **Sin E/S de disco**: Major page faults 0, Swaps 0, FS inputs 0 — procesamiento puramente en memoria bajo carga
+- **Alto aprovechamiento de CPU**: ~93% de uso sostenido sin pérdida de estabilidad
+- **Estabilidad a largo plazo**: 24 min 46 s de carga C10k continua y cierre limpio (estado 0)
+- **Seguridad de datos**: NukeDB persistió los datos de forma segura tras SIGINT (89 208 FS outputs)

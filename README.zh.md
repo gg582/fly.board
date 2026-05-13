@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> 极少数能在 **8–16 MB RSS** 下运行的简约博客系统。  
+> 空闲时仅 **8–16 MB RSS**，C10k（10,000 并发连接）下峰值仍仅约 **369 MB** 的极简博客系统。  
 > 基于 C 语言 CWIST Web 框架，支持 HTTPS/3、Argon2id、PQC 签名与 NATS 消息的轻量级论坛兼博客引擎。
 
 ## 特性
 
-- **内存节省** – 栈+堆 C 实现。生产环境 RSS 维持在 **20-30 MB**。
+- **内存节省** – 栈+堆 C 实现。空闲时 **8–16 MB**，10,000 并发连接（C10k）下最大 RSS 仅约 **369 MB**。
 - **最新传输层** – 默认 TLS 1.3 + HTTP/3(QUIC)。可选 ECH(Encrypted Client Hello)。
 - **安全认证** – 客户端 SHA-512 预哈希 + 服务端 **Argon2id** (OpenSSL 3 KDF)。JWT 会话 Cookie。
 - **论坛 / 博客混合** – Slug 式 Markdown 文章 + 多板块 + 嵌套评论。
@@ -149,3 +149,33 @@ MIT License
 
 > 注意：基准测试在**未**对请求进行序列化（`pthread_mutex_t`）的状态下执行。  
 > `ulimit -n` 已设置为 20,000，因此最多 400 个并发连接均可稳定测量。
+
+### C10k 并发连接测试
+
+在实际运行环境中维持 10,000 个并发连接（C10k）进行测量（`sudo -E /usr/bin/time -v ./fly_board`）。
+
+| 项目 | 值 |
+|------|-----|
+| 并发连接数 | 10,000 |
+| 持续时间 | 24 分 46 秒 |
+| 最大 RSS | **约 369 MB** (368,644 KB) |
+| 平均 CPU 占用率 | 约 93% |
+| User time | 444.17 秒 |
+| System time | 951.76 秒 |
+| Major page faults | **0** (无磁盘 I/O) |
+| Minor page faults | 219,629 |
+| Swaps | **0** |
+| File system inputs | **0** |
+| File system outputs | 89,208 (安全数据落盘) |
+| Voluntary context switches | 346,110,015 |
+| Involuntary context switches | 1,690,588 |
+| 退出状态 | **0** (SIGINT 后正常退出) |
+
+> 注意：在 HTTP/3 (QUIC) over TLS 1.3 环境下维持 10,000 个真实客户端连接测得。
+
+**C10k 基准测试核心优势**
+- **内存高效**: 10,000 并发连接下 RSS 仍低于 400 MB（每连接约 37 KB）
+- **零磁盘 I/O**: Major page faults 0、Swaps 0、FS inputs 0 — 高负载下仍纯内存处理
+- **CPU 充分利用**: 93% CPU 占用率下依然稳定运行
+- **长时间稳定性**: 持续 24 分 46 秒的 C10k 满载后正常退出（Exit status 0）
+- **数据安全**: 收到 SIGINT 后 NukeDB 仍安全保存全部数据
