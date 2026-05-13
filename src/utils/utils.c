@@ -9,27 +9,6 @@
 #include <string.h>
 #include <sys/stat.h>
 
-char *url_decode(const char *src) {
-    size_t len = strlen(src);
-    char *out = (char *)cwist_alloc(len + 1);
-    if (!out) return NULL;
-    size_t j = 0;
-    for (size_t i = 0; i < len; i++) {
-        if (src[i] == '%' && i + 2 < len && isxdigit((unsigned char)src[i+1]) && isxdigit((unsigned char)src[i+2])) {
-            unsigned int val;
-            sscanf(src + i + 1, "%2x", &val);
-            out[j++] = (char)val;
-            i += 2;
-        } else if (src[i] == '+') {
-            out[j++] = ' ';
-        } else {
-            out[j++] = src[i];
-        }
-    }
-    out[j] = '\0';
-    return out;
-}
-
 char *file_read(const char *path, size_t *out_len) {
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
@@ -308,46 +287,6 @@ void multipart_free(form_field_t *fields) {
 form_field_t *form_find(form_field_t *fields, const char *name) {
     for (form_field_t *f = fields; f; f = f->next)
         if (strcmp(f->name, name) == 0) return f;
-    return NULL;
-}
-
-/* ---- URL-encoded parser ---- */
-form_kv_t *parse_urlencoded(const char *body) {
-    if (!body) return NULL;
-    form_kv_t *head = NULL, *tail = NULL;
-    char *buf = (char *)cwist_alloc(strlen(body)+1);
-    strcpy(buf, body);
-    char *save = NULL;
-    char *pair = strtok_r(buf, "&", &save);
-    while (pair) {
-        char *eq = strchr(pair, '=');
-        if (eq) {
-            *eq = '\0';
-            char *k = url_decode(pair);
-            char *v = url_decode(eq+1);
-            form_kv_t *item = (form_kv_t *)cwist_alloc(sizeof(form_kv_t));
-            item->key = k; item->value = v; item->next = NULL;
-            if (!head) head = tail = item; else { tail->next = item; tail = item; }
-        }
-        pair = strtok_r(NULL, "&", &save);
-    }
-    cwist_free(buf);
-    return head;
-}
-
-void form_kv_free(form_kv_t *kv) {
-    while (kv) {
-        form_kv_t *n = kv->next;
-        if (kv->key) cwist_free(kv->key);
-        if (kv->value) cwist_free(kv->value);
-        cwist_free(kv);
-        kv = n;
-    }
-}
-
-const char *form_kv_get(form_kv_t *kv, const char *key) {
-    for (form_kv_t *p = kv; p; p = p->next)
-        if (strcmp(p->key, key) == 0) return p->value;
     return NULL;
 }
 

@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> One of the few simple blog engines running at **8–16 MB RSS**.  
+> One of the few simple blog engines running at **8–16 MB RSS** at idle, and **~369 MB** under C10k (10,000 concurrent connections).  
 > A lightweight board-and-blog engine built on the C-based CWIST web framework, supporting HTTPS/3, Argon2id, PQC signatures, and NATS messaging.
 
 ## Features
 
-- **Memory Efficient** – Stack+heap C implementation. Production RSS stays around **20-30 MB**.
+- **Memory Efficient** – Stack+heap C implementation. **8–16 MB RSS** at idle; **~369 MB** max RSS under 10,000 concurrent connections (C10k).
 - **Modern Transport** – TLS 1.3 + HTTP/3 (QUIC) by default. Optional ECH (Encrypted Client Hello).
 - **Secure Auth** – Client-side SHA-512 prehash + server-side **Argon2id** (OpenSSL 3 KDF). JWT session cookies.
 - **Board / Blog Hybrid** – Slug-based markdown posts + multiple boards + nested comments.
@@ -149,3 +149,33 @@ MIT License
 
 > Note: Benchmarks were run **without** request serialization (`pthread_mutex_t`).  
 > `ulimit -n` is set to 20,000, allowing stable measurement up to 400 connections.
+
+### C10k Concurrent Connection Test
+
+Measured while maintaining 10,000 concurrent connections in a live environment (`sudo -E /usr/bin/time -v ./fly_board`).
+
+| Item | Value |
+|------|-------|
+| Concurrent connections | 10,000 |
+| Duration | 24m 46s |
+| Max RSS | **~369 MB** (368,644 KB) |
+| Average CPU usage | ~93% |
+| User time | 444.17 s |
+| System time | 951.76 s |
+| Major page faults | **0** (no disk I/O) |
+| Minor page faults | 219,629 |
+| Swaps | **0** |
+| File system inputs | **0** |
+| File system outputs | 89,208 (safe data persistence) |
+| Voluntary context switches | 346,110,015 |
+| Involuntary context switches | 1,690,588 |
+| Exit status | **0** (clean shutdown after SIGINT) |
+
+> Note: Values measured while maintaining 10,000 actual client connections over HTTP/3 (QUIC) with TLS 1.3.
+
+**C10k Benchmark Highlights**
+- **Memory Efficient**: RSS stays below 400 MB with 10,000 concurrent connections (~37 KB per connection)
+- **Zero Disk I/O**: Major page faults 0, Swaps 0, FS inputs 0 — pure in-memory processing under load
+- **High CPU Utilization**: Sustained ~93% CPU usage while remaining stable
+- **Long-term Stability**: Ran continuously for 24m 46s under C10k load and exited cleanly (status 0)
+- **Data Safety**: NukeDB safely persisted all data on SIGINT (89,208 FS outputs)
