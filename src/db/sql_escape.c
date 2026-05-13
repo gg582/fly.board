@@ -13,7 +13,7 @@ char *sql_escape(const char *src) {
             case '<': extra += 3; break;
             case '>': extra += 3; break;
             case '"': extra += 5; break;
-            case '\'': extra += 4; break;
+            case '\'': extra += 5; break;
         }
     }
     char *out = (char *)cwist_alloc(len + extra + 1);
