@@ -7,7 +7,7 @@
 
 ## 特性
 
-- **記憶體節省** – 堆疊+堆積 C 實作。生產環境 RSS 維持在 **8–16 MB**。
+- **記憶體節省** – 堆疊+堆積 C 實作。生產環境 RSS 維持在 **20-30 MB**。
 - **最新傳輸層** – 預設 TLS 1.3 + HTTP/3（QUIC）。可選 ECH（Encrypted Client Hello）。
 - **安全認證** – 用戶端 SHA-512 預雜湊 + 伺服端 **Argon2id**（OpenSSL 3 KDF）。JWT 工作階段 Cookie。
 - **論壇 / 部落格混合** – Slug 式 Markdown 文章 + 多看板 + 巢狀評論。
