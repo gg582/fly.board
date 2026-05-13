@@ -11,8 +11,6 @@ bool dir_ensure(const char *path);
 const char *mime_type(const char *filename);
 
 char *generate_slug(const char *title);
-char *escape_html(const char *src);
-char *unescape_html(const char *src);
 
 /* Simple multipart/form-data parser */
 typedef struct form_field {

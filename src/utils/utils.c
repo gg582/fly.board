@@ -81,59 +81,6 @@ char *generate_slug(const char *title) {
     return slug;
 }
 
-char *escape_html(const char *src) {
-    size_t len = strlen(src);
-    size_t extra = 0;
-    for (size_t i = 0; i < len; i++) {
-        switch (src[i]) {
-            case '&': extra += 4; break;
-            case '<': extra += 3; break;
-            case '>': extra += 3; break;
-            case '"': extra += 5; break;
-            case '\'': extra += 4; break;
-        }
-    }
-    char *out = (char *)cwist_alloc(len + extra + 1);
-    if (!out) return NULL;
-    size_t j = 0;
-    for (size_t i = 0; i < len; i++) {
-        switch (src[i]) {
-            case '&': memcpy(out+j, "&amp;", 5); j+=5; break;
-            case '<': memcpy(out+j, "&lt;", 4); j+=4; break;
-            case '>': memcpy(out+j, "&gt;", 4); j+=4; break;
-            case '"': memcpy(out+j, "&quot;", 6); j+=6; break;
-            case '\'': memcpy(out+j, "&#x27;", 6); j+=6; break;
-            default: out[j++] = src[i]; break;
-        }
-    }
-    out[j] = '\0';
-    return out;
-}
-
-char *unescape_html(const char *src) {
-    size_t len = strlen(src);
-    char *out = (char *)cwist_alloc(len + 1);
-    if (!out) return NULL;
-    size_t j = 0;
-    for (size_t i = 0; i < len; i++) {
-        if (src[i] == '&' && strncmp(src + i, "&amp;", 5) == 0) {
-            out[j++] = '&'; i += 4;
-        } else if (src[i] == '&' && strncmp(src + i, "&lt;", 4) == 0) {
-            out[j++] = '<'; i += 3;
-        } else if (src[i] == '&' && strncmp(src + i, "&gt;", 4) == 0) {
-            out[j++] = '>'; i += 3;
-        } else if (src[i] == '&' && strncmp(src + i, "&quot;", 6) == 0) {
-            out[j++] = '"'; i += 5;
-        } else if (src[i] == '&' && strncmp(src + i, "&#x27;", 6) == 0) {
-            out[j++] = '\''; i += 5;
-        } else {
-            out[j++] = src[i];
-        }
-    }
-    out[j] = '\0';
-    return out;
-}
-
 /* ---- Multipart parser (via multipart-parser-c) ---- */
 #include "multipart_parser.h"
 

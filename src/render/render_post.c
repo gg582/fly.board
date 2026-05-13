@@ -3,6 +3,7 @@
 #include "render_internal.h"
 #include "config/config.h"
 #include "utils/utils.h"
+#include "db/sql_escape.h"
 #include <cwist/core/sstring/sstring.h>
 #include <cwist/core/mem/alloc.h>
 #include <string.h>
@@ -450,7 +451,9 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_assign(b, "<div class='card' style='margin:24px 0;'>");
     if (error && error[0]) {
         cwist_sstring_append(b, "<div class='alert'>");
-        cwist_sstring_append_escaped(b, error);
+        char *tmp_err = sql_escape(error);
+        cwist_sstring_append(b, tmp_err);
+        cwist_free(tmp_err);
         cwist_sstring_append(b, "</div>");
     }
     const char *action = post ? "/post/edit" : "/post/new";
@@ -470,9 +473,9 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<label>Title</label><input name='title' value='");
     if (post) {
         cJSON *t = cJSON_GetObjectItem(post, "title");
-        cwist_sstring_append_escaped(b, t->valuestring);
-         
-         
+        char *tmp_title = sql_escape(t->valuestring);
+        cwist_sstring_append(b, tmp_title);
+        cwist_free(tmp_title);
     }
     cwist_sstring_append(b, "' required>");
 
@@ -491,7 +494,9 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
             cwist_sstring_append(b, "'");
             if (post_board_id > 0 && post_board_id == bid_val) cwist_sstring_append(b, " selected");
             cwist_sstring_append(b, ">");
-            cwist_sstring_append_escaped(b, bname->valuestring);
+            char *tmp_bname = sql_escape(bname->valuestring);
+            cwist_sstring_append(b, tmp_bname);
+            cwist_free(tmp_bname);
             cwist_sstring_append(b, "</option>");
         }
     }
@@ -500,9 +505,9 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<label>Summary</label><input name='summary' value='");
     if (post) {
         cJSON *s = cJSON_GetObjectItem(post, "summary");
-        cwist_sstring_append_escaped(b, s && s->valuestring[0] ? s->valuestring : "");
-         
-         
+        char *tmp_summary = sql_escape(s && s->valuestring[0] ? s->valuestring : "");
+        cwist_sstring_append(b, tmp_summary);
+        cwist_free(tmp_summary);
     }
     cwist_sstring_append(b, "'>");
 
@@ -512,9 +517,9 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<textarea id='md-editor' name='content' rows='18' style='width:100%;min-height:500px;height:60vh;font-family:monospace;font-size:15px;border:none;border-radius:0;padding:16px;background:transparent;resize:vertical;outline:none;' required>");
     if (post) {
         cJSON *c = cJSON_GetObjectItem(post, "content");
-        cwist_sstring_append_escaped(b, c->valuestring);
-         
-         
+        char *tmp_content = sql_escape(c->valuestring);
+        cwist_sstring_append(b, tmp_content);
+        cwist_free(tmp_content);
     }
     cwist_sstring_append(b, "</textarea></div>");
     cwist_sstring_append(b, "<div style='flex:1;min-width:400px;background:var(--panel);'>");
