@@ -179,6 +179,7 @@ int main(void) {
     cwist_app_post(app, "/board/perms", handler_board_perms_post);
     cwist_app_post(app, "/board/perms/revoke", handler_board_perms_revoke_post);
 
+    cwist_app_get(app, "/search", handler_post_list);
     cwist_app_get(app, "/board/:slug", handler_post_list);
     cwist_app_get(app, "/post/:slug", handler_post_get);
     cwist_app_get(app, "/post/new", handler_post_new_get);
