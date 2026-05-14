@@ -12,12 +12,14 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     const char *username = cwist_query_map_get(kv, "username");
     const char *password = cwist_query_map_get(kv, "password");
     if (!username || !password) {
+        CWIST_LOG_WARN("Login failed: missing fields");
         send_html_res(res, render_login(dark, "Missing fields"));
         cwist_query_map_destroy(kv);
         return;
     }
     /* Admin login via admin.settings */
     if (auth_admin_check(username, password)) {
+        CWIST_LOG_INFO("Admin login success: username='%s'", username);
         char *token = auth_jwt_issue(1, username, "admin");
         if (token) {
             char cookie[2048];
@@ -31,17 +33,20 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     }
     cJSON *user = db_user_get_by_username(req->db, username);
     if (!user) {
+        CWIST_LOG_WARN("Login failed: invalid credentials for username='%s'", username);
         send_html_res(res, render_login(dark, "Invalid credentials"));
         cwist_query_map_destroy(kv);
         return;
     }
     cJSON *hash = cJSON_GetObjectItem(user, "password_hash");
     if (!auth_verify_password(password, hash->valuestring)) {
+        CWIST_LOG_WARN("Login failed: wrong password for username='%s'", username);
         cJSON_Delete(user);
         send_html_res(res, render_login(dark, "Invalid credentials"));
         cwist_query_map_destroy(kv);
         return;
     }
+    CWIST_LOG_INFO("User login success: username='%s'", username);
     int user_id = json_int(user, "id", 0);
     cJSON *uname = cJSON_GetObjectItem(user, "username");
     cJSON *role = cJSON_GetObjectItem(user, "role");
@@ -77,12 +82,14 @@ void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
     const char *email = cwist_query_map_get(kv, "email");
     const char *password = cwist_query_map_get(kv, "password");
     if (!username || !email || !password || strlen(password) < 6) {
+        CWIST_LOG_WARN("Registration failed: invalid input username='%s'", username ? username : "NULL");
         send_html_res(res, render_register(dark, "Invalid input (password min 6 chars)"));
         cwist_query_map_destroy(kv);
         return;
     }
     char hash[256];
     if (!auth_hash_password(password, hash, sizeof(hash))) {
+        CWIST_LOG_ERROR("Registration failed: password hash error username='%s'", username);
         send_html_res(res, render_register(dark, "Server error"));
         cwist_query_map_destroy(kv);
         return;
@@ -90,9 +97,11 @@ void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
     bool ok = db_user_create(req->db, username, email, hash);
     cwist_query_map_destroy(kv);
     if (!ok) {
+        CWIST_LOG_WARN("Registration failed: username or email exists username='%s' email='%s'", username, email);
         send_html_res(res, render_register(dark, "Username or email already exists"));
         return;
     }
+    CWIST_LOG_INFO("User registered: username='%s' email='%s'", username, email);
     redirect(res, "/login");
 }
 
@@ -107,16 +116,16 @@ void handler_unregister_post(cwist_http_request *req, cwist_http_response *res) 
         int target = atoi(id_str);
         if (target == uid || strcmp(role, "admin") == 0) {
             const char *cascade = cwist_query_map_get(kv, "cascade");
-            if (cascade && atoi(cascade) == 1) {
-                db_user_delete_with_cascade(req->db, target, true);
-            } else {
-                db_user_delete_with_cascade(req->db, target, false);
-            }
+            bool cascade_del = cascade && atoi(cascade) == 1;
+            db_user_delete_with_cascade(req->db, target, cascade_del);
+            CWIST_LOG_INFO("User unregistered: target_uid=%d by_uid=%d cascade=%d", target, uid, cascade_del);
             if (target == uid) {
                 handler_logout(req, res);
                 cwist_query_map_destroy(kv);
                 return;
             }
+        } else {
+            CWIST_LOG_WARN("User unregister forbidden: target_uid=%s by_uid=%d role=%s", id_str, uid, role);
         }
     }
     cwist_query_map_destroy(kv);
@@ -296,11 +305,13 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
     const char *confirm = cwist_query_map_get(kv, "confirm_password");
 
     if (!current || !new_pw || !confirm || strlen(new_pw) < 6) {
+        CWIST_LOG_WARN("Password change failed: invalid input uid=%d", uid);
         send_html_res(res, render_password_change(dark, "Invalid input (password min 6 chars)"));
         cwist_query_map_destroy(kv);
         return;
     }
     if (strcmp(new_pw, confirm) != 0) {
+        CWIST_LOG_WARN("Password change failed: new passwords do not match uid=%d", uid);
         send_html_res(res, render_password_change(dark, "New passwords do not match"));
         cwist_query_map_destroy(kv);
         return;
@@ -315,6 +326,7 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
 
     cJSON *hash = cJSON_GetObjectItem(user, "password_hash");
     if (!hash || !hash->valuestring || !auth_verify_password(current, hash->valuestring)) {
+        CWIST_LOG_WARN("Password change failed: current password incorrect uid=%d", uid);
         cJSON_Delete(user);
         send_html_res(res, render_password_change(dark, "Current password is incorrect"));
         cwist_query_map_destroy(kv);
@@ -330,6 +342,7 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
     }
 
     db_user_update_password(req->db, uid, new_hash);
+    CWIST_LOG_INFO("Password changed: uid=%d", uid);
     cJSON_Delete(user);
     cwist_query_map_destroy(kv);
 

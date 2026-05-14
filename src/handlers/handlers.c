@@ -114,6 +114,9 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
     // Advertise HTTP/3 and HTTP/2 fallback. h3 is prioritized.
     snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"; ma=86400, h2=\":%d\"; ma=86400", g_config.port, g_config.port);
     cwist_http_header_add(&res->headers, "Alt-Svc", altsvc);
+    const char *m = cwist_http_method_to_string(req->method);
+    const char *p = (req->path && req->path->data) ? req->path->data : "?";
+    CWIST_LOG_DEBUG("%s %s", m ? m : "?", p ? p : "?");
     next(req, res);
 }
 

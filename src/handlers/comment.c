@@ -20,8 +20,14 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
             cJSON *uname = cJSON_GetObjectItem(u, "username");
             if (uname && uname->valuestring) author_name = uname->valuestring;
         }
-        db_comment_create(req->db, target_type, target_id, uid, author_name, parent_id, content);
+        if (db_comment_create(req->db, target_type, target_id, uid, author_name, parent_id, content)) {
+            CWIST_LOG_INFO("Comment created: target_type=%s target_id=%d uid=%d", target_type, target_id, uid);
+        } else {
+            CWIST_LOG_ERROR("Comment creation failed: target_type=%s target_id=%d uid=%d", target_type, target_id, uid);
+        }
         if (u) cJSON_Delete(u);
+    } else {
+        CWIST_LOG_WARN("Comment creation failed: missing fields");
     }
     cwist_query_map_destroy(kv);
     redirect(res, referer && referer[0] ? referer : "/");
@@ -36,7 +42,13 @@ void handler_comment_edit_post(cwist_http_request *req, cwist_http_response *res
     const char *content = cwist_query_map_get(kv, "content");
     const char *referer = cwist_http_header_get(req->headers, "Referer");
     if (id_str && content && content[0]) {
-        db_comment_update(req->db, atoi(id_str), uid, content);
+        if (db_comment_update(req->db, atoi(id_str), uid, content)) {
+            CWIST_LOG_INFO("Comment updated: id=%s uid=%d", id_str, uid);
+        } else {
+            CWIST_LOG_ERROR("Comment update failed: id=%s uid=%d", id_str, uid);
+        }
+    } else {
+        CWIST_LOG_WARN("Comment update failed: missing fields");
     }
     cwist_query_map_destroy(kv);
     redirect(res, referer && referer[0] ? referer : "/");
@@ -49,7 +61,12 @@ void handler_comment_delete_get(cwist_http_request *req, cwist_http_response *re
     const char *id_str = cwist_query_map_get(req->path_params, "id");
     const char *referer = cwist_http_header_get(req->headers, "Referer");
     if (id_str) {
-        db_comment_delete(req->db, atoi(id_str), uid);
+        int cid = atoi(id_str);
+        if (db_comment_delete(req->db, cid, uid)) {
+            CWIST_LOG_INFO("Comment deleted: id=%d uid=%d", cid, uid);
+        } else {
+            CWIST_LOG_WARN("Comment delete failed: id=%d uid=%d", cid, uid);
+        }
     }
     redirect(res, referer && referer[0] ? referer : "/");
 }

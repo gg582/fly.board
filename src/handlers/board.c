@@ -43,8 +43,15 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
     const char *slug = cwist_query_map_get(kv, "slug");
     const char *desc = cwist_query_map_get(kv, "description");
     const char *ao = cwist_query_map_get(kv, "admin_only");
-    if (!name || !slug) { redirect(res, "/board/new"); cwist_query_map_destroy(kv); return; }
-    db_board_create(req->db, name, slug, desc ? desc : "", ao != NULL, 0, 0, 0);
+    if (!name || !slug) {
+        CWIST_LOG_WARN("Board creation failed: missing name or slug");
+        redirect(res, "/board/new"); cwist_query_map_destroy(kv); return;
+    }
+    if (db_board_create(req->db, name, slug, desc ? desc : "", ao != NULL, 0, 0, 0)) {
+        CWIST_LOG_INFO("Board created: name='%s' slug='%s'", name, slug);
+    } else {
+        CWIST_LOG_ERROR("Board creation failed: name='%s' slug='%s'", name, slug);
+    }
     cwist_query_map_destroy(kv);
     redirect(res, "/boards");
 }
@@ -54,7 +61,7 @@ void handler_board_edit_get(cwist_http_request *req, cwist_http_response *res) {
     const char *id_str = cwist_query_map_get(req->path_params, "id");
     if (!id_str) { redirect(res, "/boards"); return; }
     cJSON *board = board_by_route_key(req->db, id_str);
-    if (!board) { redirect(res, "/boards"); return; }
+    if (!board) { CWIST_LOG_WARN("Board edit GET: board not found id=%s", id_str); redirect(res, "/boards"); return; }
     int uid = 0; char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
@@ -88,16 +95,18 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
 
     if (!id_str || !name || !slug) {
         error = "All fields are required.";
+        CWIST_LOG_WARN("Board edit POST: missing fields id=%s", id_str ? id_str : "NULL");
     } else {
         size_t name_len = strlen(name);
         size_t slug_len = strlen(slug);
         if (name_len == 0 || slug_len == 0) error = "Name and slug cannot be empty.";
-        else if (name_len > 80) error = "Name is too long (max 80 characters).";
-        else if (slug_len > 80) error = "Slug is too long (max 80 characters).";
+        else if (name_len > 80) { error = "Name is too long (max 80 characters)."; CWIST_LOG_WARN("Board edit POST: name too long"); }
+        else if (slug_len > 80) { error = "Slug is too long (max 80 characters)."; CWIST_LOG_WARN("Board edit POST: slug too long"); }
         else {
             for (const char *p = slug; *p && !error; p++) {
                 if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '-' || *p == '_')) {
                     error = "Slug may only contain lowercase letters, numbers, hyphens and underscores.";
+                    CWIST_LOG_WARN("Board edit POST: invalid slug='%s'", slug);
                 }
             }
         }
@@ -105,6 +114,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
 
     if (!error && !board) {
         error = "Board not found.";
+        CWIST_LOG_WARN("Board edit POST: board not found id=%s", id_str);
     }
 
     if (!error) {
@@ -113,6 +123,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
             cJSON *eid = cJSON_GetObjectItem(existing, "id");
             if (!eid || eid->valueint != bid) {
                 error = "A board with this slug already exists.";
+                CWIST_LOG_WARN("Board edit POST: slug conflict slug='%s' bid=%d", slug, bid);
             }
             cJSON_Delete(existing);
         }
@@ -128,6 +139,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
     }
 
     if (!db_board_update(req->db, bid, name, slug, desc ? desc : "", ao != NULL, 0, 0, 0)) {
+        CWIST_LOG_ERROR("Board update failed: bid=%d", bid);
         cwist_sstring *page = render_board_form(board, is_dark(req), "Failed to update board.", pp);
         send_html_res(res, page);
         cJSON_Delete(board);
@@ -135,6 +147,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
         cwist_query_map_destroy(kv);
         return;
     }
+    CWIST_LOG_INFO("Board updated: bid=%d name='%s' slug='%s'", bid, name, slug);
 
     cJSON *slug_obj = cJSON_GetObjectItem(board, "slug");
     char redirect_url[128];
@@ -152,7 +165,11 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
 void handler_board_delete(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
     const char *id_str = cwist_query_map_get(req->path_params, "id");
-    if (id_str) db_board_delete(req->db, atoi(id_str));
+    if (id_str) {
+        int bid = atoi(id_str);
+        db_board_delete(req->db, bid);
+        CWIST_LOG_INFO("Board deleted: bid=%d", bid);
+    }
     redirect(res, "/boards");
 }
 
@@ -190,8 +207,10 @@ void handler_board_perms_post(cwist_http_request *req, cwist_http_response *res)
         if (board_id > 0 && user_id > 0) {
             if (db_board_perm_grant(req->db, board_id, user_id)) {
                 msg = "granted";
+                CWIST_LOG_INFO("Board permission granted: board_id=%d user_id=%d", board_id, user_id);
             } else {
                 msg = "exists";
+                CWIST_LOG_WARN("Board permission already exists: board_id=%d user_id=%d", board_id, user_id);
             }
         }
     }
@@ -213,6 +232,7 @@ void handler_board_perms_revoke_post(cwist_http_request *req, cwist_http_respons
         int user_id = atoi(uid_str);
         if (board_id > 0 && user_id > 0 && db_board_perm_revoke(req->db, board_id, user_id)) {
             msg = "revoked";
+            CWIST_LOG_INFO("Board permission revoked: board_id=%d user_id=%d", board_id, user_id);
         }
     }
     cwist_query_map_destroy(kv);

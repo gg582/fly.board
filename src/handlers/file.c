@@ -159,7 +159,13 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     form_field_t *f = form_find(fields, "file");
     if (f && f->filename && f->filename[0] != '\0' && f->data && f->data[0] != '\0') {
         db_file_replace_for_post(req->db, 0, f->filename);
-        db_file_create_volume(req->db, 0, uid, f->filename, mime_type(f->filename), f->data, f->file_size);
+        if (db_file_create_volume(req->db, 0, uid, f->filename, mime_type(f->filename), f->data, f->file_size)) {
+            CWIST_LOG_INFO("File uploaded: uid=%d filename='%s' size=%zu", uid, f->filename, f->file_size);
+        } else {
+            CWIST_LOG_ERROR("File upload failed: uid=%d filename='%s'", uid, f->filename);
+        }
+    } else {
+        CWIST_LOG_WARN("File upload failed: no file data uid=%d", uid);
     }
     multipart_free(fields);
     redirect(res, "/files");
@@ -238,7 +244,14 @@ void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
                 if (fpath && fpath->valuestring && fpath->valuestring[0]) {
                     unlink(fpath->valuestring);
                 }
-                db_file_delete(req->db, atoi(id_str));
+                int fid = atoi(id_str);
+                if (db_file_delete(req->db, fid)) {
+                    CWIST_LOG_INFO("File deleted: fid=%d by_uid=%d", fid, uid);
+                } else {
+                    CWIST_LOG_ERROR("File delete failed: fid=%d by_uid=%d", fid, uid);
+                }
+            } else {
+                CWIST_LOG_WARN("File delete forbidden: fid=%s by_uid=%d role=%s", id_str, uid, role);
             }
             cJSON_Delete(f);
         }

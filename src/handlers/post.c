@@ -21,6 +21,7 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     if (slug) {
         cJSON *board = db_board_get_by_slug(req->db, slug);
         if (!board) {
+            CWIST_LOG_WARN("Post list: board not found slug='%s'", slug);
             res->status_code = CWIST_HTTP_NOT_FOUND;
             cwist_sstring_assign(res->body, "Board not found");
             if (boards) cJSON_Delete(boards);
@@ -159,6 +160,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     if (!title || !content || !title[0] || !content[0]) {
+        CWIST_LOG_WARN("Post creation failed: missing title or content uid=%d", uid);
         cJSON *boards = db_board_list(req->db);
         char *pp = get_profile_pic(req->db, uid, role);
         cwist_sstring *page = render_post_editor(boards, NULL, NULL, is_dark(req), role, "Title and content required", pp);
@@ -199,7 +201,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             cwist_free(final_slug);
         } else {
             created = db_post_create(req->db, board_id, uid, title, final_slug, content, summary ? summary : "", sig_b64 ? sig_b64 : "", 0, 0, "");
-            
+
             /* The final_slug isn't strictly needed later but we update 'sl' to point to the created slug so publish_post uses the right slug. */
             if (created) {
                  cwist_free(sl);
@@ -209,6 +211,11 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
                  break;
             }
         }
+    }
+    if (created) {
+        CWIST_LOG_INFO("Post created: uid=%d slug='%s' board_id=%d", uid, sl, board_id);
+    } else {
+        CWIST_LOG_ERROR("Post creation failed: uid=%d board_id=%d", uid, board_id);
     }
     if (sig_b64) cwist_free(sig_b64);
 
@@ -320,12 +327,14 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
 
     cJSON *post = db_post_get_by_id(req->db, atoi(id_str));
     if (!post) {
+        CWIST_LOG_WARN("Post edit failed: post not found id=%s uid=%d", id_str, uid);
         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str);
         multipart_free(files);
         redirect(res, "/");
         return;
     }
     if (!is_author_or_admin(post, uid, role)) {
+        CWIST_LOG_WARN("Post edit forbidden: id=%s uid=%d role=%s", id_str, uid, role);
         res->status_code = CWIST_HTTP_FORBIDDEN;
         cwist_sstring_assign(res->body, "Forbidden");
         cJSON_Delete(post);
@@ -342,7 +351,11 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     char *sig_b642 = NULL;
     fly_crypto_sign((const uint8_t *)msg2, strlen(msg2), &sig_b642);
     cwist_free(msg2);
-    db_post_update(req->db, atoi(id_str), board_id, title, content, summary ? summary : "", sig_b642 ? sig_b642 : "", 0, 0, "");
+    if (db_post_update(req->db, atoi(id_str), board_id, title, content, summary ? summary : "", sig_b642 ? sig_b642 : "", 0, 0, "")) {
+        CWIST_LOG_INFO("Post updated: id=%s uid=%d board_id=%d", id_str, uid, board_id);
+    } else {
+        CWIST_LOG_ERROR("Post update failed: id=%s uid=%d", id_str, uid);
+    }
     if (sig_b642) cwist_free(sig_b642);
 
     /* Handle new attachments during edit */
@@ -366,8 +379,9 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     const char *id_str = cwist_query_map_get(req->path_params, "id");
     if (!id_str) { redirect(res, "/"); return; }
     cJSON *post = db_post_get_by_id(req->db, atoi(id_str));
-    if (!post) { redirect(res, "/"); return; }
+    if (!post) { CWIST_LOG_WARN("Post delete failed: not found id=%s uid=%d", id_str, uid); redirect(res, "/"); return; }
     if (!is_author_or_admin(post, uid, role)) {
+        CWIST_LOG_WARN("Post delete forbidden: id=%s uid=%d role=%s", id_str, uid, role);
         res->status_code = CWIST_HTTP_FORBIDDEN;
         cwist_sstring_assign(res->body, "Forbidden");
         cJSON_Delete(post);
@@ -375,6 +389,7 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     }
     cJSON_Delete(post);
     db_post_delete(req->db, atoi(id_str));
+    CWIST_LOG_INFO("Post deleted: id=%s uid=%d", id_str, uid);
     redirect(res, "/");
 }
 

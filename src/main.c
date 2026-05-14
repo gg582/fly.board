@@ -75,15 +75,19 @@ int main(void) {
         FLY_LOG_ERROR("Public assets not found; set BLOG_ROOT or run from project root");
         return 1;
     }
+    CWIST_LOG_INFO("Workdir verified");
     if (!fly_crypto_init()) {
         FLY_LOG_ERROR("PQC crypto init failed");
         return 1;
     }
+    CWIST_LOG_INFO("Crypto initialized");
     if (!auth_admin_load("admin.settings")) {
         FLY_LOG_ERROR("Failed to load admin.settings");
         return 1;
     }
+    CWIST_LOG_INFO("Admin settings loaded");
     blog_config_load("blog.settings");
+    CWIST_LOG_INFO("Blog config loaded");
 
     const char *nats_url = getenv("NATS_URL");
     if (nats_url) {
@@ -102,6 +106,7 @@ int main(void) {
         fly_crypto_cleanup();
         return 1;
     }
+    CWIST_LOG_INFO("CWIST app created");
 
     cwist_error_t dberr = cwist_app_use_nuke_db(app, DB_PATH, 5000);
     if (dberr.errtype != CWIST_ERR_INT16 || dberr.error.err_i16 != 0) {
@@ -109,6 +114,7 @@ int main(void) {
         cwist_app_destroy(app);
         return 1;
     }
+    CWIST_LOG_INFO("Database opened: %s", DB_PATH);
 
     cwist_db *db = cwist_app_get_db(app);
     if (!db_init(db)) {
@@ -116,11 +122,13 @@ int main(void) {
         cwist_app_destroy(app);
         return 1;
     }
+    CWIST_LOG_INFO("Database schema initialized");
     if (!db_comment_init("data/comments.db")) {
         FLY_LOG_ERROR("Failed to initialize comments database");
         cwist_app_destroy(app);
         return 1;
     }
+    CWIST_LOG_INFO("Comments database initialized");
 
     db_file_cleanup_duplicates(db);
 
@@ -135,6 +143,7 @@ int main(void) {
         cwist_app_destroy(app);
         return 1;
     }
+    CWIST_LOG_INFO("HTTPS initialized");
 
     const char *ech_key = getenv("BLOG_ECH_KEY");
     const char *ech_dir = getenv("BLOG_ECH_DIR");
@@ -205,6 +214,7 @@ int main(void) {
     cwist_app_post(app, "/api/upload", handler_api_upload);
     cwist_app_post(app, "/post/vote", handler_post_vote);
 
+    CWIST_LOG_INFO("Starting server on port %d (HTTP/3 on UDP %d)", g_config.port, g_config.port);
     printf("Docker Blog: https://localhost:%d (HTTP/3 on UDP %d)\n", g_config.port, g_config.port);
     int rc = cwist_app_listen(app, g_config.port);
     g_nats_running = false;
