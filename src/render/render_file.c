@@ -74,7 +74,7 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
     return page;
 }
 
-cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *profile_pic) {
+cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, int user_id, const char *profile_pic) {
     cwist_sstring *b = cwist_sstring_create();
     int has_files_bg = g_config.files_img[0];
     if (has_files_bg) {
@@ -105,13 +105,18 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *profile_pic
             cJSON *fid = cJSON_GetObjectItem(f, "id");
             cJSON *stype = cJSON_GetObjectItem(f, "mime_type");
             cJSON *sz = cJSON_GetObjectItem(f, "size");
+            cJSON *fuid = cJSON_GetObjectItem(f, "user_id");
             int id_val = 0;
             if (fid && fid->type == cJSON_String) id_val = atoi(fid->valuestring);
             else if (fid && fid->type == cJSON_Number) id_val = fid->valueint;
+            int file_uid = 0;
+            if (fuid && fuid->type == cJSON_String) file_uid = atoi(fuid->valuestring);
+            else if (fuid && fuid->type == cJSON_Number) file_uid = fuid->valueint;
             char fid_buf[32];
             snprintf(fid_buf, sizeof(fid_buf), "%d", id_val);
             char sz_buf[32];
             snprintf(sz_buf, sizeof(sz_buf), "%lld", (long long)(sz ? (sz->type == cJSON_String ? atoll(sz->valuestring) : sz->valuedouble) : 0));
+            bool can_delete = (user_role && strcmp(user_role, "admin") == 0) || (file_uid > 0 && file_uid == user_id);
             cwist_sstring_append(b, "<article class='card'>");
             cwist_sstring_append(b, "<h4 style='margin-top:0'>");
             cwist_sstring_append_escaped(b, fname ? fname->valuestring : "Unknown");
@@ -124,18 +129,20 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *profile_pic
             cwist_sstring_append(b, "<div style='display:flex;gap:8px'><a href='/file/download/");
             cwist_sstring_append(b, fid_buf);
             cwist_sstring_append(b, "' class='btn' style='font-size:12px;padding:4px 10px'>Download</a>");
-            cwist_sstring_append(b, "<form style='display:inline' action='/file/delete' method='post'>");
-            cwist_sstring_append(b, "<input type='hidden' name='id' value='");
-            cwist_sstring_append(b, fid_buf);
-            cwist_sstring_append(b, "'>");
-            cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Delete</button></form></div>");
-            cwist_sstring_append(b, "</article>");
+            if (can_delete) {
+                cwist_sstring_append(b, "<form style='display:inline' action='/file/delete' method='post'>");
+                cwist_sstring_append(b, "<input type='hidden' name='id' value='");
+                cwist_sstring_append(b, fid_buf);
+                cwist_sstring_append(b, "'>");
+                cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Delete</button></form>");
+            }
+            cwist_sstring_append(b, "</div></article>");
         }
         cwist_sstring_append(b, "</div>");
     } else {
         cwist_sstring_append(b, "<div class='card' style='text-align:center;padding:40px 20px;color:var(--muted);'>No files uploaded yet.</div>");
     }
-    cwist_sstring *page = render_page("Files", b->data, dark, "", profile_pic);
+    cwist_sstring *page = render_page("Files", b->data, dark, user_role, profile_pic);
     cwist_sstring_destroy(b);
     return page;
 }
