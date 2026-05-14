@@ -3,6 +3,7 @@
 #include "render_internal.h"
 #include "config/config.h"
 #include "utils/utils.h"
+#include "cwist/image_contrast.h"
 #include <cwist/core/sstring/sstring.h>
 #include <cwist/core/mem/alloc.h>
 #include <string.h>
@@ -11,10 +12,22 @@
 cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role, const char *profile_pic) {
     cwist_sstring *b = cwist_sstring_create();
     int has_boards_bg = g_config.boards_img[0];
+    char bg_style[768] = {0};
+    char text_style[256] = {0};
+    char logo_filter[128] = {0};
     if (has_boards_bg) {
-        cwist_sstring_append(b, "<div style=\"background-image:url('/assets/img/");
-        cwist_sstring_append_escaped(b, g_config.boards_img);
-        cwist_sstring_append(b, "');background-size:cover;background-position:center;padding:40px 20px;border-radius:12px;margin-bottom:18px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.5)\">");
+        char img_path[512];
+        char img_url[512];
+        snprintf(img_path, sizeof(img_path), "public/img/%s", g_config.boards_img);
+        snprintf(img_url, sizeof(img_url), "/assets/img/%s", g_config.boards_img);
+        get_image_text_style(img_path, img_url, bg_style, sizeof(bg_style),
+                             text_style, sizeof(text_style),
+                             logo_filter, sizeof(logo_filter));
+        cwist_sstring_append(b, "<div style=\"");
+        cwist_sstring_append(b, bg_style);
+        cwist_sstring_append(b, ";padding:40px 20px;");
+        cwist_sstring_append(b, text_style);
+        cwist_sstring_append(b, "\">");
     }
     cwist_sstring_append(b, "<div class='hero' ");
     if (has_boards_bg) cwist_sstring_append(b, "style='background:none;padding:0' ");
@@ -22,10 +35,15 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     if (g_config.blog_logo[0]) cwist_sstring_append_escaped(b, g_config.blog_logo);
     else cwist_sstring_append(b, "logo.png");
     cwist_sstring_append(b, "' alt='Logo' style='height:120px");
-    if (has_boards_bg) cwist_sstring_append(b, ";filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5))");
+    if (has_boards_bg) {
+        cwist_sstring_append(b, ";filter:");
+        cwist_sstring_append(b, logo_filter);
+    }
     cwist_sstring_append(b, "'><h1>");
     cwist_sstring_append_escaped(b, g_config.title);
-    cwist_sstring_append(b, "</h1><p>");
+    cwist_sstring_append(b, "</h1><p");
+    if (has_boards_bg) cwist_sstring_append(b, " style='opacity:0.85'");
+    cwist_sstring_append(b, ">");
     cwist_sstring_append_escaped(b, g_config.subtitle);
     cwist_sstring_append(b, "</p></div>");
     if (has_boards_bg) {

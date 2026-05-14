@@ -2,6 +2,7 @@
 #include "render.h"
 #include "render_internal.h"
 #include "config/config.h"
+#include "cwist/image_contrast.h"
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
 
@@ -77,14 +78,28 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
 cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, int user_id, const char *profile_pic) {
     cwist_sstring *b = cwist_sstring_create();
     int has_files_bg = g_config.files_img[0];
+    char bg_style[768] = {0};
+    char text_style[256] = {0};
     if (has_files_bg) {
-        cwist_sstring_append(b, "<div style=\"background-image:url('/assets/img/");
-        cwist_sstring_append_escaped(b, g_config.files_img);
-        cwist_sstring_append(b, "');background-size:cover;background-position:center;padding:40px 20px;border-radius:12px;margin-bottom:18px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.5)\">");
+        char img_path[512];
+        char img_url[512];
+        snprintf(img_path, sizeof(img_path), "public/img/%s", g_config.files_img);
+        snprintf(img_url, sizeof(img_url), "/assets/img/%s", g_config.files_img);
+        char logo_dummy[64];
+        get_image_text_style(img_path, img_url, bg_style, sizeof(bg_style),
+                             text_style, sizeof(text_style),
+                             logo_dummy, sizeof(logo_dummy));
+        cwist_sstring_append(b, "<div style=\"");
+        cwist_sstring_append(b, bg_style);
+        cwist_sstring_append(b, ";padding:40px 20px;");
+        cwist_sstring_append(b, text_style);
+        cwist_sstring_append(b, "\">");
     }
     cwist_sstring_append(b, "<div class='hero' ");
     if (has_files_bg) cwist_sstring_append(b, "style='background:none;padding:0' ");
-    cwist_sstring_append(b, "><h1>File Repository</h1><p>Shared files and attachments.</p></div>");
+    cwist_sstring_append(b, "><h1>File Repository</h1><p");
+    if (has_files_bg) cwist_sstring_append(b, " style='opacity:0.85'");
+    cwist_sstring_append(b, ">Shared files and attachments.</p></div>");
     if (has_files_bg) {
         cwist_sstring_append(b, "</div>");
     }

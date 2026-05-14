@@ -81,6 +81,27 @@ NATS_URL=nats://localhost:4222 ./fly_board
 - `blog.settings` – 블로그 타이틀, 서브타이틀, 푸터, 포트
 - `admin.settings` – 관리자 계정 (2줄: `username`\n`password`)
 
+### 정적 리소스 디렉토리 구조
+
+이미지·업로드 파일 등은 아래 `public/` 하위 경로에 배치해야 합니다.
+
+```
+public/
+├── img/       # 블로그 로고·배경 이미지 (blog.settings에서 파일명만 지정)
+├── uploads/   # 사용자 업로드 파일 (DB/관리자 페이지 참조)
+├── images/    # 포스트 본문·기타 이미지
+└── media/     # 동영상·오디오 등
+```
+
+**중요:** `blog.settings`의 `home_img`, `boards_img`, `files_img`, `blog_logo` 등은 **파일명만** 지정합니다.  
+예: `logo.png`, `bg.jpg`
+
+- ❌ 절대 경로(`/opt/…`), 상대 경로(`sub/dir/…`) 지정 불가
+- ❌ 외부 URL 지정 불가
+- ✅ 반드시 `public/img/` 디렉토리에 파일을 넣고, 설정에는 **순수 파일명**만 기입
+
+업로드된 파일은 `public/uploads/`에 저장되며, 파일 저장소(`/files`)를 통해 접근합니다.
+
 ## 데이터베이스
 
 SQLite3 (`data/blog.db`) 기반. 스키마는 앱 시작 시 자동 마이그레이션됩니다.
