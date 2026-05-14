@@ -170,7 +170,7 @@ cwist_sstring *render_board_form(cJSON *board, bool dark, const char *error, con
          
     }
     cwist_sstring_append(fields, "' required>");
-    cwist_sstring_append(fields, "<label>Slug</label><input name='slug' value='");
+    cwist_sstring_append(fields, "<label>Slug</label><input name='slug' pattern='[A-Za-z0-9]+' value='");
     if (board) {
         cJSON *s = cJSON_GetObjectItem(board, "slug");
         cwist_sstring_append_escaped(fields, s->valuestring);
