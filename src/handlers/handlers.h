@@ -43,6 +43,7 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res);
 void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res);
 void handler_post_delete(cwist_http_request *req, cwist_http_response *res);
 
+void handler_asset_img(cwist_http_request *req, cwist_http_response *res);
 void handler_asset_upload(cwist_http_request *req, cwist_http_response *res);
 void handler_file_repo(cwist_http_request *req, cwist_http_response *res);
 void handler_file_upload(cwist_http_request *req, cwist_http_response *res);

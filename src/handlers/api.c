@@ -91,7 +91,7 @@ static char *rfc822_time(const char *iso) {
 }
 
 void handler_rss_xml(cwist_http_request *req, cwist_http_response *res) {
-    cJSON *posts = db_post_list_search(req->db, 0, NULL, 20, 0);
+    cJSON *posts = db_post_list_search(req->db, 0, NULL, NULL, 20, 0);
     const char *last_modified = "";
     char etag_buf[128] = {0};
     if (posts && cJSON_GetArraySize(posts) > 0) {

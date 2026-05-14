@@ -10,11 +10,27 @@
 
 cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role, const char *profile_pic) {
     cwist_sstring *b = cwist_sstring_create();
-    cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/assets/img/logo.png' alt='Logo' style='height:120px'><h1>");
+    int has_boards_bg = g_config.boards_img[0];
+    if (has_boards_bg) {
+        cwist_sstring_append(b, "<div style=\"background-image:url('/assets/img/");
+        cwist_sstring_append_escaped(b, g_config.boards_img);
+        cwist_sstring_append(b, "');background-size:cover;background-position:center;padding:40px 20px;border-radius:12px;margin-bottom:18px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.5)\">");
+    }
+    cwist_sstring_append(b, "<div class='hero' ");
+    if (has_boards_bg) cwist_sstring_append(b, "style='background:none;padding:0' ");
+    cwist_sstring_append(b, "><img class='hero-logo' src='/assets/img/");
+    if (g_config.blog_logo[0]) cwist_sstring_append_escaped(b, g_config.blog_logo);
+    else cwist_sstring_append(b, "logo.png");
+    cwist_sstring_append(b, "' alt='Logo' style='height:120px");
+    if (has_boards_bg) cwist_sstring_append(b, ";filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5))");
+    cwist_sstring_append(b, "'><h1>");
     cwist_sstring_append_escaped(b, g_config.title);
     cwist_sstring_append(b, "</h1><p>");
     cwist_sstring_append_escaped(b, g_config.subtitle);
     cwist_sstring_append(b, "</p></div>");
+    if (has_boards_bg) {
+        cwist_sstring_append(b, "</div>");
+    }
     if (user_role && strcmp(user_role, "admin") == 0) {
         cwist_sstring_append(b, "<div style='text-align:center;margin-bottom:24px'><a href='/board/new' class='btn'>New Board</a></div>");
     }

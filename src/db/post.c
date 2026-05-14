@@ -99,60 +99,119 @@ bool db_post_increment_view(cwist_db *db, int id) {
     return rc == SQLITE_DONE;
 }
 
-cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, int limit, int offset) {
-    const char *sql;
+cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, const char *search_type, int limit, int offset) {
     int has_board = board_id > 0;
     int has_search = (search && search[0]);
-    if (has_board && has_search) {
-        sql = "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE p.board_id=? AND (p.title LIKE ? OR p.content LIKE ?) ORDER BY p.is_notice DESC, p.created_at DESC LIMIT ? OFFSET ?";
-    } else if (has_board) {
-        sql = "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE p.board_id=? ORDER BY p.is_notice DESC, p.created_at DESC LIMIT ? OFFSET ?";
-    } else if (has_search) {
-        sql = "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE p.title LIKE ? OR p.content LIKE ? ORDER BY p.is_notice DESC, p.created_at DESC LIMIT ? OFFSET ?";
-    } else {
-        sql = "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id ORDER BY p.is_notice DESC, p.created_at DESC LIMIT ? OFFSET ?";
-    }
-    sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
-    int idx = 1;
     char search_pattern[512] = {0};
     if (has_search) {
         snprintf(search_pattern, sizeof(search_pattern), "%%%s%%", search);
     }
+
+    char sql[1024] = {0};
+    strcpy(sql, "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id");
+
+    int has_where = 0;
+    if (has_board) {
+        strcat(sql, " WHERE p.board_id=?");
+        has_where = 1;
+    }
+
+    if (has_search) {
+        if (has_where) {
+            strcat(sql, " AND ");
+        } else {
+            strcat(sql, " WHERE ");
+            has_where = 1;
+        }
+        if (!search_type || !search_type[0]) {
+            strcat(sql, "(p.title LIKE ? OR p.content LIKE ?)");
+        } else if (strcmp(search_type, "title") == 0) {
+            strcat(sql, "p.title LIKE ?");
+        } else if (strcmp(search_type, "body") == 0) {
+            strcat(sql, "p.content LIKE ?");
+        } else if (strcmp(search_type, "board") == 0) {
+            strcat(sql, "b.name LIKE ?");
+        } else {
+            strcat(sql, "(p.title LIKE ? OR p.content LIKE ?)");
+        }
+    }
+
+    strcat(sql, " ORDER BY p.is_notice DESC, p.created_at DESC LIMIT ? OFFSET ?");
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        return NULL;
+    }
+    int idx = 1;
     if (has_board) sqlite3_bind_int(stmt, idx++, board_id);
     if (has_search) {
+        int is_default = (!search_type || !search_type[0] ||
+            (strcmp(search_type, "title") != 0 && strcmp(search_type, "body") != 0 && strcmp(search_type, "board") != 0));
         sqlite3_bind_text(stmt, idx++, search_pattern, -1, SQLITE_STATIC);
-        sqlite3_bind_text(stmt, idx++, search_pattern, -1, SQLITE_STATIC);
+        if (is_default) {
+            sqlite3_bind_text(stmt, idx++, search_pattern, -1, SQLITE_STATIC);
+        }
     }
     sqlite3_bind_int(stmt, idx++, limit);
     sqlite3_bind_int(stmt, idx++, offset);
     return db_sqlite3_rows_to_json(stmt);
 }
 
-int db_post_count_search(cwist_db *db, int board_id, const char *search) {
-    const char *sql;
+int db_post_count_search(cwist_db *db, int board_id, const char *search, const char *search_type) {
     int has_board = board_id > 0;
     int has_search = (search && search[0]);
-    if (has_board && has_search) {
-        sql = "SELECT COUNT(*) FROM posts WHERE board_id=? AND (title LIKE ? OR content LIKE ?)";
-    } else if (has_board) {
-        sql = "SELECT COUNT(*) FROM posts WHERE board_id=?";
-    } else if (has_search) {
-        sql = "SELECT COUNT(*) FROM posts WHERE title LIKE ? OR content LIKE ?";
-    } else {
-        sql = "SELECT COUNT(*) FROM posts";
-    }
-    sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
-    int idx = 1;
     char search_pattern[512] = {0};
     if (has_search) {
         snprintf(search_pattern, sizeof(search_pattern), "%%%s%%", search);
     }
+
+    char sql[1024] = {0};
+    int needs_join = has_search && search_type && strcmp(search_type, "board") == 0;
+    if (needs_join) {
+        strcpy(sql, "SELECT COUNT(*) FROM posts p LEFT JOIN boards b ON p.board_id=b.id");
+    } else {
+        strcpy(sql, "SELECT COUNT(*) FROM posts");
+    }
+
+    int has_where = 0;
+    if (has_board) {
+        strcat(sql, " WHERE board_id=?");
+        has_where = 1;
+    }
+
+    if (has_search) {
+        if (has_where) {
+            strcat(sql, " AND ");
+        } else {
+            strcat(sql, " WHERE ");
+            has_where = 1;
+        }
+        if (!search_type || !search_type[0]) {
+            strcat(sql, "(title LIKE ? OR content LIKE ?)");
+        } else if (strcmp(search_type, "title") == 0) {
+            strcat(sql, "title LIKE ?");
+        } else if (strcmp(search_type, "body") == 0) {
+            strcat(sql, "content LIKE ?");
+        } else if (strcmp(search_type, "board") == 0) {
+            strcat(sql, "b.name LIKE ?");
+        } else {
+            strcat(sql, "(title LIKE ? OR content LIKE ?)");
+        }
+    }
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        return 0;
+    }
+    int idx = 1;
     if (has_board) sqlite3_bind_int(stmt, idx++, board_id);
     if (has_search) {
+        int is_default = (!search_type || !search_type[0] ||
+            (strcmp(search_type, "title") != 0 && strcmp(search_type, "body") != 0 && strcmp(search_type, "board") != 0));
         sqlite3_bind_text(stmt, idx++, search_pattern, -1, SQLITE_STATIC);
-        sqlite3_bind_text(stmt, idx++, search_pattern, -1, SQLITE_STATIC);
+        if (is_default) {
+            sqlite3_bind_text(stmt, idx++, search_pattern, -1, SQLITE_STATIC);
+        }
     }
     int count = 0;
     if (sqlite3_step(stmt) == SQLITE_ROW) {

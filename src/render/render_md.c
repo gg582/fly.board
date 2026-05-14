@@ -6,7 +6,14 @@
 #include <string.h>
 
 static void md_output_cb(const MD_CHAR *data, MD_SIZE size, void *userdata) {
-    cwist_sstring_append_len((cwist_sstring *)userdata, data, size);
+    cwist_sstring *str = (cwist_sstring *)userdata;
+    cwist_error_t err = cwist_sstring_append_len(str, data, size);
+    if (err.errtype != CWIST_ERR_INT32 || err.error.err_i32 != 0) {
+        size_t new_size = (size_t)(str->size * 1.25f);
+        if (new_size < str->size + size + 1) new_size = str->size + size + 1;
+        cwist_sstring_change_size(str, new_size, false);
+        cwist_sstring_append_len(str, data, size);
+    }
 }
 
 cwist_sstring *render_markdown_to_html(const char *md) {

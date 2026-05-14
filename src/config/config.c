@@ -32,6 +32,10 @@ bool blog_config_load(const char *path) {
             fprintf(f, "brand_footer=%s\n", g_config.brand_footer);
             fprintf(f, "accent=%s\n", g_config.accent);
             fprintf(f, "port=%d\n", g_config.port);
+            fprintf(f, "home_img=%s\n", g_config.home_img);
+            fprintf(f, "blog_logo=%s\n", g_config.blog_logo);
+            fprintf(f, "boards_img=%s\n", g_config.boards_img);
+            fprintf(f, "files_img=%s\n", g_config.files_img);
             fclose(f);
         }
         return true;
@@ -54,6 +58,14 @@ bool blog_config_load(const char *path) {
             snprintf(g_config.accent, sizeof(g_config.accent), "%s", val);
         } else if (strcmp(key, "port") == 0) {
             g_config.port = atoi(val);
+        } else if (strcmp(key, "home_img") == 0) {
+            snprintf(g_config.home_img, sizeof(g_config.home_img), "%s", val);
+        } else if (strcmp(key, "blog_logo") == 0) {
+            snprintf(g_config.blog_logo, sizeof(g_config.blog_logo), "%s", val);
+        } else if (strcmp(key, "boards_img") == 0) {
+            snprintf(g_config.boards_img, sizeof(g_config.boards_img), "%s", val);
+        } else if (strcmp(key, "files_img") == 0) {
+            snprintf(g_config.files_img, sizeof(g_config.files_img), "%s", val);
         }
     }
     fclose(f);

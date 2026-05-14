@@ -32,6 +32,50 @@ static bool is_safe_upload_name(const char *name) {
     return strchr(name, '/') == NULL && strchr(name, '\\') == NULL;
 }
 
+void handler_asset_img(cwist_http_request *req, cwist_http_response *res) {
+    const char *encoded = cwist_query_map_get(req->path_params, "filename");
+    if (!encoded || !encoded[0]) { send_upload_not_found(res); return; }
+
+    char *decoded = decode_upload_path_segment(encoded);
+    if (!decoded) {
+        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
+        cwist_sstring_assign(res->body, "decode error");
+        return;
+    }
+    if (!is_safe_upload_name(decoded)) {
+        cwist_free(decoded);
+        send_upload_not_found(res);
+        return;
+    }
+
+    char path[PATH_MAX];
+    int written = snprintf(path, sizeof(path), "public/img/%s", decoded);
+    if (written < 0 || written >= (int)sizeof(path)) {
+        cwist_free(decoded);
+        send_upload_not_found(res);
+        return;
+    }
+
+    size_t sz = 0;
+    char *data = file_read(path, &sz);
+    if (!data) {
+        cwist_free(decoded);
+        send_upload_not_found(res);
+        return;
+    }
+
+    cwist_http_header_add(&res->headers, "Content-Type", mime_type(decoded));
+    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
+    char slen[32];
+    snprintf(slen, sizeof(slen), "%zu", sz);
+    cwist_http_header_add(&res->headers, "Content-Length", slen);
+    cwist_sstring_assign(res->body, "");
+    cwist_sstring_append_len(res->body, data, sz);
+
+    cwist_free(data);
+    cwist_free(decoded);
+}
+
 void handler_asset_upload(cwist_http_request *req, cwist_http_response *res) {
     const char *encoded = cwist_query_map_get(req->path_params, "filename");
     if (!encoded || !encoded[0]) { send_upload_not_found(res); return; }
