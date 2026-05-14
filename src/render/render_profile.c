@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "render.h"
 #include "render_internal.h"
+#include "config/config.h"
 #include "utils/utils.h"
 #include <cwist/core/sstring/sstring.h>
 #include <cwist/core/mem/alloc.h>
@@ -25,9 +26,15 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
     cJSON *owner_role_obj = cJSON_GetObjectItem(user, "role");
     const char *owner_role = (owner_role_obj && owner_role_obj->type == cJSON_String) ? owner_role_obj->valuestring : "";
 
+    static char admin_pic_buf[512];
     const char *display_pic = user_profile_pic;
     if ((!display_pic || !display_pic[0]) && owner_role && strcmp(owner_role, "admin") == 0) {
-        display_pic = "/assets/img/logo.png";
+        if (g_config.blog_logo[0]) {
+            snprintf(admin_pic_buf, sizeof(admin_pic_buf), "/assets/img/%s", g_config.blog_logo);
+            display_pic = admin_pic_buf;
+        } else {
+            display_pic = "/assets/img/logo.png";
+        }
     }
 
     cwist_sstring_append(b, "<div class='card' style='max-width:600px;margin:20px auto;text-align:center'>");

@@ -15,6 +15,7 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     if (page < 1) page = 1;
     int per_page = 20;
     const char *search = cwist_query_map_get(req->query_params, "search");
+    const char *search_type = cwist_query_map_get(req->query_params, "search_type");
     bool empty_search = search && !search[0];
 
     if (slug) {
@@ -27,25 +28,25 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
         }
         int bid = json_int(board, "id", 0);
         if (!empty_search) {
-            int total = db_post_count_search(req->db, bid, search);
+            int total = db_post_count_search(req->db, bid, search, search_type);
             total_pages = (total + per_page - 1) / per_page;
             if (total_pages < 1) total_pages = 1;
             if (page > total_pages) page = total_pages;
-            posts = db_post_list_search(req->db, bid, search, per_page, (page - 1) * per_page);
+            posts = db_post_list_search(req->db, bid, search, search_type, per_page, (page - 1) * per_page);
         }
         cJSON_Delete(board);
     } else {
         if (!empty_search) {
-            int total = db_post_count_search(req->db, 0, search);
+            int total = db_post_count_search(req->db, 0, search, search_type);
             total_pages = (total + per_page - 1) / per_page;
             if (total_pages < 1) total_pages = 1;
             if (page > total_pages) page = total_pages;
-            posts = db_post_list_search(req->db, 0, search, per_page, (page - 1) * per_page);
+            posts = db_post_list_search(req->db, 0, search, search_type, per_page, (page - 1) * per_page);
         }
     }
 
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page_html = render_post_list(posts, boards, dark, role, page, total_pages, slug, search, pp, uid);
+    cwist_sstring *page_html = render_post_list(posts, boards, dark, role, page, total_pages, slug, search, search_type, pp, uid);
     if (posts) cJSON_Delete(posts);
     if (boards) cJSON_Delete(boards);
     send_html_res(res, page_html);

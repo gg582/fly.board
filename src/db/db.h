@@ -47,8 +47,8 @@ int db_post_count(cwist_db *db, int board_id);
 
 /* Post extended features */
 bool db_post_increment_view(cwist_db *db, int id);
-cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, int limit, int offset);
-int db_post_count_search(cwist_db *db, int board_id, const char *search);
+cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, const char *search_type, int limit, int offset);
+int db_post_count_search(cwist_db *db, int board_id, const char *search, const char *search_type);
 
 /* Post votes */
 bool db_post_vote(cwist_db *db, int post_id, int user_id, int vote_type);

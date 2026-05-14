@@ -93,10 +93,23 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
     }
 }
 
-cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *profile_pic, int user_id) {
+cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id) {
     cwist_sstring *b = cwist_sstring_create();
+    int has_home_bg = g_config.home_img[0];
     if (!board_slug || board_slug[0] == '\0') {
-        cwist_sstring_assign(b, "<div class='hero'><img class='hero-logo' src='/assets/img/logo.png' alt='Logo' style='height:120px'>");
+        if (has_home_bg) {
+            cwist_sstring_append(b, "<div style=\"background-image:url('/assets/img/");
+            cwist_sstring_append_escaped(b, g_config.home_img);
+            cwist_sstring_append(b, "');background-size:cover;background-position:center;padding:40px 20px 20px;border-radius:12px;margin-bottom:0;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.5)\">");
+        }
+        cwist_sstring_append(b, "<div class='hero' ");
+        if (has_home_bg) cwist_sstring_append(b, "style='background:none;padding:0' ");
+        cwist_sstring_append(b, "><img class='hero-logo' src='/assets/img/");
+        if (g_config.blog_logo[0]) cwist_sstring_append_escaped(b, g_config.blog_logo);
+        else cwist_sstring_append(b, "logo.png");
+        cwist_sstring_append(b, "' alt='Logo' style='height:120px");
+        if (has_home_bg) cwist_sstring_append(b, ";filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5))");
+        cwist_sstring_append(b, "'>");
         if (!board_slug) {
             cwist_sstring_append(b, "<h1>");
             cwist_sstring_append_escaped(b, g_config.title);
@@ -110,7 +123,9 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
 
         /* Board chips */
         if (boards && cJSON_GetArraySize(boards) > 0) {
-            cwist_sstring_append(b, "<div style='margin-bottom:18px;text-align:center'>");
+            cwist_sstring_append(b, "<div style='margin-bottom:18px;text-align:center");
+            if (has_home_bg) cwist_sstring_append(b, ";margin-top:18px");
+            cwist_sstring_append(b, "'>");
             int n = cJSON_GetArraySize(boards);
             for (int i = 0; i < n; i++) {
                 cJSON *bo = cJSON_GetArrayItem(boards, i);
@@ -123,6 +138,10 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
                 cwist_sstring_append(b, "</a>");
             }
             cwist_sstring_append(b, "</div>");
+        }
+        if (has_home_bg) {
+            cwist_sstring_append(b, "</div>");
+            cwist_sstring_append(b, "<hr style='border:none;border-top:2px solid var(--border);margin:0 0 18px'>");
         }
     }
 
@@ -138,16 +157,34 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     } else {
         cwist_sstring_append(b, "/search");
     }
-    cwist_sstring_append(b, "' method='get' style='margin:0 auto 18px;display:flex;gap:8px;max-width:480px'>");
+    cwist_sstring_append(b, "' method='get' style='margin:0 auto 18px;max-width:480px'>");
+    cwist_sstring_append(b, "<div style='display:flex;gap:8px'>");
     cwist_sstring_append(b, "<input type='text' name='search' placeholder='Search posts...' value='");
     if (search && search[0]) cwist_sstring_append_escaped(b, search);
     cwist_sstring_append(b, "' style='flex:1'>");
     cwist_sstring_append(b, "<button type='submit' class='btn'>Search</button>");
+    cwist_sstring_append(b, "<button type='button' class='btn btn-outline' onclick=\"var el=document.getElementById('adv-search');el.style.display=el.style.display==='none'?'block':'none';\">Advanced</button>");
     if (search && search[0]) {
         cwist_sstring_append(b, "<a href='");
         if (board_slug) { cwist_sstring_append(b, "/board/"); cwist_sstring_append(b, board_slug); }
         cwist_sstring_append(b, "' class='btn btn-outline'>Clear</a>");
     }
+    cwist_sstring_append(b, "</div>");
+    cwist_sstring_append(b, "<div id='adv-search' style='display:none;margin-top:8px'>");
+    cwist_sstring_append(b, "<select name='search_type' style='padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);font-family:inherit'>");
+    cwist_sstring_append(b, "<option value=''");
+    if (!search_type || !search_type[0]) cwist_sstring_append(b, " selected");
+    cwist_sstring_append(b, ">All (Title + Body)</option>");
+    cwist_sstring_append(b, "<option value='title'");
+    if (search_type && strcmp(search_type, "title") == 0) cwist_sstring_append(b, " selected");
+    cwist_sstring_append(b, ">Title</option>");
+    cwist_sstring_append(b, "<option value='body'");
+    if (search_type && strcmp(search_type, "body") == 0) cwist_sstring_append(b, " selected");
+    cwist_sstring_append(b, ">Post Body</option>");
+    cwist_sstring_append(b, "<option value='board'");
+    if (search_type && strcmp(search_type, "board") == 0) cwist_sstring_append(b, " selected");
+    cwist_sstring_append(b, ">Board Name</option>");
+    cwist_sstring_append(b, "</select></div>");
     cwist_sstring_append(b, "</form>");
 
     /* Modern card list view */
@@ -250,7 +287,11 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
                 cwist_sstring_append(b, board_slug);
             }
             if (search && search[0]) {
-                cwist_sstring_append(b, "?search="); cwist_sstring_append_escaped(b, search); cwist_sstring_append(b, "&page=");
+                cwist_sstring_append(b, "?search="); cwist_sstring_append_escaped(b, search);
+                if (search_type && search_type[0]) {
+                    cwist_sstring_append(b, "&search_type="); cwist_sstring_append_escaped(b, search_type);
+                }
+                cwist_sstring_append(b, "&page=");
             } else {
                 cwist_sstring_append(b, "?page=");
             }
@@ -274,7 +315,11 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
                 cwist_sstring_append(b, board_slug);
             }
             if (search && search[0]) {
-                cwist_sstring_append(b, "?search="); cwist_sstring_append_escaped(b, search); cwist_sstring_append(b, "&page=");
+                cwist_sstring_append(b, "?search="); cwist_sstring_append_escaped(b, search);
+                if (search_type && search_type[0]) {
+                    cwist_sstring_append(b, "&search_type="); cwist_sstring_append_escaped(b, search_type);
+                }
+                cwist_sstring_append(b, "&page=");
             } else {
                 cwist_sstring_append(b, "?page=");
             }

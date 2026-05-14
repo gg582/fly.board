@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "render.h"
 #include "render_internal.h"
+#include "config/config.h"
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
 
@@ -75,7 +76,18 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
 
 cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *profile_pic) {
     cwist_sstring *b = cwist_sstring_create();
-    cwist_sstring_assign(b, "<div class='hero'><h1>File Repository</h1><p>Shared files and attachments.</p></div>");
+    int has_files_bg = g_config.files_img[0];
+    if (has_files_bg) {
+        cwist_sstring_append(b, "<div style=\"background-image:url('/assets/img/");
+        cwist_sstring_append_escaped(b, g_config.files_img);
+        cwist_sstring_append(b, "');background-size:cover;background-position:center;padding:40px 20px;border-radius:12px;margin-bottom:18px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.5)\">");
+    }
+    cwist_sstring_append(b, "<div class='hero' ");
+    if (has_files_bg) cwist_sstring_append(b, "style='background:none;padding:0' ");
+    cwist_sstring_append(b, "><h1>File Repository</h1><p>Shared files and attachments.</p></div>");
+    if (has_files_bg) {
+        cwist_sstring_append(b, "</div>");
+    }
     cwist_sstring_append(b, "<div class='card' style='max-width:560px;margin:0 auto'><form action='/file/upload' method='post' enctype='multipart/form-data'>");
     cwist_sstring_append(b, "<label>Upload file</label><input type='file' name='file' required>");
     cwist_sstring_append(b, "<button type='submit' class='btn' style='margin-top:8px'>Upload</button>");

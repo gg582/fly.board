@@ -34,12 +34,26 @@ void redirect(cwist_http_response *res, const char *url) {
 
 char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     if (uid <= 0) {
-        if (role && strcmp(role, "admin") == 0) return strdup("/assets/img/logo.png");
+        if (role && strcmp(role, "admin") == 0) {
+            if (g_config.blog_logo[0]) {
+                char *buf = (char *)malloc(512);
+                snprintf(buf, 512, "/assets/img/%s", g_config.blog_logo);
+                return buf;
+            }
+            return strdup("/assets/img/logo.png");
+        }
         return NULL;
     }
     cJSON *user = db_user_get_by_id(db, uid);
     if (!user) {
-        if (role && strcmp(role, "admin") == 0) return strdup("/assets/img/logo.png");
+        if (role && strcmp(role, "admin") == 0) {
+            if (g_config.blog_logo[0]) {
+                char *buf = (char *)malloc(512);
+                snprintf(buf, 512, "/assets/img/%s", g_config.blog_logo);
+                return buf;
+            }
+            return strdup("/assets/img/logo.png");
+        }
         return NULL;
     }
     cJSON *pp = cJSON_GetObjectItem(user, "profile_pic");
@@ -47,7 +61,12 @@ char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     if (pp && pp->type == cJSON_String && pp->valuestring[0]) {
         res = strdup(pp->valuestring);
     } else if (role && strcmp(role, "admin") == 0) {
-        res = strdup("/assets/img/logo.png");
+        if (g_config.blog_logo[0]) {
+            res = (char *)malloc(512);
+            snprintf(res, 512, "/assets/img/%s", g_config.blog_logo);
+        } else {
+            res = strdup("/assets/img/logo.png");
+        }
     }
     cJSON_Delete(user);
     return res;
