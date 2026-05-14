@@ -8,9 +8,9 @@
 static void md_output_cb(const MD_CHAR *data, MD_SIZE size, void *userdata) {
     cwist_sstring *str = (cwist_sstring *)userdata;
     cwist_error_t err = cwist_sstring_append_len(str, data, size);
-    if (err.errtype != CWIST_ERR_INT32 || err.error.err_i32 != 0) {
+    if (err.errtype != CWIST_ERR_INT8 || err.error.err_i8 != ERR_SSTRING_OKAY) {
         size_t new_size = (size_t)(str->size * 1.25f);
-        if (new_size < str->size + size + 1) new_size = str->size + size + 1;
+        if (new_size < str->size + size) new_size = str->size + size;
         cwist_sstring_change_size(str, new_size, false);
         cwist_sstring_append_len(str, data, size);
     }
