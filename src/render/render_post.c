@@ -159,7 +159,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         }
         if (has_home_bg) {
             cwist_sstring_append(b, "</div>");
-            cwist_sstring_append(b, "<hr style='border:none;border-top:2px solid var(--border);margin:0 0 18px'>");
+            cwist_sstring_append(b, "<hr style='border:none;border-top:2px solid var(--border);margin:12px 0 24px'>");
         }
     }
 
