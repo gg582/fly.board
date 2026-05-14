@@ -3,6 +3,11 @@
 
 /* ---- Home ---- */
 void handler_home(cwist_http_request *req, cwist_http_response *res) {
+    const char *search = cwist_query_map_get(req->query_params, "search");
+    if (search) {
+        handler_post_list(req, res);
+        return;
+    }
     bool dark = is_dark(req);
     int uid = 0;
     char role[32] = {0};

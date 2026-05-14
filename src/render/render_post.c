@@ -224,7 +224,11 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cwist_sstring_append(b, "</div>");
         }
     } else {
-        cwist_sstring_append(b, "<p style='color:var(--muted);text-align:center;padding:40px 0'>No posts found.</p>");
+        if (search && !search[0]) {
+            cwist_sstring_append(b, "<p style='color:var(--muted);text-align:center;padding:40px 0'>No Search Keyword</p>");
+        } else {
+            cwist_sstring_append(b, "<p style='color:var(--muted);text-align:center;padding:40px 0'>No posts found.</p>");
+        }
     }
 
     cwist_sstring_append(b, "</div>");
