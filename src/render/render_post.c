@@ -131,7 +131,14 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     }
 
     /* Search */
-    cwist_sstring_append(b, "<form method='get' style='margin:0 auto 18px;display:flex;gap:8px;max-width:480px'>");
+    cwist_sstring_append(b, "<form action='");
+    if (board_slug && board_slug[0]) {
+        cwist_sstring_append(b, "/board/");
+        cwist_sstring_append(b, board_slug);
+    } else {
+        cwist_sstring_append(b, "/search");
+    }
+    cwist_sstring_append(b, "' method='get' style='margin:0 auto 18px;display:flex;gap:8px;max-width:480px'>");
     cwist_sstring_append(b, "<input type='text' name='search' placeholder='Search posts...' value='");
     if (search && search[0]) cwist_sstring_append_escaped(b, search);
     cwist_sstring_append(b, "' style='flex:1'>");
