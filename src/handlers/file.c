@@ -125,7 +125,7 @@ void handler_file_repo(cwist_http_request *req, cwist_http_response *res) {
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char sql[] =
-        "SELECT a.id, a.filename, a.mime_type, a.file_path, a.size, a.created_at "
+        "SELECT a.id, a.user_id, a.filename, a.mime_type, a.file_path, a.size, a.created_at "
         "FROM files a "
         "LEFT JOIN files b ON (a.post_id = b.post_id OR (a.post_id IS NULL AND b.post_id IS NULL)) "
         "AND a.filename = b.filename AND a.id < b.id "
@@ -134,7 +134,7 @@ void handler_file_repo(cwist_http_request *req, cwist_http_response *res) {
     cJSON *files = NULL;
     cwist_db_query(req->db, sql, &files);
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page = render_file_repo(files, is_dark(req), pp);
+    cwist_sstring *page = render_file_repo(files, is_dark(req), role, uid, pp);
     if (files) cJSON_Delete(files);
     send_html_res(res, page);
     free(pp);
@@ -231,13 +231,17 @@ void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
     if (id_str) {
         cJSON *f = db_file_get(req->db, atoi(id_str));
         if (f) {
-            cJSON *fpath = cJSON_GetObjectItem(f, "file_path");
-            if (fpath && fpath->valuestring && fpath->valuestring[0]) {
-                unlink(fpath->valuestring);
+            int file_uid = json_int(f, "user_id", 0);
+            bool can_delete = (role[0] && strcmp(role, "admin") == 0) || (file_uid > 0 && file_uid == uid);
+            if (can_delete) {
+                cJSON *fpath = cJSON_GetObjectItem(f, "file_path");
+                if (fpath && fpath->valuestring && fpath->valuestring[0]) {
+                    unlink(fpath->valuestring);
+                }
+                db_file_delete(req->db, atoi(id_str));
             }
             cJSON_Delete(f);
         }
-        db_file_delete(req->db, atoi(id_str));
     }
     cwist_query_map_destroy(kv);
     redirect(res, "/files");
