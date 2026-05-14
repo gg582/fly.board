@@ -16,19 +16,26 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     int per_page = 20;
     const char *search = cwist_query_map_get(req->query_params, "search");
     bool empty_search = search && !search[0];
-    if (!empty_search) {
-        if (slug) {
-            cJSON *board = db_board_get_by_slug(req->db, slug);
-            if (board) {
-                int bid = json_int(board, "id", 0);
-                int total = db_post_count_search(req->db, bid, search);
-                total_pages = (total + per_page - 1) / per_page;
-                if (total_pages < 1) total_pages = 1;
-                if (page > total_pages) page = total_pages;
-                posts = db_post_list_search(req->db, bid, search, per_page, (page - 1) * per_page);
-                cJSON_Delete(board);
-            }
-        } else {
+
+    if (slug) {
+        cJSON *board = db_board_get_by_slug(req->db, slug);
+        if (!board) {
+            res->status_code = CWIST_HTTP_NOT_FOUND;
+            cwist_sstring_assign(res->body, "Board not found");
+            if (boards) cJSON_Delete(boards);
+            return;
+        }
+        int bid = json_int(board, "id", 0);
+        if (!empty_search) {
+            int total = db_post_count_search(req->db, bid, search);
+            total_pages = (total + per_page - 1) / per_page;
+            if (total_pages < 1) total_pages = 1;
+            if (page > total_pages) page = total_pages;
+            posts = db_post_list_search(req->db, bid, search, per_page, (page - 1) * per_page);
+        }
+        cJSON_Delete(board);
+    } else {
+        if (!empty_search) {
             int total = db_post_count_search(req->db, 0, search);
             total_pages = (total + per_page - 1) / per_page;
             if (total_pages < 1) total_pages = 1;
@@ -36,6 +43,7 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
             posts = db_post_list_search(req->db, 0, search, per_page, (page - 1) * per_page);
         }
     }
+
     char *pp = get_profile_pic(req->db, uid, role);
     cwist_sstring *page_html = render_post_list(posts, boards, dark, role, page, total_pages, slug, search, pp, uid);
     if (posts) cJSON_Delete(posts);
