@@ -140,8 +140,8 @@ int get_image_text_style(const char *image_path, const char *image_url,
 
     if (ok != 0) {
         snprintf(bg_style_out, bg_style_len,
-                 "background-image:url('%s');background-size:cover;background-position:center;border-radius:12px;margin-bottom:0",
-                 image_url);
+                 "background-image:url('%s?v=%ld');background-size:cover;background-position:center;border-radius:12px;margin-bottom:24px",
+                 image_url, (long)mtime);
         snprintf(text_style_out, text_style_len,
                  "color:#ffffff;text-shadow:0 1px 3px rgba(0,0,0,0.5)");
         snprintf(logo_filter_out, logo_filter_len,
@@ -201,9 +201,9 @@ int get_image_text_style(const char *image_path, const char *image_url,
         int shadow_blur = 3 + (int)((deficit / target_contrast) * 10);   /* 3 .. 13 px */
 
         snprintf(bg_style_out, bg_style_len,
-                 "background-image:linear-gradient(rgba(0,0,0,%.2f),rgba(0,0,0,%.2f)),url('%s');"
-                 "background-size:cover;background-position:center;border-radius:12px;margin-bottom:0",
-                 overlay_alpha, overlay_alpha, image_url);
+                 "background-image:linear-gradient(rgba(0,0,0,%.2f),rgba(0,0,0,%.2f)),url('%s?v=%ld');"
+                 "background-size:cover;background-position:center;border-radius:12px;margin-bottom:24px",
+                 overlay_alpha, overlay_alpha, image_url, (long)mtime);
 
         snprintf(text_style_out, text_style_len,
                  "color:%s;text-shadow:0 1px %dpx %s,0 2px %dpx rgba(0,0,0,%.2f)",
@@ -215,8 +215,8 @@ int get_image_text_style(const char *image_path, const char *image_url,
     } else {
         /* Sufficient contrast without overlay */
         snprintf(bg_style_out, bg_style_len,
-                 "background-image:url('%s');background-size:cover;background-position:center;padding:40px 20px 20px;border-radius:12px;margin-bottom:0",
-                 image_url);
+                 "background-image:url('%s?v=%ld');background-size:cover;background-position:center;padding:40px 20px 20px;border-radius:12px;margin-bottom:24px",
+                 image_url, (long)mtime);
 
         snprintf(text_style_out, text_style_len,
                  "color:%s;text-shadow:0 1px 3px %s",
