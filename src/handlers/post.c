@@ -261,6 +261,12 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     char *title = NULL, *content = NULL, *summary = NULL, *id_str = NULL, *board_id_str = NULL;
     form_field_t *files = NULL;
 
+    const char *path_id = cwist_query_map_get(req->path_params, "id");
+    if (path_id) {
+        id_str = (char *)cwist_alloc(strlen(path_id)+1);
+        strcpy(id_str, path_id);
+    }
+
     if (ctype && strstr(ctype, "multipart/form-data")) {
         const char *bnd = strstr(ctype, "boundary=");
         if (bnd) {
@@ -273,7 +279,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
             files = multipart_parse(req->body->data, req->body->size, boundary);
             cwist_free(boundary);
             form_field_t *f;
-            if ((f = form_find(files, "id"))) id_str = (char *)cwist_alloc(f->len+1), memcpy(id_str, f->data, f->len), id_str[f->len]=0;
+
             if ((f = form_find(files, "title"))) title = (char *)cwist_alloc(f->len+1), memcpy(title, f->data, f->len), title[f->len]=0;
             if ((f = form_find(files, "content"))) content = (char *)cwist_alloc(f->len+1), memcpy(content, f->data, f->len), content[f->len]=0;
             if ((f = form_find(files, "summary"))) summary = (char *)cwist_alloc(f->len+1), memcpy(summary, f->data, f->len), summary[f->len]=0;
@@ -281,8 +287,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         }
     } else {
         cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
-        id_str = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "id") ? cwist_query_map_get(kv, "id") : "")+1);
-        strcpy(id_str, cwist_query_map_get(kv, "id") ? cwist_query_map_get(kv, "id") : "");
+
         title = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "title") ? cwist_query_map_get(kv, "title") : "")+1);
         strcpy(title, cwist_query_map_get(kv, "title") ? cwist_query_map_get(kv, "title") : "");
         content = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "content") ? cwist_query_map_get(kv, "content") : "")+1);
