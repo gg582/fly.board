@@ -54,10 +54,15 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
         cJSON_AddStringToObject(obj, "url", url);
         cJSON_AddNumberToObject(obj, "size", (double)f->file_size);
         db_file_replace_for_post(req->db, post_id, f->filename);
-        db_file_create_volume(req->db, post_id, uid, f->filename, mime_type(f->filename), f->data, f->file_size);
+        if (db_file_create_volume(req->db, post_id, uid, f->filename, mime_type(f->filename), f->data, f->file_size)) {
+            CWIST_LOG_INFO("API upload success: uid=%d post_id=%d filename='%s' size=%zu", uid, post_id, f->filename, f->file_size);
+        } else {
+            CWIST_LOG_ERROR("API upload failed: uid=%d post_id=%d filename='%s'", uid, post_id, f->filename);
+        }
     } else {
         cJSON_AddBoolToObject(obj, "ok", false);
         cJSON_AddStringToObject(obj, "error", "no file");
+        CWIST_LOG_WARN("API upload failed: no file uid=%d", uid);
     }
     multipart_free(fields);
     char *json = cJSON_PrintUnformatted(obj);
@@ -167,8 +172,10 @@ void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
     int vote_type = atoi(vote_type_str);
     if (vote_type == 0) {
         db_post_vote_remove(req->db, post_id, uid);
+        CWIST_LOG_INFO("Vote removed: post_id=%d uid=%d", post_id, uid);
     } else {
         db_post_vote(req->db, post_id, uid, vote_type);
+        CWIST_LOG_INFO("Vote cast: post_id=%d uid=%d vote_type=%d", post_id, uid, vote_type);
     }
     cJSON *counts = db_post_vote_counts(req->db, post_id);
     int user_vote = db_post_user_vote(req->db, post_id, uid);

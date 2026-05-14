@@ -1,18 +1,46 @@
 #include "cwist/core/log.h"
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <stdarg.h>
 
-int fly_log_level = FLY_LOG_LEVEL_ERROR;
+cwist_macro_log_level_t g_cwist_log_level = CWIST_LOG_LEVEL_ERROR;
 
-void fly_log_init(void) {
+void cwist_log_write(cwist_macro_log_level_t level, const char *fmt, ...) {
+    const char *level_str = "???";
+    switch (level) {
+        case CWIST_LOG_LEVEL_DEBUG: level_str = "DEBUG"; break;
+        case CWIST_LOG_LEVEL_INFO:  level_str = "INFO";  break;
+        case CWIST_LOG_LEVEL_WARN:  level_str = "WARN";  break;
+        case CWIST_LOG_LEVEL_ERROR: level_str = "ERROR"; break;
+        default: break;
+    }
+
+    time_t now = time(NULL);
+    struct tm tm_info;
+    localtime_r(&now, &tm_info);
+    char time_buf[32];
+    strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", &tm_info);
+
+    fprintf(stderr, "[%s] [%s] ", level_str, time_buf);
+
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+
+    fprintf(stderr, "\n");
+}
+
+void cwist_log_init(void) {
 #ifdef DEBUG
-    fly_log_level = FLY_LOG_LEVEL_DEBUG;
+    g_cwist_log_level = CWIST_LOG_LEVEL_DEBUG;
 #else
     const char *env = getenv("DEBUG");
     if (env && (env[0] == '1' || strcmp(env, "true") == 0 || strcmp(env, "yes") == 0)) {
-        fly_log_level = FLY_LOG_LEVEL_DEBUG;
+        g_cwist_log_level = CWIST_LOG_LEVEL_DEBUG;
     } else {
-        fly_log_level = FLY_LOG_LEVEL_ERROR;
+        g_cwist_log_level = CWIST_LOG_LEVEL_ERROR;
     }
 #endif
 }
