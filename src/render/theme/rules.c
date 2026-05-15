@@ -236,6 +236,53 @@ void rule_layout(cJSON *rules) {
     add_decl(pp_s, "border-radius", "50%");
     add_decl(pp_s, "object-fit", "cover");
     cJSON_AddItemToArray(rules, pp_s);
+
+    cJSON *burger = create_rule(".burger-btn");
+    add_decl(burger, "display", "none");
+    add_decl(burger, "align-items", "center");
+    add_decl(burger, "justify-content", "center");
+    add_decl(burger, "background", "none");
+    add_decl(burger, "border", "none");
+    add_decl(burger, "color", "var(--fg)");
+    add_decl(burger, "font-size", "22px");
+    add_decl(burger, "cursor", "pointer");
+    add_decl(burger, "padding", "6px");
+    add_decl(burger, "margin-left", "auto");
+    add_decl(burger, "transition", "color 0.2s ease");
+    cJSON_AddItemToArray(rules, burger);
+
+    cJSON *burger_h = create_rule(".burger-btn:hover");
+    add_decl(burger_h, "color", "var(--accent)");
+    cJSON_AddItemToArray(rules, burger_h);
+
+    cJSON *burger_icon = create_rule(".burger-icon");
+    add_decl(burger_icon, "display", "inline-block");
+    add_decl(burger_icon, "transform-origin", "50% 50%");
+    add_decl(burger_icon, "transition", "transform 0.4s cubic-bezier(0.2, 0.7, 0, 1)");
+    cJSON_AddItemToArray(rules, burger_icon);
+
+    cJSON *burger_open = create_rule(".burger-btn.open .burger-icon");
+    add_decl(burger_open, "transform", "rotate(180deg)");
+    cJSON_AddItemToArray(rules, burger_open);
+
+    cJSON *overlay = create_rule(".mobile-overlay");
+    add_decl(overlay, "display", "none");
+    add_decl(overlay, "position", "fixed");
+    add_decl(overlay, "top", "0");
+    add_decl(overlay, "left", "0");
+    add_decl(overlay, "width", "100vw");
+    add_decl(overlay, "height", "100vh");
+    add_decl(overlay, "background", "rgba(0,0,0,0.45)");
+    add_decl(overlay, "opacity", "0");
+    add_decl(overlay, "pointer-events", "none");
+    add_decl(overlay, "transition", "opacity 0.3s ease");
+    add_decl(overlay, "z-index", "98");
+    cJSON_AddItemToArray(rules, overlay);
+
+    cJSON *overlay_open = create_rule(".mobile-overlay.open");
+    add_decl(overlay_open, "opacity", "1");
+    add_decl(overlay_open, "pointer-events", "auto");
+    cJSON_AddItemToArray(rules, overlay_open);
 }
 
 void rule_components(cJSON *rules) {
@@ -451,6 +498,7 @@ void rule_home(cJSON *rules) {
     add_decl(hero_h1, "letter-spacing", "-0.04em");
     add_decl(hero_h1, "line-height", "1.1");
     add_decl(hero_h1, "font-weight", "900");
+    add_decl(hero_h1, "text-shadow", "0 2px 16px var(--shadow)");
     cJSON_AddItemToArray(rules, hero_h1);
 
     cJSON *hero_logo = create_rule(".hero-logo");
@@ -477,15 +525,21 @@ void rule_home(cJSON *rules) {
 
     cJSON *tag = create_rule(".tag");
     add_decl(tag, "display", "inline-block");
-    add_decl(tag, "padding", "4px 10px");
-    add_decl(tag, "border-radius", "2px");
+    add_decl(tag, "padding", "6px 14px");
+    add_decl(tag, "border-radius", "999px");
     add_decl(tag, "background", "var(--hover)");
+    add_decl(tag, "border", "1px solid var(--border)");
     add_decl(tag, "font-size", "12px");
     add_decl(tag, "font-weight", "600");
     add_decl(tag, "color", "var(--accent)");
-    add_decl(tag, "margin-right", "6px");
-    add_decl(tag, "transition", "background 0.5s ease, color 0.5s ease");
+    add_decl(tag, "margin", "4px 6px");
+    add_decl(tag, "transition", "background 0.5s ease, color 0.5s ease, border-color 0.5s ease, transform 0.2s ease");
     cJSON_AddItemToArray(rules, tag);
+
+    cJSON *tagh = create_rule(".tag:hover");
+    add_decl(tagh, "transform", "translateY(-1px)");
+    add_decl(tagh, "border-color", "var(--accent)");
+    cJSON_AddItemToArray(rules, tagh);
 
     cJSON *board_sec = create_rule(".board-section");
     add_decl(board_sec, "background", "var(--panel)");
@@ -510,16 +564,27 @@ void rule_boards(cJSON *rules) {
     cJSON *blist = create_rule(".board-list");
     add_decl(blist, "max-width", "1100px");
     add_decl(blist, "margin", "0 auto");
-    add_decl(blist, "padding", "0 0 40px");
-    add_decl(blist, "border-top", "1px solid var(--border)");
+    add_decl(blist, "padding", "20px 0 40px");
+    add_decl(blist, "display", "flex");
+    add_decl(blist, "flex-direction", "column");
+    add_decl(blist, "gap", "20px");
     cJSON_AddItemToArray(rules, blist);
 
     cJSON *bline = create_rule(".board-line");
     add_decl(bline, "display", "grid");
     add_decl(bline, "gap", "10px");
-    add_decl(bline, "padding", "20px 0 24px");
-    add_decl(bline, "border-bottom", "1px solid var(--border)");
+    add_decl(bline, "padding", "24px");
+    add_decl(bline, "background", "var(--panel)");
+    add_decl(bline, "border", "1px solid var(--border)");
+    add_decl(bline, "border-radius", "12px");
+    add_decl(bline, "box-shadow", "0 1px 2px rgba(0,0,0,0.04), 0 4px 12px var(--shadow)");
+    add_decl(bline, "transition", "transform 0.25s ease, box-shadow 0.25s ease, background 0.5s ease, border-color 0.5s ease");
     cJSON_AddItemToArray(rules, bline);
+
+    cJSON *blineh = create_rule(".board-line:hover");
+    add_decl(blineh, "transform", "translateY(-3px)");
+    add_decl(blineh, "box-shadow", "0 8px 24px var(--shadow)");
+    cJSON_AddItemToArray(rules, blineh);
 
     cJSON *bline_head = create_rule(".board-line-head");
     add_decl(bline_head, "display", "flex");
@@ -674,15 +739,16 @@ void rule_boards(cJSON *rules) {
     cJSON *item = create_rule(".board-post-item");
     add_decl(item, "display", "flex");
     add_decl(item, "flex-direction", "column");
-    add_decl(item, "padding", "14px 0");
+    add_decl(item, "padding", "14px 12px");
     add_decl(item, "border-bottom", "1px solid var(--border)");
+    add_decl(item, "border-left", "3px solid transparent");
     add_decl(item, "transition", "background 0.2s ease, border-color 0.2s ease");
     add_decl(item, "text-align", "left");
     cJSON_AddItemToArray(rules, item);
 
     cJSON *itemh = create_rule(".board-post-item:hover");
-    add_decl(itemh, "background", "transparent");
-    add_decl(itemh, "border-color", "var(--accent)");
+    add_decl(itemh, "background", "var(--hover)");
+    add_decl(itemh, "border-left-color", "var(--accent)");
     cJSON_AddItemToArray(rules, itemh);
 
     cJSON *ptitle = create_rule(".board-post-title");
@@ -754,6 +820,11 @@ void rule_boards(cJSON *rules) {
     add_decl(empty, "border", "1px dashed var(--border)");
     add_decl(empty, "margin", "0");
     cJSON_AddItemToArray(rules, empty);
+
+    cJSON *prow_notice = create_rule(".post-row-notice");
+    add_decl(prow_notice, "border-left", "3px solid var(--accent)");
+    add_decl(prow_notice, "background", "var(--hover)");
+    cJSON_AddItemToArray(rules, prow_notice);
 
     cJSON *typo_list = create_rule(".board-typography-list");
     add_decl(typo_list, "border-top", "2px solid var(--border)");
@@ -1069,24 +1140,56 @@ void rule_animations(cJSON *rules) {
 void rule_media(cJSON *rules) {
     cJSON *mq = create_rule("@media (max-width: 768px)");
     add_decl(mq, ".shell", "padding: 16px");
-    add_decl(mq, ".topbar", "flex-wrap: wrap");
-    add_decl(mq, ".topbar", "align-items: flex-start");
-    add_decl(mq, ".topbar", "width: 100%");
-    add_decl(mq, ".topbar", "margin: 0");
+    add_decl(mq, ".topbar", "align-items: center");
     add_decl(mq, ".topbar", "padding: 0 12px");
-    add_decl(mq, ".nav-links", "width: 100%");
-    add_decl(mq, ".nav-links", "justify-content: flex-start");
+    add_decl(mq, ".burger-btn", "display: inline-flex");
+    add_decl(mq, ".nav-links", "position: fixed");
+    add_decl(mq, ".nav-links", "top: 0");
+    add_decl(mq, ".nav-links", "left: 0");
+    add_decl(mq, ".nav-links", "width: 260px");
+    add_decl(mq, ".nav-links", "height: 100vh");
+    add_decl(mq, ".nav-links", "background: var(--panel)");
+    add_decl(mq, ".nav-links", "flex-direction: column");
+    add_decl(mq, ".nav-links", "align-items: stretch");
+    add_decl(mq, ".nav-links", "gap: 0");
+    add_decl(mq, ".nav-links", "padding: 64px 0 24px");
+    add_decl(mq, ".nav-links", "transform: translateX(-100%)");
+    add_decl(mq, ".nav-links", "transition: transform 0.3s ease");
+    add_decl(mq, ".nav-links", "z-index: 99");
+    add_decl(mq, ".nav-links", "border-right: 1px solid var(--border)");
+    add_decl(mq, ".nav-links", "display: flex");
+    add_decl(mq, ".nav-links.open", "transform: translateX(0)");
+    add_decl(mq, ".nav-item", "padding: 14px 24px");
+    add_decl(mq, ".nav-item", "border-bottom: 1px solid var(--border)");
+    add_decl(mq, ".nav-item:hover", "border-bottom-color: var(--border)");
     add_decl(mq, ".nav-board-dropdown", "width: 100%");
-    add_decl(mq, ".nav-board-menu", "left: 0");
-    add_decl(mq, ".nav-board-menu", "right: auto");
-    add_decl(mq, ".nav-board-menu", "min-width: min(100%, 280px)");
+    add_decl(mq, ".nav-board-menu", "position: static");
+    add_decl(mq, ".nav-board-menu", "display: none");
+    add_decl(mq, ".nav-board-menu", "opacity: 1");
+    add_decl(mq, ".nav-board-menu", "pointer-events: auto");
+    add_decl(mq, ".nav-board-menu", "transform: none");
+    add_decl(mq, ".nav-board-menu", "box-shadow: none");
+    add_decl(mq, ".nav-board-menu", "border: none");
+    add_decl(mq, ".nav-board-menu", "padding: 0 0 0 16px");
+    add_decl(mq, ".nav-board-dropdown:hover .nav-board-menu", "display: block");
+    add_decl(mq, ".nav-board-subitem", "padding: 10px 14px");
+    add_decl(mq, ".nav-board-subitem-all", "border-bottom: none");
+    add_decl(mq, ".nav-board-subitem-all", "margin-bottom: 0");
+    add_decl(mq, ".theme-switch", "padding: 14px 24px");
+    add_decl(mq, ".theme-dropdown", "position: static");
+    add_decl(mq, ".theme-dropdown", "opacity: 1");
+    add_decl(mq, ".theme-dropdown", "pointer-events: auto");
+    add_decl(mq, ".theme-dropdown", "transform: none");
+    add_decl(mq, ".theme-dropdown", "box-shadow: none");
+    add_decl(mq, ".theme-dropdown", "border: none");
+    add_decl(mq, ".theme-dropdown", "padding: 8px 0 0");
+    add_decl(mq, ".mobile-overlay", "display: block");
     add_decl(mq, ".hero-logo", "height: 100px");
     add_decl(mq, ".hero h1", "font-size: clamp(2rem, 8vw, 3rem)");
     add_decl(mq, ".post-grid", "grid-template-columns: 1fr");
     add_decl(mq, ".board-grid", "grid-template-columns: 1fr");
     add_decl(mq, ".board-list", "border-top: 1px solid var(--border)");
-    add_decl(mq, ".board-line", "padding: 16px 0 18px");
+    add_decl(mq, ".board-line", "padding: 16px");
     add_decl(mq, ".board-line-title", "font-size: 1.2rem");
-    add_decl(mq, ".theme-dropdown", "right: auto; left: 0");
     cJSON_AddItemToArray(rules, mq);
 }

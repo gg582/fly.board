@@ -111,6 +111,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *script = cwist_html_element_create("script");
     cwist_html_element_set_text(script,
         "(function(){"
+        "function toggleMobileNav(){var nav=document.querySelector('.nav-links');var overlay=document.querySelector('.mobile-overlay');var btn=document.querySelector('.burger-btn');var open=!nav.classList.contains('open');nav.classList.toggle('open',open);overlay.classList.toggle('open',open);btn.classList.toggle('open',open);document.body.style.overflow=open?'hidden':'';}" 
         "var CACHE_KEY='fly_themes';"
         "var MIX_KEY='fly_theme_mix';"
         "var HL_LIGHT='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css';"
@@ -186,6 +187,17 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_set_text(brand_title, g_config.title);
     cwist_html_element_add_child(brand, brand_title);
     cwist_html_element_add_child(nav, brand);
+
+    cwist_html_element_t *burger_btn = cwist_html_element_create("button");
+    cwist_html_element_add_attr(burger_btn, "type", "button");
+    cwist_html_element_add_attr(burger_btn, "class", "burger-btn");
+    cwist_html_element_add_attr(burger_btn, "aria-label", "Menu");
+    cwist_html_element_add_attr(burger_btn, "onclick", "toggleMobileNav()");
+    cwist_html_element_t *burger_icon = cwist_html_element_create("span");
+    cwist_html_element_add_class(burger_icon, "burger-icon");
+    cwist_html_element_set_text(burger_icon, "◇");
+    cwist_html_element_add_child(burger_btn, burger_icon);
+    cwist_html_element_add_child(nav, burger_btn);
 
     cwist_html_element_t *navlinks = cwist_html_element_create("div");
     cwist_html_element_add_class(navlinks, "nav-links");
@@ -321,6 +333,12 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(footer, footer_content);
 
     cwist_html_element_add_child(body, nav);
+
+    cwist_html_element_t *overlay = cwist_html_element_create("div");
+    cwist_html_element_add_class(overlay, "mobile-overlay");
+    cwist_html_element_add_attr(overlay, "onclick", "toggleMobileNav()");
+    cwist_html_element_add_child(body, overlay);
+
     cwist_html_element_add_child(body, shell);
     cwist_html_element_add_child(body, footer);
     cwist_html_element_add_child(html, head);

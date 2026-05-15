@@ -191,7 +191,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     } else {
         cwist_sstring_append(b, "/search");
     }
-    cwist_sstring_append(b, "' method='get' style='margin:0 auto 18px;max-width:480px'>");
+    cwist_sstring_append(b, "' method='get' style='margin:0 auto 18px;max-width:720px'>");
     cwist_sstring_append(b, "<div style='display:flex;gap:8px'>");
     cwist_sstring_append(b, "<input type='text' name='search' placeholder='Search posts...' value='");
     if (search && search[0]) cwist_sstring_append_escaped(b, search);
@@ -238,12 +238,15 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cJSON *date = cJSON_GetObjectItem(p, "created_at");
             cJSON *views = cJSON_GetObjectItem(p, "view_count");
             cwist_sstring_append(b, "<div class='post-row");
+            cJSON *is_notice = cJSON_GetObjectItem(p, "is_notice");
+            if (is_notice && is_notice->valueint) {
+                cwist_sstring_append(b, " post-row-notice");
+            }
             if (board_slug && board_slug[0]) {
                 cwist_sstring_append(b, " post-row-typography");
             }
             cwist_sstring_append(b, "'>");
             cwist_sstring_append(b, "<div class='post-row-head'>");
-            cJSON *is_notice = cJSON_GetObjectItem(p, "is_notice");
             if (is_notice && is_notice->valueint) {
                 cwist_sstring_append(b, "<span class='tag' style='background:var(--accent);color:#fff'>Notice</span>");
             }
