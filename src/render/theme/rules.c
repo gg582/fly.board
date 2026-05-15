@@ -140,13 +140,15 @@ void rule_layout(cJSON *rules) {
     add_decl(board_menu, "border", "1px solid var(--border)");
     add_decl(board_menu, "box-shadow", "0 10px 26px var(--shadow)");
     add_decl(board_menu, "padding", "6px");
+    add_decl(board_menu, "display", "none");
     add_decl(board_menu, "opacity", "0");
     add_decl(board_menu, "pointer-events", "none");
     add_decl(board_menu, "transform", "translateY(-8px)");
     add_decl(board_menu, "transition", "opacity 0.2s ease, transform 0.2s ease");
     cJSON_AddItemToArray(rules, board_menu);
 
-    cJSON *board_menu_open = create_rule(".nav-board-dropdown:hover .nav-board-menu, .nav-board-dropdown:focus-within .nav-board-menu");
+    cJSON *board_menu_open = create_rule(".nav-board-dropdown:hover .nav-board-menu");
+    add_decl(board_menu_open, "display", "block");
     add_decl(board_menu_open, "opacity", "1");
     add_decl(board_menu_open, "pointer-events", "auto");
     add_decl(board_menu_open, "transform", "translateY(0)");
