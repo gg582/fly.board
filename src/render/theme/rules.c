@@ -247,7 +247,6 @@ void rule_layout(cJSON *rules) {
     add_decl(burger, "font-size", "22px");
     add_decl(burger, "cursor", "pointer");
     add_decl(burger, "padding", "6px");
-    add_decl(burger, "margin-left", "auto");
     add_decl(burger, "transition", "color 0.2s ease");
     cJSON_AddItemToArray(rules, burger);
 
@@ -1164,16 +1163,21 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".nav-item:hover", "border-bottom-color: var(--border)");
     add_decl(mq, ".nav-board-dropdown", "width: 100%");
     add_decl(mq, ".nav-board-menu", "position: static");
-    add_decl(mq, ".nav-board-menu", "display: none");
+    add_decl(mq, ".nav-board-menu", "display: block");
     add_decl(mq, ".nav-board-menu", "opacity: 1");
     add_decl(mq, ".nav-board-menu", "pointer-events: auto");
     add_decl(mq, ".nav-board-menu", "transform: none");
     add_decl(mq, ".nav-board-menu", "box-shadow: none");
     add_decl(mq, ".nav-board-menu", "border: none");
-    add_decl(mq, ".nav-board-menu", "padding: 0 0 0 16px");
-    add_decl(mq, ".nav-board-dropdown:hover .nav-board-menu", "display: block");
-    add_decl(mq, ".nav-board-subitem", "padding: 10px 14px");
-    add_decl(mq, ".nav-board-subitem-all", "border-bottom: none");
+    add_decl(mq, ".nav-board-menu", "padding: 0");
+    add_decl(mq, ".nav-board-menu-list", "padding-left: 16px");
+    add_decl(mq, ".nav-board-subitem", "padding: 10px 24px");
+    add_decl(mq, ".nav-board-subitem", "border-bottom: 1px solid var(--border)");
+    add_decl(mq, ".nav-board-subitem", "color: var(--muted)");
+    add_decl(mq, ".nav-board-subitem", "font-size: 14px");
+    add_decl(mq, ".nav-board-subitem-all", "color: var(--fg)");
+    add_decl(mq, ".nav-board-subitem-all", "font-weight: 700");
+    add_decl(mq, ".nav-board-subitem-all", "border-bottom: 1px solid var(--border)");
     add_decl(mq, ".nav-board-subitem-all", "margin-bottom: 0");
     add_decl(mq, ".theme-switch", "padding: 14px 24px");
     add_decl(mq, ".theme-dropdown", "position: static");
