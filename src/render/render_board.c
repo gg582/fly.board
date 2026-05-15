@@ -140,7 +140,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
                     if (pdate && pdate->valuestring) {
                         cwist_sstring_append(b, "<span class='post-badge'>&#128197; ");
                         cwist_sstring_append_escaped(b, pdate->valuestring);
-                cwist_sstring_append(b, "</span>");
+                        cwist_sstring_append(b, "</span>");
                     }
                     cwist_sstring_append(b, "</div>");
                     cwist_sstring_append(b, "</li>");

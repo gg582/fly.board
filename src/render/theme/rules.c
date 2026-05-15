@@ -53,7 +53,7 @@ void rule_base(cJSON *rules) {
     cJSON *body = create_rule("body");
     add_decl(body, "background", "var(--bg)");
     add_decl(body, "color", "var(--fg)");
-    add_decl(body, "font", "16px/1.8 'Space Grotesk', 'IBM Plex Sans KR', 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', sans-serif");
+    add_decl(body, "font", "16px/1.8 \"Space Grotesk\", \"IBM Plex Sans KR\", \"Pretendard Variable\", \"Pretendard\", -apple-system, BlinkMacSystemFont, system-ui, \"Segoe UI\", sans-serif");
     add_decl(body, "font-weight", "400");
     add_decl(body, "letter-spacing", "-0.01em");
     add_decl(body, "transition", "background 0.5s ease, color 0.5s ease");
@@ -964,7 +964,6 @@ void rule_markdown(cJSON *rules) {
 
     cJSON *dropdown_panel = create_rule(".dropdown-panel");
     add_decl(dropdown_panel, "padding", "10px 0 0");
-    add_decl(dropdown_panel, "animation", "dropdownIn 0.25s ease both");
     cJSON_AddItemToArray(rules, dropdown_panel);
 }
 
@@ -988,11 +987,6 @@ void rule_animations(cJSON *rules) {
     add_decl(shimmer, "background-size", "200% 100%");
     add_decl(shimmer, "animation", "shimmer 1.5s infinite");
     cJSON_AddItemToArray(rules, shimmer);
-
-    cJSON *drop_kf = create_rule("@keyframes dropdownIn");
-    add_decl(drop_kf, "from", "opacity:0; transform: translateY(-6px)");
-    add_decl(drop_kf, "to", "opacity:1; transform: translateY(0)");
-    cJSON_AddItemToArray(rules, drop_kf);
 
     /* Stagger children */
     cJSON *stagger = create_rule(".stagger > *");
