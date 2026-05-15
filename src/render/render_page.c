@@ -216,7 +216,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *theme_icon = cwist_html_element_create("span");
     cwist_html_element_add_attr(theme_icon, "id", "theme-spin");
     cwist_html_element_add_class(theme_icon, "theme-spin-icon");
-    cwist_html_element_set_text(theme_icon, "\xE2\x97\x87");
+    cwist_html_element_set_text(theme_icon, "◇");
     cwist_html_element_add_child(theme_btn, theme_icon);
     cwist_html_element_t *theme_label = cwist_html_element_create("span");
     cwist_html_element_add_attr(theme_label, "id", "theme-toggle-label");
