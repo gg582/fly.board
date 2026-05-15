@@ -137,6 +137,15 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "function closeMenu(){var m=document.getElementById('theme-dropdown');"
         "var btn=document.querySelector('.theme-toggle-btn');"
         "if(m)m.classList.remove('open');if(btn)btn.setAttribute('aria-expanded','false');}"
+        "function renderBoardsDropdown(arr){var list=document.getElementById('boards-dropdown-list');if(!list)return;"
+        "list.innerHTML='';for(var i=0;i<arr.length;i++){var b=arr[i];"
+        "if(!b||!b.slug||!b.name)continue;var a=document.createElement('a');"
+        "a.className='nav-board-subitem';a.href='/board/'+encodeURIComponent(b.slug);a.textContent=b.name;list.appendChild(a);}"
+        "if(!list.children.length){var e=document.createElement('span');e.className='nav-board-empty';e.textContent='No boards';list.appendChild(e);}}"
+        "function loadBoardsDropdown(){fetch('/api/boards',{headers:{'Accept':'application/json'}})"
+        ".then(function(r){if(!r.ok)throw new Error('boards fetch failed');return r.json();})"
+        ".then(function(arr){if(Array.isArray(arr))renderBoardsDropdown(arr);})"
+        ".catch(function(){});}"
         "var d=document.documentElement;var stored=localStorage.getItem(CACHE_KEY);var themes=null;"
         "try{var p=JSON.parse(stored);if(Array.isArray(p))themes=p;}catch(e){}"
         "var c=document.cookie.match(/theme=(\\w+)/);var mode=c?c[1]:(d.classList.contains('dark')?'dark':'light');"
@@ -159,6 +168,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "if(!m)return;var open=!m.classList.contains('open');m.classList.toggle('open',open);"
         "if(btn)btn.setAttribute('aria-expanded',open?'true':'false');};"
         "document.addEventListener('click',function(){closeMenu();});"
+        "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',loadBoardsDropdown);}else{loadBoardsDropdown();}"
         "})();");
     cwist_html_element_add_child(head, script);
 
@@ -180,7 +190,27 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *navlinks = cwist_html_element_create("div");
     cwist_html_element_add_class(navlinks, "nav-links");
     cwist_html_element_add_child(navlinks, nav_link("/", "Home"));
-    cwist_html_element_add_child(navlinks, nav_link("/boards", "Boards"));
+    cwist_html_element_t *boards_wrap = cwist_html_element_create("div");
+    cwist_html_element_add_class(boards_wrap, "nav-board-dropdown");
+    cwist_html_element_t *boards_link = cwist_html_element_create("a");
+    cwist_html_element_add_attr(boards_link, "href", "/boards");
+    cwist_html_element_add_attr(boards_link, "class", "nav-item nav-board-trigger");
+    cwist_html_element_set_text(boards_link, "Boards");
+    cwist_html_element_add_child(boards_wrap, boards_link);
+    cwist_html_element_t *boards_menu = cwist_html_element_create("div");
+    cwist_html_element_add_attr(boards_menu, "id", "boards-dropdown");
+    cwist_html_element_add_class(boards_menu, "nav-board-menu");
+    cwist_html_element_t *boards_all = cwist_html_element_create("a");
+    cwist_html_element_add_attr(boards_all, "href", "/boards");
+    cwist_html_element_add_attr(boards_all, "class", "nav-board-subitem nav-board-subitem-all");
+    cwist_html_element_set_text(boards_all, "All Boards");
+    cwist_html_element_add_child(boards_menu, boards_all);
+    cwist_html_element_t *boards_list = cwist_html_element_create("div");
+    cwist_html_element_add_attr(boards_list, "id", "boards-dropdown-list");
+    cwist_html_element_add_class(boards_list, "nav-board-menu-list");
+    cwist_html_element_add_child(boards_menu, boards_list);
+    cwist_html_element_add_child(boards_wrap, boards_menu);
+    cwist_html_element_add_child(navlinks, boards_wrap);
     cwist_html_element_add_child(navlinks, nav_link("/files", "Files"));
     if (user_role && strcmp(user_role, "admin") == 0) {
         cwist_html_element_add_child(navlinks, nav_link("/admin/users", "Admin"));

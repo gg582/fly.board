@@ -123,6 +123,66 @@ void rule_layout(cJSON *rules) {
     add_decl(navitemh, "border-bottom-color", "var(--accent)");
     cJSON_AddItemToArray(rules, navitemh);
 
+    cJSON *board_dd = create_rule(".nav-board-dropdown");
+    add_decl(board_dd, "position", "relative");
+    add_decl(board_dd, "display", "inline-flex");
+    add_decl(board_dd, "align-items", "center");
+    cJSON_AddItemToArray(rules, board_dd);
+
+    cJSON *board_menu = create_rule(".nav-board-menu");
+    add_decl(board_menu, "position", "absolute");
+    add_decl(board_menu, "top", "calc(100% + 6px)");
+    add_decl(board_menu, "left", "0");
+    add_decl(board_menu, "min-width", "220px");
+    add_decl(board_menu, "max-height", "320px");
+    add_decl(board_menu, "overflow-y", "auto");
+    add_decl(board_menu, "background", "var(--panel)");
+    add_decl(board_menu, "border", "1px solid var(--border)");
+    add_decl(board_menu, "box-shadow", "0 10px 26px var(--shadow)");
+    add_decl(board_menu, "padding", "6px");
+    add_decl(board_menu, "opacity", "0");
+    add_decl(board_menu, "pointer-events", "none");
+    add_decl(board_menu, "transform", "translateY(-8px)");
+    add_decl(board_menu, "transition", "opacity 0.2s ease, transform 0.2s ease");
+    cJSON_AddItemToArray(rules, board_menu);
+
+    cJSON *board_menu_open = create_rule(".nav-board-dropdown:hover .nav-board-menu, .nav-board-dropdown:focus-within .nav-board-menu");
+    add_decl(board_menu_open, "opacity", "1");
+    add_decl(board_menu_open, "pointer-events", "auto");
+    add_decl(board_menu_open, "transform", "translateY(0)");
+    cJSON_AddItemToArray(rules, board_menu_open);
+
+    cJSON *board_menu_list = create_rule(".nav-board-menu-list");
+    add_decl(board_menu_list, "display", "flex");
+    add_decl(board_menu_list, "flex-direction", "column");
+    cJSON_AddItemToArray(rules, board_menu_list);
+
+    cJSON *board_sub = create_rule(".nav-board-subitem");
+    add_decl(board_sub, "display", "block");
+    add_decl(board_sub, "padding", "8px 10px");
+    add_decl(board_sub, "color", "var(--fg)");
+    add_decl(board_sub, "font-size", "13px");
+    add_decl(board_sub, "font-weight", "500");
+    cJSON_AddItemToArray(rules, board_sub);
+
+    cJSON *board_sub_h = create_rule(".nav-board-subitem:hover");
+    add_decl(board_sub_h, "background", "var(--hover)");
+    add_decl(board_sub_h, "color", "var(--accent)");
+    cJSON_AddItemToArray(rules, board_sub_h);
+
+    cJSON *board_sub_all = create_rule(".nav-board-subitem-all");
+    add_decl(board_sub_all, "font-weight", "700");
+    add_decl(board_sub_all, "border-bottom", "1px solid var(--border)");
+    add_decl(board_sub_all, "margin-bottom", "4px");
+    cJSON_AddItemToArray(rules, board_sub_all);
+
+    cJSON *board_empty = create_rule(".nav-board-empty");
+    add_decl(board_empty, "display", "block");
+    add_decl(board_empty, "padding", "8px 10px");
+    add_decl(board_empty, "font-size", "12px");
+    add_decl(board_empty, "color", "var(--muted)");
+    cJSON_AddItemToArray(rules, board_empty);
+
     cJSON *brand = create_rule(".topbar-brand");
     add_decl(brand, "display", "flex");
     add_decl(brand, "flex-direction", "column");
@@ -1014,6 +1074,10 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".topbar", "padding: 0 12px");
     add_decl(mq, ".nav-links", "width: 100%");
     add_decl(mq, ".nav-links", "justify-content: flex-start");
+    add_decl(mq, ".nav-board-dropdown", "width: 100%");
+    add_decl(mq, ".nav-board-menu", "left: 0");
+    add_decl(mq, ".nav-board-menu", "right: auto");
+    add_decl(mq, ".nav-board-menu", "min-width: min(100%, 280px)");
     add_decl(mq, ".hero-logo", "height: 100px");
     add_decl(mq, ".hero h1", "font-size: clamp(2rem, 8vw, 3rem)");
     add_decl(mq, ".post-grid", "grid-template-columns: 1fr");
