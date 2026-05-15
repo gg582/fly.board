@@ -14,7 +14,7 @@ void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
             cJSON *bo = cJSON_GetArrayItem(boards, i);
             cJSON *bid = cJSON_GetObjectItem(bo, "id");
             if (bid) {
-                cJSON *posts = db_post_recent_by_board(req->db, json_int(bo, "id", 0), 5);
+                cJSON *posts = db_post_recent_by_board(req->db, json_int(bo, "id", 0), 2);
                 if (posts) {
                     cJSON_AddItemToObject(bo, "posts", posts);
                 }
