@@ -11,3 +11,4 @@ tests/test_mp_raw
 tests/test_mp_real
 tests/test_multipart
 tests/test_multipart_debug
+third_party/md4c/
