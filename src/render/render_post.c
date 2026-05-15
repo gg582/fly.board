@@ -197,14 +197,14 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     if (search && search[0]) cwist_sstring_append_escaped(b, search);
     cwist_sstring_append(b, "' style='flex:1'>");
     cwist_sstring_append(b, "<button type='submit' class='btn'>Search</button>");
-    cwist_sstring_append(b, "<button type='button' class='btn btn-outline' onclick=\"var el=document.getElementById('adv-search');el.style.display=el.style.display==='none'?'block':'none';\">Advanced</button>");
+    cwist_sstring_append(b, "<button type='button' class='btn btn-outline adv-toggle-btn' onclick=\"var el=document.getElementById('adv-search');var btn=this;var open=el.style.display!=='none';el.style.display=open?'none':'block';btn.classList.toggle('open',!open);\">Advanced</button>");
     if (search && search[0]) {
         cwist_sstring_append(b, "<a href='");
         if (board_slug) { cwist_sstring_append(b, "/board/"); cwist_sstring_append(b, board_slug); }
         cwist_sstring_append(b, "' class='btn btn-outline'>Clear</a>");
     }
     cwist_sstring_append(b, "</div>");
-    cwist_sstring_append(b, "<div id='adv-search' style='display:none;margin-top:8px'>");
+    cwist_sstring_append(b, "<div id='adv-search' class='dropdown-panel' style='display:none;margin-top:8px'>");
     cwist_sstring_append(b, "<select name='search_type' style='padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);font-family:inherit'>");
     cwist_sstring_append(b, "<option value=''");
     if (!search_type || !search_type[0]) cwist_sstring_append(b, " selected");
@@ -221,8 +221,11 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     cwist_sstring_append(b, "</select></div>");
     cwist_sstring_append(b, "</form>");
 
-    /* Modern card list view */
-    cwist_sstring_append(b, "<div class='post-list stagger'>");
+    cwist_sstring_append(b, "<div class='post-list stagger");
+    if (board_slug && board_slug[0]) {
+        cwist_sstring_append(b, " board-typography-list");
+    }
+    cwist_sstring_append(b, "'>");
 
     if (posts) {
         int n = cJSON_GetArraySize(posts);
@@ -234,7 +237,11 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cJSON *author = cJSON_GetObjectItem(p, "author_name");
             cJSON *date = cJSON_GetObjectItem(p, "created_at");
             cJSON *views = cJSON_GetObjectItem(p, "view_count");
-            cwist_sstring_append(b, "<div class='post-row'>");
+            cwist_sstring_append(b, "<div class='post-row");
+            if (board_slug && board_slug[0]) {
+                cwist_sstring_append(b, " post-row-typography");
+            }
+            cwist_sstring_append(b, "'>");
             cwist_sstring_append(b, "<div class='post-row-head'>");
             cJSON *is_notice = cJSON_GetObjectItem(p, "is_notice");
             if (is_notice && is_notice->valueint) {
