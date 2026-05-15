@@ -274,7 +274,7 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
     if (strncmp(url_raw, "public/uploads/", 15) == 0) url_raw += 15;
     snprintf(out->url, sizeof(out->url), "/assets/uploads/%s", url_raw);
 
-    char detected_mime[128] = {0};
+    char detected_mime[127] = {0};
     if (!mime_type_from_data(f->data, detected_mime, sizeof(detected_mime))) {
         const char *fallback = mime_type(f->filename);
         strncpy(detected_mime, fallback, sizeof(detected_mime) - 1);
