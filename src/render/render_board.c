@@ -54,7 +54,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     }
     if (boards) {
         int n = cJSON_GetArraySize(boards);
-        cwist_sstring_append(b, "<div class='board-grid'>");
+        cwist_sstring_append(b, "<div class='board-grid stagger'>");
         for (int i = 0; i < n; i++) {
             cJSON *bo = cJSON_GetArrayItem(boards, i);
             cJSON *slug = cJSON_GetObjectItem(bo, "slug");
@@ -85,7 +85,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
 
             cJSON *posts = cJSON_GetObjectItem(bo, "posts");
             if (posts && cJSON_GetArraySize(posts) > 0) {
-                cwist_sstring_append(b, "<ul class='board-post-list'>");
+                cwist_sstring_append(b, "<ul class='board-post-list stagger'>");
                 int pn = cJSON_GetArraySize(posts);
                 for (int j = 0; j < pn; j++) {
                     cJSON *p = cJSON_GetArrayItem(posts, j);

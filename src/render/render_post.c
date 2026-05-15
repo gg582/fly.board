@@ -9,6 +9,7 @@
 #include <cwist/core/mem/alloc.h>
 #include <string.h>
 #include <stdio.h>
+#include <ctype.h>
 
 void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, int depth, int current_user_id, const char *user_role, int target_id) {
     int cid = json_int(comment, "id", 0);
@@ -18,24 +19,39 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
     cJSON *date = cJSON_GetObjectItem(comment, "created_at");
     cJSON *deleted = cJSON_GetObjectItem(comment, "deleted");
     int margin = depth * 20;
-    cwist_sstring_append(b, "<div style='margin-left:");
+
+    const char *uname = username && username->valuestring ? username->valuestring : "unknown";
+
+    cwist_sstring_append(b, "<div class='comment-node' style='margin-left:");
     char mbuf[32]; snprintf(mbuf, sizeof(mbuf), "%d", margin);
     cwist_sstring_append(b, mbuf);
-    cwist_sstring_append(b, "px;border-left:2px solid var(--border);padding-left:12px;margin-top:12px'>");
-    cwist_sstring_append(b, "<div style='font-size:13px;color:var(--muted);margin-bottom:4px'>");
-    cwist_sstring_append_escaped(b, username && username->valuestring ? username->valuestring : "unknown");
-    cwist_sstring_append(b, " &middot; ");
-    cwist_sstring_append_escaped(b, date && date->valuestring ? date->valuestring : "");
+    cwist_sstring_append(b, "px;margin-top:12px'>");
+
+    /* Header: avatar + meta */
+    cwist_sstring_append(b, "<div class='comment-header'>");
+    cwist_sstring_append(b, "<div class='comment-avatar'>");
+    if (uname[0]) {
+        char initial[8] = {0};
+        initial[0] = uname[0];
+        cwist_sstring_append_escaped(b, initial);
+    }
     cwist_sstring_append(b, "</div>");
+    cwist_sstring_append(b, "<div class='comment-meta'>");
+    cwist_sstring_append_escaped(b, uname);
+    cwist_sstring_append(b, " <span class='comment-date'>&middot; ");
+    cwist_sstring_append_escaped(b, date && date->valuestring ? date->valuestring : "");
+    cwist_sstring_append(b, "</span></div></div>");
+
+    /* Body */
+    cwist_sstring_append(b, "<div class='comment-body'>");
     if (deleted && deleted->valueint) {
-        cwist_sstring_append(b, "<p style='color:var(--muted);font-style:italic'>Deleted comment</p>");
+        cwist_sstring_append(b, "<p style='color:var(--muted);font-style:italic;margin:0'>Deleted comment</p>");
     } else {
-        cwist_sstring_append(b, "<p>");
+        cwist_sstring_append(b, "<p style='margin:0 0 8px'>");
         cwist_sstring_append_escaped(b, content && content->valuestring ? content->valuestring : "");
-         
-         
         cwist_sstring_append(b, "</p>");
     }
+    cwist_sstring_append(b, "</div>");
 
     bool can_edit_comment = (current_user_id > 0 && comment_user_id == current_user_id) || (user_role && strcmp(user_role, "admin") == 0);
     char cid_buf[32]; snprintf(cid_buf, sizeof(cid_buf), "%d", cid);
@@ -125,7 +141,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cwist_sstring_append(b, ";filter:");
             cwist_sstring_append(b, logo_filter);
         }
-        cwist_sstring_append(b, "'>");
+        cwist_sstring_append(b, "' fetchpriority='high'>");
         if (!board_slug) {
             cwist_sstring_append(b, "<h1>");
             cwist_sstring_append_escaped(b, g_config.title);
@@ -206,7 +222,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     cwist_sstring_append(b, "</form>");
 
     /* Modern card list view */
-    cwist_sstring_append(b, "<div class='post-list'>");
+    cwist_sstring_append(b, "<div class='post-list stagger'>");
 
     if (posts) {
         int n = cJSON_GetArraySize(posts);
@@ -370,7 +386,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         cwist_sstring_append(b, "<span style='color:var(--accent);font-size:13px;font-weight:700'>&#128274; PQC Verified</span>");
     }
     cwist_sstring_append(b, "</div>");
-    cwist_sstring_append(b, "<h1 style='margin-bottom:6px'>");
+    cwist_sstring_append(b, "<h1 style='margin-bottom:6px;font-size:2.25rem;font-weight:800;letter-spacing:-0.03em;line-height:1.2'>");
     cwist_sstring_append_escaped(b, title->valuestring);
     cwist_sstring_append(b, "</h1>");
     cwist_sstring_append(b, "<p style='color:var(--muted);font-size:14px'>by ");
@@ -473,6 +489,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         }
     }
 
+    cwist_sstring_append(b, code_copy_script);
     cwist_sstring_append(b, "</article>");
 
     /* Actions */
@@ -673,7 +690,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "});");
     cwist_sstring_append(b, "});");
     cwist_sstring_append(b, "});");
-    cwist_sstring_append(b, "var att=form?form.querySelector('input[name=\\\"attachments\\\"]'):null;");
+    cwist_sstring_append(b, "var att=form?form.querySelector('input[name=\"attachments\"]'):null;");
     cwist_sstring_append(b, "if(att){");
     cwist_sstring_append(b, "att.addEventListener('change',function(e){");
     cwist_sstring_append(b, "var files=e.target.files;");

@@ -17,6 +17,7 @@ SRCS := src/main.c \
         src/handlers/handlers.c src/handlers/home.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/file.c src/handlers/admin.c src/handlers/api.c \
         src/utils/utils.c \
         src/utils/image_contrast.c \
+        src/utils/image_size.c \
         src/nats/fly_nats.c \
         src/core/log.c \
         src/config/config.c \

@@ -25,12 +25,17 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(head, vp);
     cwist_html_element_add_child(head, title_el);
 
-    /* Preconnect to critical origins */
+    /* Preconnect + dns-prefetch to critical origins */
     cwist_html_element_t *preconnect_jsdelivr = cwist_html_element_create("link");
     cwist_html_element_add_attr(preconnect_jsdelivr, "rel", "preconnect");
     cwist_html_element_add_attr(preconnect_jsdelivr, "href", "https://cdn.jsdelivr.net");
     cwist_html_element_add_attr(preconnect_jsdelivr, "crossorigin", "");
     cwist_html_element_add_child(head, preconnect_jsdelivr);
+
+    cwist_html_element_t *dns_jsdelivr = cwist_html_element_create("link");
+    cwist_html_element_add_attr(dns_jsdelivr, "rel", "dns-prefetch");
+    cwist_html_element_add_attr(dns_jsdelivr, "href", "https://cdn.jsdelivr.net");
+    cwist_html_element_add_child(head, dns_jsdelivr);
 
     cwist_html_element_t *preconnect_cdnjs = cwist_html_element_create("link");
     cwist_html_element_add_attr(preconnect_cdnjs, "rel", "preconnect");
@@ -38,10 +43,15 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(preconnect_cdnjs, "crossorigin", "");
     cwist_html_element_add_child(head, preconnect_cdnjs);
 
-    /* Web Fonts */
+    cwist_html_element_t *dns_cdnjs = cwist_html_element_create("link");
+    cwist_html_element_add_attr(dns_cdnjs, "rel", "dns-prefetch");
+    cwist_html_element_add_attr(dns_cdnjs, "href", "https://cdnjs.cloudflare.com");
+    cwist_html_element_add_child(head, dns_cdnjs);
+
+    /* Web Fonts: Variable Pretendard + D2Coding fallback */
     cwist_html_element_t *font_pretendard = cwist_html_element_create("link");
     cwist_html_element_add_attr(font_pretendard, "rel", "stylesheet");
-    cwist_html_element_add_attr(font_pretendard, "href", "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-gov-dynamic-subset.css");
+    cwist_html_element_add_attr(font_pretendard, "href", "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css");
     cwist_html_element_add_child(head, font_pretendard);
 
     cwist_html_element_t *font_d2coding = cwist_html_element_create("link");
