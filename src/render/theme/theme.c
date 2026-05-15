@@ -8,14 +8,14 @@
 theme_color_t light = {
     .bg = "#f6f7f9", .fg = "#1a1a2e", .muted = "#6b7280",
     .panel = "#ffffff", .accent = "#4f46e5", .accent2 = "#6366f1",
-    .border = "#e5e7eb", .shadow = "rgba(0,0,0,0.06)",
+    .border = "#e5e7eb", .shadow = "rgba(0,0,0,0.08)",
     .hover = "#f3f4f6", .code_bg = "#f4f4f5",
     .glass_bg = "rgba(255,255,255,0.65)", .glass_border = "rgba(255,255,255,0.5)"
 };
 
 theme_color_t dark = {
     .bg = "#0f0f13", .fg = "#e4e4e7", .muted = "#a1a1aa",
-    .panel = "#18181b", .accent = "#818cf8", .accent2 = "#a5b4fc",
+    .panel = "#1a1a1e", .accent = "#818cf8", .accent2 = "#a5b4fc",
     .border = "#3f3f46", .shadow = "rgba(0,0,0,0.4)",
     .hover = "#27272a", .code_bg = "#27272a",
     .glass_bg = "rgba(24,24,27,0.6)", .glass_border = "rgba(255,255,255,0.08)"
