@@ -48,7 +48,23 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(dns_cdnjs, "href", "https://cdnjs.cloudflare.com");
     cwist_html_element_add_child(head, dns_cdnjs);
 
-    /* Web Fonts: Variable Pretendard + D2Coding fallback */
+    /* Web Fonts */
+    cwist_html_element_t *font_preconnect_google = cwist_html_element_create("link");
+    cwist_html_element_add_attr(font_preconnect_google, "rel", "preconnect");
+    cwist_html_element_add_attr(font_preconnect_google, "href", "https://fonts.googleapis.com");
+    cwist_html_element_add_child(head, font_preconnect_google);
+
+    cwist_html_element_t *font_preconnect_gstatic = cwist_html_element_create("link");
+    cwist_html_element_add_attr(font_preconnect_gstatic, "rel", "preconnect");
+    cwist_html_element_add_attr(font_preconnect_gstatic, "href", "https://fonts.gstatic.com");
+    cwist_html_element_add_attr(font_preconnect_gstatic, "crossorigin", "");
+    cwist_html_element_add_child(head, font_preconnect_gstatic);
+
+    cwist_html_element_t *font_space = cwist_html_element_create("link");
+    cwist_html_element_add_attr(font_space, "rel", "stylesheet");
+    cwist_html_element_add_attr(font_space, "href", "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap");
+    cwist_html_element_add_child(head, font_space);
+
     cwist_html_element_t *font_pretendard = cwist_html_element_create("link");
     cwist_html_element_add_attr(font_pretendard, "rel", "stylesheet");
     cwist_html_element_add_attr(font_pretendard, "href", "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css");
@@ -113,7 +129,14 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "for(var i=0;i<pres.length;i++)pres[i].style.opacity='0.5';"
         "var l=document.getElementById('hl-theme');if(l)l.href=(name==='light'?HL_LIGHT:HL_DARK);"
         "setTimeout(function(){for(var i=0;i<pres.length;i++)pres[i].style.opacity='';},200);}"
-        "function updateBtn(name){var b=document.querySelector('button[onclick*=\"toggleTheme\"]');if(b)b.textContent=(name==='light'?'Dark':'Light');}"
+        "function updateBtn(name){var label=document.getElementById('theme-toggle-label');if(label)label.textContent=(name==='light'?'Dark':'Light');"
+        "var opts=document.querySelectorAll('.theme-option');for(var i=0;i<opts.length;i++){"
+        "var v=opts[i].getAttribute('data-theme');opts[i].classList.toggle('active',v===name);}}"
+        "function rotateToggle(){var icon=document.getElementById('theme-spin');if(!icon)return;"
+        "icon.classList.remove('spin');void icon.offsetWidth;icon.classList.add('spin');}"
+        "function closeMenu(){var m=document.getElementById('theme-dropdown');"
+        "var btn=document.querySelector('.theme-toggle-btn');"
+        "if(m)m.classList.remove('open');if(btn)btn.setAttribute('aria-expanded','false');}"
         "var d=document.documentElement;var stored=localStorage.getItem(CACHE_KEY);var themes=null;"
         "try{var p=JSON.parse(stored);if(Array.isArray(p))themes=p;}catch(e){}"
         "var c=document.cookie.match(/theme=(\\w+)/);var mode=c?c[1]:(d.classList.contains('dark')?'dark':'light');"
@@ -126,11 +149,16 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "window.toggleTheme=function(name){"
         "if(!name)name=(mode==='light'?'dark':'light');mode=name;"
         "document.cookie='theme='+mode+';path=/;max-age=31536000';"
-        "setHlCss(mode);updateBtn(mode);"
+        "setHlCss(mode);updateBtn(mode);rotateToggle();closeMenu();"
         "if(themes){applyTheme(findTheme(themes,mode));return;}"
         "fetch('/themes.json').then(function(r){return r.json();}).then(function(arr){"
         "localStorage.setItem(CACHE_KEY,JSON.stringify(arr));themes=arr;applyTheme(findTheme(arr,mode));});"
         "};"
+        "window.toggleThemeMenu=function(ev){if(ev)ev.stopPropagation();"
+        "var m=document.getElementById('theme-dropdown');var btn=document.querySelector('.theme-toggle-btn');"
+        "if(!m)return;var open=!m.classList.contains('open');m.classList.toggle('open',open);"
+        "if(btn)btn.setAttribute('aria-expanded',open?'true':'false');};"
+        "document.addEventListener('click',function(){closeMenu();});"
         "})();");
     cwist_html_element_add_child(head, script);
 
@@ -181,14 +209,48 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
     /* Theme toggle + slider wrapper */
     cwist_html_element_t *theme_wrapper = cwist_html_element_create("div");
-    cwist_html_element_add_attr(theme_wrapper, "style", "display:flex;flex-direction:column;align-items:center;gap:4px;");
+    cwist_html_element_add_class(theme_wrapper, "theme-switch");
 
     cwist_html_element_t *theme_btn = cwist_html_element_create("button");
-    cwist_html_element_add_attr(theme_btn, "onclick", "toggleTheme()");
-    cwist_html_element_add_attr(theme_btn, "class", "btn btn-outline");
-    cwist_html_element_add_attr(theme_btn, "style", "padding:6px 12px;font-size:13px;");
-    cwist_html_element_set_text(theme_btn, dark ? "Light" : "Dark");
+    cwist_html_element_add_attr(theme_btn, "type", "button");
+    cwist_html_element_add_attr(theme_btn, "onclick", "toggleThemeMenu(event)");
+    cwist_html_element_add_attr(theme_btn, "class", "btn btn-outline theme-toggle-btn");
+    cwist_html_element_add_attr(theme_btn, "aria-expanded", "false");
+    cwist_html_element_set_text(theme_btn, "");
+    cwist_html_element_t *theme_icon = cwist_html_element_create("span");
+    cwist_html_element_add_attr(theme_icon, "id", "theme-spin");
+    cwist_html_element_add_attr(theme_icon, "aria-hidden", "true");
+    cwist_html_element_add_class(theme_icon, "theme-spin-icon");
+    cwist_html_element_set_text(theme_icon, "◇");
+    cwist_html_element_add_child(theme_btn, theme_icon);
+    cwist_html_element_t *theme_label = cwist_html_element_create("span");
+    cwist_html_element_add_attr(theme_label, "id", "theme-toggle-label");
+    cwist_html_element_set_text(theme_label, dark ? "Light" : "Dark");
+    cwist_html_element_add_child(theme_btn, theme_label);
     cwist_html_element_add_child(theme_wrapper, theme_btn);
+
+    cwist_html_element_t *theme_menu = cwist_html_element_create("div");
+    cwist_html_element_add_attr(theme_menu, "id", "theme-dropdown");
+    cwist_html_element_add_class(theme_menu, "theme-dropdown");
+    cwist_html_element_add_attr(theme_menu, "onclick", "event.stopPropagation()");
+
+    cwist_html_element_t *theme_light = cwist_html_element_create("button");
+    cwist_html_element_add_attr(theme_light, "type", "button");
+    cwist_html_element_add_attr(theme_light, "class", dark ? "theme-option" : "theme-option active");
+    cwist_html_element_add_attr(theme_light, "data-theme", "light");
+    cwist_html_element_add_attr(theme_light, "onclick", "toggleTheme('light')");
+    cwist_html_element_set_text(theme_light, "Light");
+    cwist_html_element_add_child(theme_menu, theme_light);
+
+    cwist_html_element_t *theme_dark = cwist_html_element_create("button");
+    cwist_html_element_add_attr(theme_dark, "type", "button");
+    cwist_html_element_add_attr(theme_dark, "class", dark ? "theme-option active" : "theme-option");
+    cwist_html_element_add_attr(theme_dark, "data-theme", "dark");
+    cwist_html_element_add_attr(theme_dark, "onclick", "toggleTheme('dark')");
+    cwist_html_element_set_text(theme_dark, "Dark");
+    cwist_html_element_add_child(theme_menu, theme_dark);
+
+    cwist_html_element_add_child(theme_wrapper, theme_menu);
 
 
     cwist_html_element_add_child(navlinks, theme_wrapper);

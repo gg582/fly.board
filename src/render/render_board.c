@@ -54,7 +54,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     }
     if (boards) {
         int n = cJSON_GetArraySize(boards);
-        cwist_sstring_append(b, "<div class='board-grid stagger'>");
+        cwist_sstring_append(b, "<div class='board-list stagger'>");
         for (int i = 0; i < n; i++) {
             cJSON *bo = cJSON_GetArrayItem(boards, i);
             cJSON *slug = cJSON_GetObjectItem(bo, "slug");
@@ -62,13 +62,13 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
             cJSON *desc = cJSON_GetObjectItem(bo, "description");
             char delay_buf[32];
             snprintf(delay_buf, sizeof(delay_buf), "%.2fs", i * 0.05);
-            cwist_sstring_append(b, "<div class='board-card fade-in' style='animation-delay:");
+            cwist_sstring_append(b, "<section class='board-line fade-in' style='animation-delay:");
             cwist_sstring_append(b, delay_buf);
             cwist_sstring_append(b, "'>");
-            cwist_sstring_append(b, "<div class='board-card-header'>");
+            cwist_sstring_append(b, "<div class='board-line-head'>");
             cwist_sstring_append(b, "<a href='/board/");
             cwist_sstring_append(b, slug->valuestring);
-            cwist_sstring_append(b, "' style='text-decoration:none'><h2>");
+            cwist_sstring_append(b, "' style='text-decoration:none'><h2 class='board-line-title'>");
             cwist_sstring_append_escaped(b, name->valuestring);
             cwist_sstring_append(b, "</h2></a>");
             if (user_role && strcmp(user_role, "admin") == 0) {
@@ -149,7 +149,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
             } else {
                 cwist_sstring_append(b, "<p class='board-card-empty'>No posts yet.</p>");
             }
-            cwist_sstring_append(b, "</div>");
+            cwist_sstring_append(b, "</section>");
         }
         cwist_sstring_append(b, "</div>");
     } else {
