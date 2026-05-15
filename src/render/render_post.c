@@ -745,7 +745,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
         cwist_sstring_append(b, "</ul></div>");
     }
     cwist_sstring_append(b, "<label>Attachments</label><input type='file' name='attachments' multiple>");
-    cwist_sstring_append(b, "<small style='color:var(--muted)'>Small files stored in DB; large files go to volume.</small>");
+    cwist_sstring_append(b, "<small style='color:var(--muted)'>All files are stored on server disk.</small>");
 
     cwist_sstring_append(b, "<div style='margin-top:12px;display:flex;gap:10px'><button type='submit' class='btn'>Save</button>");
     cwist_sstring_append(b, "<a href='/' class='btn btn-outline'>Cancel</a></div>");

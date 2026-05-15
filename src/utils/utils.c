@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <magic.h>
 
 char *file_read(const char *path, size_t *out_len) {
@@ -100,10 +101,15 @@ typedef struct {
     char path[512];
     bool is_file;
     size_t file_size;
+    bool write_error;
 } mp_ctx_t;
 
 static void mp_flush(mp_ctx_t *ctx) {
     if (!ctx->name[0]) goto reset;
+    if (ctx->is_file && ctx->write_error) {
+        if (ctx->path[0]) unlink(ctx->path);
+        goto reset;
+    }
     form_field_t *f = (form_field_t *)cwist_alloc(sizeof(form_field_t));
     memset(f, 0, sizeof(*f));
     f->name = (char *)cwist_alloc(strlen(ctx->name)+1); strcpy(f->name, ctx->name);
@@ -128,6 +134,7 @@ reset:
     ctx->ctype[0] = '\0';
     ctx->text = NULL; ctx->text_len = 0; ctx->text_cap = 0;
     ctx->is_file = false; ctx->file_size = 0;
+    ctx->write_error = false;
     if (ctx->fp) { fclose(ctx->fp); ctx->fp = NULL; }
     ctx->path[0] = '\0';
 }
@@ -160,6 +167,7 @@ static int mp_hv(multipart_parser *p, const char *at, size_t len) {
                 dir_ensure("public/uploads");
                 snprintf(ctx->path, sizeof(ctx->path), "public/uploads/%ld_%s", (long)time(NULL), ctx->filename);
                 ctx->fp = fopen(ctx->path, "wb");
+                if (!ctx->fp) ctx->write_error = true;
             }
         }
     } else if (strncasecmp(ctx->hdr, "Content-Type", 12) == 0) {
@@ -177,8 +185,15 @@ static int mp_data(multipart_parser *p, const char *at, size_t len) {
     mp_ctx_t *ctx = (mp_ctx_t *)multipart_parser_get_data(p);
     if (len == 0) return 0;
     if (ctx->is_file && ctx->fp) {
-        fwrite(at, 1, len, ctx->fp);
-        ctx->file_size += len;
+        if (ctx->write_error) return 0;
+        size_t written = fwrite(at, 1, len, ctx->fp);
+        if (written != len) {
+            ctx->write_error = true;
+            fclose(ctx->fp);
+            ctx->fp = NULL;
+        } else {
+            ctx->file_size += len;
+        }
     } else {
         if (!ctx->text) {
             ctx->text_cap = len + 1;

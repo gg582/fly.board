@@ -106,7 +106,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
     cwist_sstring_append(b, "<div class='card' style='max-width:560px;margin:0 auto'><form action='/file/upload' method='post' enctype='multipart/form-data'>");
     cwist_sstring_append(b, "<label>Upload file</label><input type='file' name='file' required>");
     cwist_sstring_append(b, "<button type='submit' class='btn' style='margin-top:8px'>Upload</button>");
-    cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>Large files (&gt;1MB) are stored on volume; small files in DB.</small>");
+    cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>All files are stored on server disk.</small>");
     cwist_sstring_append(b, "</form></div>");
 
     cwist_sstring_append(b, "<h3 style='margin-top:28px'>Files</h3>");
