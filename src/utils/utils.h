@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <cwist/core/db/sql.h>
 
 char *url_decode(const char *src);
 char *file_read(const char *path, size_t *out_len);
@@ -26,6 +27,21 @@ typedef struct form_field {
 form_field_t *multipart_parse(const char *body, size_t body_len, const char *boundary);
 void multipart_free(form_field_t *fields);
 form_field_t *form_find(form_field_t *fields, const char *name);
+
+/* File upload result */
+typedef struct {
+    bool ok;
+    char filename[256];
+    char mime_type[128];
+    char url[512];
+    char html[1024];
+    size_t file_size;
+    char file_path[512];
+    char error[256];
+} upload_result_t;
+
+bool mime_type_from_data(const char *file_path, char *out, size_t out_len);
+bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, upload_result_t *out);
 
 /* Simple url-encoded body parser */
 #endif

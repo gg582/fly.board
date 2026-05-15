@@ -157,15 +157,11 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     form_field_t *fields = multipart_parse(req->body->data, req->body->size, boundary);
     cwist_free(boundary);
     form_field_t *f = form_find(fields, "file");
-    if (f && f->filename && f->filename[0] != '\0' && f->data && f->data[0] != '\0') {
-        db_file_replace_for_post(req->db, 0, f->filename);
-        if (db_file_create_volume(req->db, 0, uid, f->filename, mime_type(f->filename), f->data, f->file_size)) {
-            CWIST_LOG_INFO("File uploaded: uid=%d filename='%s' size=%zu", uid, f->filename, f->file_size);
-        } else {
-            CWIST_LOG_ERROR("File upload failed: uid=%d filename='%s'", uid, f->filename);
-        }
+    upload_result_t result = {0};
+    if (process_file_upload(req->db, f, uid, 0, &result)) {
+        CWIST_LOG_INFO("File uploaded: uid=%d filename='%s' size=%zu mime=%s", uid, result.filename, result.file_size, result.mime_type);
     } else {
-        CWIST_LOG_WARN("File upload failed: no file data uid=%d", uid);
+        CWIST_LOG_WARN("File upload failed: %s uid=%d", result.error, uid);
     }
     multipart_free(fields);
     redirect(res, "/files");

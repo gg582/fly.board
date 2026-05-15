@@ -30,7 +30,8 @@ CFLAGS := -Wall -Wextra -Ofast \
           -I$(MULTIPART_DIR) \
           -Isrc \
           -Iinclude \
-          -Ithird_party/stb
+          -Ithird_party/stb \
+          -Ithird_party/file/src
 
 ifeq ($(DEBUG),1)
 CFLAGS += -DDEBUG=1
@@ -46,7 +47,7 @@ ifeq ($(wildcard $(CWIST_LIB)),)
   CWIST_LIB := $(CWIST_PREFIX)/libcwist.a
 endif
 
-LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++ -lz -lm
+LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++ -lz -lm /usr/lib/x86_64-linux-gnu/libmagic.so.1
 HAS_NGHTTP2 := $(shell pkg-config --exists libnghttp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGTCP2 := $(shell pkg-config --exists libngtcp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGHTTP3 := $(shell pkg-config --exists libnghttp3 2>/dev/null && echo 1 || echo 0)

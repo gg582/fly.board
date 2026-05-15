@@ -39,30 +39,24 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
     form_field_t *fields = multipart_parse(req->body->data, req->body->size, boundary);
     cwist_free(boundary);
     form_field_t *f = form_find(fields, "file");
-    FLY_LOG_DEBUG("[UPLOAD] after parse f=%p filename=%s data=%s file_size=%zu", (void*)f, f?f->filename:"(null)", f&&f->data?f->data:"(null)", f?f->file_size:0);
     const char *post_id_str = cwist_query_map_get(req->query_params, "post_id");
     int post_id = post_id_str ? atoi(post_id_str) : 0;
+
+    upload_result_t result = {0};
+    bool ok = process_file_upload(req->db, f, uid, post_id, &result);
+
     cJSON *obj = cJSON_CreateObject();
-    if (f && f->filename && f->data) {
-        cJSON_AddBoolToObject(obj, "ok", true);
-        cJSON_AddStringToObject(obj, "filename", f->filename);
-        cJSON_AddStringToObject(obj, "mime_type", mime_type(f->filename));
-        const char *url_raw = f->data;
-        if (strncmp(url_raw, "public/uploads/", 15) == 0) url_raw += 15;
-        char url[512];
-        snprintf(url, sizeof(url), "/assets/uploads/%s", url_raw);
-        cJSON_AddStringToObject(obj, "url", url);
-        cJSON_AddNumberToObject(obj, "size", (double)f->file_size);
-        db_file_replace_for_post(req->db, post_id, f->filename);
-        if (db_file_create_volume(req->db, post_id, uid, f->filename, mime_type(f->filename), f->data, f->file_size)) {
-            CWIST_LOG_INFO("API upload success: uid=%d post_id=%d filename='%s' size=%zu", uid, post_id, f->filename, f->file_size);
-        } else {
-            CWIST_LOG_ERROR("API upload failed: uid=%d post_id=%d filename='%s'", uid, post_id, f->filename);
-        }
+    cJSON_AddBoolToObject(obj, "ok", ok);
+    if (ok) {
+        cJSON_AddStringToObject(obj, "filename", result.filename);
+        cJSON_AddStringToObject(obj, "mime_type", result.mime_type);
+        cJSON_AddStringToObject(obj, "url", result.url);
+        cJSON_AddStringToObject(obj, "html", result.html);
+        cJSON_AddNumberToObject(obj, "size", (double)result.file_size);
+        CWIST_LOG_INFO("API upload success: uid=%d post_id=%d filename='%s' size=%zu mime=%s", uid, post_id, result.filename, result.file_size, result.mime_type);
     } else {
-        cJSON_AddBoolToObject(obj, "ok", false);
-        cJSON_AddStringToObject(obj, "error", "no file");
-        CWIST_LOG_WARN("API upload failed: no file uid=%d", uid);
+        cJSON_AddStringToObject(obj, "error", result.error);
+        CWIST_LOG_WARN("API upload failed: %s uid=%d", result.error, uid);
     }
     multipart_free(fields);
     char *json = cJSON_PrintUnformatted(obj);

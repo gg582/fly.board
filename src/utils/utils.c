@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include "utils.h"
+#include "db/db.h"
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/log.h>
 #include <ctype.h>
@@ -8,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <magic.h>
 
 char *file_read(const char *path, size_t *out_len) {
     FILE *f = fopen(path, "rb");
@@ -235,5 +237,75 @@ form_field_t *form_find(form_field_t *fields, const char *name) {
     for (form_field_t *f = fields; f; f = f->next)
         if (strcmp(f->name, name) == 0) return f;
     return NULL;
+}
+
+bool mime_type_from_data(const char *file_path, char *out, size_t out_len) {
+    if (!file_path || !out || out_len == 0) return false;
+    magic_t magic = magic_open(MAGIC_MIME_TYPE | MAGIC_SYMLINK);
+    if (!magic) return false;
+    if (magic_load(magic, NULL) != 0) {
+        magic_close(magic);
+        return false;
+    }
+    const char *mime = magic_file(magic, file_path);
+    bool ok = false;
+    if (mime) {
+        strncpy(out, mime, out_len - 1);
+        out[out_len - 1] = '\0';
+        ok = true;
+    }
+    magic_close(magic);
+    return ok;
+}
+
+bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, upload_result_t *out) {
+    memset(out, 0, sizeof(*out));
+
+    if (!f || !f->filename || !f->data || f->data[0] == '\0') {
+        snprintf(out->error, sizeof(out->error), "no file");
+        return false;
+    }
+
+    strncpy(out->filename, f->filename, sizeof(out->filename) - 1);
+    strncpy(out->file_path, f->data, sizeof(out->file_path) - 1);
+    out->file_size = f->file_size;
+
+    const char *url_raw = f->data;
+    if (strncmp(url_raw, "public/uploads/", 15) == 0) url_raw += 15;
+    snprintf(out->url, sizeof(out->url), "/assets/uploads/%s", url_raw);
+
+    char detected_mime[128] = {0};
+    if (!mime_type_from_data(f->data, detected_mime, sizeof(detected_mime))) {
+        const char *fallback = mime_type(f->filename);
+        strncpy(detected_mime, fallback, sizeof(detected_mime) - 1);
+    }
+    strncpy(out->mime_type, detected_mime, sizeof(out->mime_type) - 1);
+
+    if (strncmp(out->mime_type, "image/", 6) == 0) {
+        snprintf(out->html, sizeof(out->html),
+            "<img src=\"%s\" alt=\"%s\" style=\"max-width:100%%\">",
+            out->url, out->filename);
+    } else if (strncmp(out->mime_type, "video/", 6) == 0) {
+        snprintf(out->html, sizeof(out->html),
+            "<video controls src=\"%s\" style=\"max-width:100%%\"></video>",
+            out->url);
+    } else if (strncmp(out->mime_type, "audio/", 6) == 0) {
+        snprintf(out->html, sizeof(out->html),
+            "<audio controls src=\"%s\"></audio>",
+            out->url);
+    } else {
+        snprintf(out->html, sizeof(out->html),
+            "[%s](%s)",
+            out->filename, out->url);
+    }
+
+    db_file_replace_for_post(db, post_id, f->filename);
+    if (!db_file_create_volume(db, post_id, uid, f->filename, out->mime_type, f->data, f->file_size)) {
+        snprintf(out->error, sizeof(out->error), "db insert failed");
+        return false;
+    }
+
+    out->ok = true;
+    return true;
 }
 
