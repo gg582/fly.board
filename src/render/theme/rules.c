@@ -53,7 +53,7 @@ void rule_base(cJSON *rules) {
     cJSON *body = create_rule("body");
     add_decl(body, "background", "var(--bg)");
     add_decl(body, "color", "var(--fg)");
-    add_decl(body, "font", "16px/1.8 \"Space Grotesk\", \"IBM Plex Sans KR\", \"Pretendard Variable\", \"Pretendard\", -apple-system, BlinkMacSystemFont, system-ui, \"Segoe UI\", sans-serif");
+    add_decl(body, "font", "16px/1.8 'Space Grotesk', 'IBM Plex Sans KR', 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', sans-serif");
     add_decl(body, "font-weight", "400");
     add_decl(body, "letter-spacing", "-0.01em");
     add_decl(body, "transition", "background 0.5s ease, color 0.5s ease");

@@ -134,7 +134,9 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "var v=opts[i].getAttribute('data-theme');opts[i].classList.toggle('active',v===name);}}"
         "function rotateToggle(){var icon=document.getElementById('theme-spin');if(!icon)return;"
         "icon.classList.remove('spin');void icon.offsetWidth;icon.classList.add('spin');}"
-        "function closeMenu(){var m=document.getElementById('theme-dropdown');if(m)m.classList.remove('open');}"
+        "function closeMenu(){var m=document.getElementById('theme-dropdown');"
+        "var btn=document.querySelector('.theme-toggle-btn');"
+        "if(m)m.classList.remove('open');if(btn)btn.setAttribute('aria-expanded','false');}"
         "var d=document.documentElement;var stored=localStorage.getItem(CACHE_KEY);var themes=null;"
         "try{var p=JSON.parse(stored);if(Array.isArray(p))themes=p;}catch(e){}"
         "var c=document.cookie.match(/theme=(\\w+)/);var mode=c?c[1]:(d.classList.contains('dark')?'dark':'light');"
@@ -153,7 +155,9 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "localStorage.setItem(CACHE_KEY,JSON.stringify(arr));themes=arr;applyTheme(findTheme(arr,mode));});"
         "};"
         "window.toggleThemeMenu=function(ev){if(ev)ev.stopPropagation();"
-        "var m=document.getElementById('theme-dropdown');if(m)m.classList.toggle('open');};"
+        "var m=document.getElementById('theme-dropdown');var btn=document.querySelector('.theme-toggle-btn');"
+        "if(!m)return;var open=!m.classList.contains('open');m.classList.toggle('open',open);"
+        "if(btn)btn.setAttribute('aria-expanded',open?'true':'false');};"
         "document.addEventListener('click',function(){closeMenu();});"
         "})();");
     cwist_html_element_add_child(head, script);
@@ -215,6 +219,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_set_text(theme_btn, "");
     cwist_html_element_t *theme_icon = cwist_html_element_create("span");
     cwist_html_element_add_attr(theme_icon, "id", "theme-spin");
+    cwist_html_element_add_attr(theme_icon, "aria-hidden", "true");
     cwist_html_element_add_class(theme_icon, "theme-spin-icon");
     cwist_html_element_set_text(theme_icon, "◇");
     cwist_html_element_add_child(theme_btn, theme_icon);
