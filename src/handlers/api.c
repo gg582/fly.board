@@ -72,6 +72,43 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
     if (json) free(json);
 }
 
+void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    bool is_admin = strcmp(role, "admin") == 0;
+
+    cJSON *boards = db_board_list(req->db);
+    cJSON *out = cJSON_CreateArray();
+    if (boards && out) {
+        int n = cJSON_GetArraySize(boards);
+        for (int i = 0; i < n; i++) {
+            cJSON *bo = cJSON_GetArrayItem(boards, i);
+            if (!bo) continue;
+            int bid = json_int(bo, "id", 0);
+            if (bid <= 0 || !db_board_can_user_access(req->db, bid, uid, is_admin)) continue;
+            cJSON *slug = cJSON_GetObjectItem(bo, "slug");
+            cJSON *name = cJSON_GetObjectItem(bo, "name");
+            if (!slug || !slug->valuestring || !slug->valuestring[0] ||
+                !name || !name->valuestring || !name->valuestring[0]) continue;
+            cJSON *item = cJSON_CreateObject();
+            if (!item) continue;
+            cJSON_AddStringToObject(item, "slug", slug->valuestring);
+            cJSON_AddStringToObject(item, "name", name->valuestring);
+            cJSON_AddItemToArray(out, item);
+        }
+    }
+
+    char *json = out ? cJSON_PrintUnformatted(out) : NULL;
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "private, max-age=60");
+    cwist_sstring_assign(res->body, json ? json : "[]");
+
+    if (json) free(json);
+    if (out) cJSON_Delete(out);
+    if (boards) cJSON_Delete(boards);
+}
+
 /* ---- Progressive Themes ---- */
 void handler_themes_json(cwist_http_request *req, cwist_http_response *res) {
     (void)req;
