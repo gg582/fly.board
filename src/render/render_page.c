@@ -111,7 +111,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *script = cwist_html_element_create("script");
     cwist_html_element_set_text(script,
         "(function(){"
-        "function toggleMobileNav(){var nav=document.querySelector('.nav-links');var overlay=document.querySelector('.mobile-overlay');var btn=document.querySelector('.burger-btn');var open=!nav.classList.contains('open');nav.classList.toggle('open',open);overlay.classList.toggle('open',open);btn.classList.toggle('open',open);document.body.style.overflow=open?'hidden':'';}" 
+        "function toggleMobileNav(){var nav=document.querySelector('.nav-links');var overlay=document.querySelector('.mobile-overlay');var btn=document.querySelector('.burger-btn');var open=!nav.classList.contains('open');nav.classList.toggle('open',open);nav.style.display=open?'flex':'';overlay.classList.toggle('open',open);btn.classList.toggle('open',open);document.body.style.overflow=open?'hidden':'';}" 
         "var CACHE_KEY='fly_themes';"
         "var MIX_KEY='fly_theme_mix';"
         "var HL_LIGHT='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css';"

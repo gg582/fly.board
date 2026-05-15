@@ -244,14 +244,21 @@ void rule_layout(cJSON *rules) {
     add_decl(burger, "background", "none");
     add_decl(burger, "border", "none");
     add_decl(burger, "color", "var(--fg)");
-    add_decl(burger, "font-size", "22px");
+    add_decl(burger, "font-size", "24px");
+    add_decl(burger, "line-height", "1");
     add_decl(burger, "cursor", "pointer");
-    add_decl(burger, "padding", "6px");
-    add_decl(burger, "transition", "color 0.2s ease");
+    add_decl(burger, "padding", "0");
+    add_decl(burger, "width", "40px");
+    add_decl(burger, "height", "40px");
+    add_decl(burger, "border-radius", "10px");
+    add_decl(burger, "position", "relative");
+    add_decl(burger, "z-index", "102");
+    add_decl(burger, "transition", "color 0.2s ease, background 0.2s ease");
     cJSON_AddItemToArray(rules, burger);
 
     cJSON *burger_h = create_rule(".burger-btn:hover");
     add_decl(burger_h, "color", "var(--accent)");
+    add_decl(burger_h, "background", "var(--hover)");
     cJSON_AddItemToArray(rules, burger_h);
 
     cJSON *burger_icon = create_rule(".burger-icon");
@@ -1151,12 +1158,13 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".nav-links", "flex-direction: column");
     add_decl(mq, ".nav-links", "align-items: stretch");
     add_decl(mq, ".nav-links", "gap: 0");
-    add_decl(mq, ".nav-links", "padding: 64px 0 24px");
+    add_decl(mq, ".nav-links", "padding: 56px 0 24px");
     add_decl(mq, ".nav-links", "transform: translateX(-100%)");
     add_decl(mq, ".nav-links", "transition: transform 0.3s ease");
-    add_decl(mq, ".nav-links", "z-index: 99");
+    add_decl(mq, ".nav-links", "z-index: 101");
     add_decl(mq, ".nav-links", "border-right: 1px solid var(--border)");
-    add_decl(mq, ".nav-links", "display: flex");
+    add_decl(mq, ".nav-links", "display: none");
+    add_decl(mq, ".nav-links.open", "display: flex");
     add_decl(mq, ".nav-links.open", "transform: translateX(0)");
     add_decl(mq, ".nav-item", "padding: 14px 24px");
     add_decl(mq, ".nav-item", "border-bottom: 1px solid var(--border)");
