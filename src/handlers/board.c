@@ -43,10 +43,37 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
     const char *slug = cwist_query_map_get(kv, "slug");
     const char *desc = cwist_query_map_get(kv, "description");
     const char *ao = cwist_query_map_get(kv, "admin_only");
+    const char *error = NULL;
     if (!name || !slug) {
+        error = "Name and slug are required.";
         CWIST_LOG_WARN("Board creation failed: missing name or slug");
-        redirect(res, "/board/new"); cwist_query_map_destroy(kv); return;
+    } else {
+        size_t name_len = strlen(name);
+        size_t slug_len = strlen(slug);
+        if (name_len == 0 || slug_len == 0) error = "Name and slug cannot be empty.";
+        else if (name_len > 80) { error = "Name is too long (max 80 characters)."; CWIST_LOG_WARN("Board creation POST: name too long"); }
+        else if (slug_len > 80) { error = "Slug is too long (max 80 characters)."; CWIST_LOG_WARN("Board creation POST: slug too long"); }
+        else {
+            for (const char *p = slug; *p && !error; p++) {
+                if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '-' || *p == '_')) {
+                    error = "Slug may only contain lowercase letters, numbers, hyphens and underscores.";
+                    CWIST_LOG_WARN("Board creation POST: invalid slug='%s'", slug);
+                }
+            }
+        }
     }
+
+    if (error) {
+        int uid = 0; char role[32] = {0};
+        auth_is_logged_in(req, &uid, role, sizeof(role));
+        char *pp = get_profile_pic(req->db, uid, role);
+        cwist_sstring *page = render_board_form(NULL, is_dark(req), error, pp);
+        send_html_res(res, page);
+        free(pp);
+        cwist_query_map_destroy(kv);
+        return;
+    }
+
     if (db_board_create(req->db, name, slug, desc ? desc : "", ao != NULL, 0, 0, 0)) {
         CWIST_LOG_INFO("Board created: name='%s' slug='%s'", name, slug);
     } else {
