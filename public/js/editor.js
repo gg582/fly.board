@@ -29,27 +29,27 @@
     var UPLOAD_CANCEL_ENDPOINT = '/file/upload/cancel';
     var UPLOAD_WORKER_URL = '/assets/js/tasfa-upload-worker.js';
     var UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024;
-    var UPLOAD_DEFAULT_PARALLEL = 16;
-    var UPLOAD_MAX_PARALLEL = 72;
+    var UPLOAD_DEFAULT_PARALLEL = 24;
+    var UPLOAD_MAX_PARALLEL = 96;
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
     var UPLOAD_RECOVERY_MAX_DELAY = 8000;
     var UPLOAD_SCHEDULER_TICK_MS = 10;
     var UPLOAD_STALL_TIMEOUT_MS = 5000;
     var UPLOAD_SESSION_FETCH_TIMEOUT_MS = 8000;
     var UPLOAD_CHUNK_RETRY_LIMIT = 7;
-    var UPLOAD_WORKER_POOL_LIMIT = 14;
+    var UPLOAD_WORKER_POOL_LIMIT = 16;
     var TASFA_CLIENT_STRIPE_COUNT = 32;
     var uploadWorkerBridge = null;
     var FAST_RENEGOTIATE_DELAY_MS = 100;
     var MIN_RENEGOTIATE_INTERVAL_MS = 1200;
-    var LINK_DEGRADE_RETRY_THRESHOLD = 12;
-    var LINK_DEGRADE_TIMEOUT_THRESHOLD = 4;
+    var LINK_DEGRADE_RETRY_THRESHOLD = 18;
+    var LINK_DEGRADE_TIMEOUT_THRESHOLD = 6;
     var LINK_RECENT_DECAY_SUCCESS_STEP = 6;
-    var PREPARE_AHEAD_MULTIPLIER = 4;
+    var PREPARE_AHEAD_MULTIPLIER = 5;
     var PREPARE_BATCH_SIZE = 4;
     var UPLOAD_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024;
-    var UPLOAD_PREPARED_BUDGET_BYTES = 192 * 1024 * 1024;
-    var UPLOAD_ACTIVE_BUDGET_BYTES = 256 * 1024 * 1024;
+    var UPLOAD_PREPARED_BUDGET_BYTES = 224 * 1024 * 1024;
+    var UPLOAD_ACTIVE_BUDGET_BYTES = 384 * 1024 * 1024;
     var hmacKeyCache = {};
 
     function escapeHtml(value) {
@@ -1112,14 +1112,14 @@
         asset.pendingChunks.splice(insertAt, 0, chunkIndex);
     }
 
-    function shouldRenegotiateNow(asset, reason) {
+    function shouldResyncNow(asset, reason) {
         var state = ensureLinkState(asset);
         if (!asset) return false;
         if (reason === 'offline') return true;
         if ((asset.activeRequests || 0) === 0) return true;
-        if (reason === 'timeout' && Number(state.recentTimeouts || 0) >= 2) return true;
-        if (reason === 'slow' && Number(state.recentRetries || 0) >= 4) return true;
-        if (reason === 'recover' && (Number(state.recentRetries || 0) + Number(state.recentTimeouts || 0)) >= 4) return true;
+        if (reason === 'timeout' && Number(state.recentTimeouts || 0) >= 4) return true;
+        if (reason === 'slow' && Number(state.recentRetries || 0) >= 8) return true;
+        if (reason === 'recover' && (Number(state.recentRetries || 0) + Number(state.recentTimeouts || 0)) >= 10) return true;
         return false;
     }
 
@@ -1132,7 +1132,7 @@
     function recoverOrContinue(asset, file, chunkIndex, reason) {
         resetInflightChunk(asset, chunkIndex, false);
         requeueChunk(asset, chunkIndex);
-        if (shouldRenegotiateNow(asset, reason || 'recover')) {
+        if (shouldResyncNow(asset, reason || 'recover')) {
             scheduleRecovery(asset, reason || 'recover');
             return;
         }
@@ -1340,9 +1340,9 @@
 
     function prepareAheadTarget(asset) {
         var chunkSize = Math.max(1, Number(asset && asset.chunkSize || UPLOAD_CHUNK_SIZE));
-        var budgetCount = Math.max(4, Math.floor(UPLOAD_PREPARED_BUDGET_BYTES / chunkSize));
+        var budgetCount = Math.max(6, Math.floor(UPLOAD_PREPARED_BUDGET_BYTES / chunkSize));
         var concurrencyCount = Math.max(4, Number(asset && asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) * PREPARE_AHEAD_MULTIPLIER);
-        return Math.max(4, Math.min(64, budgetCount, concurrencyCount));
+        return Math.max(6, Math.min(96, budgetCount, concurrencyCount));
     }
 
     function schedulePrepareAhead(asset, file) {
@@ -1445,7 +1445,7 @@
         updateAssetProgress(asset);
     }
 
-    function syncUploadSession(asset, reason, suggestedParallel) {
+    function syncUploadSession(asset) {
         if (!asset || !asset.uploadId || !asset.uploadToken) {
             return Promise.reject(new Error('upload session missing'));
         }
@@ -1465,36 +1465,7 @@
             return response.json();
         }).then(function(payload) {
             applyServerSessionState(asset, payload);
-            if (!reason) return payload;
-            return fetchWithTimeout(UPLOAD_RENEGOTIATE_ENDPOINT, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Accept': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: encodeFormBody({
-                    upload_id: asset.uploadId,
-                    upload_token: asset.uploadToken,
-                    reason: reason,
-                    suggested_parallel: suggestedParallel || '',
-                    link_stability_score: buildLinkHintFields(asset).link_stability_score,
-                    link_effective_type: buildLinkHintFields(asset).link_effective_type,
-                    link_downlink_mbps: buildLinkHintFields(asset).link_downlink_mbps,
-                    link_rtt_ms: buildLinkHintFields(asset).link_rtt_ms,
-                    link_retry_events: buildLinkHintFields(asset).link_retry_events,
-                    link_timeout_events: buildLinkHintFields(asset).link_timeout_events,
-                    link_save_data: buildLinkHintFields(asset).link_save_data
-                })
-            }, UPLOAD_SESSION_FETCH_TIMEOUT_MS).then(function(response) {
-                if (!response.ok) throw new Error('renegotiate:' + response.status);
-                return response.json();
-            }).then(function(nextPayload) {
-                applyServerSessionState(asset, nextPayload);
-                asset.lastRenegotiateAt = Date.now();
-                softenRecentLinkPenalties(asset);
-                return nextPayload;
-            });
+            return payload;
         });
     }
 
@@ -1572,7 +1543,7 @@
             asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
             if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
             asset.ui.status.textContent = 'Re-syncing upload session';
-            syncUploadSession(asset, 'recover', recoverySuggestedParallel(asset)).then(function() {
+            syncUploadSession(asset).then(function() {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 if (asset.completedChunks === asset.totalChunks) {
                     asset.finalizing = false;
@@ -1631,14 +1602,6 @@
     function scheduleRecovery(asset, reason) {
         if (!asset || asset.isCancelling || asset.failed) return;
         if (asset.recovering) return;
-        var sinceLastRenegotiate = Date.now() - Number(asset.lastRenegotiateAt || 0);
-        if ((asset.lastRenegotiateAt || 0) > 0 && sinceLastRenegotiate < MIN_RENEGOTIATE_INTERVAL_MS) {
-            clearRecoveryTimer(asset);
-            asset.recoveryTimer = window.setTimeout(function() {
-                scheduleRecovery(asset, reason);
-            }, Math.max(FAST_RENEGOTIATE_DELAY_MS, MIN_RENEGOTIATE_INTERVAL_MS - sinceLastRenegotiate));
-            return;
-        }
         clearRecoveryTimer(asset);
         clearSchedulerTimer(asset);
         asset.recovering = true;
@@ -1655,14 +1618,15 @@
                 return;
             }
 
-            asset.ui.status.textContent = shouldReduceParallel(asset)
-                ? 'Recovering upload session with reduced concurrency'
-                : 'Recovering upload session';
-            syncUploadSession(asset, reason || 'recover', recoverySuggestedParallel(asset)).then(function() {
+            asset.ui.status.textContent = reason === 'offline'
+                ? 'Recovering upload session'
+                : 'Repairing missing chunks';
+            syncUploadSession(asset).then(function() {
                 if (recoveryEpoch !== asset.recoveryEpoch) return;
                 asset.recovering = false;
                 asset.isPaused = false;
                 asset.recoveryAttempts = 0;
+                softenRecentLinkPenalties(asset);
                 clearRecoveryTimer(asset);
                 startSchedulerLoop(asset);
                 schedulePrepareAhead(asset, asset.file);
