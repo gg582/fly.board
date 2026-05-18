@@ -68,10 +68,10 @@ No direct file bytes are served from the public file endpoints anymore.
 
 Current tuned values in this tree:
 
-- upload chunk size: `1 MiB`
-- default browser upload parallelism: `10`
-- max browser upload parallelism: `48`
-- worker pool cap for upload preprocessing: `12`
+- upload chunk size: `2 MiB`
+- default browser upload parallelism: `14`
+- max browser upload parallelism: `64`
+- worker pool cap for upload preprocessing: `14`
 - client stripe bucket count for chunk interleaving: `32`
 
 Server-side negotiated upload window:

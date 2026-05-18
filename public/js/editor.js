@@ -28,16 +28,16 @@
     var UPLOAD_COMPLETE_ENDPOINT = '/file/upload/complete';
     var UPLOAD_CANCEL_ENDPOINT = '/file/upload/cancel';
     var UPLOAD_WORKER_URL = '/assets/js/tasfa-upload-worker.js';
-    var UPLOAD_CHUNK_SIZE = 1024 * 1024;
-    var UPLOAD_DEFAULT_PARALLEL = 12;
-    var UPLOAD_MAX_PARALLEL = 56;
+    var UPLOAD_CHUNK_SIZE = 2 * 1024 * 1024;
+    var UPLOAD_DEFAULT_PARALLEL = 14;
+    var UPLOAD_MAX_PARALLEL = 64;
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
     var UPLOAD_RECOVERY_MAX_DELAY = 8000;
     var UPLOAD_SCHEDULER_TICK_MS = 10;
     var UPLOAD_STALL_TIMEOUT_MS = 5000;
     var UPLOAD_SESSION_FETCH_TIMEOUT_MS = 8000;
     var UPLOAD_CHUNK_RETRY_LIMIT = 7;
-    var UPLOAD_WORKER_POOL_LIMIT = 12;
+    var UPLOAD_WORKER_POOL_LIMIT = 14;
     var TASFA_CLIENT_STRIPE_COUNT = 32;
     var uploadWorkerBridge = null;
     var FAST_RENEGOTIATE_DELAY_MS = 100;
@@ -45,7 +45,7 @@
     var LINK_DEGRADE_RETRY_THRESHOLD = 12;
     var LINK_DEGRADE_TIMEOUT_THRESHOLD = 4;
     var LINK_RECENT_DECAY_SUCCESS_STEP = 6;
-    var PREPARE_AHEAD_MULTIPLIER = 3;
+    var PREPARE_AHEAD_MULTIPLIER = 4;
 
     function escapeHtml(value) {
         return String(value || '')
