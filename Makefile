@@ -51,17 +51,21 @@ LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++ -lz -lm /usr/lib/x86_64-l
 HAS_NGHTTP2 := $(shell pkg-config --exists libnghttp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGTCP2 := $(shell pkg-config --exists libngtcp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGHTTP3 := $(shell pkg-config --exists libnghttp3 2>/dev/null && echo 1 || echo 0)
+HAS_NGTCP2_CRYPTO_QUICTLS := $(shell pkg-config --exists libngtcp2_crypto_quictls 2>/dev/null && echo 1 || echo 0)
+HAS_NGTCP2_CRYPTO_OSSL := $(shell pkg-config --exists libngtcp2_crypto_ossl 2>/dev/null && echo 1 || echo 0)
+HAS_NGTCP2_CRYPTO_GNUTLS := $(shell pkg-config --exists libngtcp2_crypto_gnutls 2>/dev/null && echo 1 || echo 0)
 
 ifeq ($(HAS_NGHTTP2),1)
 LIBS += -lnghttp2
 endif
 ifeq ($(HAS_NGTCP2),1)
-HAS_NGTCP2_CRYPTO_OSSL := $(shell pkg-config --exists libngtcp2_crypto_ossl 2>/dev/null && echo 1 || echo 0)
 LIBS += -lngtcp2
-ifeq ($(HAS_NGTCP2_CRYPTO_OSSL),1)
-LIBS += -lngtcp2_crypto_ossl
-else
+ifeq ($(HAS_NGTCP2_CRYPTO_QUICTLS),1)
 LIBS += -lngtcp2_crypto_quictls
+else ifeq ($(HAS_NGTCP2_CRYPTO_OSSL),1)
+LIBS += -lngtcp2_crypto_ossl
+else ifeq ($(HAS_NGTCP2_CRYPTO_GNUTLS),1)
+LIBS += -lngtcp2_crypto_gnutls -lgnutls
 endif
 endif
 ifeq ($(HAS_NGHTTP3),1)
