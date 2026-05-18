@@ -68,25 +68,25 @@ No direct file bytes are served from the public file endpoints anymore.
 
 Current tuned values in this tree:
 
-- upload chunk size: `768 KiB`
-- default browser upload parallelism: `6`
-- max browser upload parallelism: `32`
-- worker pool cap for upload preprocessing: `8`
-- client stripe bucket count for chunk interleaving: `24`
+- upload chunk size: `1 MiB`
+- default browser upload parallelism: `8`
+- max browser upload parallelism: `40`
+- worker pool cap for upload preprocessing: `10`
+- client stripe bucket count for chunk interleaving: `32`
 
 Server-side negotiated upload window:
 
-- strong links: initial `12`, max `32`
-- medium links: initial `8`, max `32`
-- weaker links: initial `6`, max `28`
-- unstable links: initial `4`, max `16`
+- strong links: initial `14`, max `40`
+- medium links: initial `10`, max `40`
+- weaker links: initial `7`, max `32`
+- unstable links: initial `5`, max `20`
 
 Server-side negotiated download profile:
 
-- strong links: initial `40`, max `96`, coalesce `24`
-- medium links: initial `34`, max `72`, coalesce `20`
-- weaker links: initial `26`, max `56`, coalesce `16`
-- unstable links: initial `16`, max `32`, coalesce `10`, pacing `1 ms`
+- strong links: initial `52`, max `128`, coalesce `32`
+- medium links: initial `42`, max `96`, coalesce `24`
+- weaker links: initial `32`, max `72`, coalesce `20`
+- unstable links: initial `20`, max `40`, coalesce `12`, pacing `1 ms`
 
 ## Resume and Recovery
 
@@ -98,6 +98,9 @@ The client treats the server bitmap as authoritative.
 - recoverable topology/signature failures return bitmap state plus a damage bitmap and rule label.
 - the client rebuilds its pending queue as `damage -> frontier -> remaining`.
 - stale callbacks from a superseded session generation are ignored on the browser side.
+- reconnect/recovery now re-enters the session loop after `100 ms` instead of waiting whole seconds.
+- concurrency is not reduced on every renegotiation; it is only suggested downward after accumulated retry/timeout pressure.
+- upload preprocessing now runs in a prepare-ahead cache so compression/HMAC work overlaps active network transfers.
 
 ## Page Integration
 

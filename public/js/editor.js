@@ -28,18 +28,22 @@
     var UPLOAD_COMPLETE_ENDPOINT = '/file/upload/complete';
     var UPLOAD_CANCEL_ENDPOINT = '/file/upload/cancel';
     var UPLOAD_WORKER_URL = '/assets/js/tasfa-upload-worker.js';
-    var UPLOAD_CHUNK_SIZE = 768 * 1024;
-    var UPLOAD_DEFAULT_PARALLEL = 6;
-    var UPLOAD_MAX_PARALLEL = 32;
+    var UPLOAD_CHUNK_SIZE = 1024 * 1024;
+    var UPLOAD_DEFAULT_PARALLEL = 8;
+    var UPLOAD_MAX_PARALLEL = 40;
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
     var UPLOAD_RECOVERY_MAX_DELAY = 8000;
     var UPLOAD_SCHEDULER_TICK_MS = 25;
     var UPLOAD_STALL_TIMEOUT_MS = 8000;
     var UPLOAD_SESSION_FETCH_TIMEOUT_MS = 8000;
     var UPLOAD_CHUNK_RETRY_LIMIT = 5;
-    var UPLOAD_WORKER_POOL_LIMIT = 8;
-    var TASFA_CLIENT_STRIPE_COUNT = 24;
+    var UPLOAD_WORKER_POOL_LIMIT = 10;
+    var TASFA_CLIENT_STRIPE_COUNT = 32;
     var uploadWorkerBridge = null;
+    var FAST_RENEGOTIATE_DELAY_MS = 100;
+    var LINK_DEGRADE_RETRY_THRESHOLD = 8;
+    var LINK_DEGRADE_TIMEOUT_THRESHOLD = 3;
+    var PREPARE_AHEAD_MULTIPLIER = 2;
 
     function escapeHtml(value) {
         return String(value || '')
@@ -774,6 +778,11 @@
         if (reason === 'timeout') state.timeouts += 1;
     }
 
+    function shouldReduceParallel(asset) {
+        var state = ensureLinkState(asset);
+        return state.timeouts >= LINK_DEGRADE_TIMEOUT_THRESHOLD || state.retries >= LINK_DEGRADE_RETRY_THRESHOLD;
+    }
+
     function computeLinkStabilityScore(asset) {
         var conn = getConnectionInfo();
         var state = ensureLinkState(asset);
@@ -943,17 +952,18 @@
 
     function nextRecoveryDelay(asset) {
         var attempts = Math.max(0, Number(asset.recoveryAttempts || 0));
-        return Math.min(UPLOAD_RECOVERY_MAX_DELAY, UPLOAD_RECOVERY_BASE_DELAY * Math.pow(2, attempts));
+        if (attempts <= 1) return FAST_RENEGOTIATE_DELAY_MS;
+        return Math.min(UPLOAD_RECOVERY_MAX_DELAY, FAST_RENEGOTIATE_DELAY_MS * Math.pow(2, Math.max(0, attempts - 1)));
     }
 
     function nextChunkRetryDelay(attempt) {
-        return Math.min(1200, 150 * Math.pow(1.7, Math.max(0, Number(attempt) || 0)));
+        return Math.min(800, 90 * Math.pow(1.55, Math.max(0, Number(attempt) || 0)));
     }
 
     function recoverySuggestedParallel(asset) {
         var current = Math.max(1, Number(asset && asset.currentParallel || UPLOAD_DEFAULT_PARALLEL));
-        var floor = Math.max(2, Math.min(Number(asset && asset.maxParallel || UPLOAD_MAX_PARALLEL), current - 1));
-        return floor;
+        if (!shouldReduceParallel(asset)) return current;
+        return Math.max(2, Math.min(Number(asset && asset.maxParallel || UPLOAD_MAX_PARALLEL), current - 1));
     }
 
     function markSchedulerActivity(asset) {
@@ -986,6 +996,13 @@
         asset.activeRequests = 0;
     }
 
+    function clearPreparedChunks(asset) {
+        if (!asset) return;
+        asset.preparedChunks = {};
+        asset.prepareInflight = {};
+        asset.prepareInflightCount = 0;
+    }
+
     function abortInflightRequests(asset) {
         if (!asset || !asset.inflightRequests) return;
         asset.suppressAbortHandling = true;
@@ -999,6 +1016,7 @@
             return xhr && xhr._tasfaKind === 'finalize';
         });
         asset.suppressAbortHandling = false;
+        clearPreparedChunks(asset);
     }
 
     function startSchedulerLoop(asset) {
@@ -1157,6 +1175,68 @@
             .concat(interleaveChunkOrder(rest, chunkCount));
     }
 
+    function buildChunkTransferMeta(asset, file, chunkIndex) {
+        var start = chunkIndex * asset.chunkSize;
+        var end = Math.min(start + asset.chunkSize, file.size);
+        var blob = file.slice(start, end);
+        var vertex = chunkVertex(chunkIndex, asset.totalChunks);
+        return {
+            start: start,
+            end: end,
+            blob: blob,
+            vertexId: vertex.q + ':' + vertex.r,
+            magicSum: chunkMagicSum(chunkIndex, asset.totalChunks),
+            nonce: Math.random().toString(36).slice(2) + Date.now().toString(36)
+        };
+    }
+
+    function prepareAheadTarget(asset) {
+        return Math.max(2, Math.min(24, Number(asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) * PREPARE_AHEAD_MULTIPLIER));
+    }
+
+    function schedulePrepareAhead(asset, file) {
+        if (!asset || !file || asset.failed || asset.isCancelling || asset.recovering || asset.isPaused) return;
+        if (!asset.preparedChunks) asset.preparedChunks = {};
+        if (!asset.prepareInflight) asset.prepareInflight = {};
+        if (!asset.prepareInflightCount) asset.prepareInflightCount = 0;
+
+        var target = prepareAheadTarget(asset);
+        var generation = Number(asset.sessionGeneration || 0);
+        for (var i = asset.nextChunkCursor; i < asset.pendingChunks.length; i += 1) {
+            if ((Object.keys(asset.preparedChunks).length + Number(asset.prepareInflightCount || 0)) >= target) break;
+            var chunkIndex = asset.pendingChunks[i];
+            if (chunkIndex === null || chunkIndex === undefined) continue;
+            if (asset.receivedBitmap && asset.receivedBitmap.charAt(chunkIndex) === '1') continue;
+            if (asset.inflightChunks && asset.inflightChunks[chunkIndex]) continue;
+            if (asset.preparedChunks[chunkIndex] || asset.prepareInflight[chunkIndex]) continue;
+            asset.prepareInflight[chunkIndex] = true;
+            asset.prepareInflightCount += 1;
+            (function(preChunkIndex) {
+                var meta = buildChunkTransferMeta(asset, file, preChunkIndex);
+                preprocessChunkPayload(asset, preChunkIndex, meta.start, meta.nonce, meta.vertexId, meta.magicSum, meta.blob).then(function(prepared) {
+                    if (generation !== Number(asset.sessionGeneration || 0)) return;
+                    asset.preparedChunks[preChunkIndex] = {
+                        payloadBuffer: prepared.payloadBuffer,
+                        contentEncoding: prepared.contentEncoding,
+                        signature: prepared.signature,
+                        start: meta.start,
+                        end: meta.end,
+                        nonce: meta.nonce,
+                        vertexId: meta.vertexId,
+                        magicSum: meta.magicSum,
+                        blobSize: meta.blob.size
+                    };
+                }).catch(function() {
+                }).finally(function() {
+                    if (asset.prepareInflight && asset.prepareInflight[preChunkIndex]) {
+                        delete asset.prepareInflight[preChunkIndex];
+                        asset.prepareInflightCount = Math.max(0, Number(asset.prepareInflightCount || 0) - 1);
+                    }
+                });
+            })(chunkIndex);
+        }
+    }
+
     function rebuildPendingChunks(asset) {
         if (!asset) return;
         asset.pendingChunks = buildPriorityChunkOrder(
@@ -1166,6 +1246,7 @@
             asset.topologyDamageBitmap
         );
         asset.nextChunkCursor = 0;
+        clearPreparedChunks(asset);
     }
 
     function hasMissingChunks(asset) {
@@ -1394,11 +1475,13 @@
             if (!asset || asset.isCancelling || asset.failed || recoveryEpoch !== asset.recoveryEpoch) return;
             if (!navigator.onLine) {
                 asset.ui.status.textContent = 'Waiting for network';
-                asset.recoveryTimer = window.setTimeout(attemptRecovery, UPLOAD_RECOVERY_BASE_DELAY);
+                asset.recoveryTimer = window.setTimeout(attemptRecovery, FAST_RENEGOTIATE_DELAY_MS);
                 return;
             }
 
-            asset.ui.status.textContent = 'Recovering upload session';
+            asset.ui.status.textContent = shouldReduceParallel(asset)
+                ? 'Recovering upload session with reduced concurrency'
+                : 'Recovering upload session';
             syncUploadSession(asset, reason || 'recover', recoverySuggestedParallel(asset)).then(function() {
                 if (recoveryEpoch !== asset.recoveryEpoch) return;
                 asset.recovering = false;
@@ -1406,6 +1489,7 @@
                 asset.recoveryAttempts = 0;
                 clearRecoveryTimer(asset);
                 startSchedulerLoop(asset);
+                schedulePrepareAhead(asset, asset.file);
                 fillChunkWindow(asset, asset.file);
                 maybeFinalizeChunkUpload(asset);
             }).catch(function(error) {
@@ -1428,12 +1512,15 @@
     function dispatchChunk(asset, file, chunkIndex, retryCount) {
         if (asset.failed || asset.isCancelling || asset.isPaused) return;
         var sessionGeneration = Number(asset.sessionGeneration || 0);
-        var start = chunkIndex * asset.chunkSize;
-        var end = Math.min(start + asset.chunkSize, file.size);
+        var preparedState = asset.preparedChunks && asset.preparedChunks[chunkIndex] ? asset.preparedChunks[chunkIndex] : null;
+        var start = preparedState ? preparedState.start : chunkIndex * asset.chunkSize;
+        var end = preparedState ? preparedState.end : Math.min(start + asset.chunkSize, file.size);
         var blob = file.slice(start, end);
         asset.inflightChunks[chunkIndex] = true;
         asset.activeRequests += 1;
         markSchedulerActivity(asset);
+        if (preparedState && asset.preparedChunks) delete asset.preparedChunks[chunkIndex];
+        schedulePrepareAhead(asset, file);
 
         function attemptUpload(attempt) {
             var xhr = new XMLHttpRequest();
@@ -1548,21 +1635,30 @@
                 }
             };
 
-            var vertex = chunkVertex(chunkIndex, asset.totalChunks);
-            var vertexId = vertex.q + ':' + vertex.r;
-            var magicSum = chunkMagicSum(chunkIndex, asset.totalChunks);
-            var nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
             xhr._tasfaStartedAt = Date.now();
-            preprocessChunkPayload(asset, chunkIndex, start, nonce, vertexId, magicSum, blob).then(function(prepared) {
+            var dispatchMeta = preparedState ? Promise.resolve(preparedState) : (function() {
+                var meta = buildChunkTransferMeta(asset, file, chunkIndex);
+                start = meta.start;
+                blob = meta.blob;
+                return preprocessChunkPayload(asset, chunkIndex, meta.start, meta.nonce, meta.vertexId, meta.magicSum, meta.blob).then(function(prepared) {
+                    prepared.start = meta.start;
+                    prepared.nonce = meta.nonce;
+                    prepared.vertexId = meta.vertexId;
+                    prepared.magicSum = meta.magicSum;
+                    prepared.blobSize = meta.blob.size;
+                    return prepared;
+                });
+            })();
+            dispatchMeta.then(function(prepared) {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 xhr.setRequestHeader('Content-Type', 'application/octet-stream');
                 xhr.setRequestHeader('X-TASFA-Upload-ID', asset.uploadId);
                 xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
                 xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
-                xhr.setRequestHeader('X-TASFA-Block-Offset', String(start));
-                xhr.setRequestHeader('X-TASFA-Nonce', nonce);
-                xhr.setRequestHeader('X-TASFA-Vertex-Id', vertexId);
-                xhr.setRequestHeader('X-TASFA-Magic-Sum', String(magicSum));
+                xhr.setRequestHeader('X-TASFA-Block-Offset', String(prepared.start));
+                xhr.setRequestHeader('X-TASFA-Nonce', prepared.nonce);
+                xhr.setRequestHeader('X-TASFA-Vertex-Id', prepared.vertexId);
+                xhr.setRequestHeader('X-TASFA-Magic-Sum', String(prepared.magicSum));
                 xhr.setRequestHeader('X-TASFA-Chunk-Signature', prepared.signature);
                 if (prepared.contentEncoding && prepared.contentEncoding !== 'identity') {
                     xhr.setRequestHeader('Content-Encoding', prepared.contentEncoding);
@@ -1617,7 +1713,9 @@
         asset.lastVisualBytes = confirmedUploadBytes(asset);
         asset.lastSchedulerActivityAt = Date.now();
         asset.currentParallel = Math.max(1, Math.min(asset.maxParallel || UPLOAD_MAX_PARALLEL, asset.currentParallel || UPLOAD_DEFAULT_PARALLEL));
+        clearPreparedChunks(asset);
         startSchedulerLoop(asset);
+        schedulePrepareAhead(asset, file);
         fillChunkWindow(asset, file);
         updateFileRepoUploadButton();
         updateSubmitButtons();
@@ -1758,6 +1856,9 @@
             recoveryTimer: null,
             schedulerTimer: null,
             recoveryEpoch: 0,
+            preparedChunks: {},
+            prepareInflight: {},
+            prepareInflightCount: 0,
             sessionGeneration: 0,
             suppressAbortHandling: false,
             finalizing: false,
