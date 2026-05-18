@@ -28,9 +28,9 @@
     var UPLOAD_COMPLETE_ENDPOINT = '/file/upload/complete';
     var UPLOAD_CANCEL_ENDPOINT = '/file/upload/cancel';
     var UPLOAD_WORKER_URL = '/assets/js/tasfa-upload-worker.js';
-    var UPLOAD_CHUNK_SIZE = 2 * 1024 * 1024;
-    var UPLOAD_DEFAULT_PARALLEL = 14;
-    var UPLOAD_MAX_PARALLEL = 64;
+    var UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024;
+    var UPLOAD_DEFAULT_PARALLEL = 16;
+    var UPLOAD_MAX_PARALLEL = 72;
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
     var UPLOAD_RECOVERY_MAX_DELAY = 8000;
     var UPLOAD_SCHEDULER_TICK_MS = 10;
@@ -46,6 +46,9 @@
     var LINK_DEGRADE_TIMEOUT_THRESHOLD = 4;
     var LINK_RECENT_DECAY_SUCCESS_STEP = 6;
     var PREPARE_AHEAD_MULTIPLIER = 4;
+    var UPLOAD_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024;
+    var UPLOAD_PREPARED_BUDGET_BYTES = 192 * 1024 * 1024;
+    var UPLOAD_ACTIVE_BUDGET_BYTES = 256 * 1024 * 1024;
 
     function escapeHtml(value) {
         return String(value || '')
@@ -989,10 +992,20 @@
         return Math.min(600, 70 * Math.pow(1.45, Math.max(0, Number(attempt) || 0)));
     }
 
+    function budgetParallelLimit(chunkSize) {
+        var size = Math.max(1, Number(chunkSize || UPLOAD_CHUNK_SIZE));
+        return Math.max(4, Math.min(UPLOAD_MAX_PARALLEL, Math.floor(UPLOAD_ACTIVE_BUDGET_BYTES / size)));
+    }
+
+    function clampParallelToBudget(asset, value) {
+        var requested = Math.max(1, Number(value || 0) || UPLOAD_DEFAULT_PARALLEL);
+        return Math.max(1, Math.min(requested, budgetParallelLimit(asset && asset.chunkSize)));
+    }
+
     function recoverySuggestedParallel(asset) {
-        var current = Math.max(1, Number(asset && asset.currentParallel || UPLOAD_DEFAULT_PARALLEL));
+        var current = clampParallelToBudget(asset, asset && asset.currentParallel || UPLOAD_DEFAULT_PARALLEL);
         if (!shouldReduceParallel(asset)) return current;
-        return Math.max(2, Math.min(Number(asset && asset.maxParallel || UPLOAD_MAX_PARALLEL), current - 1));
+        return Math.max(2, Math.min(clampParallelToBudget(asset, asset && asset.maxParallel || UPLOAD_MAX_PARALLEL), current - 1));
     }
 
     function markSchedulerActivity(asset) {
@@ -1257,7 +1270,10 @@
     }
 
     function prepareAheadTarget(asset) {
-        return Math.max(4, Math.min(48, Number(asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) * PREPARE_AHEAD_MULTIPLIER));
+        var chunkSize = Math.max(1, Number(asset && asset.chunkSize || UPLOAD_CHUNK_SIZE));
+        var budgetCount = Math.max(4, Math.floor(UPLOAD_PREPARED_BUDGET_BYTES / chunkSize));
+        var concurrencyCount = Math.max(4, Number(asset && asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) * PREPARE_AHEAD_MULTIPLIER);
+        return Math.max(4, Math.min(64, budgetCount, concurrencyCount));
     }
 
     function schedulePrepareAhead(asset, file) {
@@ -1326,8 +1342,8 @@
         asset.totalChunks = Number(payload.chunk_count || asset.totalChunks || Math.max(1, Math.ceil(asset.fileSize / asset.chunkSize)));
         asset.receivedBitmap = payload.received_bitmap || asset.receivedBitmap || '';
         asset.completedChunks = Number(payload.received_chunks || 0);
-        asset.currentParallel = Math.max(1, Number(payload.current_parallel_chunks || payload.initial_parallel_chunks || asset.currentParallel || UPLOAD_DEFAULT_PARALLEL));
-        asset.maxParallel = Math.max(asset.currentParallel, Number(payload.max_parallel_chunks || asset.maxParallel || UPLOAD_MAX_PARALLEL));
+        asset.currentParallel = clampParallelToBudget(asset, payload.current_parallel_chunks || payload.initial_parallel_chunks || asset.currentParallel || UPLOAD_DEFAULT_PARALLEL);
+        asset.maxParallel = Math.max(asset.currentParallel, clampParallelToBudget(asset, payload.max_parallel_chunks || asset.maxParallel || UPLOAD_MAX_PARALLEL));
         asset.topologyFrontierBitmap = payload.topology_frontier_bitmap || asset.topologyFrontierBitmap || '';
         asset.topologyDamageBitmap = payload.topology_damage_bitmap || '';
         asset.topologyRule = payload.topology_rule || '';
@@ -1650,13 +1666,13 @@
                     asset.receivedBitmap = payload.received_bitmap || asset.receivedBitmap;
                     asset.completedChunks = Number(payload.received_chunks || asset.completedChunks);
                     if (payload.next_parallel_chunks) {
-                        asset.currentParallel = Math.max(1, Math.min(asset.maxParallel, Number(payload.next_parallel_chunks)));
+                        asset.currentParallel = clampParallelToBudget(asset, Math.min(asset.maxParallel, Number(payload.next_parallel_chunks)));
                     }
                     asset.topologyFrontierBitmap = payload.topology_frontier_bitmap || asset.topologyFrontierBitmap || '';
                     asset.topologyDamageBitmap = payload.topology_damage_bitmap || '';
                     asset.topologyRule = payload.topology_rule || '';
                     if (payload.retry_parallel_chunks) {
-                        asset.currentParallel = Math.max(asset.currentParallel, Math.min(asset.maxParallel, Number(payload.retry_parallel_chunks)));
+                        asset.currentParallel = Math.max(asset.currentParallel, clampParallelToBudget(asset, Math.min(asset.maxParallel, Number(payload.retry_parallel_chunks))));
                     }
                     rebuildPendingChunks(asset);
                     resetInflightChunk(asset, chunkIndex, false);
@@ -1670,7 +1686,7 @@
                 asset.receivedBitmap = payload.received_bitmap || asset.receivedBitmap;
                 asset.completedChunks = Number(payload.received_chunks || (asset.completedChunks + 1));
                 if (payload.next_parallel_chunks) {
-                    asset.currentParallel = Math.max(1, Math.min(asset.maxParallel, Number(payload.next_parallel_chunks)));
+                    asset.currentParallel = clampParallelToBudget(asset, Math.min(asset.maxParallel, Number(payload.next_parallel_chunks)));
                 }
                 asset.topologyFrontierBitmap = payload.topology_frontier_bitmap || asset.topologyFrontierBitmap || '';
                 asset.topologyDamageBitmap = payload.topology_damage_bitmap || '';
@@ -1783,7 +1799,7 @@
         asset.xhrs = [];
         asset.lastVisualBytes = confirmedUploadBytes(asset);
         asset.lastSchedulerActivityAt = Date.now();
-        asset.currentParallel = Math.max(1, Math.min(asset.maxParallel || UPLOAD_MAX_PARALLEL, asset.currentParallel || UPLOAD_DEFAULT_PARALLEL));
+        asset.currentParallel = clampParallelToBudget(asset, Math.min(asset.maxParallel || UPLOAD_MAX_PARALLEL, asset.currentParallel || UPLOAD_DEFAULT_PARALLEL));
         clearPreparedChunks(asset);
         startSchedulerLoop(asset);
         schedulePrepareAhead(asset, file);
@@ -1838,8 +1854,8 @@
             asset.uploadToken = payload.upload_token;
             asset.uploadSecret = payload.upload_secret;
             asset.chunkSize = Number(payload.chunk_size || UPLOAD_CHUNK_SIZE);
-            asset.currentParallel = Number(payload.initial_parallel_chunks || UPLOAD_DEFAULT_PARALLEL);
-            asset.maxParallel = Number(payload.max_parallel_chunks || UPLOAD_MAX_PARALLEL);
+            asset.currentParallel = clampParallelToBudget(asset, payload.initial_parallel_chunks || UPLOAD_DEFAULT_PARALLEL);
+            asset.maxParallel = Math.max(asset.currentParallel, clampParallelToBudget(asset, payload.max_parallel_chunks || UPLOAD_MAX_PARALLEL));
             asset.receivedBitmap = payload.received_bitmap || '';
             asset.completedChunks = Number(payload.received_chunks || 0);
             asset.topologyFrontierBitmap = '';
