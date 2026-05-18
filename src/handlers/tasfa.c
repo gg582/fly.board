@@ -215,6 +215,10 @@ static void upload_session_meta_path(char *out, size_t out_len, const char *uplo
     snprintf(out, out_len, "%s/%s/meta.json", TASFA_UPLOAD_DIR, upload_id);
 }
 
+static void upload_session_state_path(char *out, size_t out_len, const char *upload_id) {
+    snprintf(out, out_len, "%s/%s/state.json", TASFA_UPLOAD_DIR, upload_id);
+}
+
 static void upload_session_temp_path(char *out, size_t out_len, const char *upload_id) {
     snprintf(out, out_len, "%s/%s/upload.bin.part", TASFA_UPLOAD_DIR, upload_id);
 }
@@ -284,15 +288,45 @@ static bool save_json_file(const char *path, cJSON *root) {
 }
 
 static cJSON *load_upload_session(const char *upload_id) {
-    char path[PATH_MAX];
-    upload_session_meta_path(path, sizeof(path), upload_id);
-    return load_json_file(path);
+    char meta_path[PATH_MAX];
+    char state_path[PATH_MAX];
+    upload_session_meta_path(meta_path, sizeof(meta_path), upload_id);
+    upload_session_state_path(state_path, sizeof(state_path), upload_id);
+    cJSON *meta = load_json_file(meta_path);
+    if (!meta) return NULL;
+    cJSON *state = load_json_file(state_path);
+    if (!state) return meta;
+
+    cJSON *received_bitmap = cJSON_DetachItemFromObject(state, "received_bitmap");
+    cJSON *received_chunks = cJSON_DetachItemFromObject(state, "received_chunks");
+    cJSON *current_parallel = cJSON_DetachItemFromObject(state, "current_parallel_chunks");
+    cJSON *max_parallel = cJSON_DetachItemFromObject(state, "max_parallel_chunks");
+    if (received_bitmap) cJSON_ReplaceItemInObject(meta, "received_bitmap", received_bitmap);
+    if (received_chunks) cJSON_ReplaceItemInObject(meta, "received_chunks", received_chunks);
+    if (current_parallel) cJSON_ReplaceItemInObject(meta, "current_parallel_chunks", current_parallel);
+    if (max_parallel) cJSON_ReplaceItemInObject(meta, "max_parallel_chunks", max_parallel);
+    cJSON_Delete(state);
+    return meta;
 }
 
 static bool save_upload_session(const char *upload_id, cJSON *root) {
     char path[PATH_MAX];
     upload_session_meta_path(path, sizeof(path), upload_id);
     return save_json_file(path, root);
+}
+
+static bool save_upload_session_state(const char *upload_id, cJSON *root) {
+    char path[PATH_MAX];
+    upload_session_state_path(path, sizeof(path), upload_id);
+    cJSON *state = cJSON_CreateObject();
+    if (!state) return false;
+    cJSON_AddStringToObject(state, "received_bitmap", json_string(root, "received_bitmap", ""));
+    cJSON_AddNumberToObject(state, "received_chunks", json_int(root, "received_chunks", 0));
+    cJSON_AddNumberToObject(state, "current_parallel_chunks", json_int(root, "current_parallel_chunks", TASFA_UPLOAD_DEFAULT_PARALLEL));
+    cJSON_AddNumberToObject(state, "max_parallel_chunks", json_int(root, "max_parallel_chunks", TASFA_UPLOAD_MAX_PARALLEL));
+    bool ok = save_json_file(path, state);
+    cJSON_Delete(state);
+    return ok;
 }
 
 static cJSON *load_download_session(const char *session_id) {
@@ -692,7 +726,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_UPLOAD_TTL));
         cJSON_AddStringToObject(meta, "expires_at", expires_at);
         cwist_free(bitmap);
-        if (!save_upload_session(upload_id, meta)) {
+        if (!save_upload_session(upload_id, meta) || !save_upload_session_state(upload_id, meta)) {
             cJSON_Delete(meta);
             cleanup_upload_session(upload_id);
             cwist_query_map_destroy(kv);
@@ -710,6 +744,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_UPLOAD_TTL));
         cJSON_ReplaceItemInObject(meta, "expires_at", cJSON_CreateString(expires_at));
         save_upload_session(upload_id, meta);
+        save_upload_session_state(upload_id, meta);
     }
     cwist_query_map_destroy(kv);
     cJSON *obj = build_upload_status_json(meta, upload_id);
@@ -790,6 +825,7 @@ void handler_file_upload_renegotiate(cwist_http_request *req, cwist_http_respons
     cJSON_ReplaceItemInObject(meta, "current_parallel_chunks", cJSON_CreateNumber(initial_parallel));
     cJSON_ReplaceItemInObject(meta, "max_parallel_chunks", cJSON_CreateNumber(max_parallel));
     save_upload_session(upload_id, meta);
+    save_upload_session_state(upload_id, meta);
     cJSON *obj = build_upload_status_json(meta, upload_id);
     cJSON_Delete(meta);
     close_upload_session_lock(lock_fd);
@@ -884,7 +920,7 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
         cJSON_ReplaceItemInObject(meta, "current_parallel_chunks",
                                   cJSON_CreateNumber(clamp_int(current_parallel + step, 1, max_parallel)));
     }
-    save_upload_session(upload_id, meta);
+    save_upload_session_state(upload_id, meta);
     cJSON *obj = build_upload_status_json(meta, upload_id);
     cJSON_AddBoolToObject(obj, "partial", true);
     cJSON_AddBoolToObject(obj, "accepted", true);
