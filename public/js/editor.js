@@ -29,20 +29,22 @@
     var UPLOAD_CANCEL_ENDPOINT = '/file/upload/cancel';
     var UPLOAD_WORKER_URL = '/assets/js/tasfa-upload-worker.js';
     var UPLOAD_CHUNK_SIZE = 1024 * 1024;
-    var UPLOAD_DEFAULT_PARALLEL = 10;
-    var UPLOAD_MAX_PARALLEL = 48;
+    var UPLOAD_DEFAULT_PARALLEL = 12;
+    var UPLOAD_MAX_PARALLEL = 56;
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
     var UPLOAD_RECOVERY_MAX_DELAY = 8000;
     var UPLOAD_SCHEDULER_TICK_MS = 10;
     var UPLOAD_STALL_TIMEOUT_MS = 5000;
     var UPLOAD_SESSION_FETCH_TIMEOUT_MS = 8000;
-    var UPLOAD_CHUNK_RETRY_LIMIT = 5;
+    var UPLOAD_CHUNK_RETRY_LIMIT = 7;
     var UPLOAD_WORKER_POOL_LIMIT = 12;
     var TASFA_CLIENT_STRIPE_COUNT = 32;
     var uploadWorkerBridge = null;
     var FAST_RENEGOTIATE_DELAY_MS = 100;
-    var LINK_DEGRADE_RETRY_THRESHOLD = 8;
-    var LINK_DEGRADE_TIMEOUT_THRESHOLD = 3;
+    var MIN_RENEGOTIATE_INTERVAL_MS = 1200;
+    var LINK_DEGRADE_RETRY_THRESHOLD = 12;
+    var LINK_DEGRADE_TIMEOUT_THRESHOLD = 4;
+    var LINK_RECENT_DECAY_SUCCESS_STEP = 6;
     var PREPARE_AHEAD_MULTIPLIER = 3;
 
     function escapeHtml(value) {
@@ -379,12 +381,30 @@
     function createMediaCard(filename, previewUrl, isImage) {
         var card = document.createElement('div');
         card.className = 'media-card';
+        card.style.display = 'grid';
+        card.style.gridTemplateColumns = '96px minmax(0, 1fr) auto';
+        card.style.gap = '12px';
+        card.style.alignItems = 'center';
 
         var thumb = document.createElement('div');
         thumb.className = 'media-thumb';
+        thumb.style.width = '96px';
+        thumb.style.height = '96px';
+        thumb.style.minWidth = '96px';
+        thumb.style.borderRadius = '14px';
+        thumb.style.overflow = 'hidden';
+        thumb.style.background = 'var(--hover)';
+        thumb.style.display = 'flex';
+        thumb.style.alignItems = 'center';
+        thumb.style.justifyContent = 'center';
         if (isImage) {
             var img = document.createElement('img');
             img.src = previewUrl;
+            img.style.display = 'block';
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.maxWidth = 'none';
+            img.style.objectFit = 'cover';
             img.style.filter = 'grayscale(1) contrast(1.08)';
             thumb.appendChild(img);
         } else {
@@ -758,6 +778,8 @@
                 ewmaRttMs: 0,
                 retries: 0,
                 timeouts: 0,
+                recentRetries: 0,
+                recentTimeouts: 0,
                 successes: 0
             };
         }
@@ -770,17 +792,24 @@
         if (elapsedMs > 0) {
             state.ewmaRttMs = state.ewmaRttMs > 0 ? ((state.ewmaRttMs * 0.75) + (elapsedMs * 0.25)) : elapsedMs;
         }
+        if (state.successes % LINK_RECENT_DECAY_SUCCESS_STEP === 0) {
+            state.recentRetries = Math.max(0, Number(state.recentRetries || 0) - 1);
+            state.recentTimeouts = Math.max(0, Number(state.recentTimeouts || 0) - 1);
+        }
     }
 
     function recordLinkPenalty(asset, reason) {
         var state = ensureLinkState(asset);
         state.retries += 1;
+        state.recentRetries = Math.min(24, Number(state.recentRetries || 0) + 1);
         if (reason === 'timeout') state.timeouts += 1;
+        if (reason === 'timeout') state.recentTimeouts = Math.min(12, Number(state.recentTimeouts || 0) + 1);
     }
 
     function shouldReduceParallel(asset) {
         var state = ensureLinkState(asset);
-        return state.timeouts >= LINK_DEGRADE_TIMEOUT_THRESHOLD || state.retries >= LINK_DEGRADE_RETRY_THRESHOLD;
+        return Number(state.recentTimeouts || 0) >= LINK_DEGRADE_TIMEOUT_THRESHOLD ||
+            Number(state.recentRetries || 0) >= LINK_DEGRADE_RETRY_THRESHOLD;
     }
 
     function computeLinkStabilityScore(asset) {
@@ -818,8 +847,8 @@
             link_effective_type: conn.effectiveType || '',
             link_downlink_mbps: conn.downlinkMbps || '',
             link_rtt_ms: Math.round(state.ewmaRttMs || conn.rttMs || 0),
-            link_retry_events: state.retries || 0,
-            link_timeout_events: state.timeouts || 0,
+            link_retry_events: state.recentRetries || 0,
+            link_timeout_events: state.recentTimeouts || 0,
             link_save_data: conn.saveData ? '1' : '0'
         };
     }
@@ -957,7 +986,7 @@
     }
 
     function nextChunkRetryDelay(attempt) {
-        return Math.min(800, 90 * Math.pow(1.55, Math.max(0, Number(attempt) || 0)));
+        return Math.min(600, 70 * Math.pow(1.45, Math.max(0, Number(attempt) || 0)));
     }
 
     function recoverySuggestedParallel(asset) {
@@ -982,6 +1011,43 @@
             delete asset.inflightChunks[chunkIndex];
             asset.activeRequests = Math.max(0, asset.activeRequests - 1);
         }
+    }
+
+    function requeueChunk(asset, chunkIndex) {
+        if (!asset || chunkIndex === null || chunkIndex === undefined) return;
+        if (asset.receivedBitmap && asset.receivedBitmap.charAt(chunkIndex) === '1') return;
+        if (!asset.pendingChunks) asset.pendingChunks = [];
+        if (asset.pendingChunks.indexOf(chunkIndex) !== -1) return;
+        var insertAt = Math.max(0, Math.min(Number(asset.nextChunkCursor || 0), asset.pendingChunks.length));
+        asset.pendingChunks.splice(insertAt, 0, chunkIndex);
+    }
+
+    function shouldRenegotiateNow(asset, reason) {
+        var state = ensureLinkState(asset);
+        if (!asset) return false;
+        if (reason === 'offline') return true;
+        if ((asset.activeRequests || 0) === 0) return true;
+        if (reason === 'timeout' && Number(state.recentTimeouts || 0) >= 2) return true;
+        if (reason === 'slow' && Number(state.recentRetries || 0) >= 4) return true;
+        if (reason === 'recover' && (Number(state.recentRetries || 0) + Number(state.recentTimeouts || 0)) >= 4) return true;
+        return false;
+    }
+
+    function softenRecentLinkPenalties(asset) {
+        var state = ensureLinkState(asset);
+        state.recentRetries = Math.max(0, Math.floor(Number(state.recentRetries || 0) / 2));
+        state.recentTimeouts = Math.max(0, Math.floor(Number(state.recentTimeouts || 0) / 2));
+    }
+
+    function recoverOrContinue(asset, file, chunkIndex, reason) {
+        resetInflightChunk(asset, chunkIndex, false);
+        requeueChunk(asset, chunkIndex);
+        if (shouldRenegotiateNow(asset, reason || 'recover')) {
+            scheduleRecovery(asset, reason || 'recover');
+            return;
+        }
+        markSchedulerActivity(asset);
+        fillChunkWindow(asset, file);
     }
 
     function resetAllInflightChunks(asset, keepProgress) {
@@ -1325,6 +1391,8 @@
                 return response.json();
             }).then(function(nextPayload) {
                 applyServerSessionState(asset, nextPayload);
+                asset.lastRenegotiateAt = Date.now();
+                softenRecentLinkPenalties(asset);
                 return nextPayload;
             });
         });
@@ -1463,6 +1531,14 @@
     function scheduleRecovery(asset, reason) {
         if (!asset || asset.isCancelling || asset.failed) return;
         if (asset.recovering) return;
+        var sinceLastRenegotiate = Date.now() - Number(asset.lastRenegotiateAt || 0);
+        if ((asset.lastRenegotiateAt || 0) > 0 && sinceLastRenegotiate < MIN_RENEGOTIATE_INTERVAL_MS) {
+            clearRecoveryTimer(asset);
+            asset.recoveryTimer = window.setTimeout(function() {
+                scheduleRecovery(asset, reason);
+            }, Math.max(FAST_RENEGOTIATE_DELAY_MS, MIN_RENEGOTIATE_INTERVAL_MS - sinceLastRenegotiate));
+            return;
+        }
         clearRecoveryTimer(asset);
         clearSchedulerTimer(asset);
         asset.recovering = true;
@@ -1554,8 +1630,7 @@
                         return;
                     }
                     recordLinkPenalty(asset, xhr.status === 429 ? 'retry' : 'timeout');
-                    resetInflightChunk(asset, chunkIndex, false);
-                    scheduleRecovery(asset, xhr.status === 429 ? 'slow' : 'timeout');
+                    recoverOrContinue(asset, file, chunkIndex, xhr.status === 429 ? 'slow' : 'timeout');
                     return;
                 }
                 recordLinkSuccess(asset, Date.now() - Number(xhr._tasfaStartedAt || Date.now()));
@@ -1563,13 +1638,11 @@
                 try {
                     payload = JSON.parse(xhr.responseText);
                 } catch (err) {
-                    resetInflightChunk(asset, chunkIndex, false);
-                    scheduleRecovery(asset, 'recover');
+                    recoverOrContinue(asset, file, chunkIndex, 'recover');
                     return;
                 }
                 if (!payload || payload.ok === false) {
-                    resetInflightChunk(asset, chunkIndex, false);
-                    scheduleRecovery(asset, 'recover');
+                    recoverOrContinue(asset, file, chunkIndex, 'recover');
                     return;
                 }
                 if (payload.accepted === false && payload.recoverable) {
@@ -1620,8 +1693,7 @@
                     return;
                 }
                 recordLinkPenalty(asset, 'timeout');
-                resetInflightChunk(asset, chunkIndex, false);
-                scheduleRecovery(asset, 'timeout');
+                recoverOrContinue(asset, file, chunkIndex, 'timeout');
             };
 
             xhr.onabort = function() {
@@ -1630,8 +1702,7 @@
                 if (asset.suppressAbortHandling || asset.recovering) return;
                 if (!asset.isCancelling && !asset.failed) {
                     recordLinkPenalty(asset, navigator.onLine ? 'retry' : 'timeout');
-                    resetInflightChunk(asset, chunkIndex, false);
-                    scheduleRecovery(asset, navigator.onLine ? 'recover' : 'offline');
+                    recoverOrContinue(asset, file, chunkIndex, navigator.onLine ? 'recover' : 'offline');
                 }
             };
 
@@ -1847,10 +1918,13 @@
             lastVisualBytes: 0,
             lastSchedulerActivityAt: 0,
             recoveryAttempts: 0,
+            lastRenegotiateAt: 0,
             linkState: {
                 ewmaRttMs: 0,
                 retries: 0,
                 timeouts: 0,
+                recentRetries: 0,
+                recentTimeouts: 0,
                 successes: 0
             },
             recoveryTimer: null,

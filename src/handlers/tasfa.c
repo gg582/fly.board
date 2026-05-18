@@ -163,20 +163,20 @@ static int link_score_from_inputs(const char *score_str, const char *effective_t
 }
 
 static void choose_upload_window(int score, int *initial_parallel, int *max_parallel) {
-    int initial_value = 12;
+    int initial_value = 14;
     int max_value = TASFA_UPLOAD_MAX_PARALLEL;
     if (score >= 85) {
-        initial_value = 18;
+        initial_value = 22;
         max_value = TASFA_UPLOAD_MAX_PARALLEL;
     } else if (score >= 65) {
-        initial_value = 12;
+        initial_value = 16;
         max_value = TASFA_UPLOAD_MAX_PARALLEL;
     } else if (score >= 45) {
-        initial_value = 8;
-        max_value = 36;
+        initial_value = 11;
+        max_value = 44;
     } else {
-        initial_value = 5;
-        max_value = 20;
+        initial_value = 7;
+        max_value = 28;
     }
     if (initial_parallel) *initial_parallel = initial_value;
     if (max_parallel) *max_parallel = max_value;
