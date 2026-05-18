@@ -29,21 +29,21 @@
     var UPLOAD_CANCEL_ENDPOINT = '/file/upload/cancel';
     var UPLOAD_WORKER_URL = '/assets/js/tasfa-upload-worker.js';
     var UPLOAD_CHUNK_SIZE = 1024 * 1024;
-    var UPLOAD_DEFAULT_PARALLEL = 8;
-    var UPLOAD_MAX_PARALLEL = 40;
+    var UPLOAD_DEFAULT_PARALLEL = 10;
+    var UPLOAD_MAX_PARALLEL = 48;
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
     var UPLOAD_RECOVERY_MAX_DELAY = 8000;
-    var UPLOAD_SCHEDULER_TICK_MS = 25;
-    var UPLOAD_STALL_TIMEOUT_MS = 8000;
+    var UPLOAD_SCHEDULER_TICK_MS = 10;
+    var UPLOAD_STALL_TIMEOUT_MS = 5000;
     var UPLOAD_SESSION_FETCH_TIMEOUT_MS = 8000;
     var UPLOAD_CHUNK_RETRY_LIMIT = 5;
-    var UPLOAD_WORKER_POOL_LIMIT = 10;
+    var UPLOAD_WORKER_POOL_LIMIT = 12;
     var TASFA_CLIENT_STRIPE_COUNT = 32;
     var uploadWorkerBridge = null;
     var FAST_RENEGOTIATE_DELAY_MS = 100;
     var LINK_DEGRADE_RETRY_THRESHOLD = 8;
     var LINK_DEGRADE_TIMEOUT_THRESHOLD = 3;
-    var PREPARE_AHEAD_MULTIPLIER = 2;
+    var PREPARE_AHEAD_MULTIPLIER = 3;
 
     function escapeHtml(value) {
         return String(value || '')
@@ -1191,7 +1191,7 @@
     }
 
     function prepareAheadTarget(asset) {
-        return Math.max(2, Math.min(24, Number(asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) * PREPARE_AHEAD_MULTIPLIER));
+        return Math.max(4, Math.min(48, Number(asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) * PREPARE_AHEAD_MULTIPLIER));
     }
 
     function schedulePrepareAhead(asset, file) {

@@ -17,10 +17,10 @@
 #define TASFA_CHUNK_SIZE (1024 * 1024)
 #define TASFA_UPLOAD_TTL 86400
 #define TASFA_DOWNLOAD_TTL 86400
-#define TASFA_UPLOAD_DEFAULT_PARALLEL 8
-#define TASFA_UPLOAD_MAX_PARALLEL 40
-#define TASFA_DOWNLOAD_DEFAULT_PARALLEL 16
-#define TASFA_DOWNLOAD_MAX_PARALLEL 128
+#define TASFA_UPLOAD_DEFAULT_PARALLEL 10
+#define TASFA_UPLOAD_MAX_PARALLEL 48
+#define TASFA_DOWNLOAD_DEFAULT_PARALLEL 20
+#define TASFA_DOWNLOAD_MAX_PARALLEL 160
 #define TASFA_CLIENT_STRIPES 32
 
 static const int TASFA_DIRS[6][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, -1}, {-1, 1}};
@@ -163,17 +163,17 @@ static int link_score_from_inputs(const char *score_str, const char *effective_t
 }
 
 static void choose_upload_window(int score, int *initial_parallel, int *max_parallel) {
-    int initial_value = 10;
+    int initial_value = 12;
     int max_value = TASFA_UPLOAD_MAX_PARALLEL;
     if (score >= 85) {
-        initial_value = 14;
+        initial_value = 18;
         max_value = TASFA_UPLOAD_MAX_PARALLEL;
     } else if (score >= 65) {
-        initial_value = 10;
+        initial_value = 12;
         max_value = TASFA_UPLOAD_MAX_PARALLEL;
     } else if (score >= 45) {
-        initial_value = 7;
-        max_value = 32;
+        initial_value = 8;
+        max_value = 36;
     } else {
         initial_value = 5;
         max_value = 20;
@@ -183,23 +183,23 @@ static void choose_upload_window(int score, int *initial_parallel, int *max_para
 }
 
 static void choose_download_profile(int score, int *initial_parallel, int *max_parallel, int *pacing_ms, int *coalesce_chunks) {
-    int initial_value = 52;
-    int max_value = 128;
+    int initial_value = 64;
+    int max_value = 160;
     int pace = 0;
-    int coalesce = 32;
+    int coalesce = 40;
     if (score < 45) {
-        initial_value = 20;
-        max_value = 40;
+        initial_value = 24;
+        max_value = 48;
         pace = 1;
-        coalesce = 12;
+        coalesce = 16;
     } else if (score < 65) {
-        initial_value = 32;
-        max_value = 72;
-        coalesce = 20;
-    } else if (score < 85) {
-        initial_value = 42;
-        max_value = 96;
+        initial_value = 40;
+        max_value = 88;
         coalesce = 24;
+    } else if (score < 85) {
+        initial_value = 52;
+        max_value = 120;
+        coalesce = 32;
     }
     if (initial_parallel) *initial_parallel = initial_value;
     if (max_parallel) *max_parallel = max_value;
@@ -878,8 +878,11 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     if (bitmap && chunk_index < chunk_count && bitmap[chunk_index] != '1') bitmap[chunk_index] = '1';
     cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(bitmap_count_set(bitmap)));
     if (json_int(meta, "current_parallel_chunks", TASFA_UPLOAD_DEFAULT_PARALLEL) < json_int(meta, "max_parallel_chunks", TASFA_UPLOAD_MAX_PARALLEL)) {
+        int current_parallel = json_int(meta, "current_parallel_chunks", TASFA_UPLOAD_DEFAULT_PARALLEL);
+        int max_parallel = json_int(meta, "max_parallel_chunks", TASFA_UPLOAD_MAX_PARALLEL);
+        int step = current_parallel < (max_parallel / 2) ? 2 : 1;
         cJSON_ReplaceItemInObject(meta, "current_parallel_chunks",
-                                  cJSON_CreateNumber(json_int(meta, "current_parallel_chunks", TASFA_UPLOAD_DEFAULT_PARALLEL) + 1));
+                                  cJSON_CreateNumber(clamp_int(current_parallel + step, 1, max_parallel)));
     }
     save_upload_session(upload_id, meta);
     cJSON *obj = build_upload_status_json(meta, upload_id);
@@ -1061,7 +1064,7 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
     int chunk_size = json_int(meta, "chunk_size", TASFA_CHUNK_SIZE);
     int span = atoi(cwist_query_map_get(req->query_params, "span") ? cwist_query_map_get(req->query_params, "span") : "1");
     if (span < 1) span = 1;
-    if (span > 24) span = 24;
+    if (span > 64) span = 64;
     if (chunk_index < 0 || chunk_index >= chunk_count) {
         cJSON_Delete(meta);
         send_json_response(res, session_error_json("download chunk rejected"), CWIST_HTTP_FORBIDDEN);

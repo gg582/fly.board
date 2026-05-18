@@ -69,24 +69,24 @@ No direct file bytes are served from the public file endpoints anymore.
 Current tuned values in this tree:
 
 - upload chunk size: `1 MiB`
-- default browser upload parallelism: `8`
-- max browser upload parallelism: `40`
-- worker pool cap for upload preprocessing: `10`
+- default browser upload parallelism: `10`
+- max browser upload parallelism: `48`
+- worker pool cap for upload preprocessing: `12`
 - client stripe bucket count for chunk interleaving: `32`
 
 Server-side negotiated upload window:
 
-- strong links: initial `14`, max `40`
-- medium links: initial `10`, max `40`
-- weaker links: initial `7`, max `32`
+- strong links: initial `18`, max `48`
+- medium links: initial `12`, max `48`
+- weaker links: initial `8`, max `36`
 - unstable links: initial `5`, max `20`
 
 Server-side negotiated download profile:
 
-- strong links: initial `52`, max `128`, coalesce `32`
-- medium links: initial `42`, max `96`, coalesce `24`
-- weaker links: initial `32`, max `72`, coalesce `20`
-- unstable links: initial `20`, max `40`, coalesce `12`, pacing `1 ms`
+- strong links: initial `64`, max `160`, coalesce `40`
+- medium links: initial `52`, max `120`, coalesce `32`
+- weaker links: initial `40`, max `88`, coalesce `24`
+- unstable links: initial `24`, max `48`, coalesce `16`, pacing `1 ms`
 
 ## Resume and Recovery
 
@@ -101,6 +101,8 @@ The client treats the server bitmap as authoritative.
 - reconnect/recovery now re-enters the session loop after `100 ms` instead of waiting whole seconds.
 - concurrency is not reduced on every renegotiation; it is only suggested downward after accumulated retry/timeout pressure.
 - upload preprocessing now runs in a prepare-ahead cache so compression/HMAC work overlaps active network transfers.
+- upload window refill now ticks at `10 ms`, can prepare up to `48` chunks ahead, and climbs by `+2` while still below half of the server ceiling.
+- download chunk grouping now allows up to `64` chunk spans per request and grows the fetch window more aggressively before backing off.
 
 ## Page Integration
 

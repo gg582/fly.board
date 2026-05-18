@@ -1,6 +1,6 @@
 (function() {
     var cache = new Map();
-    var DOWNLOAD_FETCH_TIMEOUT_MS = 7000;
+    var DOWNLOAD_FETCH_TIMEOUT_MS = 6000;
     var DOWNLOAD_RETRY_LIMIT = 5;
     var SPACER_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
@@ -104,10 +104,10 @@
             }
 
             var chunkCount = Math.max(1, Number(session.chunk_count) || 1);
-            var maxParallel = Math.max(1, Math.min(Number(session.max_parallel_chunks) || 16, chunkCount));
+            var maxParallel = Math.max(1, Math.min(Number(session.max_parallel_chunks) || 20, chunkCount));
             var initialParallel = Math.max(1, Math.min(Number(session.initial_parallel_chunks) || maxParallel, maxParallel));
             var pacingMs = Math.max(0, Number(session.dispatch_pacing_ms) || 0);
-            var coalesceChunks = Math.max(1, Math.min(Number(session.coalesce_chunks) || 1, 40));
+            var coalesceChunks = Math.max(1, Math.min(Number(session.coalesce_chunks) || 1, 48));
             var allBytes = new Uint8Array(Math.max(0, Number(session.total_size) || 0));
             var nextIndex = 0;
             var windowSize = initialParallel;
@@ -156,11 +156,11 @@
                         active += 1;
                         fetchGroupWithRetry(chunkIndex, span, DOWNLOAD_RETRY_LIMIT).then(function() {
                             active -= 1;
-                            if (windowSize < maxParallel) windowSize = Math.min(maxParallel, windowSize + 6);
+                            if (windowSize < maxParallel) windowSize = Math.min(maxParallel, windowSize + 8);
                             if (pacingMs > 0) setTimeout(schedule, pacingMs);
                             else schedule();
                         }).catch(function(error) {
-                            windowSize = Math.max(1, windowSize - 2);
+                            windowSize = Math.max(1, windowSize - 1);
                             active -= 1;
                             reject(error);
                         });
