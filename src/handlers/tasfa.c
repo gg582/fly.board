@@ -462,6 +462,7 @@ static char *topology_damage_bitmap_create(const char *bitmap, int chunk_count, 
 static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
     const char *bitmap = json_string(meta, "received_bitmap", "");
     int chunk_count = json_int(meta, "chunk_count", 0);
+    int received_chunks = json_int(meta, "received_chunks", bitmap_count_set(bitmap));
     cJSON *obj = cJSON_CreateObject();
     char *frontier = topology_frontier_bitmap_create(bitmap, chunk_count);
     cJSON_AddBoolToObject(obj, "ok", true);
@@ -472,7 +473,7 @@ static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
     cJSON_AddNumberToObject(obj, "chunk_count", chunk_count);
     cJSON_AddNumberToObject(obj, "total_size", (double)json_long_long(meta, "total_size", 0));
     cJSON_AddStringToObject(obj, "received_bitmap", bitmap);
-    cJSON_AddNumberToObject(obj, "received_chunks", bitmap_count_set(bitmap));
+    cJSON_AddNumberToObject(obj, "received_chunks", received_chunks);
     cJSON_AddNumberToObject(obj, "current_parallel_chunks", json_int(meta, "current_parallel_chunks", TASFA_UPLOAD_DEFAULT_PARALLEL));
     cJSON_AddNumberToObject(obj, "initial_parallel_chunks", json_int(meta, "current_parallel_chunks", TASFA_UPLOAD_DEFAULT_PARALLEL));
     cJSON_AddNumberToObject(obj, "max_parallel_chunks", json_int(meta, "max_parallel_chunks", TASFA_UPLOAD_MAX_PARALLEL));
@@ -481,7 +482,7 @@ static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
     cJSON_AddStringToObject(obj, "topology_closed_bitmap", bitmap);
     cJSON_AddStringToObject(obj, "topology_damage_bitmap", "");
     cJSON_AddStringToObject(obj, "topology_rule", "");
-    cJSON_AddBoolToObject(obj, "topology_closure_complete", chunk_count > 0 && bitmap_count_set(bitmap) == chunk_count);
+    cJSON_AddBoolToObject(obj, "topology_closure_complete", chunk_count > 0 && received_chunks == chunk_count);
     cJSON_AddNumberToObject(obj, "client_stripes", TASFA_CLIENT_STRIPES);
     if (frontier) cwist_free(frontier);
     return obj;
@@ -497,6 +498,20 @@ static cJSON *build_upload_recoverable_json(cJSON *meta, const char *upload_id, 
     cJSON_ReplaceItemInObject(obj, "topology_damage_bitmap", cJSON_CreateString(damage ? damage : ""));
     cJSON_ReplaceItemInObject(obj, "topology_rule", cJSON_CreateString(reason ? reason : "chunk_rejected"));
     if (damage) cwist_free(damage);
+    return obj;
+}
+
+static cJSON *build_upload_ack_json(cJSON *meta, const char *upload_id, int chunk_index) {
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddBoolToObject(obj, "ok", true);
+    cJSON_AddBoolToObject(obj, "partial", true);
+    cJSON_AddBoolToObject(obj, "accepted", true);
+    cJSON_AddStringToObject(obj, "upload_id", upload_id ? upload_id : "");
+    cJSON_AddStringToObject(obj, "received_bitmap", json_string(meta, "received_bitmap", ""));
+    cJSON_AddNumberToObject(obj, "received_chunks", json_int(meta, "received_chunks", 0));
+    cJSON_AddNumberToObject(obj, "chunk_index", chunk_index);
+    cJSON_AddNumberToObject(obj, "current_parallel_chunks", json_int(meta, "current_parallel_chunks", TASFA_UPLOAD_DEFAULT_PARALLEL));
+    cJSON_AddNumberToObject(obj, "next_parallel_chunks", json_int(meta, "current_parallel_chunks", TASFA_UPLOAD_DEFAULT_PARALLEL));
     return obj;
 }
 
@@ -911,8 +926,12 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     char *bitmap = (char *)json_string(meta, "received_bitmap", "");
-    if (bitmap && chunk_index < chunk_count && bitmap[chunk_index] != '1') bitmap[chunk_index] = '1';
-    cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(bitmap_count_set(bitmap)));
+    int received_chunks = json_int(meta, "received_chunks", 0);
+    if (bitmap && chunk_index < chunk_count && bitmap[chunk_index] != '1') {
+        bitmap[chunk_index] = '1';
+        received_chunks += 1;
+        cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(received_chunks));
+    }
     if (json_int(meta, "current_parallel_chunks", TASFA_UPLOAD_DEFAULT_PARALLEL) < json_int(meta, "max_parallel_chunks", TASFA_UPLOAD_MAX_PARALLEL)) {
         int current_parallel = json_int(meta, "current_parallel_chunks", TASFA_UPLOAD_DEFAULT_PARALLEL);
         int max_parallel = json_int(meta, "max_parallel_chunks", TASFA_UPLOAD_MAX_PARALLEL);
@@ -921,11 +940,7 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
                                   cJSON_CreateNumber(clamp_int(current_parallel + step, 1, max_parallel)));
     }
     save_upload_session_state(upload_id, meta);
-    cJSON *obj = build_upload_status_json(meta, upload_id);
-    cJSON_AddBoolToObject(obj, "partial", true);
-    cJSON_AddBoolToObject(obj, "accepted", true);
-    cJSON_AddNumberToObject(obj, "chunk_index", chunk_index);
-    cJSON_AddNumberToObject(obj, "next_parallel_chunks", json_int(meta, "current_parallel_chunks", TASFA_UPLOAD_DEFAULT_PARALLEL));
+    cJSON *obj = build_upload_ack_json(meta, upload_id, chunk_index);
     cJSON_Delete(meta);
     close_upload_session_lock(lock_fd);
     send_json_response(res, obj, CWIST_HTTP_OK);
