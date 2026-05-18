@@ -7,6 +7,8 @@
 #include <string.h>
 #include <stdio.h>
 
+static const char *tasfa_spacer_gif = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
 static void md_output_cb(const MD_CHAR *data, MD_SIZE size, void *userdata) {
     cwist_sstring *str = (cwist_sstring *)userdata;
     cwist_error_t err = cwist_sstring_append_len(str, data, size);
@@ -16,6 +18,92 @@ static void md_output_cb(const MD_CHAR *data, MD_SIZE size, void *userdata) {
         cwist_sstring_change_size(str, new_size, false);
         cwist_sstring_append_len(str, data, size);
     }
+}
+
+static void rewrite_tasfa_bootstrap(cwist_sstring *html) {
+    const char *data = html->data;
+    size_t len = strlen(data);
+    cwist_sstring *out = cwist_sstring_create();
+    size_t i = 0;
+    while (i < len) {
+        if (data[i] == '<') {
+            const char *tag_name = NULL;
+            bool is_media = false;
+            bool is_link = false;
+            if (i + 4 <= len && strncmp(data + i, "<img", 4) == 0) { tag_name = "img"; is_media = true; }
+            else if (i + 6 <= len && strncmp(data + i, "<video", 6) == 0) { tag_name = "video"; is_media = true; }
+            else if (i + 6 <= len && strncmp(data + i, "<audio", 6) == 0) { tag_name = "audio"; is_media = true; }
+            else if (i + 2 <= len && strncmp(data + i, "<a", 2) == 0) { tag_name = "a"; is_link = true; }
+            if (tag_name) {
+                size_t j = i;
+                while (j < len && data[j] != '>') j++;
+                if (j < len) j++;
+                size_t tag_len = j - i;
+                char tag[2048];
+                if (tag_len >= sizeof(tag)) tag_len = sizeof(tag) - 1;
+                memcpy(tag, data + i, tag_len);
+                tag[tag_len] = '\0';
+                if (is_media) {
+                    const char *src = strstr(tag, "src=\"");
+                    if (src) {
+                        src += 5;
+                        if (strncmp(src, "/assets/uploads/", 16) == 0 || strncmp(src, "/file/download/", 15) == 0) {
+                            char rewritten[3072];
+                            snprintf(rewritten, sizeof(rewritten), "%s src=\"%s\" data-tasfa-download=\"", tag_name && strcmp(tag_name, "img") == 0 ? "<img" : (strcmp(tag_name, "video") == 0 ? "<video" : "<audio"), strcmp(tag_name, "img") == 0 ? tasfa_spacer_gif : "");
+                            cwist_sstring_append(out, rewritten);
+                            const char *value_end = strchr(src, '"');
+                            if (value_end) cwist_sstring_append_len(out, src, (size_t)(value_end - src));
+                            cwist_sstring_append(out, "\"");
+                            const char *after_name = data + i + strlen(tag_name) + 1;
+                            const char *src_pos = strstr(after_name, "src=\"");
+                            if (src_pos && src_pos < data + j) {
+                                const char *before_src_end = src_pos;
+                                cwist_sstring_append_len(out, after_name, (size_t)(before_src_end - after_name));
+                                const char *src_end = strchr(src_pos + 5, '"');
+                                if (src_end && src_end < data + j) {
+                                    src_end++;
+                                    cwist_sstring_append_len(out, src_end, (size_t)((data + j) - src_end));
+                                }
+                            } else {
+                                cwist_sstring_append_len(out, data + i + strlen(tag_name) + 1, j - i - strlen(tag_name) - 1);
+                            }
+                            i = j;
+                            continue;
+                        }
+                    }
+                } else if (is_link) {
+                    const char *href = strstr(tag, "href=\"");
+                    if (href) {
+                        href += 6;
+                        if (strncmp(href, "/file/download/", 15) == 0) {
+                            cwist_sstring_append(out, "<a href=\"#\" data-tasfa-download-link=\"");
+                            const char *value_end = strchr(href, '"');
+                            if (value_end) cwist_sstring_append_len(out, href, (size_t)(value_end - href));
+                            cwist_sstring_append(out, "\"");
+                            const char *after_name = data + i + 2;
+                            const char *href_pos = strstr(after_name, "href=\"");
+                            if (href_pos && href_pos < data + j) {
+                                cwist_sstring_append_len(out, after_name, (size_t)(href_pos - after_name));
+                                const char *href_end = strchr(href_pos + 6, '"');
+                                if (href_end && href_end < data + j) {
+                                    href_end++;
+                                    cwist_sstring_append_len(out, href_end, (size_t)((data + j) - href_end));
+                                }
+                            } else {
+                                cwist_sstring_append_len(out, data + i + 2, j - i - 2);
+                            }
+                            i = j;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        cwist_sstring_append_len(out, data + i, 1);
+        i++;
+    }
+    cwist_sstring_assign(html, out->data);
+    cwist_sstring_destroy(out);
 }
 
 static void inject_img_attrs(cwist_sstring *html) {
@@ -126,5 +214,6 @@ cwist_sstring *render_markdown_to_html(const char *md) {
         return NULL;
     }
     inject_img_attrs(html);
+    rewrite_tasfa_bootstrap(html);
     return html;
 }

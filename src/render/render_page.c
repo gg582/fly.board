@@ -100,6 +100,16 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "document.addEventListener('DOMContentLoaded',function(){hljs.highlightAll();});");
     cwist_html_element_add_child(head, hl_init);
 
+    cwist_html_element_t *tasfa_js = cwist_html_element_create("script");
+    cwist_html_element_add_attr(tasfa_js, "src", "/assets/js/tasfa-download.js");
+    cwist_html_element_add_attr(tasfa_js, "defer", "");
+    cwist_html_element_add_child(head, tasfa_js);
+
+    cwist_html_element_t *editor_js = cwist_html_element_create("script");
+    cwist_html_element_add_attr(editor_js, "src", "/assets/js/editor.js");
+    cwist_html_element_add_attr(editor_js, "defer", "");
+    cwist_html_element_add_child(head, editor_js);
+
     /* Progressive multi-theme loader: inline critical CSS to prevent FOUC */
     char *critical_css = theme_build_css(dark);
     cwist_html_element_t *dyn_style = cwist_html_element_create("style");
@@ -234,7 +244,12 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             cwist_html_element_t *p_link = cwist_html_element_create("a");
             cwist_html_element_add_attr(p_link, "href", "/profile");
             cwist_html_element_t *img = cwist_html_element_create("img");
-            cwist_html_element_add_attr(img, "src", display_pp);
+            if (strncmp(display_pp, "/assets/uploads/", 16) == 0 || strncmp(display_pp, "/file/download/", 15) == 0) {
+                cwist_html_element_add_attr(img, "src", "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
+                cwist_html_element_add_attr(img, "data-tasfa-download", display_pp);
+            } else {
+                cwist_html_element_add_attr(img, "src", display_pp);
+            }
             cwist_html_element_add_attr(img, "width", "24");
             cwist_html_element_add_attr(img, "height", "24");
             cwist_html_element_add_class(img, "profile-pic-small");

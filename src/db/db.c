@@ -125,13 +125,14 @@ bool db_migrate(cwist_db *db) {
     db_exec_sql(db, "ALTER TABLE posts ADD COLUMN is_notice INTEGER DEFAULT 0");
     db_exec_sql(db, "ALTER TABLE posts ADD COLUMN is_secret INTEGER DEFAULT 0");
     db_exec_sql(db, "ALTER TABLE posts ADD COLUMN category TEXT DEFAULT ''");
+    db_exec_sql(db, "ALTER TABLE posts ADD COLUMN delete_pin_hash TEXT DEFAULT ''");
     db_exec_sql(db, "ALTER TABLE boards ADD COLUMN read_perm INTEGER DEFAULT 0");
     db_exec_sql(db, "ALTER TABLE boards ADD COLUMN write_perm INTEGER DEFAULT 0");
     db_exec_sql(db, "ALTER TABLE boards ADD COLUMN comment_perm INTEGER DEFAULT 0");
     db_exec_sql(db, "ALTER TABLE files ADD COLUMN download_count INTEGER DEFAULT 0");
+    db_exec_sql(db, "ALTER TABLE files ADD COLUMN delete_pin_hash TEXT DEFAULT ''");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_votes (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, user_id INTEGER NOT NULL, vote_type INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(post_id, user_id), FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_tags (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, UNIQUE(post_id, tag_id), FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE, FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE)");
     return true;
 }
-

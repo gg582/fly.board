@@ -1,5 +1,47 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#include <openssl/rand.h>
+
+static bool random_hex_local(char *out, size_t byte_len) {
+    unsigned char bytes[64];
+    if (!out || byte_len == 0 || byte_len > sizeof(bytes)) return false;
+    if (RAND_bytes(bytes, (int)byte_len) != 1) return false;
+    for (size_t i = 0; i < byte_len; i++) snprintf(out + (i * 2), 3, "%02x", bytes[i]);
+    out[byte_len * 2] = '\0';
+    return true;
+}
+
+static void attach_media_meta_to_post(cwist_db *db, const char *media_meta_json, int post_id, int uid, const char *role) {
+    if (!db || !media_meta_json || !media_meta_json[0] || post_id <= 0) return;
+    cJSON *arr = cJSON_Parse(media_meta_json);
+    if (!arr || !cJSON_IsArray(arr)) {
+        if (arr) cJSON_Delete(arr);
+        return;
+    }
+    cJSON *item = NULL;
+    cJSON_ArrayForEach(item, arr) {
+        if (!cJSON_IsObject(item)) continue;
+        int fid = json_int(item, "fid", 0);
+        const char *mode = cJSON_GetObjectItem(item, "mode") && cJSON_IsString(cJSON_GetObjectItem(item, "mode"))
+            ? cJSON_GetObjectItem(item, "mode")->valuestring : "attachment";
+        const char *delete_pin = cJSON_GetObjectItem(item, "delete_pin") && cJSON_IsString(cJSON_GetObjectItem(item, "delete_pin"))
+            ? cJSON_GetObjectItem(item, "delete_pin")->valuestring : "";
+        if (fid <= 0) continue;
+        cJSON *file = db_file_get(db, fid);
+        if (!file) continue;
+        int file_uid = json_int(file, "user_id", 0);
+        int existing_post_id = json_int(file, "post_id", 0);
+        cJSON *pin_hash = cJSON_GetObjectItem(file, "delete_pin_hash");
+        bool pin_ok = delete_pin && delete_pin[0] && pin_hash && pin_hash->valuestring && pin_hash->valuestring[0] &&
+                      auth_verify_password(delete_pin, pin_hash->valuestring);
+        bool owner_ok = (uid > 0 && file_uid == uid) || (role && strcmp(role, "admin") == 0);
+        if ((existing_post_id == 0 || existing_post_id == post_id) && (owner_ok || pin_ok)) {
+            db_file_attach_to_post(db, fid, post_id, strcmp(mode, "inline") == 0);
+        }
+        cJSON_Delete(file);
+    }
+    cJSON_Delete(arr);
+}
 
 void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     const char *slug = cwist_query_map_get(req->path_params, "slug");
@@ -91,7 +133,8 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     }
     if (uid > 0) user_vote = db_post_user_vote(req->db, post_id, uid);
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, uid);
+    const char *ephemeral_delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
+    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, uid, ephemeral_delete_pin);
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
     if (comments) cJSON_Delete(comments);
@@ -102,7 +145,7 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
 void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *boards = db_board_list(req->db);
     cwist_sstring *page = render_post_editor(boards, NULL, NULL, is_dark(req), role, NULL, pp);
@@ -114,10 +157,10 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
 void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    auth_is_logged_in(req, &uid, role, sizeof(role));
 
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
-    char *title = NULL, *content = NULL, *summary = NULL, *board_id_str = NULL;
+    char *title = NULL, *content = NULL, *summary = NULL, *board_id_str = NULL, *media_meta = NULL;
     form_field_t *files = NULL;
 
     FLY_LOG_DEBUG("ctype=%s body_len=%zu", ctype ? ctype : "NULL", req->body->size);
@@ -142,6 +185,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             if ((f = form_find(files, "content"))) content = (char *)cwist_alloc(f->len+1), memcpy(content, f->data, f->len), content[f->len]=0;
             if ((f = form_find(files, "summary"))) summary = (char *)cwist_alloc(f->len+1), memcpy(summary, f->data, f->len), summary[f->len]=0;
             if ((f = form_find(files, "board_id"))) board_id_str = (char *)cwist_alloc(f->len+1), memcpy(board_id_str, f->data, f->len), board_id_str[f->len]=0;
+            if ((f = form_find(files, "media_meta"))) media_meta = (char *)cwist_alloc(f->len+1), memcpy(media_meta, f->data, f->len), media_meta[f->len]=0;
             FLY_LOG_DEBUG("multipart parsed: title=%s content_len=%zu board_id=%s", title ? title : "NULL", content ? strlen(content) : 0, board_id_str ? board_id_str : "NULL");
         } else {
             FLY_LOG_DEBUG("boundary not found in ctype");
@@ -156,6 +200,8 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         strcpy(summary, cwist_query_map_get(kv, "summary") ? cwist_query_map_get(kv, "summary") : "");
         board_id_str = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0")+1);
         strcpy(board_id_str, cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0");
+        media_meta = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "media_meta") ? cwist_query_map_get(kv, "media_meta") : "[]")+1);
+        strcpy(media_meta, cwist_query_map_get(kv, "media_meta") ? cwist_query_map_get(kv, "media_meta") : "[]");
         cwist_query_map_destroy(kv);
     }
 
@@ -200,10 +246,30 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             slug_idx++;
             cwist_free(final_slug);
         } else {
-            created = db_post_create(req->db, board_id, uid, title, final_slug, content, summary ? summary : "", sig_b64 ? sig_b64 : "", 0, 0, "");
+            int created_id = db_post_create(req->db, board_id, uid, title, final_slug, content, summary ? summary : "", sig_b64 ? sig_b64 : "", 0, 0, "");
+            created = created_id > 0;
 
             /* The final_slug isn't strictly needed later but we update 'sl' to point to the created slug so publish_post uses the right slug. */
             if (created) {
+                 if (uid == 0) {
+                     char delete_pin[13];
+                     char delete_pin_hash[512];
+                     delete_pin[0] = '\0';
+                     if (random_hex_local(delete_pin, 6) && auth_hash_password(delete_pin, delete_pin_hash, sizeof(delete_pin_hash))) {
+                         (void)db_post_set_delete_pin_hash(req->db, created_id, delete_pin_hash);
+                         char redirect_with_pin[1024];
+                         snprintf(redirect_with_pin, sizeof(redirect_with_pin), "/post/%s?delete_pin=%s", final_slug, delete_pin);
+                         cwist_free(sl);
+                         sl = final_slug;
+                         if (sig_b64) cwist_free(sig_b64);
+                         fly_nats_publish_post(title, sl, summary ? summary : "");
+                         attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
+                         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
+                         multipart_free(files);
+                         redirect(res, redirect_with_pin);
+                         return;
+                     }
+                 }
                  cwist_free(sl);
                  sl = final_slug;
             } else {
@@ -224,23 +290,10 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
 
     /* Link orphaned uploads to this post */
     int post_id = (int)sqlite3_last_insert_rowid(req->db->conn);
-    char orphan_sql[256];
-    snprintf(orphan_sql, sizeof(orphan_sql), "UPDATE files SET post_id=%d WHERE post_id=0 AND user_id=%d", post_id, uid);
-    db_exec_sql(req->db, orphan_sql);
-
-    /* Handle attachments */
-    if (files) {
-        int post_id = (int)sqlite3_last_insert_rowid(req->db->conn);
-        for (form_field_t *f = files; f; f = f->next) {
-            if (f->filename && f->filename[0] != '\0' && f->data && f->data[0] != '\0') {
-                db_file_replace_for_post(req->db, post_id, f->filename);
-                db_file_create_volume(req->db, post_id, uid, f->filename, mime_type(f->filename), f->data, f->file_size);
-            }
-        }
-    }
+    attach_media_meta_to_post(req->db, media_meta, post_id, uid, role);
 
     cwist_free(sl);
-    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str);
+    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
     multipart_free(files);
     redirect(res, "/");
 }
@@ -277,7 +330,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
 
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
-    char *title = NULL, *content = NULL, *summary = NULL, *id_str = NULL, *board_id_str = NULL;
+    char *title = NULL, *content = NULL, *summary = NULL, *id_str = NULL, *board_id_str = NULL, *media_meta = NULL;
     form_field_t *files = NULL;
 
     const char *path_id = cwist_query_map_get(req->path_params, "id");
@@ -303,6 +356,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
             if ((f = form_find(files, "content"))) content = (char *)cwist_alloc(f->len+1), memcpy(content, f->data, f->len), content[f->len]=0;
             if ((f = form_find(files, "summary"))) summary = (char *)cwist_alloc(f->len+1), memcpy(summary, f->data, f->len), summary[f->len]=0;
             if ((f = form_find(files, "board_id"))) board_id_str = (char *)cwist_alloc(f->len+1), memcpy(board_id_str, f->data, f->len), board_id_str[f->len]=0;
+            if ((f = form_find(files, "media_meta"))) media_meta = (char *)cwist_alloc(f->len+1), memcpy(media_meta, f->data, f->len), media_meta[f->len]=0;
         }
     } else {
         cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
@@ -315,6 +369,8 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         strcpy(summary, cwist_query_map_get(kv, "summary") ? cwist_query_map_get(kv, "summary") : "");
         board_id_str = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0")+1);
         strcpy(board_id_str, cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0");
+        media_meta = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "media_meta") ? cwist_query_map_get(kv, "media_meta") : "[]")+1);
+        strcpy(media_meta, cwist_query_map_get(kv, "media_meta") ? cwist_query_map_get(kv, "media_meta") : "[]");
         cwist_query_map_destroy(kv);
     }
 
@@ -358,29 +414,25 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     }
     if (sig_b642) cwist_free(sig_b642);
 
-    /* Handle new attachments during edit */
-    if (files) {
-        for (form_field_t *f = files; f; f = f->next) {
-            if (f->filename && f->filename[0] != '\0' && f->data && f->data[0] != '\0') {
-                db_file_replace_for_post(req->db, atoi(id_str), f->filename);
-                db_file_create_volume(req->db, atoi(id_str), uid, f->filename, mime_type(f->filename), f->data, f->file_size);
-            }
-        }
-    }
+    attach_media_meta_to_post(req->db, media_meta, atoi(id_str), uid, role);
 
-    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str);
+    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
     multipart_free(files);
     redirect(res, "/");
 }
 void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    auth_is_logged_in(req, &uid, role, sizeof(role));
     const char *id_str = cwist_query_map_get(req->path_params, "id");
+    const char *delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
     if (!id_str) { redirect(res, "/"); return; }
     cJSON *post = db_post_get_by_id(req->db, atoi(id_str));
     if (!post) { CWIST_LOG_WARN("Post delete failed: not found id=%s uid=%d", id_str, uid); redirect(res, "/"); return; }
-    if (!is_author_or_admin(post, uid, role)) {
+    cJSON *pin_hash = cJSON_GetObjectItem(post, "delete_pin_hash");
+    bool pin_ok = delete_pin && pin_hash && pin_hash->valuestring && pin_hash->valuestring[0] &&
+                  auth_verify_password(delete_pin, pin_hash->valuestring);
+    if (!is_author_or_admin(post, uid, role) && !pin_ok) {
         CWIST_LOG_WARN("Post delete forbidden: id=%s uid=%d role=%s", id_str, uid, role);
         res->status_code = CWIST_HTTP_FORBIDDEN;
         cwist_sstring_assign(res->body, "Forbidden");

@@ -38,6 +38,7 @@ cJSON *db_board_perm_list(cwist_db *db, int board_id);
 int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, const char *slug, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
 bool db_post_update(cwist_db *db, int id, int board_id, const char *title, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
 bool db_post_delete(cwist_db *db, int id);
+bool db_post_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_hash);
 cJSON *db_post_get_by_slug(cwist_db *db, const char *slug);
 cJSON *db_post_get_by_id(cwist_db *db, int id);
 cJSON *db_post_list(cwist_db *db, int board_id, int limit, int offset);
@@ -64,10 +65,13 @@ bool db_tag_clear_by_post(cwist_db *db, int post_id);
 
 /* Files */
 bool db_file_create_volume(cwist_db *db, int post_id, int user_id, const char *filename, const char *mime_type, const char *file_path, size_t len);
+int db_file_create_volume_get_id(cwist_db *db, int post_id, int user_id, const char *filename, const char *mime_type, const char *file_path, size_t len);
 cJSON *db_file_get(cwist_db *db, int id);
 cJSON *db_file_list_by_post(cwist_db *db, int post_id);
 bool db_file_delete(cwist_db *db, int id);
 bool db_file_increment_download(cwist_db *db, int id);
+bool db_file_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_hash);
+bool db_file_attach_to_post(cwist_db *db, int id, int post_id, int is_inline);
 void db_file_replace_for_post(cwist_db *db, int post_id, const char *filename);
 void db_file_cleanup_duplicates(cwist_db *db);
 

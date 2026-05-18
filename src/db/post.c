@@ -34,6 +34,17 @@ bool db_post_delete(cwist_db *db, int id) {
     return rc == SQLITE_DONE;
 }
 
+bool db_post_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_hash) {
+    const char *sql = "UPDATE posts SET delete_pin_hash=? WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, delete_pin_hash ? delete_pin_hash : "", -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
 cJSON *db_post_get_by_slug(cwist_db *db, const char *slug) {
     const char *sql = "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.slug=? LIMIT 1";
     sqlite3_stmt *stmt = NULL;

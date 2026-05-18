@@ -36,7 +36,7 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
     cwist_sstring_append(b, " bytes</p>");
 
     if (fid) {
-        cwist_sstring_append(b, "<a href='/file/download/");
+        cwist_sstring_append(b, "<a href='#' data-tasfa-download-link='/file/download/");
         cwist_sstring_append(b, fid_buf);
         cwist_sstring_append(b, "' class='btn'>Download File</a>");
     }
@@ -103,15 +103,22 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
     if (has_files_bg) {
         cwist_sstring_append(b, "</div>");
     }
-    cwist_sstring_append(b, "<div class='card' style='max-width:560px;margin:0 auto'><form action='/file/upload' method='post' enctype='multipart/form-data'>");
-    cwist_sstring_append(b, "<label>Upload file</label><input type='file' name='file' required>");
-    cwist_sstring_append(b, "<button type='submit' class='btn' style='margin-top:8px'>Upload</button>");
-    cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>All files are stored on server disk.</small>");
-    cwist_sstring_append(b, "</form></div>");
+    cwist_sstring_append(b, "<div id='file-repo-upload-root' class='card' style='max-width:720px;margin:0 auto'>");
+    cwist_sstring_append(b, "<label>Upload file</label>");
+    cwist_sstring_append(b, "<div id='upload-dropzone' style='margin-top:10px;padding:18px;border:1px dashed var(--border);border-radius:12px;background:var(--panel)'>");
+    cwist_sstring_append(b, "<div style='font-weight:600'>Drop files here or browse manually</div>");
+    cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>Transfers resume automatically and open through the streamed transfer path.</small>");
+    cwist_sstring_append(b, "<input id='file-input' type='file' multiple style='margin-top:12px'>");
+    cwist_sstring_append(b, "</div>");
+    cwist_sstring_append(b, "<div id='upload-preview' style='margin-top:14px;display:grid;gap:10px'></div>");
+    cwist_sstring_append(b, "<div style='display:flex;gap:10px;align-items:center;margin-top:14px'>");
+    cwist_sstring_append(b, "<button id='file-repo-upload-btn' type='button' class='btn'>Upload queued files</button>");
+    cwist_sstring_append(b, "<span style='color:var(--muted);font-size:13px'>The page never falls back to legacy multipart upload.</span>");
+    cwist_sstring_append(b, "</div></div>");
 
     cwist_sstring_append(b, "<h3 style='margin-top:28px'>Files</h3>");
     if (files && cJSON_GetArraySize(files) > 0) {
-        cwist_sstring_append(b, "<div class='post-grid'>");
+        cwist_sstring_append(b, "<div id='file-repo-list' class='post-grid'>");
         int n = cJSON_GetArraySize(files);
         for (int i = 0; i < n; i++) {
             cJSON *f = cJSON_GetArrayItem(files, i);
@@ -141,7 +148,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             cwist_sstring_append(b, " &middot; ");
             cwist_sstring_append(b, sz_buf);
             cwist_sstring_append(b, " bytes</p>");
-            cwist_sstring_append(b, "<div style='display:flex;gap:8px'><a href='/file/download/");
+            cwist_sstring_append(b, "<div style='display:flex;gap:8px'><a href='#' data-tasfa-download-link='/file/download/");
             cwist_sstring_append(b, fid_buf);
             cwist_sstring_append(b, "' class='btn' style='font-size:12px;padding:4px 10px'>Download</a>");
             if (can_delete) {
@@ -157,6 +164,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
     } else {
         cwist_sstring_append(b, "<div class='card' style='text-align:center;padding:40px 20px;color:var(--muted);'>No files uploaded yet.</div>");
     }
+    cwist_sstring_append(b, "<div id='file-repo-list-anchor'></div>");
     cwist_sstring *page = render_page("Files", b->data, dark, user_role, profile_pic);
     cwist_sstring_destroy(b);
     return page;

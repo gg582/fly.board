@@ -77,47 +77,9 @@ void handler_asset_img(cwist_http_request *req, cwist_http_response *res) {
 }
 
 void handler_asset_upload(cwist_http_request *req, cwist_http_response *res) {
-    const char *encoded = cwist_query_map_get(req->path_params, "filename");
-    if (!encoded || !encoded[0]) { send_upload_not_found(res); return; }
-
-    char *decoded = decode_upload_path_segment(encoded);
-    if (!decoded) {
-        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
-        cwist_sstring_assign(res->body, "decode error");
-        return;
-    }
-    if (!is_safe_upload_name(decoded)) {
-        cwist_free(decoded);
-        send_upload_not_found(res);
-        return;
-    }
-
-    char path[PATH_MAX];
-    int written = snprintf(path, sizeof(path), "public/uploads/%s", decoded);
-    if (written < 0 || written >= (int)sizeof(path)) {
-        cwist_free(decoded);
-        send_upload_not_found(res);
-        return;
-    }
-
-    size_t sz = 0;
-    char *data = file_read(path, &sz);
-    if (!data) {
-        cwist_free(decoded);
-        send_upload_not_found(res);
-        return;
-    }
-
-    cwist_http_header_add(&res->headers, "Content-Type", mime_type(decoded));
-    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
-    char slen[32];
-    snprintf(slen, sizeof(slen), "%zu", sz);
-    cwist_http_header_add(&res->headers, "Content-Length", slen);
-    cwist_sstring_assign(res->body, "");
-    cwist_sstring_append_len(res->body, data, sz);
-
-    cwist_free(data);
-    cwist_free(decoded);
+    (void)req;
+    res->status_code = CWIST_HTTP_FORBIDDEN;
+    cwist_sstring_assign(res->body, "Direct asset fetch disabled; use the reliable transfer path.");
 }
 
 void handler_file_repo(cwist_http_request *req, cwist_http_response *res) {
@@ -140,33 +102,6 @@ void handler_file_repo(cwist_http_request *req, cwist_http_response *res) {
     free(pp);
 }
 
-void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
-    int uid = 0;
-    char role[32] = {0};
-    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
-    const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
-    if (!ctype || !strstr(ctype, "multipart/form-data")) { redirect(res, "/files"); return; }
-    const char *bnd = strstr(ctype, "boundary=");
-    if (!bnd) { redirect(res, "/files"); return; }
-    bnd += 9;
-    if (*bnd == '\"') bnd++;
-    size_t bnd_len = strcspn(bnd, "\"\r\n; ");
-    char *boundary = (char *)cwist_alloc(bnd_len + 1);
-    memcpy(boundary, bnd, bnd_len);
-    boundary[bnd_len] = '\0';
-    form_field_t *fields = multipart_parse(req->body->data, req->body->size, boundary);
-    cwist_free(boundary);
-    form_field_t *f = form_find(fields, "file");
-    upload_result_t result = {0};
-    if (process_file_upload(req->db, f, uid, 0, &result)) {
-        CWIST_LOG_INFO("File uploaded: uid=%d filename='%s' size=%zu mime=%s", uid, result.filename, result.file_size, result.mime_type);
-    } else {
-        CWIST_LOG_WARN("File upload failed: %s uid=%d", result.error, uid);
-    }
-    multipart_free(fields);
-    redirect(res, "/files");
-}
-
 void handler_file_detail_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -185,56 +120,26 @@ void handler_file_detail_get(cwist_http_request *req, cwist_http_response *res) 
 }
 
 void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
-    const char *id_str = cwist_query_map_get(req->path_params, "id");
-    if (!id_str) { res->status_code = CWIST_HTTP_NOT_FOUND; cwist_sstring_assign(res->body, "Not found"); return; }
-    cJSON *file = db_file_get(req->db, atoi(id_str));
-    if (!file) { res->status_code = CWIST_HTTP_NOT_FOUND; cwist_sstring_assign(res->body, "Not found"); return; }
-    cJSON *fname = cJSON_GetObjectItem(file, "filename");
-    cJSON *mtype = cJSON_GetObjectItem(file, "mime_type");
-    cJSON *fpath = cJSON_GetObjectItem(file, "file_path");
-
-    if (fpath && fpath->valuestring && fpath->valuestring[0]) {
-        size_t sz = 0;
-        char *data = file_read(fpath->valuestring, &sz);
-        if (data) {
-            const char *dn = fname && fname->valuestring ? fname->valuestring : "download";
-            char cdisp[512];
-            snprintf(cdisp, sizeof(cdisp), "attachment; filename=\"%s\"", dn);
-            cwist_http_header_add(&res->headers, "Content-Disposition", cdisp);
-            cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
-            cwist_http_header_add(&res->headers, "Content-Type", mtype && mtype->valuestring && mtype->valuestring[0] ? mtype->valuestring : "application/octet-stream");
-            
-            char slen[32];
-            snprintf(slen, sizeof(slen), "%zu", sz);
-            cwist_http_header_add(&res->headers, "Content-Length", slen);
-            
-            cwist_sstring_assign(res->body, "");
-            cwist_sstring_append_len(res->body, data, sz);
-            cwist_free(data);
-            
-            db_file_increment_download(req->db, atoi(id_str));
-        } else {
-            res->status_code = CWIST_HTTP_NOT_FOUND;
-            cwist_sstring_assign(res->body, "Not found");
-        }
-    } else {
-        res->status_code = CWIST_HTTP_NOT_FOUND;
-        cwist_sstring_assign(res->body, "Not found");
-    }
-    cJSON_Delete(file);
+    (void)req;
+    res->status_code = CWIST_HTTP_FORBIDDEN;
+    cwist_sstring_assign(res->body, "Direct download disabled; use the reliable transfer path.");
 }
 
 void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    auth_is_logged_in(req, &uid, role, sizeof(role));
     cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
     const char *id_str = cwist_query_map_get(kv, "id");
+    const char *delete_pin = cwist_query_map_get(kv, "delete_pin");
     if (id_str) {
         cJSON *f = db_file_get(req->db, atoi(id_str));
         if (f) {
             int file_uid = json_int(f, "user_id", 0);
-            bool can_delete = (role[0] && strcmp(role, "admin") == 0) || (file_uid > 0 && file_uid == uid);
+            cJSON *pin_hash = cJSON_GetObjectItem(f, "delete_pin_hash");
+            bool pin_ok = delete_pin && pin_hash && pin_hash->valuestring && pin_hash->valuestring[0] &&
+                          auth_verify_password(delete_pin, pin_hash->valuestring);
+            bool can_delete = (role[0] && strcmp(role, "admin") == 0) || (file_uid > 0 && file_uid == uid) || pin_ok;
             if (can_delete) {
                 cJSON *fpath = cJSON_GetObjectItem(f, "file_path");
                 if (fpath && fpath->valuestring && fpath->valuestring[0]) {

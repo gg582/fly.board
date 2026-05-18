@@ -179,9 +179,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         }
     }
 
-    if (user_role && user_role[0]) {
-        cwist_sstring_append(b, "<div style='margin-bottom:18px;text-align:center'><a href='/post/new' class='btn'>New Post</a></div>");
-    }
+    cwist_sstring_append(b, "<div style='margin-bottom:18px;text-align:center'><a href='/post/new' class='btn'>New Post</a></div>");
 
     /* Search */
     cwist_sstring_append(b, "<form action='");
@@ -380,7 +378,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     return page_html;
 }
 
-cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, int user_id) {
+cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, int user_id, const char *ephemeral_delete_pin) {
     cwist_sstring *b = cwist_sstring_create();
     cJSON *title = cJSON_GetObjectItem(post, "title");
     cJSON *content = cJSON_GetObjectItem(post, "content");
@@ -391,6 +389,12 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     char pid_buf[32]; snprintf(pid_buf, sizeof(pid_buf), "%d", post_id_val);
 
     cwist_sstring_append(b, "<article>");
+    if (ephemeral_delete_pin && ephemeral_delete_pin[0]) {
+        cwist_sstring_append(b, "<div class='card' style='margin-bottom:16px;border-color:var(--accent)'>");
+        cwist_sstring_append(b, "<strong>Delete PIN</strong><div style='margin-top:6px;color:var(--muted)'>Save this now. It is only shown once for this anonymous post.</div><div style='margin-top:8px'><code>");
+        cwist_sstring_append_escaped(b, ephemeral_delete_pin);
+        cwist_sstring_append(b, "</code></div></div>");
+    }
     cwist_sstring_append(b, "<div style='margin-bottom:10px'>");
     if (pqc_verified) {
         cwist_sstring_append(b, "<span style='color:var(--accent);font-size:13px;font-weight:700'>&#128274; PQC Verified</span>");
@@ -413,6 +417,8 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         } else {
             cwist_sstring_append_escaped(b, author->valuestring);
         }
+    } else if (json_int(post, "user_id", 0) == 0) {
+        cwist_sstring_append(b, "anonymous");
     } else {
         cwist_sstring_append(b, "unknown");
     }
@@ -489,7 +495,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 cJSON *fid = cJSON_GetObjectItem(f, "id");
                 char fid_buf2[32];
                 snprintf(fid_buf2, sizeof(fid_buf2), "%d", fid->valueint);
-                cwist_sstring_append(b, "<li><a href='/file/download/");
+                cwist_sstring_append(b, "<li><a href='#' data-tasfa-download-link='/file/download/");
                 cwist_sstring_append(b, fid_buf2);
                 cwist_sstring_append(b, "'>");
                 cwist_sstring_append_escaped(b, fname->valuestring);
@@ -513,6 +519,13 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         cwist_sstring_append(b, "<a href='/post/delete/");
         cwist_sstring_append(b, pid_buf);
         cwist_sstring_append(b, "' class='btn btn-outline' onclick='return confirm(\"Delete this post?\")'>Delete</a>");
+    }
+    if (json_int(post, "user_id", 0) == 0) {
+        cwist_sstring_append(b, "<form action='/post/delete/");
+        cwist_sstring_append(b, pid_buf);
+        cwist_sstring_append(b, "' method='get' style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>");
+        cwist_sstring_append(b, "<input type='text' name='delete_pin' placeholder='Delete PIN' required style='max-width:180px'>");
+        cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' onclick='return confirm(\"Delete this anonymous post?\")'>Delete With PIN</button></form>");
     }
     cwist_sstring_append(b, "</div>");
 
@@ -564,9 +577,10 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     }
     cwist_sstring_append(b, "<form action='");
     cwist_sstring_append(b, action);
-    cwist_sstring_append(b, "' method='post' enctype='multipart/form-data'>");
+    cwist_sstring_append(b, "' method='post'>");
 
-    cwist_sstring_append(b, "<label>Title</label><input name='title' value='");
+    cwist_sstring_append(b, "<input type='hidden' id='media-meta' name='media_meta' value='[]'>");
+    cwist_sstring_append(b, "<label>Title</label><input id='post-title-input' name='title' value='");
     if (post) {
         cJSON *t = cJSON_GetObjectItem(post, "title");
         char *tmp_title = sql_escape(t->valuestring);
@@ -598,7 +612,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     }
     cwist_sstring_append(b, "</select>");
 
-    cwist_sstring_append(b, "<label>Summary</label><input name='summary' value='");
+    cwist_sstring_append(b, "<label>Summary</label><input id='summary-input' name='summary' value='");
     if (post) {
         cJSON *s = cJSON_GetObjectItem(post, "summary");
         char *tmp_summary = sql_escape(s && s->valuestring[0] ? s->valuestring : "");
@@ -607,9 +621,26 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     }
     cwist_sstring_append(b, "'>");
 
-    cwist_sstring_append(b, "<label>Content (Markdown)</label>");
-    cwist_sstring_append(b, "<div style='display:flex;gap:0;align-items:stretch;flex-wrap:wrap;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:6px;'>");
-    cwist_sstring_append(b, "<div style='flex:1;min-width:400px;border-right:1px solid var(--border);'>");
+    cwist_sstring_append(b, "<div style='display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px'>");
+    cwist_sstring_append(b, "<label style='margin:0'>Content (Markdown)</label>");
+    cwist_sstring_append(b, "<div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>");
+    cwist_sstring_append(b, "<span id='editor-word-count' style='font-size:13px;color:var(--muted)'>0 words</span>");
+    cwist_sstring_append(b, "<span id='editor-reading-time' style='font-size:13px;color:var(--muted)'>0 min read</span>");
+    cwist_sstring_append(b, "<span id='editor-sync-status' style='font-size:13px;color:var(--muted)'>Editor ready</span>");
+    cwist_sstring_append(b, "</div></div>");
+    cwist_sstring_append(b, "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:8px'>");
+    cwist_sstring_append(b, "<button type='button' class='btn btn-outline editor-tool' data-md-wrap='**' data-md-placeholder='bold text'>Bold</button>");
+    cwist_sstring_append(b, "<button type='button' class='btn btn-outline editor-tool' data-md-wrap='*' data-md-placeholder='italic text'>Italic</button>");
+    cwist_sstring_append(b, "<button type='button' class='btn btn-outline editor-tool' data-md-prefix='- ' data-md-placeholder='list item'>List</button>");
+    cwist_sstring_append(b, "<button type='button' class='btn btn-outline editor-tool' data-md-prefix='> ' data-md-placeholder='quote'>Quote</button>");
+    cwist_sstring_append(b, "<button type='button' class='btn btn-outline editor-tool' data-md-block='```\\n\\n```'>Code Block</button>");
+    cwist_sstring_append(b, "</div>");
+    cwist_sstring_append(b, "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:12px'>");
+    cwist_sstring_append(b, "<button type='button' class='btn' data-editor-tab='write'>Write</button>");
+    cwist_sstring_append(b, "<button type='button' class='btn btn-outline' data-editor-tab='preview'>Preview</button>");
+    cwist_sstring_append(b, "</div>");
+    cwist_sstring_append(b, "<div style='border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:10px'>");
+    cwist_sstring_append(b, "<div data-editor-pane='write' class='is-active' style='display:block'>");
     cwist_sstring_append(b, "<textarea id='md-editor' name='content' rows='18' style='width:100%;min-height:500px;height:60vh;font-family:monospace;font-size:15px;border:none;border-radius:0;padding:16px;background:transparent;resize:vertical;outline:none;' required>");
     if (post) {
         cJSON *c = cJSON_GetObjectItem(post, "content");
@@ -618,8 +649,8 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
         cwist_free(tmp_content);
     }
     cwist_sstring_append(b, "</textarea></div>");
-    cwist_sstring_append(b, "<div style='flex:1;min-width:400px;background:var(--panel);'>");
-    cwist_sstring_append(b, "<div id='md-preview' style='padding:16px;min-height:500px;height:60vh;overflow:auto;'>");
+    cwist_sstring_append(b, "<div data-editor-pane='preview' style='display:none;background:var(--panel)'>");
+    cwist_sstring_append(b, "<div id='md-preview' style='padding:16px;min-height:500px;height:60vh;overflow:auto'>");
     cwist_sstring_append(b, "<p style='color:var(--muted)'>Preview will appear here...</p>");
     cwist_sstring_append(b, "</div></div></div>");
 
@@ -637,55 +668,40 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "- list item\n");
     cwist_sstring_append(b, "> quote\n");
     cwist_sstring_append(b, "</pre></details>");
-    cwist_sstring_append(b, "<script>");
-    cwist_sstring_append(b, "(function(){");
-    cwist_sstring_append(b, "var ta=document.getElementById('md-editor');");
-    cwist_sstring_append(b, "var preview=document.getElementById('md-preview');");
-    cwist_sstring_append(b, "var timer;");
-    if (post) {
-        cJSON *pid = cJSON_GetObjectItem(post, "id");
-        char pid_buf2[32];
-        snprintf(pid_buf2, sizeof(pid_buf2), "%d", pid->valueint);
-        cwist_sstring_append(b, "var postId=");
-        cwist_sstring_append(b, pid_buf2);
-        cwist_sstring_append(b, ";");
-    } else {
-        cwist_sstring_append(b, "var postId=null;");
-    }
-    cwist_sstring_append(b, "function update(){");
-    cwist_sstring_append(b, "fetch('/api/preview',{method:'POST',headers:{'Content-Type':'text/plain'},body:ta.value})");
-    cwist_sstring_append(b, ".then(function(r){return r.text();})");
-    cwist_sstring_append(b, ".then(function(html){preview.innerHTML=html;});}");
-    cwist_sstring_append(b, "ta.addEventListener('input',function(){clearTimeout(timer);timer=setTimeout(update,300);});");
-    cwist_sstring_append(b, "if(ta.value)update();");
-    cwist_sstring_append(b, "})();");
-    cwist_sstring_append(b, "</script>");
-
     if (post && files && cJSON_GetArraySize(files) > 0) {
-        cwist_sstring_append(b, "<div style='margin-top:12px'><h4>Existing Attachments</h4><ul>");
+        cwist_sstring_append(b, "<div style='margin-top:18px'><h4>Existing Attachments</h4><div id='upload-preview' style='display:grid;gap:10px'>");
         int n = cJSON_GetArraySize(files);
         for (int i = 0; i < n; i++) {
             cJSON *f = cJSON_GetArrayItem(files, i);
             cJSON *fname = cJSON_GetObjectItem(f, "filename");
             if (!fname || !fname->valuestring) continue;
             char fid_buf[32]; snprintf(fid_buf, sizeof(fid_buf), "%d", json_int(f, "id", 0));
-            cwist_sstring_append(b, "<li style='display:flex;align-items:center;gap:10px;margin-bottom:6px'>");
+            cwist_sstring_append(b, "<div class='existing-media media-card' data-fid='");
+            cwist_sstring_append(b, fid_buf);
+            cwist_sstring_append(b, "' data-filename='");
             cwist_sstring_append_escaped(b, fname->valuestring);
-            cwist_sstring_append(b, " <a href='/file/download/");
+            cwist_sstring_append(b, "' data-url='/file/download/");
             cwist_sstring_append(b, fid_buf);
-            cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px' target='_blank'>View</a>");
-            cwist_sstring_append(b, " <form action='/file/delete' method='post' style='display:inline'>");
-            cwist_sstring_append(b, "<input type='hidden' name='id' value='");
-            cwist_sstring_append(b, fid_buf);
-            cwist_sstring_append(b, "'>");
-            cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Delete</button>");
-            cwist_sstring_append(b, "</form>");
-            cwist_sstring_append(b, "</li>");
+            cwist_sstring_append(b, "' data-mode='attachment'>");
+            cwist_sstring_append(b, "<div class='media-thumb'><span style='font-size:22px'>FILE</span></div>");
+            cwist_sstring_append(b, "<div class='media-info'><div class='media-name'>");
+            cwist_sstring_append_escaped(b, fname->valuestring);
+            cwist_sstring_append(b, "</div><div class='media-status'>Attached to this post</div><div class='media-progress-bar'><div class='media-progress-inner'></div></div></div>");
+            cwist_sstring_append(b, "<div class='media-actions'>");
+            cwist_sstring_append(b, "<button type='button' class='btn media-inline-btn'>Inline</button>");
+            cwist_sstring_append(b, "<button type='button' class='btn btn-outline media-attachment-btn'>Attachment</button>");
+            cwist_sstring_append(b, "<button type='button' class='btn btn-outline media-delete-btn'>Delete</button>");
+            cwist_sstring_append(b, "</div></div>");
         }
-        cwist_sstring_append(b, "</ul></div>");
+        cwist_sstring_append(b, "</div></div>");
+    } else {
+        cwist_sstring_append(b, "<div id='upload-preview' style='margin-top:18px;display:grid;gap:10px'></div>");
     }
-    cwist_sstring_append(b, "<label>Attachments</label><input type='file' name='attachments' multiple>");
-    cwist_sstring_append(b, "<small style='color:var(--muted)'>All files are stored on server disk.</small>");
+    cwist_sstring_append(b, "<div id='upload-dropzone' style='margin-top:18px;padding:18px;border:1px dashed var(--border);border-radius:12px;background:var(--panel)'>");
+    cwist_sstring_append(b, "<div style='font-weight:600'>Attach files through the streamed transfer path</div>");
+    cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>Files upload immediately, resume automatically, and are attached explicitly on save.</small>");
+    cwist_sstring_append(b, "<input id='file-input' type='file' multiple style='margin-top:12px'>");
+    cwist_sstring_append(b, "</div>");
 
     cwist_sstring_append(b, "<div style='margin-top:12px;display:flex;gap:10px'><button type='submit' class='btn'>Save</button>");
     cwist_sstring_append(b, "<a href='/' class='btn btn-outline'>Cancel</a></div>");

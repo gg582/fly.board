@@ -156,6 +156,8 @@ int main(void) {
 
     cwist_app_get(app, "/assets/img/:filename", handler_asset_img);
     cwist_app_get(app, "/assets/uploads/:filename", handler_asset_upload);
+    cwist_app_get(app, "/assets/tasfa/:scope/:filename/handshake", handler_asset_tasfa_handshake);
+    cwist_app_get(app, "/assets/tasfa/:scope/:filename/chunk/:chunk_index", handler_asset_tasfa_chunk);
     cwist_app_static(app, "/assets", "public");
 
     /* Routes */
@@ -201,7 +203,14 @@ int main(void) {
     cwist_app_get(app, "/files", handler_file_repo);
     cwist_app_get(app, "/file/:id", handler_file_detail_get);
     cwist_app_get(app, "/file/download/:id", handler_file_download);
+    cwist_app_get(app, "/file/download/:id/handshake", handler_file_download_handshake);
+    cwist_app_get(app, "/file/download/:id/chunk/:chunk_index", handler_file_download_chunk);
+    cwist_app_post(app, "/file/upload/init", handler_file_upload_init);
+    cwist_app_post(app, "/file/upload/status", handler_file_upload_status);
+    cwist_app_post(app, "/file/upload/renegotiate", handler_file_upload_renegotiate);
     cwist_app_post(app, "/file/upload", handler_file_upload);
+    cwist_app_post(app, "/file/upload/complete", handler_file_upload_complete);
+    cwist_app_post(app, "/file/upload/cancel", handler_file_upload_cancel);
     cwist_app_post(app, "/file/delete", handler_file_delete);
 
     cwist_app_post(app, "/comment/new", handler_comment_new_post);

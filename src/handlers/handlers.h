@@ -45,10 +45,19 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res);
 
 void handler_asset_img(cwist_http_request *req, cwist_http_response *res);
 void handler_asset_upload(cwist_http_request *req, cwist_http_response *res);
+void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response *res);
+void handler_asset_tasfa_chunk(cwist_http_request *req, cwist_http_response *res);
 void handler_file_repo(cwist_http_request *req, cwist_http_response *res);
+void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res);
+void handler_file_upload_status(cwist_http_request *req, cwist_http_response *res);
+void handler_file_upload_renegotiate(cwist_http_request *req, cwist_http_response *res);
 void handler_file_upload(cwist_http_request *req, cwist_http_response *res);
+void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *res);
+void handler_file_upload_cancel(cwist_http_request *req, cwist_http_response *res);
 void handler_file_detail_get(cwist_http_request *req, cwist_http_response *res);
 void handler_file_download(cwist_http_request *req, cwist_http_response *res);
+void handler_file_download_handshake(cwist_http_request *req, cwist_http_response *res);
+void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *res);
 void handler_file_delete(cwist_http_request *req, cwist_http_response *res);
 
 void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res);
