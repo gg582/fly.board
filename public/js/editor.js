@@ -46,9 +46,11 @@
     var LINK_DEGRADE_TIMEOUT_THRESHOLD = 4;
     var LINK_RECENT_DECAY_SUCCESS_STEP = 6;
     var PREPARE_AHEAD_MULTIPLIER = 4;
+    var PREPARE_BATCH_SIZE = 4;
     var UPLOAD_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024;
     var UPLOAD_PREPARED_BUDGET_BYTES = 192 * 1024 * 1024;
     var UPLOAD_ACTIVE_BUDGET_BYTES = 256 * 1024 * 1024;
+    var hmacKeyCache = {};
 
     function escapeHtml(value) {
         return String(value || '')
@@ -939,6 +941,32 @@
         });
     }
 
+    function shouldCompressUpload(file) {
+        var mime = String(file && file.type || '').toLowerCase();
+        if (!mime) return false;
+        if (/^(image|audio|video)\//.test(mime)) return false;
+        if (/^(application\/(zip|gzip|x-gzip|x-7z-compressed|x-rar-compressed|pdf)|font\/)/.test(mime)) return false;
+        return /^(text\/|application\/(json|javascript|xml|xhtml\+xml|svg\+xml))/.test(mime);
+    }
+
+    function getOrImportHmacKey(secret) {
+        if (!secret || !window.crypto || !window.crypto.subtle || !window.TextEncoder) {
+            return Promise.reject(new Error('crypto unavailable'));
+        }
+        if (hmacKeyCache[secret]) return Promise.resolve(hmacKeyCache[secret]);
+        var enc = new TextEncoder();
+        return window.crypto.subtle.importKey(
+            'raw',
+            enc.encode(secret),
+            { name: 'HMAC', hash: 'SHA-256' },
+            false,
+            ['sign']
+        ).then(function(key) {
+            hmacKeyCache[secret] = key;
+            return key;
+        });
+    }
+
     function preprocessChunkPayload(asset, chunkIndex, blockOffset, nonce, vertexId, magicSum, blob) {
         return blob.arrayBuffer().then(function(buffer) {
             var bridge = getUploadWorkerBridge();
@@ -952,15 +980,64 @@
                     nonce: nonce,
                     vertexId: vertexId,
                     magicSum: magicSum,
+                    shouldCompress: shouldCompressUpload(asset && asset.file),
                     chunkBuffer: buffer
                 }, [buffer]);
             }
             return createChunkSignature(asset, chunkIndex, blockOffset, nonce, vertexId, magicSum).then(function(signature) {
-                return gzipArrayBuffer(buffer).then(function(result) {
+                var payloadPromise = shouldCompressUpload(asset && asset.file)
+                    ? gzipArrayBuffer(buffer)
+                    : Promise.resolve({ payloadBuffer: buffer, contentEncoding: 'identity' });
+                return payloadPromise.then(function(result) {
                     result.signature = signature;
                     return result;
                 });
             });
+        });
+    }
+
+    function preprocessChunkBatch(asset, metas) {
+        if (!metas || !metas.length) return Promise.resolve([]);
+        return Promise.all(metas.map(function(meta) {
+            return meta.blob.arrayBuffer();
+        })).then(function(buffers) {
+            var bridge = getUploadWorkerBridge();
+            if (bridge) {
+                var shouldCompress = shouldCompressUpload(asset && asset.file);
+                return bridge.request({
+                    type: 'prepare-upload-batch',
+                    uploadId: asset.uploadId,
+                    uploadSecret: asset.uploadSecret,
+                    shouldCompress: shouldCompress,
+                    chunks: metas.map(function(meta, index) {
+                        return {
+                            chunkIndex: meta.chunkIndex,
+                            blockOffset: meta.start,
+                            nonce: meta.nonce,
+                            vertexId: meta.vertexId,
+                            magicSum: meta.magicSum,
+                            chunkBuffer: buffers[index]
+                        };
+                    })
+                }, buffers).then(function(result) {
+                    return (result && result.chunks) || [];
+                });
+            }
+            return Promise.all(metas.map(function(meta, index) {
+                return createChunkSignature(asset, meta.chunkIndex, meta.start, meta.nonce, meta.vertexId, meta.magicSum).then(function(signature) {
+                    var payloadPromise = shouldCompressUpload(asset && asset.file)
+                        ? gzipArrayBuffer(buffers[index])
+                        : Promise.resolve({ payloadBuffer: buffers[index], contentEncoding: 'identity' });
+                    return payloadPromise.then(function(result) {
+                        return {
+                            chunkIndex: meta.chunkIndex,
+                            payloadBuffer: result.payloadBuffer,
+                            contentEncoding: result.contentEncoding,
+                            signature: signature
+                        };
+                    });
+                });
+            }));
         });
     }
 
@@ -1136,9 +1213,7 @@
     }
 
     function createChunkSignature(asset, chunkIndex, blockOffset, nonce, vertexId, magicSum) {
-        if (!asset || !asset.uploadSecret || !window.crypto || !window.crypto.subtle || !window.TextEncoder) {
-            return Promise.reject(new Error('crypto unavailable'));
-        }
+        if (!asset || !asset.uploadSecret) return Promise.reject(new Error('crypto unavailable'));
         var enc = new TextEncoder();
         var message = [
             asset.uploadId,
@@ -1148,13 +1223,7 @@
             vertexId || '',
             String(magicSum)
         ].join(':');
-        return window.crypto.subtle.importKey(
-            'raw',
-            enc.encode(asset.uploadSecret),
-            { name: 'HMAC', hash: 'SHA-256' },
-            false,
-            ['sign']
-        ).then(function(key) {
+        return getOrImportHmacKey(asset.uploadSecret).then(function(key) {
             return window.crypto.subtle.sign('HMAC', key, enc.encode(message));
         }).then(function(signature) {
             var bytes = new Uint8Array(signature);
@@ -1284,38 +1353,53 @@
 
         var target = prepareAheadTarget(asset);
         var generation = Number(asset.sessionGeneration || 0);
-        for (var i = asset.nextChunkCursor; i < asset.pendingChunks.length; i += 1) {
+        for (var i = asset.nextChunkCursor; i < asset.pendingChunks.length;) {
             if ((Object.keys(asset.preparedChunks).length + Number(asset.prepareInflightCount || 0)) >= target) break;
+            var batch = [];
             var chunkIndex = asset.pendingChunks[i];
-            if (chunkIndex === null || chunkIndex === undefined) continue;
-            if (asset.receivedBitmap && asset.receivedBitmap.charAt(chunkIndex) === '1') continue;
-            if (asset.inflightChunks && asset.inflightChunks[chunkIndex]) continue;
-            if (asset.preparedChunks[chunkIndex] || asset.prepareInflight[chunkIndex]) continue;
-            asset.prepareInflight[chunkIndex] = true;
-            asset.prepareInflightCount += 1;
-            (function(preChunkIndex) {
-                var meta = buildChunkTransferMeta(asset, file, preChunkIndex);
-                preprocessChunkPayload(asset, preChunkIndex, meta.start, meta.nonce, meta.vertexId, meta.magicSum, meta.blob).then(function(prepared) {
+            while (i < asset.pendingChunks.length && batch.length < PREPARE_BATCH_SIZE &&
+                (Object.keys(asset.preparedChunks).length + Number(asset.prepareInflightCount || 0)) < target) {
+                chunkIndex = asset.pendingChunks[i];
+                i += 1;
+                if (chunkIndex === null || chunkIndex === undefined) continue;
+                if (asset.receivedBitmap && asset.receivedBitmap.charAt(chunkIndex) === '1') continue;
+                if (asset.inflightChunks && asset.inflightChunks[chunkIndex]) continue;
+                if (asset.preparedChunks[chunkIndex] || asset.prepareInflight[chunkIndex]) continue;
+                asset.prepareInflight[chunkIndex] = true;
+                asset.prepareInflightCount += 1;
+                var meta = buildChunkTransferMeta(asset, file, chunkIndex);
+                meta.chunkIndex = chunkIndex;
+                batch.push(meta);
+            }
+            if (!batch.length) continue;
+            (function(batchMetas) {
+                preprocessChunkBatch(asset, batchMetas).then(function(results) {
                     if (generation !== Number(asset.sessionGeneration || 0)) return;
-                    asset.preparedChunks[preChunkIndex] = {
-                        payloadBuffer: prepared.payloadBuffer,
-                        contentEncoding: prepared.contentEncoding,
-                        signature: prepared.signature,
-                        start: meta.start,
-                        end: meta.end,
-                        nonce: meta.nonce,
-                        vertexId: meta.vertexId,
-                        magicSum: meta.magicSum,
-                        blobSize: meta.blob.size
-                    };
+                    results.forEach(function(prepared, index) {
+                        var meta = batchMetas[index];
+                        if (!prepared || !meta) return;
+                        asset.preparedChunks[meta.chunkIndex] = {
+                            payloadBuffer: prepared.payloadBuffer,
+                            contentEncoding: prepared.contentEncoding,
+                            signature: prepared.signature,
+                            start: meta.start,
+                            end: meta.end,
+                            nonce: meta.nonce,
+                            vertexId: meta.vertexId,
+                            magicSum: meta.magicSum,
+                            blobSize: meta.blob.size
+                        };
+                    });
                 }).catch(function() {
                 }).finally(function() {
-                    if (asset.prepareInflight && asset.prepareInflight[preChunkIndex]) {
-                        delete asset.prepareInflight[preChunkIndex];
-                        asset.prepareInflightCount = Math.max(0, Number(asset.prepareInflightCount || 0) - 1);
-                    }
+                    batchMetas.forEach(function(meta) {
+                        if (asset.prepareInflight && asset.prepareInflight[meta.chunkIndex]) {
+                            delete asset.prepareInflight[meta.chunkIndex];
+                            asset.prepareInflightCount = Math.max(0, Number(asset.prepareInflightCount || 0) - 1);
+                        }
+                    });
                 });
-            })(chunkIndex);
+            })(batch);
         }
     }
 
