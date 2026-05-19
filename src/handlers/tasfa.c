@@ -12,6 +12,7 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #define TASFA_UPLOAD_DIR "data/tasfa/uploads"
 #define TASFA_DOWNLOAD_DIR "data/tasfa/downloads"
@@ -24,6 +25,7 @@
 #define TASFA_DOWNLOAD_DEFAULT_PARALLEL 24
 #define TASFA_DOWNLOAD_MAX_PARALLEL 256
 #define TASFA_CLIENT_STRIPES 32
+#define TASFA_CACHE_SLOTS 512
 
 static const int TASFA_DIRS[6][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, -1}, {-1, 1}};
 
@@ -41,6 +43,20 @@ typedef struct {
     int uid;
     char temp_path[PATH_MAX];
 } tasfa_meta_bin_t;
+
+typedef struct {
+    char key[33];
+    uint8_t valid;
+    uint8_t type;
+    time_t expires;
+    union {
+        tasfa_meta_bin_t mbin;
+        cJSON *json;
+    } data;
+} cache_slot_t;
+
+static cache_slot_t g_tasfa_cache[TASFA_CACHE_SLOTS];
+static pthread_mutex_t g_tasfa_cache_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 /* --- Utility Functions --- */
 
@@ -209,22 +225,24 @@ static int link_score_from_inputs(const char *score_str, const char *effective_t
     return clamp_int(score, 10, 100);
 }
 
-static void choose_upload_window(int score, int *initial_parallel, int *max_parallel) {
+static void choose_upload_window(int score, int *initial_parallel, int *max_parallel, int *pacing_ms) {
     int initial_value = 12;
     int max_value = TASFA_UPLOAD_MAX_PARALLEL;
+    int pace = 0;
     if (score >= 85) { initial_value = 16; max_value = TASFA_UPLOAD_MAX_PARALLEL; }
     else if (score >= 65) { initial_value = 14; max_value = TASFA_UPLOAD_MAX_PARALLEL; }
-    else if (score >= 45) { initial_value = 10; max_value = 32; }
-    else { initial_value = 4; max_value = 16; }
+    else if (score >= 45) { initial_value = 10; max_value = 32; pace = 15; }
+    else { initial_value = 6; max_value = 24; pace = 35; }
     if (initial_parallel) *initial_parallel = initial_value;
     if (max_parallel) *max_parallel = max_value;
+    if (pacing_ms) *pacing_ms = pace;
 }
 
 static void choose_download_profile(int score, int *initial_parallel, int *max_parallel, int *pacing_ms, int *coalesce_chunks) {
     int initial_value = 112, max_value = 256, pace = 0, coalesce = 64;
-    if (score < 45) { initial_value = 32; max_value = 96; coalesce = 24; }
-    else if (score < 65) { initial_value = 64; max_value = 160; coalesce = 32; }
-    else if (score < 85) { initial_value = 96; max_value = 224; coalesce = 48; }
+    if (score < 45) { initial_value = 48; max_value = 96; coalesce = 16; pace = 30; }
+    else if (score < 65) { initial_value = 64; max_value = 160; coalesce = 32; pace = 10; }
+    else if (score < 85) { initial_value = 96; max_value = 224; coalesce = 48; pace = 0; }
     if (initial_parallel) *initial_parallel = initial_value;
     if (max_parallel) *max_parallel = max_value;
     if (pacing_ms) *pacing_ms = pace;
@@ -378,7 +396,10 @@ static bool mark_chunk_received_in_session_state(const char *upload_id, int chun
 
 /* --- Session Management --- */
 
+static void cache_invalidate(const char *key);
+
 static bool save_upload_session_meta_bin(const char *upload_id, tasfa_meta_bin_t *meta) {
+    cache_invalidate(upload_id);
     char path[PATH_MAX];
     upload_session_meta_bin_path(path, sizeof(path), upload_id);
     return file_write(path, meta, sizeof(tasfa_meta_bin_t));
@@ -447,6 +468,134 @@ static cJSON *load_download_session(const char *session_id) {
     return load_json_file(path);
 }
 
+static unsigned int cache_hash(const char *str) {
+    unsigned int h = 5381;
+    int c;
+    while ((c = *str++))
+        h = ((h << 5) + h) + c;
+    return h % TASFA_CACHE_SLOTS;
+}
+
+static void cache_clear_slot(cache_slot_t *slot) {
+    if (!slot->valid) return;
+    if (slot->type == 3 && slot->data.json) {
+        cJSON_Delete(slot->data.json);
+        slot->data.json = NULL;
+    }
+    slot->valid = 0;
+    slot->key[0] = '\0';
+}
+
+static void cache_invalidate(const char *key) {
+    unsigned int idx = cache_hash(key);
+    pthread_mutex_lock(&g_tasfa_cache_mtx);
+    for (int i = 0; i < TASFA_CACHE_SLOTS; i++) {
+        int probe = (idx + i) % TASFA_CACHE_SLOTS;
+        if (!g_tasfa_cache[probe].valid) break;
+        if (strcmp(g_tasfa_cache[probe].key, key) == 0) {
+            cache_clear_slot(&g_tasfa_cache[probe]);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_tasfa_cache_mtx);
+}
+
+static bool load_upload_session_meta_bin_cached(const char *upload_id, tasfa_meta_bin_t *out) {
+    unsigned int idx = cache_hash(upload_id);
+    pthread_mutex_lock(&g_tasfa_cache_mtx);
+    for (int i = 0; i < TASFA_CACHE_SLOTS; i++) {
+        int probe = (idx + i) % TASFA_CACHE_SLOTS;
+        if (!g_tasfa_cache[probe].valid) break;
+        if (g_tasfa_cache[probe].type == 1 && strcmp(g_tasfa_cache[probe].key, upload_id) == 0) {
+            if (time(NULL) <= g_tasfa_cache[probe].expires) {
+                memcpy(out, &g_tasfa_cache[probe].data.mbin, sizeof(tasfa_meta_bin_t));
+                pthread_mutex_unlock(&g_tasfa_cache_mtx);
+                return true;
+            }
+            cache_clear_slot(&g_tasfa_cache[probe]);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_tasfa_cache_mtx);
+    if (load_upload_session_meta_bin(upload_id, out)) {
+        pthread_mutex_lock(&g_tasfa_cache_mtx);
+        for (int i = 0; i < TASFA_CACHE_SLOTS; i++) {
+            int probe = (idx + i) % TASFA_CACHE_SLOTS;
+            if (!g_tasfa_cache[probe].valid) {
+                g_tasfa_cache[probe].valid = 1;
+                g_tasfa_cache[probe].type = 1;
+                strncpy(g_tasfa_cache[probe].key, upload_id, sizeof(g_tasfa_cache[probe].key)-1);
+                g_tasfa_cache[probe].key[sizeof(g_tasfa_cache[probe].key)-1] = '\0';
+                memcpy(&g_tasfa_cache[probe].data.mbin, out, sizeof(tasfa_meta_bin_t));
+                g_tasfa_cache[probe].expires = time(NULL) + TASFA_UPLOAD_TTL;
+                break;
+            }
+        }
+        pthread_mutex_unlock(&g_tasfa_cache_mtx);
+        return true;
+    }
+    return false;
+}
+
+static cJSON *load_download_session_cached(const char *session_id) {
+    unsigned int idx = cache_hash(session_id);
+    pthread_mutex_lock(&g_tasfa_cache_mtx);
+    for (int i = 0; i < TASFA_CACHE_SLOTS; i++) {
+        int probe = (idx + i) % TASFA_CACHE_SLOTS;
+        if (!g_tasfa_cache[probe].valid) break;
+        if (g_tasfa_cache[probe].type == 3 && strcmp(g_tasfa_cache[probe].key, session_id) == 0) {
+            if (time(NULL) <= g_tasfa_cache[probe].expires) {
+                cJSON *copy = cJSON_Duplicate(g_tasfa_cache[probe].data.json, 1);
+                pthread_mutex_unlock(&g_tasfa_cache_mtx);
+                return copy;
+            }
+            cache_clear_slot(&g_tasfa_cache[probe]);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_tasfa_cache_mtx);
+    cJSON *meta = load_download_session(session_id);
+    if (meta) {
+        pthread_mutex_lock(&g_tasfa_cache_mtx);
+        for (int i = 0; i < TASFA_CACHE_SLOTS; i++) {
+            int probe = (idx + i) % TASFA_CACHE_SLOTS;
+            if (!g_tasfa_cache[probe].valid) {
+                g_tasfa_cache[probe].valid = 1;
+                g_tasfa_cache[probe].type = 3;
+                strncpy(g_tasfa_cache[probe].key, session_id, sizeof(g_tasfa_cache[probe].key)-1);
+                g_tasfa_cache[probe].key[sizeof(g_tasfa_cache[probe].key)-1] = '\0';
+                g_tasfa_cache[probe].data.json = cJSON_Duplicate(meta, 1);
+                g_tasfa_cache[probe].expires = time(NULL) + TASFA_DOWNLOAD_TTL;
+                break;
+            }
+        }
+        pthread_mutex_unlock(&g_tasfa_cache_mtx);
+    }
+    return meta;
+}
+
+static __thread unsigned char *g_tasfa_decrypt_buf = NULL;
+static __thread size_t g_tasfa_decrypt_buf_size = 0;
+
+static unsigned char *ensure_decrypt_buf(size_t need) {
+    if (g_tasfa_decrypt_buf_size >= need) return g_tasfa_decrypt_buf;
+    if (g_tasfa_decrypt_buf) free(g_tasfa_decrypt_buf);
+    g_tasfa_decrypt_buf = (unsigned char *)malloc(need);
+    g_tasfa_decrypt_buf_size = need;
+    return g_tasfa_decrypt_buf;
+}
+
+static __thread char *g_tasfa_read_buf = NULL;
+static __thread size_t g_tasfa_read_buf_size = 0;
+
+static char *ensure_read_buf(size_t need) {
+    if (g_tasfa_read_buf_size >= need) return g_tasfa_read_buf;
+    if (g_tasfa_read_buf) free(g_tasfa_read_buf);
+    g_tasfa_read_buf = (char *)malloc(need);
+    g_tasfa_read_buf_size = need;
+    return g_tasfa_read_buf;
+}
+
 static bool save_download_session(const char *session_id, cJSON *root) {
     char path[PATH_MAX];
     download_session_meta_path(path, sizeof(path), session_id);
@@ -469,6 +618,7 @@ static void cleanup_dir_tree(const char *dir_path) {
 }
 
 static void cleanup_upload_session(const char *upload_id) {
+    cache_invalidate(upload_id);
     char dir_path[PATH_MAX];
     upload_session_dir(dir_path, sizeof(dir_path), upload_id);
     cleanup_dir_tree(dir_path);
@@ -545,13 +695,14 @@ static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
     cJSON_AddStringToObject(obj, "expires_at", json_string(meta, "expires_at", "0"));
     cJSON_AddBoolToObject(obj, "topology_closure_complete", chunk_count > 0 && received_chunks == chunk_count);
     cJSON_AddNumberToObject(obj, "client_stripes", TASFA_CLIENT_STRIPES);
+    cJSON_AddNumberToObject(obj, "dispatch_pacing_ms", json_int(meta, "dispatch_pacing_ms", 0));
     return obj;
 }
 
 static bool send_file_slice_response(cwist_http_response *res, const char *path, const char *mime, long long offset, size_t amount) {
     int fd = open(path, O_RDONLY);
     if (fd < 0) return false;
-    char *buf = (char *)cwist_alloc(amount ? amount : 1);
+    char *buf = ensure_read_buf(amount ? amount : 1);
     if (!buf) { close(fd); return false; }
     size_t total = 0;
     while (total < amount) {
@@ -560,7 +711,7 @@ static bool send_file_slice_response(cwist_http_response *res, const char *path,
         total += (size_t)rc;
     }
     close(fd);
-    if (total != amount) { cwist_free(buf); return false; }
+    if (total != amount) return false;
     char len_buf[32];
     snprintf(len_buf, sizeof(len_buf), "%zu", amount);
     cwist_http_header_add(&res->headers, "Content-Type", mime ? mime : "application/octet-stream");
@@ -568,7 +719,6 @@ static bool send_file_slice_response(cwist_http_response *res, const char *path,
     cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
     cwist_sstring_assign(res->body, "");
     cwist_sstring_append_len(res->body, buf, amount);
-    cwist_free(buf);
     return true;
 }
 
@@ -695,6 +845,11 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     int suggested_parallel = atoi(cwist_query_map_get(kv, "suggested_parallel") ? cwist_query_map_get(kv, "suggested_parallel") : "0");
     int chunk_count = atoi(cwist_query_map_get(kv, "chunk_count") ? cwist_query_map_get(kv, "chunk_count") : "0");
     long long total_size = atoll(cwist_query_map_get(kv, "total_size") ? cwist_query_map_get(kv, "total_size") : "0");
+    int client_chunk_size = atoi(cwist_query_map_get(kv, "chunk_size") ? cwist_query_map_get(kv, "chunk_size") : "0");
+    int actual_chunk_size = TASFA_CHUNK_SIZE;
+    if (client_chunk_size >= 1024*1024 && client_chunk_size <= 64*1024*1024) actual_chunk_size = client_chunk_size;
+    if (chunk_count <= 0 && total_size > 0) chunk_count = (int)((total_size + actual_chunk_size - 1) / actual_chunk_size);
+    if (chunk_count < 1) chunk_count = 1;
     int post_id = atoi(cwist_query_map_get(kv, "post_id") ? cwist_query_map_get(kv, "post_id") : "0");
     int score = link_score_from_inputs(
         cwist_query_map_get(kv, "link_stability_score"),
@@ -812,8 +967,8 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
             send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
             return;
         }
-        int initial_parallel = 0, max_parallel = 0;
-        choose_upload_window(score, &initial_parallel, &max_parallel);
+        int initial_parallel = 0, max_parallel = 0, pacing_ms = 0;
+        choose_upload_window(score, &initial_parallel, &max_parallel, &pacing_ms);
         if (suggested_parallel > 0) {
             int suggested = clamp_int(suggested_parallel, 2, TASFA_UPLOAD_MAX_PARALLEL);
             if (initial_parallel < suggested) initial_parallel = suggested;
@@ -837,6 +992,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         cJSON_AddNumberToObject(meta, "received_chunks", bitmap_count_set(bitmap, chunk_count));
         cJSON_AddNumberToObject(meta, "current_parallel_chunks", initial_parallel);
         cJSON_AddNumberToObject(meta, "max_parallel_chunks", max_parallel);
+        cJSON_AddNumberToObject(meta, "dispatch_pacing_ms", pacing_ms);
         if (rolled_over) cJSON_AddStringToObject(meta, "rolled_over_from", previous_upload_id);
         if (rolled_over) cJSON_AddNumberToObject(meta, "client_confirmed_bytes", (double)client_confirmed_bytes);
         char expires_at[32];
@@ -849,7 +1005,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         memcpy(mbin.stream_key, stream_key, sizeof(stream_key));
         memcpy(mbin.stream_iv_seed, stream_iv_seed, sizeof(stream_iv_seed));
         mbin.chunk_count = chunk_count;
-        mbin.chunk_size = TASFA_CHUNK_SIZE;
+        mbin.chunk_size = actual_chunk_size;
         mbin.total_size = total_size;
         strncpy(mbin.filename, filename, sizeof(mbin.filename)-1);
         mbin.post_id = post_id;
@@ -884,8 +1040,8 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
             previous_lock_fd = -1;
         }
     } else {
-        int initial_parallel = 0, max_parallel = 0;
-        choose_upload_window(score, &initial_parallel, &max_parallel);
+        int initial_parallel = 0, max_parallel = 0, pacing_ms = 0;
+        choose_upload_window(score, &initial_parallel, &max_parallel, &pacing_ms);
         if (suggested_parallel > 0) {
             int suggested = clamp_int(suggested_parallel, 2, TASFA_UPLOAD_MAX_PARALLEL);
             if (initial_parallel < suggested) initial_parallel = suggested;
@@ -897,6 +1053,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         if (max_parallel < current_max) max_parallel = current_max;
         cJSON_ReplaceItemInObject(meta, "current_parallel_chunks", cJSON_CreateNumber(initial_parallel));
         cJSON_ReplaceItemInObject(meta, "max_parallel_chunks", cJSON_CreateNumber(max_parallel));
+        cJSON_ReplaceItemInObject(meta, "dispatch_pacing_ms", cJSON_CreateNumber(pacing_ms));
         char upload_token[49];
         if (random_hex(upload_token, 24)) cJSON_ReplaceItemInObject(meta, "upload_token", cJSON_CreateString(upload_token));
         char upload_secret[49];
@@ -929,7 +1086,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         memcpy(mbin.stream_key, stream_key, sizeof(stream_key));
         memcpy(mbin.stream_iv_seed, stream_iv_seed, sizeof(stream_iv_seed));
         mbin.chunk_count = json_int(meta, "chunk_count", 0);
-        mbin.chunk_size = TASFA_CHUNK_SIZE;
+        mbin.chunk_size = json_int(meta, "chunk_size", TASFA_CHUNK_SIZE);
         mbin.total_size = json_long_long(meta, "total_size", 0);
         strncpy(mbin.filename, json_string(meta, "filename", ""), sizeof(mbin.filename)-1);
         mbin.post_id = json_int(meta, "post_id", 0);
@@ -1016,8 +1173,8 @@ void handler_file_upload_renegotiate(cwist_http_request *req, cwist_http_respons
         cwist_query_map_get(kv, "link_save_data")
     );
     int suggested = atoi(cwist_query_map_get(kv, "suggested_parallel") ? cwist_query_map_get(kv, "suggested_parallel") : "0");
-    int initial_parallel = 0, max_parallel = 0;
-    choose_upload_window(score, &initial_parallel, &max_parallel);
+    int initial_parallel = 0, max_parallel = 0, pacing_ms = 0;
+    choose_upload_window(score, &initial_parallel, &max_parallel, &pacing_ms);
     int current_parallel = json_int(meta, "current_parallel_chunks", initial_parallel);
     int current_max = json_int(meta, "max_parallel_chunks", max_parallel);
     if (max_parallel < current_max) max_parallel = current_max;
@@ -1025,6 +1182,7 @@ void handler_file_upload_renegotiate(cwist_http_request *req, cwist_http_respons
     if (initial_parallel < current_parallel) initial_parallel = current_parallel;
     cJSON_ReplaceItemInObject(meta, "current_parallel_chunks", cJSON_CreateNumber(initial_parallel));
     cJSON_ReplaceItemInObject(meta, "max_parallel_chunks", cJSON_CreateNumber(max_parallel));
+    cJSON_ReplaceItemInObject(meta, "dispatch_pacing_ms", cJSON_CreateNumber(pacing_ms));
     save_upload_session(upload_id, meta);
     save_upload_session_state(upload_id, meta);
     cJSON *obj = build_upload_status_json(meta, upload_id);
@@ -1050,7 +1208,7 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     }
 
     tasfa_meta_bin_t mbin;
-    if (!load_upload_session_meta_bin(upload_id, &mbin)) {
+    if (!load_upload_session_meta_bin_cached(upload_id, &mbin)) {
         send_json_response(res, session_error_json("upload session not found"), CWIST_HTTP_NOT_FOUND);
         return;
     }
@@ -1076,14 +1234,13 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     int fd = open(mbin.temp_path, O_WRONLY);
     if (fd >= 0) {
         if (encrypted_stream) {
-            unsigned char *plaintext = (unsigned char *)cwist_alloc((size_t)expected_size);
+            unsigned char *plaintext = ensure_decrypt_buf((size_t)expected_size);
             if (plaintext && req->body->size == (size_t)expected_size + 16 &&
                 decrypt_stream_block(mbin.stream_key, mbin.stream_iv_seed, chunk_index, upload_id,
                                      (const unsigned char *)req->body->data, req->body->size,
                                      plaintext, (size_t)expected_size)) {
                 stored = pwrite_all(fd, plaintext, (size_t)expected_size, (off_t)offset);
             }
-            if (plaintext) cwist_free(plaintext);
         } else if ((long long)req->body->size == expected_size) {
             stored = pwrite_all(fd, req->body->data, req->body->size, (off_t)offset);
         }
@@ -1289,7 +1446,7 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
         send_json_response(res, session_error_json("invalid download chunk payload"), CWIST_HTTP_BAD_REQUEST);
         return;
     }
-    cJSON *meta = load_download_session(session_id);
+    cJSON *meta = load_download_session_cached(session_id);
     if (!meta) {
         send_json_response(res, session_error_json("download session not found"), CWIST_HTTP_NOT_FOUND);
         return;

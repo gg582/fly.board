@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> Uno de los pocos motores de blog sencillos que funciona con **22-30 MB RSS** en reposo y **~369 MB** bajo C10k (10 000 conexiones simultáneas).  
+> Uno de los pocos motores de blog sencillos que funciona con **100-200 MB RSS** en reposo y **~369 MB** bajo C10k (10 000 conexiones simultáneas).  
 > Motor híbrido de foro y blog ligero construido sobre el framework web CWIST en C, con soporte para HTTPS/3, Argon2id, firmas PQC y mensajería NATS.
 
 ## Características
 
-- **Eficiente en memoria** – Implementación en C con pila y montón. **22-30 MB RSS** en reposo; **~369 MB** de RSS máximo con 10 000 conexiones simultáneas (C10k).
+- **Eficiente en memoria** – Implementación en C con pila y montón. **100-200 MB RSS** en reposo; **~369 MB** de RSS máximo con 10 000 conexiones simultáneas (C10k).
 - **Transporte moderno** – TLS 1.3 + HTTP/3 (QUIC) por defecto. ECH (Encrypted Client Hello) opcional.
 - **Autenticación segura** – Prehash SHA-512 del lado del cliente + **Argon2id** del lado del servidor (KDF de OpenSSL 3). Cookies de sesión JWT.
 - **Híbrido foro / blog** – Publicaciones Markdown basadas en slug + múltiples tableros + comentarios anidados.

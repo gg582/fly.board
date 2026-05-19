@@ -52,8 +52,8 @@
     var PREPARE_AHEAD_MULTIPLIER = 5;
     var PREPARE_BATCH_SIZE = 4;
     var UPLOAD_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024;
-    var UPLOAD_PREPARED_BUDGET_BYTES = 96 * 1024 * 1024;
-    var UPLOAD_ACTIVE_BUDGET_BYTES = 128 * 1024 * 1024;
+    var UPLOAD_PREPARED_BUDGET_BYTES = 256 * 1024 * 1024;
+    var UPLOAD_ACTIVE_BUDGET_BYTES = 192 * 1024 * 1024;
     function escapeHtml(value) {
         return String(value || '')
             .replace(/&/g, '&amp;')
@@ -385,13 +385,13 @@
         list.insertBefore(article, list.firstChild);
     }
 
-    function createMediaCard(filename, previewUrl, isImage) {
+    function createMediaCard(filename, previewUrl, mediaType) {
         var card = document.createElement('div');
         card.className = 'media-card';
 
         var thumb = document.createElement('div');
         thumb.className = 'media-thumb';
-        if (isImage) {
+        if (mediaType === 'image') {
             var img = document.createElement('img');
             img.src = previewUrl;
             img.style.display = 'block';
@@ -401,6 +401,27 @@
             img.style.objectFit = 'cover';
             img.style.filter = 'grayscale(1) contrast(1.08)';
             thumb.appendChild(img);
+        } else if (mediaType === 'video') {
+            var vid = document.createElement('video');
+            vid.src = previewUrl;
+            vid.muted = true;
+            vid.playsInline = true;
+            vid.preload = 'metadata';
+            vid.style.display = 'block';
+            vid.style.width = '100%';
+            vid.style.height = '100%';
+            vid.style.objectFit = 'cover';
+            vid.style.filter = 'grayscale(1) contrast(1.08)';
+            thumb.appendChild(vid);
+        } else if (mediaType === 'audio') {
+            var aud = document.createElement('audio');
+            aud.src = previewUrl;
+            aud.controls = true;
+            aud.preload = 'metadata';
+            aud.style.width = '100%';
+            aud.style.height = '28px';
+            aud.style.alignSelf = 'center';
+            thumb.appendChild(aud);
         } else {
             var icon = document.createElement('span');
             icon.style.fontSize = '22px';
@@ -915,8 +936,11 @@
         return asset.sessionGeneration;
     }
 
-    function nextChunkRetryDelay(attempt) {
-        return Math.min(UPLOAD_RECOVERY_MAX_DELAY, UPLOAD_RECOVERY_BASE_DELAY * Math.pow(1.6, Math.max(0, Number(attempt) || 0)));
+    function nextChunkRetryDelay(attempt, score) {
+        var base = UPLOAD_RECOVERY_BASE_DELAY;
+        var factor = (typeof score === 'number' && score < 45) ? 1.3 : 1.6;
+        var max = (typeof score === 'number' && score < 45) ? 5000 : UPLOAD_RECOVERY_MAX_DELAY;
+        return Math.min(max, base * Math.pow(factor, Math.max(0, Number(attempt) || 0)));
     }
 
     function budgetParallelLimit(chunkSize) {
@@ -1012,7 +1036,10 @@
                         var stallLimit = !hasConfirmedTraffic ? UPLOAD_STARTUP_STALL_TIMEOUT_MS : (sentBytes > 0 ? UPLOAD_PROGRESS_STALL_TIMEOUT_MS : UPLOAD_STALL_TIMEOUT_MS);
                         if (document.visibilityState === 'hidden') stallLimit = Math.max(stallLimit, 10000);
                         var linkState = ensureLinkState(asset);
-                        var rttFloor = Math.max(stallLimit, Math.min(10000, Math.ceil(Number(linkState.ewmaRttMs || 0) * 3.5)));
+                        var score = computeLinkStabilityScore(asset);
+                        if (score < 45) stallLimit = Math.max(stallLimit, 12000);
+                        else if (score < 65) stallLimit = Math.max(stallLimit, 8000);
+                        var rttFloor = Math.max(stallLimit, Math.min(15000, Math.ceil(Number(linkState.ewmaRttMs || 0) * (score < 45 ? 5.0 : 3.5))));
                         return now - Number(chunkActivity[key] || 0) > rttFloor;
                     });
                     if (stalled) {
@@ -1045,8 +1072,16 @@
         return { start: range.start, end: range.end, blob: blob, chunkIndex: chunkIndex };
     }
 
+    function computeAdaptiveChunkSize(score, rttMs, downlinkMbps) {
+        var dl = typeof downlinkMbps === 'number' ? downlinkMbps : 0;
+        if (score >= 85 && dl >= 50) return 64 * 1024 * 1024;
+        if (score >= 65 && dl >= 20) return 32 * 1024 * 1024;
+        if (score >= 45) return 16 * 1024 * 1024;
+        return 8 * 1024 * 1024;
+    }
+
     function prepareAheadTarget(asset) {
-        return Math.max(4, Math.min(32, asset.currentParallel || UPLOAD_DEFAULT_PARALLEL));
+        return Math.max(8, Math.min(48, (asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) * 2));
     }
 
     function schedulePrepareAhead(asset, file) {
@@ -1137,6 +1172,7 @@
         asset.currentParallel = clampParallelToBudget(asset, payload.current_parallel_chunks || payload.initial_parallel_chunks || asset.currentParallel || UPLOAD_DEFAULT_PARALLEL);
         asset.maxParallel = Math.max(asset.currentParallel, clampParallelToBudget(asset, payload.max_parallel_chunks || asset.maxParallel || UPLOAD_MAX_PARALLEL));
         asset.peakParallel = Math.max(Number(asset.peakParallel || 0), Number(asset.currentParallel || 0), Number(asset.maxParallel || 0));
+        asset.dispatchPacingMs = Math.max(0, Number(payload.dispatch_pacing_ms || 0));
         rebuildPendingChunks(asset);
         syncConfirmedProgress(asset);
         updateAssetProgress(asset);
@@ -1333,7 +1369,7 @@
                 if (xhr.status !== 200 && xhr.status !== 204) {
                     if ((xhr.status === 429 || xhr.status >= 500) && attempt < retryCount) {
                         recordLinkPenalty(asset, xhr.status === 429 ? 'retry' : 'timeout');
-                        setTimeout(function() { attemptUpload(attempt + 1); }, nextChunkRetryDelay(attempt));
+                        setTimeout(function() { attemptUpload(attempt + 1); }, nextChunkRetryDelay(attempt, computeLinkStabilityScore(asset)));
                         return;
                     }
                     recordLinkPenalty(asset, xhr.status === 429 ? 'retry' : 'timeout');
@@ -1398,7 +1434,7 @@
                 finishNetworkAttempt(asset, chunkIndex);
                 if (attempt < retryCount) {
                     recordLinkPenalty(asset, 'timeout');
-                    setTimeout(function() { attemptUpload(attempt + 1); }, nextChunkRetryDelay(attempt));
+                    setTimeout(function() { attemptUpload(attempt + 1); }, nextChunkRetryDelay(attempt, computeLinkStabilityScore(asset)));
                     return;
                 }
                 recordLinkPenalty(asset, 'timeout');
@@ -1453,13 +1489,26 @@
         if (Number(asset.dispatchReservations || 0) === 0 && hasMissingChunks(asset) && asset.nextChunkCursor >= asset.pendingChunks.length) {
             rebuildPendingChunks(asset);
         }
-        while (Number(asset.dispatchReservations || 0) < asset.currentParallel) {
-            var nextChunk = queueNextChunkIndex(asset);
-            if (nextChunk === null) break;
-            dispatchChunk(asset, file, nextChunk, UPLOAD_CHUNK_RETRY_LIMIT);
+        clearTimeout(asset._fillWindowTimer);
+        function pump() {
+            if (!asset || asset.failed || asset.isCancelling || asset.isPaused || asset.recovering) return;
+            if (Number(asset.dispatchReservations || 0) < asset.currentParallel) {
+                var nextChunk = queueNextChunkIndex(asset);
+                if (nextChunk !== null) {
+                    dispatchChunk(asset, file, nextChunk, UPLOAD_CHUNK_RETRY_LIMIT);
+                    var pace = asset.dispatchPacingMs || 0;
+                    if (pace > 0 && Number(asset.dispatchReservations || 0) < asset.currentParallel) {
+                        asset._fillWindowTimer = setTimeout(pump, pace);
+                        return;
+                    }
+                    pump();
+                    return;
+                }
+            }
+            markSchedulerActivity(asset);
+            maybeFinalizeChunkUpload(asset);
         }
-        markSchedulerActivity(asset);
-        maybeFinalizeChunkUpload(asset);
+        pump();
     }
 
     function beginChunkUpload(asset, file) {
@@ -1491,12 +1540,13 @@
         var sessionGeneration = bumpUploadSessionGeneration(asset);
         asset.isUploading = true; asset.failed = false; asset.isPaused = false; asset.recovering = false;
         updateFileRepoUploadButton(); updateSubmitButtons();
-        var chunkCount = Math.max(1, Math.ceil(file.size / UPLOAD_CHUNK_SIZE));
+        var chunkCount = Math.max(1, Math.ceil(file.size / asset.chunkSize));
         var linkHints = buildLinkHintFields(asset);
         var suggestedParallel = reason === 'rollover' ? UPLOAD_DEFAULT_PARALLEL : Math.max(Number(asset.peakParallel || 0), Number(asset.currentParallel || UPLOAD_DEFAULT_PARALLEL));
         var body = 'filename=' + encodeURIComponent(file.name) +
             '&total_size=' + encodeURIComponent(String(file.size)) +
             '&chunk_count=' + encodeURIComponent(String(chunkCount)) +
+            '&chunk_size=' + encodeURIComponent(String(asset.chunkSize)) +
             '&post_id=' + encodeURIComponent(window.POST_ID || 0) +
             '&session_id=' + encodeURIComponent(asset.client_uuid || '') +
             '&suggested_parallel=' + encodeURIComponent(String(suggestedParallel)) +
@@ -1580,7 +1630,11 @@
         var clientUuid = generateUUID();
         var blobUrl = URL.createObjectURL(file);
         var placeholderUrl = isEditorMode ? (blobUrl + '#' + clientUuid) : null;
-        var ui = createMediaCard(file.name, blobUrl, /^image\//.test(file.type || ''));
+        var mediaType = /^image\//.test(file.type || '') ? 'image' : /^video\//.test(file.type || '') ? 'video' : /^audio\//.test(file.type || '') ? 'audio' : 'file';
+        var ui = createMediaCard(file.name, blobUrl, mediaType);
+        var conn = getConnectionInfo();
+        var score = computeLinkStabilityScore({ linkState: { ewmaRttMs: conn.rttMs, retries: 0, timeouts: 0 } });
+        var adaptiveChunkSize = computeAdaptiveChunkSize(score, conn.rttMs, conn.downlinkMbps);
         var asset = {
             client_uuid: clientUuid,
             fid: null,
@@ -1597,7 +1651,7 @@
             streamKeyHex: '',
             streamIvSeedHex: '',
             fileSize: file.size,
-            chunkSize: UPLOAD_CHUNK_SIZE,
+            chunkSize: adaptiveChunkSize,
             transferProgress: [],
             confirmedBytes: 0,
             resumeFromByte: 0,
