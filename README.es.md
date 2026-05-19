@@ -178,4 +178,4 @@ Medición manteniendo 10 000 conexiones simultáneas en un entorno real (`sudo -
 - **Sin E/S de disco**: Major page faults 0, Swaps 0, FS inputs 0 — procesamiento puramente en memoria bajo carga
 - **Alto aprovechamiento de CPU**: ~93% de uso sostenido sin pérdida de estabilidad
 - **Estabilidad a largo plazo**: 24 min 46 s de carga C10k continua y cierre limpio (estado 0)
-- **Seguridad de datos**: NukeDB persistió los datos de forma segura tras SIGINT (89 208 FS outputs)
+- **Seguridad de datos**: SQLite persistió los datos de forma segura tras SIGINT (89 208 FS outputs)

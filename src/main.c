@@ -108,9 +108,9 @@ int main(void) {
     }
     CWIST_LOG_INFO("CWIST app created");
 
-    cwist_error_t dberr = cwist_app_use_nuke_db(app, DB_PATH, 5000);
+    cwist_error_t dberr = cwist_app_use_db(app, DB_PATH);
     if (dberr.errtype != CWIST_ERR_INT16 || dberr.error.err_i16 != 0) {
-        FLY_LOG_ERROR("Failed to open database via NukeDB");
+        FLY_LOG_ERROR("Failed to open database");
         cwist_app_destroy(app);
         return 1;
     }

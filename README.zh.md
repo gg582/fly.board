@@ -178,4 +178,4 @@ MIT License
 - **零磁盘 I/O**: Major page faults 0、Swaps 0、FS inputs 0 — 高负载下仍纯内存处理
 - **CPU 充分利用**: 93% CPU 占用率下依然稳定运行
 - **长时间稳定性**: 持续 24 分 46 秒的 C10k 满载后正常退出（Exit status 0）
-- **数据安全**: 收到 SIGINT 后 NukeDB 仍安全保存全部数据
+- **数据安全**: 收到 SIGINT 后 SQLite 仍安全保存全部数据
