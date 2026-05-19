@@ -774,7 +774,7 @@
     }
 
     function finalizeUploadSuccess(asset, response) {
-        asset.fid = response.fid || response.id;
+        asset.fid = response.fid || response.id || asset.fid;
         asset.url = response.url;
         asset.filename = response.filename || asset.filename;
         asset.deletePin = response.delete_pin || '';
@@ -2065,7 +2065,7 @@
                 var payload = null;
                 try { payload = JSON.parse(xhr.responseText); } catch (e) {}
                 if (payload && payload.ok) {
-                    asset.fid = payload.file_id || 0;
+                    asset.fid = payload.file_id !== undefined ? payload.file_id : (payload.id !== undefined ? payload.id : asset.fid);
                     asset.url = payload.url;
                     asset.confirmedBytes = file.size;
                     asset.transferProgress[0] = file.size;
@@ -2192,6 +2192,7 @@
         updateFileRepoUploadButton();
         updateSubmitButtons();
         if (isEditorMode) {
+            insertAtCursor('![' + file.name + '](' + placeholderUrl + ')\n');
             if (useTasfa) { initChunkedUpload(asset, file); }
             else { uploadFilePlain(asset, file); }
         }

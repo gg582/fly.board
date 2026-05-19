@@ -31,6 +31,7 @@ form_field_t *form_find(form_field_t *fields, const char *name);
 /* File upload result */
 typedef struct {
     bool ok;
+    int file_id;
     char filename[256];
     char mime_type[128];
     char url[512];
