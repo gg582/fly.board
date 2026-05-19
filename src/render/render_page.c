@@ -121,7 +121,8 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *script = cwist_html_element_create("script");
     cwist_html_element_set_text(script,
         "(function(){"
-        "function toggleMobileNav(){var nav=document.querySelector('.nav-links');var overlay=document.querySelector('.mobile-overlay');var btn=document.querySelector('.burger-btn');var open=!nav.classList.contains('open');nav.classList.toggle('open',open);nav.style.display=open?'flex':'';overlay.classList.toggle('open',open);btn.classList.toggle('open',open);document.body.style.overflow=open?'hidden':'';}" 
+        "function setMobileNav(open){var nav=document.querySelector('.nav-links');var overlay=document.querySelector('.mobile-overlay');var btn=document.querySelector('.burger-btn');if(!nav||!overlay||!btn)return;nav.classList.toggle('open',open);nav.style.display=open?'flex':'';overlay.classList.toggle('open',open);btn.classList.toggle('open',open);btn.setAttribute('aria-expanded',open?'true':'false');document.body.style.overflow=open?'hidden':'';}"
+        "window.toggleMobileNav=function(){var nav=document.querySelector('.nav-links');if(!nav)return;setMobileNav(!nav.classList.contains('open'));};"
         "var CACHE_KEY='fly_themes';"
         "var MIX_KEY='fly_theme_mix';"
         "var HL_LIGHT='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css';"
@@ -178,7 +179,8 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "var m=document.getElementById('theme-dropdown');var btn=document.querySelector('.theme-toggle-btn');"
         "if(!m)return;var open=!m.classList.contains('open');m.classList.toggle('open',open);"
         "if(btn)btn.setAttribute('aria-expanded',open?'true':'false');};"
-        "document.addEventListener('click',function(){closeMenu();});"
+        "document.addEventListener('click',function(ev){closeMenu();var nav=document.querySelector('.nav-links');var btn=document.querySelector('.burger-btn');if(!nav||!btn||!nav.classList.contains('open'))return;if(nav.contains(ev.target)||btn.contains(ev.target))return;setMobileNav(false);});"
+        "document.addEventListener('keydown',function(ev){if(ev.key==='Escape'){closeMenu();setMobileNav(false);}});"
         "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',loadBoardsDropdown);}else{loadBoardsDropdown();}"
         "})();");
     cwist_html_element_add_child(head, script);
@@ -202,6 +204,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(burger_btn, "type", "button");
     cwist_html_element_add_attr(burger_btn, "class", "burger-btn");
     cwist_html_element_add_attr(burger_btn, "aria-label", "Menu");
+    cwist_html_element_add_attr(burger_btn, "aria-expanded", "false");
     cwist_html_element_add_attr(burger_btn, "onclick", "toggleMobileNav()");
     cwist_html_element_t *burger_icon = cwist_html_element_create("span");
     cwist_html_element_add_class(burger_icon, "burger-icon");
