@@ -374,12 +374,12 @@ void rule_layout(cJSON *rules) {
     cJSON_AddItemToArray(rules, ua_burger);
 
     cJSON *ua_navlinks = create_rule("html.mobile-device .nav-links");
-    add_decl(ua_navlinks, "position", "absolute");
-    add_decl(ua_navlinks, "top", "100%");
+    add_decl(ua_navlinks, "position", "fixed");
+    add_decl(ua_navlinks, "top", "0");
     add_decl(ua_navlinks, "left", "0");
     add_decl(ua_navlinks, "width", "260px");
-    add_decl(ua_navlinks, "height", "calc(100dvh - 100%)");
-    add_decl(ua_navlinks, "max-height", "calc(100dvh - 100%)");
+    add_decl(ua_navlinks, "height", "100dvh");
+    add_decl(ua_navlinks, "max-height", "100dvh");
     add_decl(ua_navlinks, "background", "color-mix(in srgb, var(--glass-bg) 96%, transparent)");
     add_decl(ua_navlinks, "backdrop-filter", "blur(24px) saturate(180%)");
     add_decl(ua_navlinks, "-webkit-backdrop-filter", "blur(24px) saturate(180%)");
@@ -1285,7 +1285,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(media_thumb, "width", "96px");
     add_decl(media_thumb, "height", "96px");
     add_decl(media_thumb, "min-width", "96px");
-    add_decl(media_thumb, "border-radius", "14px");
+    add_decl(media_thumb, "border-radius", "0");
     add_decl(media_thumb, "overflow", "hidden");
     add_decl(media_thumb, "background", "var(--hover)");
     add_decl(media_thumb, "display", "flex");
@@ -1324,6 +1324,53 @@ void rule_markdown(cJSON *rules) {
     cJSON *media_actions_btn = create_rule(".media-actions .btn");
     add_decl(media_actions_btn, "justify-content", "center");
     cJSON_AddItemToArray(rules, media_actions_btn);
+
+    /* File repository list */
+    cJSON *fr_list = create_rule(".file-repo-list");
+    add_decl(fr_list, "display", "grid");
+    add_decl(fr_list, "grid-template-columns", "minmax(0, 1fr)");
+    add_decl(fr_list, "gap", "12px");
+    add_decl(fr_list, "margin-top", "18px");
+    cJSON_AddItemToArray(rules, fr_list);
+
+    cJSON *fr_card = create_rule(".file-repo-card");
+    add_decl(fr_card, "padding", "14px");
+    cJSON_AddItemToArray(rules, fr_card);
+
+    cJSON *fr_inner = create_rule(".file-repo-card-inner");
+    add_decl(fr_inner, "display", "grid");
+    add_decl(fr_inner, "grid-template-columns", "64px minmax(0, 1fr)");
+    add_decl(fr_inner, "gap", "14px");
+    add_decl(fr_inner, "align-items", "center");
+    cJSON_AddItemToArray(rules, fr_inner);
+
+    cJSON *fr_thumb = create_rule(".file-repo-thumb");
+    add_decl(fr_thumb, "width", "64px");
+    add_decl(fr_thumb, "height", "64px");
+    add_decl(fr_thumb, "background", "var(--hover)");
+    add_decl(fr_thumb, "display", "flex");
+    add_decl(fr_thumb, "align-items", "center");
+    add_decl(fr_thumb, "justify-content", "center");
+    add_decl(fr_thumb, "overflow", "hidden");
+    cJSON_AddItemToArray(rules, fr_thumb);
+
+    cJSON *fr_thumb_media = create_rule(".file-repo-thumb img.file-thumb-media, .file-repo-thumb video.file-thumb-media");
+    add_decl(fr_thumb_media, "width", "100%");
+    add_decl(fr_thumb_media, "height", "100%");
+    add_decl(fr_thumb_media, "object-fit", "cover");
+    add_decl(fr_thumb_media, "display", "block");
+    cJSON_AddItemToArray(rules, fr_thumb_media);
+
+    cJSON *fr_thumb_icon = create_rule(".file-thumb-icon");
+    add_decl(fr_thumb_icon, "font-size", "11px");
+    add_decl(fr_thumb_icon, "font-weight", "700");
+    add_decl(fr_thumb_icon, "color", "var(--muted)");
+    add_decl(fr_thumb_icon, "letter-spacing", "0.05em");
+    cJSON_AddItemToArray(rules, fr_thumb_icon);
+
+    cJSON *fr_info = create_rule(".file-repo-card-info");
+    add_decl(fr_info, "min-width", "0");
+    cJSON_AddItemToArray(rules, fr_info);
 }
 
 void rule_animations(cJSON *rules) {
@@ -1371,12 +1418,12 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".desktop-only", "display: none");
     add_decl(mq, ".mobile-only", "display: block");
     add_decl(mq, ".burger-btn", "display: inline-flex");
-    add_decl(mq, ".nav-links", "position: absolute");
-    add_decl(mq, ".nav-links", "top: 100%");
+    add_decl(mq, ".nav-links", "position: fixed");
+    add_decl(mq, ".nav-links", "top: 0");
     add_decl(mq, ".nav-links", "left: 0");
     add_decl(mq, ".nav-links", "width: 260px");
-    add_decl(mq, ".nav-links", "height: calc(100dvh - 100%)");
-    add_decl(mq, ".nav-links", "max-height: calc(100dvh - 100%)");
+    add_decl(mq, ".nav-links", "height: 100dvh");
+    add_decl(mq, ".nav-links", "max-height: 100dvh");
     add_decl(mq, ".nav-links", "background: color-mix(in srgb, var(--glass-bg) 96%, transparent)");
     add_decl(mq, ".nav-links", "backdrop-filter: blur(24px) saturate(180%)");
     add_decl(mq, ".nav-links", "-webkit-backdrop-filter: blur(24px) saturate(180%)");

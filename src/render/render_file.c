@@ -105,7 +105,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
     }
     cwist_sstring_append(b, "<div id='file-repo-upload-root' class='card' style='max-width:720px;margin:0 auto'>");
     cwist_sstring_append(b, "<label>Upload file</label>");
-    cwist_sstring_append(b, "<div id='upload-dropzone' style='margin-top:10px;padding:18px;border:1px dashed var(--border);border-radius:12px;background:var(--panel)'>");
+    cwist_sstring_append(b, "<div id='upload-dropzone' style='margin-top:10px;padding:18px;border:1px dashed var(--border);background:var(--panel)'>");
     cwist_sstring_append(b, "<div style='font-weight:600'>Drop files here or browse manually</div>");
     cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>Transfers resume automatically and open through the streamed transfer path.</small>");
     cwist_sstring_append(b, "<input id='file-input' type='file' multiple style='margin-top:12px'>");
@@ -115,9 +115,17 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
     cwist_sstring_append(b, "<button id='file-repo-upload-btn' type='button' class='btn'>Upload queued files</button>");
     cwist_sstring_append(b, "</div></div>");
 
-    cwist_sstring_append(b, "<h3 style='margin-top:28px'>Files</h3>");
     if (files && cJSON_GetArraySize(files) > 0) {
-        cwist_sstring_append(b, "<div id='file-repo-list' class='post-grid'>");
+        int n_files = cJSON_GetArraySize(files);
+        char count_buf[32]; snprintf(count_buf, sizeof(count_buf), "%d", n_files);
+        cwist_sstring_append(b, "<h3 style='margin-top:28px'>Files (");
+        cwist_sstring_append(b, count_buf);
+        cwist_sstring_append(b, ")</h3>");
+    } else {
+        cwist_sstring_append(b, "<h3 style='margin-top:28px'>Files</h3>");
+    }
+    if (files && cJSON_GetArraySize(files) > 0) {
+        cwist_sstring_append(b, "<div id='file-repo-list' class='file-repo-list'>");
         int n = cJSON_GetArraySize(files);
         for (int i = 0; i < n; i++) {
             cJSON *f = cJSON_GetArrayItem(files, i);
@@ -138,16 +146,36 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             char sz_buf[32];
             snprintf(sz_buf, sizeof(sz_buf), "%lld", (long long)(sz ? (sz->type == cJSON_String ? atoll(sz->valuestring) : sz->valuedouble) : 0));
             bool can_delete = (user_role && strcmp(user_role, "admin") == 0) || (file_uid > 0 && file_uid == user_id);
-            cwist_sstring_append(b, "<article class='card'>");
-            cwist_sstring_append(b, "<h4 style='margin-top:0'>");
+            const char *mime = stype && stype->valuestring ? stype->valuestring : "";
+            int is_image = (strncmp(mime, "image/", 6) == 0);
+            int is_video = (strncmp(mime, "video/", 6) == 0);
+            cwist_sstring_append(b, "<article class='card file-repo-card'>");
+            cwist_sstring_append(b, "<div class='file-repo-card-inner'>");
+            cwist_sstring_append(b, "<div class='file-repo-thumb'>");
+            if (is_image) {
+                cwist_sstring_append(b, "<img data-tasfa-download='/file/download/");
+                cwist_sstring_append(b, fid_buf);
+                cwist_sstring_append(b, "' class='file-thumb-media' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'>");
+            } else if (is_video) {
+                cwist_sstring_append(b, "<video data-tasfa-download='/file/download/");
+                cwist_sstring_append(b, fid_buf);
+                cwist_sstring_append(b, "' class='file-thumb-media' muted playsinline preload='metadata'></video>");
+            } else {
+                cwist_sstring_append(b, "<span class='file-thumb-icon'>");
+                cwist_sstring_append(b, strncmp(mime, "audio/", 6) == 0 ? "AUD" : "FILE");
+                cwist_sstring_append(b, "</span>");
+            }
+            cwist_sstring_append(b, "</div>");
+            cwist_sstring_append(b, "<div class='file-repo-card-info'>");
+            cwist_sstring_append(b, "<h4 style='margin-top:0;font-size:15px;line-height:1.3'>");
             cwist_sstring_append_escaped(b, fname ? fname->valuestring : "Unknown");
             cwist_sstring_append(b, "</h4>");
-            cwist_sstring_append(b, "<p style='color:var(--muted);font-size:13px'>");
-            cwist_sstring_append(b, stype && stype->valuestring ? stype->valuestring : "unknown/mime");
+            cwist_sstring_append(b, "<p style='color:var(--muted);font-size:12px;margin:4px 0 0'>");
+            cwist_sstring_append(b, mime);
             cwist_sstring_append(b, " &middot; ");
             cwist_sstring_append(b, sz_buf);
             cwist_sstring_append(b, " bytes</p>");
-            cwist_sstring_append(b, "<div class='file-card-actions' style='display:flex;gap:10px;flex-wrap:wrap;margin-top:12px'><a href='#' data-tasfa-download-link='/file/download/");
+            cwist_sstring_append(b, "<div class='file-card-actions' style='display:flex;gap:10px;flex-wrap:wrap;margin-top:10px'><a href='#' data-tasfa-download-link='/file/download/");
             cwist_sstring_append(b, fid_buf);
             cwist_sstring_append(b, "' class='btn' style='font-size:12px;padding:4px 10px'>Download</a>");
             if (can_delete) {
@@ -157,7 +185,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
                 cwist_sstring_append(b, "'>");
                 cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Delete</button></form>");
             }
-            cwist_sstring_append(b, "</div></article>");
+            cwist_sstring_append(b, "</div></div></div></article>");
         }
         cwist_sstring_append(b, "</div>");
     } else {
