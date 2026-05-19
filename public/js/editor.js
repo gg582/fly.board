@@ -21,6 +21,11 @@
     var timer = null;
     var isSubmitting = false;
     var AssetRegistry = [];
+    var USE_TASFA = window.BLOG_USE_TASFA !== false;
+    var PLAIN_UPLOAD_ENDPOINT = '/api/upload';
+    var TASFA_FALLBACK_THRESHOLD_BPS = 50 * 1024;
+    var TASFA_FALLBACK_DURATION_MS = 15000;
+    var TASFA_MIN_SIZE_BYTES = UPLOAD_CHUNK_SIZE;
     var UPLOAD_INIT_ENDPOINT = '/file/upload/init';
     var UPLOAD_STATUS_ENDPOINT = '/file/upload/status';
     var UPLOAD_RENEGOTIATE_ENDPOINT = '/file/upload/renegotiate';
@@ -1298,6 +1303,23 @@
                     if (Number(asset.dispatchReservations || 0) < asset.currentParallel || Number(asset.dispatchReservations || 0) === 0) {
                         fillChunkWindow(asset, asset.file);
                     }
+                    maybeFinalizeChunkUpload(asset);
+                    if (!asset.recovering && !asset.isPaused && !asset.finalizing && asset.uploadMethod === 'tasfa') {
+                        var now = Date.now();
+                        if (!asset._fallbackCheckedAt) { asset._fallbackCheckedAt = now; asset._fallbackBytesAtStart = confirmedUploadBytes(asset); }
+                        var elapsedFallback = now - asset._fallbackCheckedAt;
+                        if (elapsedFallback > TASFA_FALLBACK_DURATION_MS) {
+                            var bytesDelta = confirmedUploadBytes(asset) - (asset._fallbackBytesAtStart || 0);
+                            var bps = bytesDelta / (elapsedFallback / 1000);
+                            if (bps < TASFA_FALLBACK_THRESHOLD_BPS) {
+                                fallbackToPlainTasfa(asset);
+                                clearSchedulerTimer(asset);
+                                return;
+                            }
+                            asset._fallbackCheckedAt = now;
+                            asset._fallbackBytesAtStart = confirmedUploadBytes(asset);
+                        }
+                    }
                 }
             } catch (err) { console.error('TASFA scheduler tick failed:', err); }
             asset.schedulerTimer = window.setTimeout(tick, UPLOAD_SCHEDULER_TICK_MS);
@@ -1535,9 +1557,31 @@
     }
 
     function maybeFinalizeChunkUpload(asset) {
-        if (asset.failed || asset.isCancelling || asset.finalizing || Number(asset.dispatchReservations || 0) > 0) return;
+        if (asset.failed || asset.isCancelling || asset.finalizing) return;
+        if (Number(asset.dispatchReservations || 0) > 0) {
+            var anyInflight = false;
+            for (var k in asset.inflightChunks) { if (asset.inflightChunks[k]) { anyInflight = true; break; } }
+            if (!anyInflight) asset.dispatchReservations = 0;
+            else return;
+        }
         if (asset.completedChunks !== asset.totalChunks) return;
-        if (hasMissingChunks(asset)) return;
+        if (hasMissingChunks(asset)) {
+            rebuildPendingChunks(asset);
+            if (hasMissingChunks(asset)) {
+                var pendingCount = asset.pendingChunks ? asset.pendingChunks.length : 0;
+                if (pendingCount === 0 && Number(asset.dispatchReservations || 0) === 0) {
+                    console.warn('TASFA bitmap/bytes mismatch, forcing completion');
+                    for (var i = 0; i < asset.totalChunks; i++) {
+                        if (asset.receivedBitmap.charAt(i) !== '1') asset.receivedBitmap = setBitmapBit(asset.receivedBitmap, i);
+                    }
+                    asset.completedChunks = asset.totalChunks;
+                    asset.confirmedBytes = asset.fileSize;
+                } else {
+                    fillChunkWindow(asset, asset.file);
+                    return;
+                }
+            }
+        }
         asset.finalizing = true;
         asset.ui.status.textContent = 'Verifying uploaded chunks';
         syncUploadSession(asset).then(function() {
@@ -1548,6 +1592,111 @@
         }).catch(function() {
             if (asset.failed || asset.isCancelling) { asset.finalizing = false; return; }
             asset.finalizing = false; rolloverUploadSession(asset, 'finalize');
+        });
+    }
+
+    function dispatchPlainChunk(asset, file, chunkIndex, retryCount) {
+        if (asset.failed || asset.isCancelling) return;
+        var range = chunkByteRange(asset, chunkIndex);
+        var blob = file.slice(range.start, range.end);
+        asset.inflightChunks[chunkIndex] = true;
+        asset.dispatchReservations = Math.max(0, Number(asset.dispatchReservations || 0)) + 1;
+
+        function attemptUpload(attempt) {
+            var xhr = new XMLHttpRequest();
+            xhr._tasfaKind = 'chunk';
+            asset.xhrs.push(xhr);
+            asset.transferProgress[chunkIndex] = 0;
+            asset.inflightRequests[chunkIndex] = xhr;
+
+            xhr.open('POST', UPLOAD_ENDPOINT, true);
+            xhr.timeout = 30000;
+            xhr.setRequestHeader('Accept', 'application/json');
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            xhr.setRequestHeader('X-TASFA-Upload-ID', asset.uploadId);
+            xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
+            xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
+
+            xhr.upload.onprogress = function(event) {
+                if (!event.lengthComputable) return;
+                asset.transferProgress[chunkIndex] = event.loaded;
+                updateAssetProgress(asset);
+            };
+
+            xhr.onload = function() {
+                asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
+                if (asset.failed || asset.isCancelling) return;
+                finishNetworkAttempt(asset, chunkIndex);
+                resetInflightChunk(asset, chunkIndex, true);
+                if (xhr.status !== 200 && xhr.status !== 204) {
+                    if ((xhr.status === 429 || xhr.status >= 500) && attempt < retryCount) {
+                        setTimeout(function() { attemptUpload(attempt + 1); }, nextChunkRetryDelay(attempt, computeLinkStabilityScore(asset)));
+                        return;
+                    }
+                    markUploadFailure(asset, 'Upload failed [' + xhr.status + ']');
+                    return;
+                }
+                asset.transferProgress[chunkIndex] = blob.size;
+                asset.receivedBitmap = setBitmapBit(asset.receivedBitmap, chunkIndex);
+                asset.completedChunks = countBitmapBits(asset.receivedBitmap);
+                asset.confirmedBytes = confirmedUploadBytes(asset);
+                updateAssetProgress(asset);
+                fillChunkWindowPlain(asset, file);
+                maybeFinalizeChunkUpload(asset);
+            };
+
+            xhr.onerror = xhr.ontimeout = function() {
+                asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
+                if (asset.failed || asset.isCancelling) return;
+                finishNetworkAttempt(asset, chunkIndex);
+                resetInflightChunk(asset, chunkIndex, false);
+                if (attempt < retryCount) {
+                    setTimeout(function() { attemptUpload(attempt + 1); }, nextChunkRetryDelay(attempt, computeLinkStabilityScore(asset)));
+                    return;
+                }
+                markUploadFailure(asset, 'Upload failed [network]');
+            };
+
+            xhr.onabort = function() {
+                asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
+                finishNetworkAttempt(asset, chunkIndex);
+                resetInflightChunk(asset, chunkIndex, false);
+            };
+
+            xhr.send(blob);
+        }
+        attemptUpload(0);
+    }
+
+    function fillChunkWindowPlain(asset, file) {
+        if (!asset || asset.failed || asset.isCancelling || asset.isPaused) return;
+        while (Number(asset.dispatchReservations || 0) < asset.currentParallel) {
+            var nextChunk = queueNextChunkIndex(asset);
+            if (nextChunk === null) break;
+            dispatchPlainChunk(asset, file, nextChunk, UPLOAD_CHUNK_RETRY_LIMIT);
+        }
+    }
+
+    function fallbackToPlainTasfa(asset) {
+        if (!asset || asset.failed || asset.isCancelling || asset.uploadMethod !== 'tasfa' || !asset.uploadId) return;
+        asset.ui.status.textContent = 'Switching to plain transfer';
+        clearRecoveryTimer(asset); clearSchedulerTimer(asset); abortInflightRequests(asset);
+        asset.recovering = false; asset.isPaused = false;
+        asset.dispatchReservations = 0; asset.activeRequests = 0;
+        asset.inflightChunks = {}; asset.inflightRequests = {}; asset.chunkNetworkStarted = {}; asset.chunkActivityAt = {};
+        asset.xhrs = [];
+        asset.currentParallel = UPLOAD_DEFAULT_PARALLEL;
+        syncUploadSession(asset).then(function(payload) {
+            if (asset.failed || asset.isCancelling) return;
+            asset.receivedBitmap = payload.received_bitmap || asset.receivedBitmap || '';
+            asset.completedChunks = countBitmapBits(asset.receivedBitmap);
+            asset.confirmedBytes = confirmedUploadBytes(asset);
+            rebuildPendingChunks(asset);
+            fillChunkWindowPlain(asset, asset.file);
+        }).catch(function() {
+            if (!asset.failed && !asset.isCancelling) {
+                markUploadFailure(asset, 'Fallback sync failed');
+            }
         });
     }
 
@@ -1687,9 +1836,10 @@
 
             xhr.onabort = function() {
                 asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
+                finishNetworkAttempt(asset, chunkIndex);
+                resetInflightChunk(asset, chunkIndex, false);
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 if (asset.suppressAbortHandling || asset.recovering) return;
-                finishNetworkAttempt(asset, chunkIndex);
                 if (!asset.isCancelling && !asset.failed) {
                     recordLinkPenalty(asset, navigator.onLine ? 'retry' : 'timeout');
                     recoverOrContinue(asset, file, chunkIndex, navigator.onLine ? 'recover' : 'offline');
@@ -1879,8 +2029,75 @@
         });
     }
 
+    function uploadFilePlain(asset, file) {
+        asset.isUploading = true;
+        asset.failed = false;
+        asset.ui.status.textContent = 'Uploading...';
+        updateFileRepoUploadButton();
+        updateSubmitButtons();
+
+        var xhr = new XMLHttpRequest();
+        asset.xhrs.push(xhr);
+
+        var formData = new FormData();
+        formData.append('file', file);
+
+        xhr.open('POST', PLAIN_UPLOAD_ENDPOINT + '?post_id=' + encodeURIComponent(window.POST_ID || 0), true);
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+
+        xhr.upload.onprogress = function(event) {
+            if (!event.lengthComputable) return;
+            asset.transferProgress[0] = event.loaded;
+            asset.confirmedBytes = event.loaded;
+            updateAssetProgress(asset);
+        };
+
+        xhr.onload = function() {
+            asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
+            if (xhr.status === 200) {
+                var payload = null;
+                try { payload = JSON.parse(xhr.responseText); } catch (e) {}
+                if (payload && payload.ok) {
+                    asset.fid = payload.file_id || 0;
+                    asset.url = payload.url;
+                    asset.confirmedBytes = file.size;
+                    asset.transferProgress[0] = file.size;
+                    finalizeUploadSuccess(asset, payload);
+                    if (isFileRepoMode) {
+                        isFileUploadRunning = false;
+                        processFileUploadQueue();
+                        updateFileRepoUploadButton();
+                    }
+                    return;
+                }
+            }
+            markUploadFailure(asset, 'Upload failed [' + xhr.status + ']');
+            if (isFileRepoMode) {
+                isFileUploadRunning = false;
+                processFileUploadQueue();
+                updateFileRepoUploadButton();
+            }
+        };
+
+        xhr.onerror = xhr.ontimeout = function() {
+            asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
+            markUploadFailure(asset, 'Upload failed [network]');
+            if (isFileRepoMode) {
+                isFileUploadRunning = false;
+                processFileUploadQueue();
+                updateFileRepoUploadButton();
+            }
+        };
+
+        xhr.send(formData);
+    }
+
     function startQueuedAssetUpload(asset) {
-        if (!asset || asset.isExisting || asset.fid !== null || asset.uploadId || asset.isUploading || asset.failed) return;
+        if (!asset || asset.isExisting || asset.fid !== null || asset.isUploading || asset.failed) return;
+        if (asset.uploadMethod === 'plain') {
+            uploadFilePlain(asset, asset.file);
+            return;
+        }
         asset.ui.status.textContent = 'Preparing upload session';
         initChunkedUpload(asset, asset.file);
     }
@@ -1894,6 +2111,7 @@
 
     function uploadFile(file) {
         if (!uploadPreview) return;
+        var useTasfa = USE_TASFA && file.size > TASFA_MIN_SIZE_BYTES;
         var clientUuid = generateUUID();
         var blobUrl = URL.createObjectURL(file);
         var placeholderUrl = isEditorMode ? (blobUrl + '#' + clientUuid) : null;
@@ -1951,6 +2169,7 @@
             finalizing: false,
             failed: false,
             isCancelling: false,
+            uploadMethod: useTasfa ? 'tasfa' : 'plain',
             chunkHashes: [],
             chunkScalars: [],
             magicScalars: [],
@@ -1965,7 +2184,10 @@
         bindAssetControls(asset);
         updateFileRepoUploadButton();
         updateSubmitButtons();
-        if (isEditorMode) { initChunkedUpload(asset, file); }
+        if (isEditorMode) {
+            if (useTasfa) { initChunkedUpload(asset, file); }
+            else { uploadFilePlain(asset, file); }
+        }
     }
 
     function bootstrapExistingAssets() {
