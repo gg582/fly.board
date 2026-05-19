@@ -1274,12 +1274,14 @@ void rule_markdown(cJSON *rules) {
 
     cJSON *media_card = create_rule(".media-card");
     add_decl(media_card, "display", "grid");
-    add_decl(media_card, "grid-template-columns", "96px minmax(0, 1fr) auto");
+    add_decl(media_card, "grid-template-columns", "96px minmax(0, 1fr)");
+    add_decl(media_card, "grid-template-areas", "'thumb info' 'thumb actions'");
     add_decl(media_card, "gap", "12px");
     add_decl(media_card, "align-items", "center");
     cJSON_AddItemToArray(rules, media_card);
 
     cJSON *media_thumb = create_rule(".media-thumb");
+    add_decl(media_thumb, "grid-area", "thumb");
     add_decl(media_thumb, "width", "96px");
     add_decl(media_thumb, "height", "96px");
     add_decl(media_thumb, "min-width", "96px");
@@ -1292,6 +1294,7 @@ void rule_markdown(cJSON *rules) {
     cJSON_AddItemToArray(rules, media_thumb);
 
     cJSON *media_info = create_rule(".media-info");
+    add_decl(media_info, "grid-area", "info");
     add_decl(media_info, "min-width", "0");
     cJSON_AddItemToArray(rules, media_info);
 
@@ -1311,9 +1314,10 @@ void rule_markdown(cJSON *rules) {
     cJSON_AddItemToArray(rules, media_status);
 
     cJSON *media_actions = create_rule(".media-actions");
+    add_decl(media_actions, "grid-area", "actions");
     add_decl(media_actions, "display", "flex");
-    add_decl(media_actions, "flex-direction", "column");
-    add_decl(media_actions, "align-items", "stretch");
+    add_decl(media_actions, "flex-wrap", "wrap");
+    add_decl(media_actions, "align-items", "center");
     add_decl(media_actions, "gap", "8px");
     cJSON_AddItemToArray(rules, media_actions);
 
@@ -1403,6 +1407,7 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".file-card-actions", "gap: 12px");
     add_decl(mq, ".file-card-actions .btn", "margin-right: 2px");
     add_decl(mq, ".media-card", "grid-template-columns: 1fr");
+    add_decl(mq, ".media-card", "grid-template-areas: 'thumb' 'info' 'actions'");
     add_decl(mq, ".media-card", "gap: 14px");
     add_decl(mq, ".media-thumb", "width: 100%");
     add_decl(mq, ".media-thumb", "height: 160px");

@@ -667,6 +667,8 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     cwist_query_map_parse(kv, req->body->data);
     const char *filename = cwist_query_map_get(kv, "filename");
     const char *session_id = cwist_query_map_get(kv, "session_id");
+    const char *resume_upload_id = cwist_query_map_get(kv, "resume_upload_id");
+    const char *resume_upload_token = cwist_query_map_get(kv, "resume_upload_token");
     int chunk_count = atoi(cwist_query_map_get(kv, "chunk_count") ? cwist_query_map_get(kv, "chunk_count") : "0");
     long long total_size = atoll(cwist_query_map_get(kv, "total_size") ? cwist_query_map_get(kv, "total_size") : "0");
     int post_id = atoi(cwist_query_map_get(kv, "post_id") ? cwist_query_map_get(kv, "post_id") : "0");
@@ -687,6 +689,19 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     char upload_id[33];
     cJSON *meta = NULL;
     bool resumed = false;
+    if (resume_upload_id && resume_upload_id[0] && resume_upload_token && resume_upload_token[0] && is_safe_segment(resume_upload_id)) {
+        meta = load_upload_session(resume_upload_id);
+        if (meta &&
+            secure_str_eq(resume_upload_token, json_string(meta, "upload_token", "")) &&
+            json_long_long(meta, "total_size", 0) == total_size &&
+            strcmp(json_string(meta, "filename", ""), filename) == 0) {
+            snprintf(upload_id, sizeof(upload_id), "%s", resume_upload_id);
+            resumed = true;
+        } else if (meta) {
+            cJSON_Delete(meta);
+            meta = NULL;
+        }
+    }
     if (session_id && session_id[0] && find_upload_id_by_session_id(session_id, upload_id, sizeof(upload_id))) {
         meta = load_upload_session(upload_id);
         if (meta && json_long_long(meta, "total_size", 0) == total_size && strcmp(json_string(meta, "filename", ""), filename) == 0) {
@@ -751,10 +766,16 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     } else {
         int initial_parallel = 0, max_parallel = 0;
         choose_upload_window(score, &initial_parallel, &max_parallel);
+        int current_parallel = json_int(meta, "current_parallel_chunks", initial_parallel);
+        int current_max = json_int(meta, "max_parallel_chunks", max_parallel);
+        if (initial_parallel < current_parallel) initial_parallel = current_parallel;
+        if (max_parallel < current_max) max_parallel = current_max;
         cJSON_ReplaceItemInObject(meta, "current_parallel_chunks", cJSON_CreateNumber(initial_parallel));
         cJSON_ReplaceItemInObject(meta, "max_parallel_chunks", cJSON_CreateNumber(max_parallel));
         char upload_token[49];
         if (random_hex(upload_token, 24)) cJSON_ReplaceItemInObject(meta, "upload_token", cJSON_CreateString(upload_token));
+        char upload_secret[49];
+        if (random_hex(upload_secret, 24)) cJSON_ReplaceItemInObject(meta, "upload_secret", cJSON_CreateString(upload_secret));
         char expires_at[32];
         snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_UPLOAD_TTL));
         cJSON_ReplaceItemInObject(meta, "expires_at", cJSON_CreateString(expires_at));
@@ -836,7 +857,11 @@ void handler_file_upload_renegotiate(cwist_http_request *req, cwist_http_respons
     int suggested = atoi(cwist_query_map_get(kv, "suggested_parallel") ? cwist_query_map_get(kv, "suggested_parallel") : "0");
     int initial_parallel = 0, max_parallel = 0;
     choose_upload_window(score, &initial_parallel, &max_parallel);
+    int current_parallel = json_int(meta, "current_parallel_chunks", initial_parallel);
+    int current_max = json_int(meta, "max_parallel_chunks", max_parallel);
+    if (max_parallel < current_max) max_parallel = current_max;
     if (suggested > 0) initial_parallel = clamp_int(suggested, 2, max_parallel);
+    if (initial_parallel < current_parallel) initial_parallel = current_parallel;
     cJSON_ReplaceItemInObject(meta, "current_parallel_chunks", cJSON_CreateNumber(initial_parallel));
     cJSON_ReplaceItemInObject(meta, "max_parallel_chunks", cJSON_CreateNumber(max_parallel));
     save_upload_session(upload_id, meta);

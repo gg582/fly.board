@@ -1046,12 +1046,6 @@
         return asset.sessionGeneration;
     }
 
-    function nextRecoveryDelay(asset) {
-        var attempts = Math.max(0, Number(asset.recoveryAttempts || 0));
-        if (attempts <= 1) return FAST_RENEGOTIATE_DELAY_MS;
-        return Math.min(UPLOAD_RECOVERY_MAX_DELAY, FAST_RENEGOTIATE_DELAY_MS * Math.pow(2, Math.max(0, attempts - 1)));
-    }
-
     function nextChunkRetryDelay(attempt) {
         return Math.min(600, 70 * Math.pow(1.45, Math.max(0, Number(attempt) || 0)));
     }
@@ -1064,12 +1058,6 @@
     function clampParallelToBudget(asset, value) {
         var requested = Math.max(1, Number(value || 0) || UPLOAD_DEFAULT_PARALLEL);
         return Math.max(1, Math.min(requested, budgetParallelLimit(asset && asset.chunkSize)));
-    }
-
-    function recoverySuggestedParallel(asset) {
-        var current = clampParallelToBudget(asset, asset && asset.currentParallel || UPLOAD_DEFAULT_PARALLEL);
-        if (!shouldReduceParallel(asset)) return current;
-        return Math.max(2, Math.min(clampParallelToBudget(asset, asset && asset.maxParallel || UPLOAD_MAX_PARALLEL), current - 1));
     }
 
     function markSchedulerActivity(asset) {
@@ -1099,32 +1087,10 @@
         asset.pendingChunks.splice(insertAt, 0, chunkIndex);
     }
 
-    function shouldResyncNow(asset, reason) {
-        var state = ensureLinkState(asset);
-        if (!asset) return false;
-        if (reason === 'offline') return true;
-        if ((asset.activeRequests || 0) === 0) return true;
-        if (reason === 'timeout' && Number(state.recentTimeouts || 0) >= 4) return true;
-        if (reason === 'slow' && Number(state.recentRetries || 0) >= 8) return true;
-        if (reason === 'recover' && (Number(state.recentRetries || 0) + Number(state.recentTimeouts || 0)) >= 10) return true;
-        return false;
-    }
-
-    function softenRecentLinkPenalties(asset) {
-        var state = ensureLinkState(asset);
-        state.recentRetries = Math.max(0, Math.floor(Number(state.recentRetries || 0) / 2));
-        state.recentTimeouts = Math.max(0, Math.floor(Number(state.recentTimeouts || 0) / 2));
-    }
-
     function recoverOrContinue(asset, file, chunkIndex, reason) {
         resetInflightChunk(asset, chunkIndex, false);
         requeueChunk(asset, chunkIndex);
-        if (shouldResyncNow(asset, reason || 'recover')) {
-            scheduleRecovery(asset, reason || 'recover');
-            return;
-        }
-        markSchedulerActivity(asset);
-        fillChunkWindow(asset, file);
+        rolloverUploadSession(asset, reason || 'rollover');
     }
 
     function resetAllInflightChunks(asset, keepProgress) {
@@ -1179,7 +1145,7 @@
                     return now - Number(chunkActivity[key] || 0) > UPLOAD_STALL_TIMEOUT_MS;
                 });
                 if (stalled) {
-                    scheduleRecovery(asset, 'timeout');
+                    rolloverUploadSession(asset, 'timeout');
                     clearSchedulerTimer(asset);
                     return;
                 }
@@ -1551,12 +1517,12 @@
             if (xhr.status !== 200) {
                 if (xhr.status === 404 || xhr.status === 403) {
                     asset.finalizing = false;
-                    restartUploadSession(asset, 'recover');
+                    rolloverUploadSession(asset, 'finalize');
                     return;
                 }
                 if (xhr.status === 429 || xhr.status >= 500) {
                     asset.finalizing = false;
-                    scheduleRecovery(asset, 'recover');
+                    rolloverUploadSession(asset, 'finalize');
                     return;
                 }
                 markUploadFailure(asset, 'Upload failed [' + xhr.status + ']');
@@ -1572,7 +1538,7 @@
             if (!payload || payload.ok === false || !payload.url) {
                 if (payload && (payload.error === 'upload session not found' || payload.error === 'upload session expired')) {
                     asset.finalizing = false;
-                    restartUploadSession(asset, 'recover');
+                    rolloverUploadSession(asset, 'finalize');
                     return;
                 }
                 markUploadFailure(asset, 'Upload failed [' + ((payload && payload.error) || 'unknown error') + ']');
@@ -1584,7 +1550,7 @@
         xhr.onerror = xhr.ontimeout = function() {
             asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
             if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
-            asset.ui.status.textContent = 'Re-syncing upload session';
+            asset.ui.status.textContent = 'Rolling over upload session';
             syncUploadSession(asset).then(function() {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 if (asset.completedChunks === asset.totalChunks) {
@@ -1596,7 +1562,8 @@
                 fillChunkWindow(asset, asset.file);
             }).catch(function() {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
-                markUploadFailure(asset, 'Network error');
+                asset.finalizing = false;
+                rolloverUploadSession(asset, 'finalize');
             });
         };
 
@@ -1620,7 +1587,7 @@
             }
             if (asset.completedChunks !== asset.totalChunks || hasMissingChunks(asset)) {
                 asset.finalizing = false;
-                asset.ui.status.textContent = 'Repairing missing chunks';
+                asset.ui.status.textContent = 'Rolling over remaining chunks';
                 fillChunkWindow(asset, asset.file);
                 return;
             }
@@ -1632,84 +1599,24 @@
                 return;
             }
             asset.finalizing = false;
-            scheduleRecovery(asset, 'recover');
+            rolloverUploadSession(asset, 'finalize');
         });
     }
 
-    function restartUploadSession(asset, reason) {
+    function rolloverUploadSession(asset, reason) {
         if (!asset || asset.isCancelling || !asset.file) return;
         clearRecoveryTimer(asset);
         clearSchedulerTimer(asset);
         abortInflightRequests(asset);
-        asset.ui.status.textContent = 'Re-establishing upload session';
-        asset.uploadId = null;
-        asset.uploadToken = null;
-        asset.uploadSecret = null;
-        asset.receivedBitmap = '';
-        asset.completedChunks = 0;
-        asset.topologyFrontierBitmap = '';
-        asset.topologyDamageBitmap = '';
-        asset.topologyRule = '';
-        asset.chunkProgress = [];
-        asset.pendingChunks = [];
-        asset.nextChunkCursor = 0;
+        asset.recovering = true;
+        asset.isPaused = true;
         asset.activeRequests = 0;
         asset.inflightChunks = {};
         asset.finalizing = false;
-        asset.recovering = false;
-        asset.isPaused = false;
         asset.recoveryEpoch = Number(asset.recoveryEpoch || 0) + 1;
-        initChunkedUpload(asset, asset.file, reason || 'recover');
-    }
-
-    function scheduleRecovery(asset, reason) {
-        if (!asset || asset.isCancelling || asset.failed) return;
-        if (asset.recovering) return;
-        clearRecoveryTimer(asset);
-        clearSchedulerTimer(asset);
-        asset.recovering = true;
-        asset.isPaused = true;
-        abortInflightRequests(asset);
-        asset.recoveryEpoch = Number(asset.recoveryEpoch || 0) + 1;
-        var recoveryEpoch = asset.recoveryEpoch;
-
-        function attemptRecovery() {
-            if (!asset || asset.isCancelling || asset.failed || recoveryEpoch !== asset.recoveryEpoch) return;
-            if (!navigator.onLine) {
-                asset.ui.status.textContent = 'Waiting for network';
-                asset.recoveryTimer = window.setTimeout(attemptRecovery, FAST_RENEGOTIATE_DELAY_MS);
-                return;
-            }
-
-            asset.ui.status.textContent = reason === 'offline'
-                ? 'Recovering upload session'
-                : 'Repairing missing chunks';
-            syncUploadSession(asset).then(function() {
-                if (recoveryEpoch !== asset.recoveryEpoch) return;
-                asset.recovering = false;
-                asset.isPaused = false;
-                asset.recoveryAttempts = 0;
-                softenRecentLinkPenalties(asset);
-                clearRecoveryTimer(asset);
-                startSchedulerLoop(asset);
-                schedulePrepareAhead(asset, asset.file);
-                fillChunkWindow(asset, asset.file);
-                maybeFinalizeChunkUpload(asset);
-            }).catch(function(error) {
-                if (recoveryEpoch !== asset.recoveryEpoch) return;
-                var message = error && error.message ? error.message : '';
-                if (message === 'status:404' || message === 'status:403') {
-                    clearRecoveryTimer(asset);
-                    restartUploadSession(asset, reason || 'recover');
-                    return;
-                }
-                asset.recoveryAttempts = Math.min(20, Number(asset.recoveryAttempts || 0) + 1);
-                asset.ui.status.textContent = 'Recovering upload session';
-                asset.recoveryTimer = window.setTimeout(attemptRecovery, nextRecoveryDelay(asset));
-            });
-        }
-
-        attemptRecovery();
+        asset.ui.status.textContent = reason === 'offline' ? 'Waiting for network' : 'Rolling over upload session';
+        if (!navigator.onLine) return;
+        initChunkedUpload(asset, asset.file, 'rollover', asset.uploadId, asset.uploadToken);
     }
 
     function dispatchChunk(asset, file, chunkIndex, retryCount) {
@@ -1920,15 +1827,32 @@
         updateSubmitButtons();
     }
 
-    function initChunkedUpload(asset, file, reason) {
+    function initChunkedUpload(asset, file, reason, resumeUploadId, resumeUploadToken) {
         var sessionGeneration = bumpUploadSessionGeneration(asset);
         asset.isUploading = true;
         asset.failed = false;
         asset.isPaused = false;
+        asset.recovering = false;
         updateFileRepoUploadButton();
         updateSubmitButtons();
         var chunkCount = Math.max(1, Math.ceil(file.size / UPLOAD_CHUNK_SIZE));
         var linkHints = buildLinkHintFields(asset);
+        var body = 'filename=' + encodeURIComponent(file.name) +
+            '&total_size=' + encodeURIComponent(String(file.size)) +
+            '&chunk_count=' + encodeURIComponent(String(chunkCount)) +
+            '&post_id=' + encodeURIComponent(window.POST_ID || 0) +
+            '&session_id=' + encodeURIComponent(asset.client_uuid || '') +
+            '&link_stability_score=' + encodeURIComponent(String(linkHints.link_stability_score || '')) +
+            '&link_effective_type=' + encodeURIComponent(linkHints.link_effective_type || '') +
+            '&link_downlink_mbps=' + encodeURIComponent(String(linkHints.link_downlink_mbps || '')) +
+            '&link_rtt_ms=' + encodeURIComponent(String(linkHints.link_rtt_ms || '')) +
+            '&link_retry_events=' + encodeURIComponent(String(linkHints.link_retry_events || '')) +
+            '&link_timeout_events=' + encodeURIComponent(String(linkHints.link_timeout_events || '')) +
+            '&link_save_data=' + encodeURIComponent(linkHints.link_save_data || '0');
+        if (resumeUploadId && resumeUploadToken) {
+            body += '&resume_upload_id=' + encodeURIComponent(resumeUploadId) +
+                '&resume_upload_token=' + encodeURIComponent(resumeUploadToken);
+        }
         fetchWithTimeout(UPLOAD_INIT_ENDPOINT, {
             method: 'POST',
             headers: {
@@ -1936,18 +1860,7 @@
                 'Accept': 'application/json',
                 'X-Requested-With': 'XMLHttpRequest'
             },
-            body: 'filename=' + encodeURIComponent(file.name) +
-                '&total_size=' + encodeURIComponent(String(file.size)) +
-                '&chunk_count=' + encodeURIComponent(String(chunkCount)) +
-                '&post_id=' + encodeURIComponent(window.POST_ID || 0) +
-                '&session_id=' + encodeURIComponent(asset.client_uuid || '') +
-                '&link_stability_score=' + encodeURIComponent(String(linkHints.link_stability_score || '')) +
-                '&link_effective_type=' + encodeURIComponent(linkHints.link_effective_type || '') +
-                '&link_downlink_mbps=' + encodeURIComponent(String(linkHints.link_downlink_mbps || '')) +
-                '&link_rtt_ms=' + encodeURIComponent(String(linkHints.link_rtt_ms || '')) +
-                '&link_retry_events=' + encodeURIComponent(String(linkHints.link_retry_events || '')) +
-                '&link_timeout_events=' + encodeURIComponent(String(linkHints.link_timeout_events || '')) +
-                '&link_save_data=' + encodeURIComponent(linkHints.link_save_data || '0')
+            body: body
         }, UPLOAD_SESSION_FETCH_TIMEOUT_MS).then(function(response) {
             if (!response.ok) throw new Error('init:' + response.status);
             return response.json();
@@ -1974,7 +1887,9 @@
             asset.topologyDamageBitmap = '';
             asset.topologyRule = '';
             asset.recoveryAttempts = 0;
-            asset.ui.status.textContent = payload.resumed ? 'Resumed upload session' : 'Negotiated upload session';
+            asset.ui.status.textContent = (resumeUploadId && resumeUploadToken) || payload.resumed
+                ? 'Rolled over upload session'
+                : 'Negotiated upload session';
             beginChunkUpload(asset, file);
         }).catch(function(error) {
             if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
@@ -1983,15 +1898,19 @@
                 markUploadFailure(asset, 'Upload failed [' + message + ']');
                 return;
             }
+            asset.recoveryAttempts = Math.min(20, Number(asset.recoveryAttempts || 0) + 1);
             asset.recovering = true;
             asset.isPaused = true;
-            asset.recoveryAttempts = Math.min(20, Number(asset.recoveryAttempts || 0) + 1);
-            asset.ui.status.textContent = reason === 'recover' ? 'Re-establishing upload session' : 'Preparing upload session';
+            asset.ui.status.textContent = navigator.onLine ? 'Rolling over upload session' : 'Waiting for network';
             clearRecoveryTimer(asset);
             asset.recoveryTimer = window.setTimeout(function() {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
-                initChunkedUpload(asset, file, reason || 'recover');
-            }, nextRecoveryDelay(asset));
+                if (!navigator.onLine) {
+                    rolloverUploadSession(asset, 'offline');
+                    return;
+                }
+                initChunkedUpload(asset, file, reason || 'rollover', resumeUploadId || asset.uploadId, resumeUploadToken || asset.uploadToken);
+            }, FAST_RENEGOTIATE_DELAY_MS);
         });
     }
 
@@ -2226,8 +2145,8 @@
     window.addEventListener('online', function() {
         AssetRegistry.forEach(function(asset) {
             if (!asset || asset.isExisting || asset.fid !== null || !asset.uploadId || asset.finalizing) return;
-            asset.ui.status.textContent = 'Network restored, recovering';
-            scheduleRecovery(asset, 'offline');
+            asset.ui.status.textContent = 'Network restored, rolling over';
+            rolloverUploadSession(asset, 'offline');
         });
     });
 

@@ -89,18 +89,19 @@ Server-side negotiated download profile:
 - weaker links: initial `40`, max `88`, coalesce `24`
 - unstable links: initial `24`, max `48`, coalesce `16`, pacing `1 ms`
 
-## Resume and Recovery
+## Resume and Session Rollover
 
 The client treats the server bitmap as authoritative.
 
 - `status` returns the current bitmap and negotiated window.
-- `renegotiate` recalculates the current window from fresh link hints.
+- `renegotiate` recalculates the current window from fresh link hints, but the client now biases toward keeping or raising throughput instead of backing it down aggressively.
 - `status` also returns `topology_closed_bitmap`, `topology_closure_complete`, and `client_stripes`.
 - recoverable topology/signature failures return bitmap state plus a damage bitmap and rule label.
 - the client rebuilds its pending queue as `damage -> frontier -> remaining`.
 - stale callbacks from a superseded session generation are ignored on the browser side.
-- reconnect/recovery now re-enters the session loop after `100 ms` instead of waiting whole seconds.
-- concurrency is not reduced on every renegotiation; it is only suggested downward after accumulated retry/timeout pressure.
+- when chunk validation or transport state goes bad, the browser rolls the upload into a fresh negotiated session using the existing authoritative bitmap instead of trying to limp along inside the old callback chain.
+- rollover retries now stay on a short cadence instead of exponential recovery backoff.
+- if the previous session already committed chunks, the next session continues from the remaining bitmap gap only.
 - upload preprocessing now runs in a prepare-ahead cache so compression/HMAC work overlaps active network transfers.
 - upload window refill now ticks at `10 ms`, can prepare up to `48` chunks ahead, and climbs by `+2` while still below half of the server ceiling.
 - download chunk grouping now allows up to `64` chunk spans per request and grows the fetch window more aggressively before backing off.
