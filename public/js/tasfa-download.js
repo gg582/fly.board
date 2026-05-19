@@ -436,11 +436,34 @@
         });
     }
 
+    function wrapMediaForDownload(el) {
+        if (el.closest('.media-download-wrap')) return;
+        var wrap = document.createElement('div');
+        wrap.className = 'media-download-wrap';
+        el.parentNode.insertBefore(wrap, el);
+        wrap.appendChild(el);
+
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'media-download-btn';
+        btn.textContent = 'Download';
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var url = el.getAttribute('data-tasfa-download') || el.getAttribute('src') || '';
+            if (url && window.openTasfaDownload) {
+                window.openTasfaDownload(url);
+            }
+        });
+        wrap.appendChild(btn);
+    }
+
     function upgradeWithin(root) {
         if (!root || !root.querySelectorAll) return;
         root.querySelectorAll('img[src^="/file/download/"], img[src^="/assets/img/"], img[src^="/assets/uploads/"], img[data-tasfa-download]').forEach(upgradeMediaElement);
         root.querySelectorAll('video[src^="/file/download/"], video[data-tasfa-download], audio[src^="/file/download/"], audio[data-tasfa-download]').forEach(upgradeMediaElement);
         root.querySelectorAll('a[data-tasfa-download-link], a[href^="/file/download/"]').forEach(upgradeDownloadLink);
+        root.querySelectorAll('.markdown-body img, .markdown-body video, .markdown-body audio').forEach(wrapMediaForDownload);
     }
 
     function init() {
