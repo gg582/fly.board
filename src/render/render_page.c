@@ -386,6 +386,44 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(body, shell);
     cwist_html_element_add_child(body, footer);
 
+    if (g_config.use_rss) {
+        cwist_html_element_t *rss_link = cwist_html_element_create("a");
+        cwist_html_element_add_attr(rss_link, "href", "/rss.xml");
+        cwist_html_element_add_attr(rss_link, "title", "RSS Feed");
+        cwist_html_element_add_attr(rss_link, "aria-label", "RSS Feed");
+        cwist_html_element_add_attr(rss_link, "target", "_blank");
+        cwist_html_element_add_class(rss_link, "rss-corner-btn");
+
+        cwist_html_element_t *rss_icon = cwist_html_element_create("svg");
+        cwist_html_element_add_attr(rss_icon, "xmlns", "http://www.w3.org/2000/svg");
+        cwist_html_element_add_attr(rss_icon, "width", "20");
+        cwist_html_element_add_attr(rss_icon, "height", "20");
+        cwist_html_element_add_attr(rss_icon, "viewBox", "0 0 24 24");
+        cwist_html_element_add_attr(rss_icon, "fill", "none");
+        cwist_html_element_add_attr(rss_icon, "stroke", "currentColor");
+        cwist_html_element_add_attr(rss_icon, "stroke-width", "2.5");
+        cwist_html_element_add_attr(rss_icon, "stroke-linecap", "round");
+        cwist_html_element_add_attr(rss_icon, "stroke-linejoin", "round");
+
+        cwist_html_element_t *rss_path1 = cwist_html_element_create("path");
+        cwist_html_element_add_attr(rss_path1, "d", "M4 11a9 9 0 0 1 9 9");
+        cwist_html_element_add_child(rss_icon, rss_path1);
+
+        cwist_html_element_t *rss_path2 = cwist_html_element_create("path");
+        cwist_html_element_add_attr(rss_path2, "d", "M4 4a16 16 0 0 1 16 16");
+        cwist_html_element_add_child(rss_icon, rss_path2);
+
+        cwist_html_element_t *rss_circle = cwist_html_element_create("circle");
+        cwist_html_element_add_attr(rss_circle, "cx", "5");
+        cwist_html_element_add_attr(rss_circle, "cy", "19");
+        cwist_html_element_add_attr(rss_circle, "r", "1.5");
+        cwist_html_element_add_attr(rss_circle, "fill", "currentColor");
+        cwist_html_element_add_child(rss_icon, rss_circle);
+
+        cwist_html_element_add_child(rss_link, rss_icon);
+        cwist_html_element_add_child(body, rss_link);
+    }
+
     cwist_html_element_t *config_script = cwist_html_element_create("script");
     char config_js[128];
     snprintf(config_js, sizeof(config_js), "window.BLOG_USE_TASFA=%s;", g_config.use_tasfa ? "true" : "false");
