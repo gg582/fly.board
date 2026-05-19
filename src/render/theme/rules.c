@@ -585,6 +585,40 @@ void rule_components(cJSON *rules) {
     add_decl(code_copy_h, "border-color", "var(--accent)");
     cJSON_AddItemToArray(rules, code_copy_h);
 
+    /* Media download button (mirror code-copy pattern) */
+    cJSON *media_wrap = create_rule(".media-download-wrap");
+    add_decl(media_wrap, "position", "relative");
+    add_decl(media_wrap, "display", "inline-block");
+    add_decl(media_wrap, "max-width", "100%");
+    cJSON_AddItemToArray(rules, media_wrap);
+
+    cJSON *media_btn = create_rule(".media-download-btn");
+    add_decl(media_btn, "position", "absolute");
+    add_decl(media_btn, "top", "8px");
+    add_decl(media_btn, "right", "8px");
+    add_decl(media_btn, "padding", "4px 10px");
+    add_decl(media_btn, "font-size", "12px");
+    add_decl(media_btn, "font-weight", "600");
+    add_decl(media_btn, "border-radius", "6px");
+    add_decl(media_btn, "border", "1px solid var(--border)");
+    add_decl(media_btn, "background", "var(--panel)");
+    add_decl(media_btn, "color", "var(--muted)");
+    add_decl(media_btn, "cursor", "pointer");
+    add_decl(media_btn, "opacity", "0");
+    add_decl(media_btn, "transition", "opacity 0.2s ease, color 0.2s ease, background 0.2s ease");
+    add_decl(media_btn, "z-index", "10");
+    cJSON_AddItemToArray(rules, media_btn);
+
+    cJSON *media_wrap_hover = create_rule(".media-download-wrap:hover .media-download-btn");
+    add_decl(media_wrap_hover, "opacity", "1");
+    cJSON_AddItemToArray(rules, media_wrap_hover);
+
+    cJSON *media_btn_h = create_rule(".media-download-btn:hover");
+    add_decl(media_btn_h, "background", "var(--accent)");
+    add_decl(media_btn_h, "color", "#fff");
+    add_decl(media_btn_h, "border-color", "var(--accent)");
+    cJSON_AddItemToArray(rules, media_btn_h);
+
     /* Comment thread redesign */
     cJSON *cnode = create_rule(".comment-node");
     add_decl(cnode, "border-left", "2px solid var(--border)");
@@ -1519,5 +1553,6 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".board-list", "border-top: 1px solid var(--border)");
     add_decl(mq, ".board-line", "padding: 16px");
     add_decl(mq, ".board-line-title", "font-size: 1.45rem");
+    add_decl(mq, ".media-download-btn", "opacity: 1");
     cJSON_AddItemToArray(rules, mq);
 }
