@@ -294,7 +294,13 @@
 
     function insertAssetMarkdown(asset) {
         if (!asset.url) return;
-        insertAtCursor('![' + asset.filename + '](' + asset.url + ')\n');
+        var url = asset.fid !== null ? ('/file/download/' + asset.fid) : asset.url;
+        var isMedia = /^image\//.test(asset.mime_type || '') || /^video\//.test(asset.mime_type || '') || /^audio\//.test(asset.mime_type || '');
+        if (isMedia) {
+            insertAtCursor('![' + asset.filename + '](' + url + ')\n');
+        } else {
+            insertAtCursor('[' + asset.filename + '](' + url + ')\n');
+        }
     }
 
     function switchTab(nextTab) {
@@ -777,6 +783,7 @@
         asset.fid = response.fid || response.id || asset.fid;
         asset.url = response.url;
         asset.filename = response.filename || asset.filename;
+        asset.mime_type = response.mime_type || asset.mime_type || '';
         asset.deletePin = response.delete_pin || '';
         asset.isUploading = false;
         asset.failed = false;
@@ -2067,6 +2074,7 @@
                 if (payload && payload.ok) {
                     asset.fid = payload.file_id !== undefined ? payload.file_id : (payload.id !== undefined ? payload.id : asset.fid);
                     asset.url = payload.url;
+                    asset.mime_type = payload.mime_type || asset.mime_type || '';
                     asset.confirmedBytes = file.size;
                     asset.transferProgress[0] = file.size;
                     finalizeUploadSuccess(asset, payload);
