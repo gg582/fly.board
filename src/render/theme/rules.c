@@ -374,13 +374,12 @@ void rule_layout(cJSON *rules) {
     cJSON_AddItemToArray(rules, ua_burger);
 
     cJSON *ua_navlinks = create_rule("html.mobile-device .nav-links");
-    add_decl(ua_navlinks, "position", "fixed");
-    add_decl(ua_navlinks, "top", "0");
+    add_decl(ua_navlinks, "position", "absolute");
+    add_decl(ua_navlinks, "top", "100%");
     add_decl(ua_navlinks, "left", "0");
-    add_decl(ua_navlinks, "bottom", "0");
     add_decl(ua_navlinks, "width", "260px");
-    add_decl(ua_navlinks, "height", "100dvh");
-    add_decl(ua_navlinks, "max-height", "100dvh");
+    add_decl(ua_navlinks, "height", "calc(100dvh - 100%)");
+    add_decl(ua_navlinks, "max-height", "calc(100dvh - 100%)");
     add_decl(ua_navlinks, "background", "color-mix(in srgb, var(--glass-bg) 96%, transparent)");
     add_decl(ua_navlinks, "backdrop-filter", "blur(24px) saturate(180%)");
     add_decl(ua_navlinks, "-webkit-backdrop-filter", "blur(24px) saturate(180%)");
@@ -395,6 +394,7 @@ void rule_layout(cJSON *rules) {
     add_decl(ua_navlinks, "transition", "transform 0.3s ease");
     add_decl(ua_navlinks, "z-index", "101");
     add_decl(ua_navlinks, "border-right", "1px solid var(--border)");
+    add_decl(ua_navlinks, "border-top", "1px solid var(--glass-border)");
     add_decl(ua_navlinks, "display", "none");
     cJSON_AddItemToArray(rules, ua_navlinks);
 
@@ -1307,13 +1307,12 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".desktop-only", "display: none");
     add_decl(mq, ".mobile-only", "display: block");
     add_decl(mq, ".burger-btn", "display: inline-flex");
-    add_decl(mq, ".nav-links", "position: fixed");
-    add_decl(mq, ".nav-links", "top: 0");
+    add_decl(mq, ".nav-links", "position: absolute");
+    add_decl(mq, ".nav-links", "top: 100%");
     add_decl(mq, ".nav-links", "left: 0");
-    add_decl(mq, ".nav-links", "bottom: 0");
     add_decl(mq, ".nav-links", "width: 260px");
-    add_decl(mq, ".nav-links", "height: 100dvh");
-    add_decl(mq, ".nav-links", "max-height: 100dvh");
+    add_decl(mq, ".nav-links", "height: calc(100dvh - 100%)");
+    add_decl(mq, ".nav-links", "max-height: calc(100dvh - 100%)");
     add_decl(mq, ".nav-links", "background: color-mix(in srgb, var(--glass-bg) 96%, transparent)");
     add_decl(mq, ".nav-links", "backdrop-filter: blur(24px) saturate(180%)");
     add_decl(mq, ".nav-links", "-webkit-backdrop-filter: blur(24px) saturate(180%)");
@@ -1328,6 +1327,7 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".nav-links", "transition: transform 0.3s ease");
     add_decl(mq, ".nav-links", "z-index: 101");
     add_decl(mq, ".nav-links", "border-right: 1px solid var(--border)");
+    add_decl(mq, ".nav-links", "border-top: 1px solid var(--glass-border)");
     add_decl(mq, ".nav-links", "display: none");
     add_decl(mq, ".nav-links.open", "display: flex");
     add_decl(mq, ".nav-links.open", "transform: translateX(0)");
