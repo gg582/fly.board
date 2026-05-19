@@ -14,12 +14,12 @@
 
 #define TASFA_UPLOAD_DIR "data/tasfa/uploads"
 #define TASFA_DOWNLOAD_DIR "data/tasfa/downloads"
-#define TASFA_CHUNK_SIZE (4 * 1024 * 1024)
+#define TASFA_CHUNK_SIZE (1 * 1024 * 1024)
 
 #define TASFA_UPLOAD_TTL 86400
 #define TASFA_DOWNLOAD_TTL 86400
-#define TASFA_UPLOAD_DEFAULT_PARALLEL 8
-#define TASFA_UPLOAD_MAX_PARALLEL 48
+#define TASFA_UPLOAD_DEFAULT_PARALLEL 16
+#define TASFA_UPLOAD_MAX_PARALLEL 64
 #define TASFA_DOWNLOAD_DEFAULT_PARALLEL 24
 #define TASFA_DOWNLOAD_MAX_PARALLEL 256
 #define TASFA_CLIENT_STRIPES 32
@@ -179,20 +179,20 @@ static int link_score_from_inputs(const char *score_str, const char *effective_t
 }
 
 static void choose_upload_window(int score, int *initial_parallel, int *max_parallel) {
-    int initial_value = 8;
+    int initial_value = 12;
     int max_value = TASFA_UPLOAD_MAX_PARALLEL;
     if (score >= 85) {
-        initial_value = 12;
+        initial_value = 16;
         max_value = TASFA_UPLOAD_MAX_PARALLEL;
     } else if (score >= 65) {
-        initial_value = 10;
+        initial_value = 14;
         max_value = TASFA_UPLOAD_MAX_PARALLEL;
     } else if (score >= 45) {
-        initial_value = 8;
-        max_value = 24;
+        initial_value = 10;
+        max_value = 32;
     } else {
         initial_value = 4;
-        max_value = 12;
+        max_value = 16;
     }
     if (initial_parallel) *initial_parallel = initial_value;
     if (max_parallel) *max_parallel = max_value;

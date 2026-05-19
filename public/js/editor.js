@@ -28,9 +28,9 @@
     var UPLOAD_COMPLETE_ENDPOINT = '/file/upload/complete';
     var UPLOAD_CANCEL_ENDPOINT = '/file/upload/cancel';
     var UPLOAD_WORKER_URL = '/assets/js/tasfa-upload-worker.js';
-    var UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024;
-    var UPLOAD_DEFAULT_PARALLEL = 8;
-    var UPLOAD_MAX_PARALLEL = 48;
+    var UPLOAD_CHUNK_SIZE = 1 * 1024 * 1024;
+    var UPLOAD_DEFAULT_PARALLEL = 16;
+    var UPLOAD_MAX_PARALLEL = 64;
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
     var UPLOAD_RECOVERY_MAX_DELAY = 8000;
     var UPLOAD_SCHEDULER_TICK_MS = 20;
@@ -39,7 +39,7 @@
     var UPLOAD_STARTUP_STALL_TIMEOUT_MS = 10000;
     var UPLOAD_SESSION_FETCH_TIMEOUT_MS = 8000;
     var UPLOAD_CHUNK_RETRY_LIMIT = 7;
-    var UPLOAD_WORKER_POOL_LIMIT = 8;
+    var UPLOAD_WORKER_POOL_LIMIT = 12;
     var TASFA_CLIENT_STRIPE_COUNT = 32;
     var uploadWorkerBridge = null;
     var FAST_RENEGOTIATE_DELAY_MS = 4000;
@@ -52,7 +52,7 @@
     var PREPARE_AHEAD_MULTIPLIER = 5;
     var PREPARE_BATCH_SIZE = 4;
     var UPLOAD_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024;
-    var UPLOAD_PREPARED_BUDGET_BYTES = 224 * 1024 * 1024;
+    var UPLOAD_PREPARED_BUDGET_BYTES = 96 * 1024 * 1024;
     var UPLOAD_ACTIVE_BUDGET_BYTES = 128 * 1024 * 1024;
     var hmacKeyCache = {};
 
@@ -1069,6 +1069,12 @@
         asset.lastSchedulerActivityAt = Date.now();
     }
 
+    function finishNetworkAttempt(asset, chunkIndex) {
+        if (!asset || !asset.chunkNetworkStarted || !asset.chunkNetworkStarted[chunkIndex]) return;
+        delete asset.chunkNetworkStarted[chunkIndex];
+        asset.activeRequests = Math.max(0, Number(asset.activeRequests || 0) - 1);
+    }
+
     function resetInflightChunk(asset, chunkIndex, keepProgress) {
         if (!asset) return;
         if (!keepProgress && asset.chunkProgress && asset.receivedBitmap && asset.receivedBitmap.charAt(chunkIndex) !== '1') {
@@ -1076,9 +1082,10 @@
         }
         if (asset.inflightRequests) delete asset.inflightRequests[chunkIndex];
         if (asset.chunkActivityAt) delete asset.chunkActivityAt[chunkIndex];
+        finishNetworkAttempt(asset, chunkIndex);
         if (asset.inflightChunks && asset.inflightChunks[chunkIndex]) {
             delete asset.inflightChunks[chunkIndex];
-            asset.activeRequests = Math.max(0, asset.activeRequests - 1);
+            asset.dispatchReservations = Math.max(0, Number(asset.dispatchReservations || 0) - 1);
         }
     }
 
@@ -1105,7 +1112,9 @@
         });
         asset.inflightChunks = {};
         asset.inflightRequests = {};
+        asset.chunkNetworkStarted = {};
         asset.chunkActivityAt = {};
+        asset.dispatchReservations = 0;
         asset.activeRequests = 0;
     }
 
@@ -1171,14 +1180,14 @@
                         return;
                     }
 
-                    if (asset.activeRequests === 0 && hasMissingChunks(asset) && asset.nextChunkCursor >= asset.pendingChunks.length) {
-                        rebuildPendingChunks(asset);
-                    }
-
-                    if (asset.activeRequests < asset.currentParallel || asset.activeRequests === 0) {
-                        fillChunkWindow(asset, asset.file);
-                    }
+                if (Number(asset.dispatchReservations || 0) === 0 && hasMissingChunks(asset) && asset.nextChunkCursor >= asset.pendingChunks.length) {
+                    rebuildPendingChunks(asset);
                 }
+
+                if (Number(asset.dispatchReservations || 0) < asset.currentParallel || Number(asset.dispatchReservations || 0) === 0) {
+                    fillChunkWindow(asset, asset.file);
+                }
+            }
             } catch (err) {
                 console.error('TASFA scheduler tick failed:', err);
             }
@@ -1636,7 +1645,7 @@
     }
 
     function maybeFinalizeChunkUpload(asset) {
-        if (asset.failed || asset.isCancelling || asset.finalizing || asset.activeRequests > 0) return;
+        if (asset.failed || asset.isCancelling || asset.finalizing || Number(asset.dispatchReservations || 0) > 0) return;
         if (asset.completedChunks !== asset.totalChunks) return;
         if (hasMissingChunks(asset)) return;
         asset.finalizing = true;
@@ -1673,8 +1682,10 @@
         abortInflightRequests(asset);
         asset.recovering = true;
         asset.isPaused = true;
+        asset.dispatchReservations = 0;
         asset.activeRequests = 0;
         asset.inflightChunks = {};
+        asset.chunkNetworkStarted = {};
         asset.finalizing = false;
         asset.recoveryEpoch = Number(asset.recoveryEpoch || 0) + 1;
         asset.ui.status.textContent = reason === 'offline' ? 'Waiting for network' : 'Rolling over upload session';
@@ -1697,7 +1708,7 @@
         var end = preparedState ? preparedState.end : Math.min(start + asset.chunkSize, file.size);
         var blob = file.slice(start, end);
         asset.inflightChunks[chunkIndex] = true;
-        asset.activeRequests += 1;
+        asset.dispatchReservations = Math.max(0, Number(asset.dispatchReservations || 0)) + 1;
         markSchedulerActivity(asset);
         if (preparedState && asset.preparedChunks) delete asset.preparedChunks[chunkIndex];
         schedulePrepareAhead(asset, file);
@@ -1727,6 +1738,7 @@
                 asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 if (asset.failed || asset.isCancelling || asset.recovering) return;
+                finishNetworkAttempt(asset, chunkIndex);
                 if (xhr.status !== 200) {
                     if ((xhr.status === 429 || xhr.status >= 500) && attempt < retryCount) {
                         recordLinkPenalty(asset, xhr.status === 429 ? 'retry' : 'timeout');
@@ -1793,6 +1805,7 @@
                 asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 if (asset.failed || asset.isCancelling || asset.recovering) return;
+                finishNetworkAttempt(asset, chunkIndex);
                 if (attempt < retryCount) {
                     recordLinkPenalty(asset, 'timeout');
                     setTimeout(function() { attemptUpload(attempt + 1); }, nextChunkRetryDelay(attempt));
@@ -1806,6 +1819,7 @@
                 asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 if (asset.suppressAbortHandling || asset.recovering) return;
+                finishNetworkAttempt(asset, chunkIndex);
                 if (!asset.isCancelling && !asset.failed) {
                     recordLinkPenalty(asset, navigator.onLine ? 'retry' : 'timeout');
                     recoverOrContinue(asset, file, chunkIndex, navigator.onLine ? 'recover' : 'offline');
@@ -1828,6 +1842,11 @@
             })();
             dispatchMeta.then(function(prepared) {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
+                if (!asset.chunkNetworkStarted) asset.chunkNetworkStarted = {};
+                if (!asset.chunkNetworkStarted[chunkIndex]) {
+                    asset.chunkNetworkStarted[chunkIndex] = true;
+                    asset.activeRequests = Math.max(0, Number(asset.activeRequests || 0)) + 1;
+                }
                 xhr.setRequestHeader('Content-Type', 'application/octet-stream');
                 xhr.setRequestHeader('X-TASFA-Upload-ID', asset.uploadId);
                 xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
@@ -1844,7 +1863,7 @@
             }).catch(function() {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 delete asset.inflightChunks[chunkIndex];
-                asset.activeRequests = Math.max(0, asset.activeRequests - 1);
+                asset.dispatchReservations = Math.max(0, Number(asset.dispatchReservations || 0) - 1);
                 markUploadFailure(asset, 'Browser crypto unavailable');
             });
         }
@@ -1854,10 +1873,10 @@
 
     function fillChunkWindow(asset, file) {
         if (!asset || asset.failed || asset.isCancelling || asset.isPaused || asset.recovering) return;
-        if (asset.activeRequests === 0 && hasMissingChunks(asset) && asset.nextChunkCursor >= asset.pendingChunks.length) {
+        if (Number(asset.dispatchReservations || 0) === 0 && hasMissingChunks(asset) && asset.nextChunkCursor >= asset.pendingChunks.length) {
             rebuildPendingChunks(asset);
         }
-        while (asset.activeRequests < asset.currentParallel) {
+        while (Number(asset.dispatchReservations || 0) < asset.currentParallel) {
             var nextChunk = queueNextChunkIndex(asset);
             if (nextChunk === null) break;
             dispatchChunk(asset, file, nextChunk, UPLOAD_CHUNK_RETRY_LIMIT);
@@ -1882,9 +1901,11 @@
         asset.failed = false;
         asset.recovering = false;
         asset.isPaused = false;
+        asset.dispatchReservations = 0;
         asset.activeRequests = 0;
         asset.inflightChunks = {};
         asset.inflightRequests = {};
+        asset.chunkNetworkStarted = {};
         asset.chunkActivityAt = {};
         asset.xhrs = [];
         asset.lastVisualBytes = Math.max(asset.lastVisualBytes || 0, confirmedUploadBytes(asset));
@@ -2039,10 +2060,12 @@
             topologyFrontierBitmap: '',
             topologyDamageBitmap: '',
             topologyRule: '',
+            dispatchReservations: 0,
             activeRequests: 0,
             lastRenegotiateAt: 0,
             inflightChunks: {},
             inflightRequests: {},
+            chunkNetworkStarted: {},
             chunkActivityAt: {},
             lastVisualBytes: 0,
             lastSchedulerActivityAt: 0,
