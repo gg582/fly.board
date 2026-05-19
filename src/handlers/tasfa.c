@@ -1127,30 +1127,37 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     int post_id = json_int(meta, "post_id", 0);
     int owner_uid = json_int(meta, "uid", uid);
 
-    /* HTP line-sum validation */
+    /* HTP line-sum validation (skip if no magic scalars were submitted) */
     uint64_t modulus_M = (uint64_t)json_long_long(meta, "modulus_M", 0);
     if (modulus_M == 0) modulus_M = 1;
     cJSON *magic_scalars = cJSON_GetObjectItem(meta, "magic_scalars");
     if (magic_scalars) {
         int group_count = (chunk_count + 5) / 6;
-        for (int g = 0; g < group_count; g++) {
-            uint64_t m[6] = {0};
-            for (int v = 0; v < 6; v++) {
-                int ci = g * 6 + v;
-                if (ci < chunk_count && ci < cJSON_GetArraySize(magic_scalars)) {
-                    cJSON *item = cJSON_GetArrayItem(magic_scalars, ci);
-                    m[v] = item ? (uint64_t)item->valuedouble : 0;
+        bool has_any_scalar = false;
+        for (int i = 0; i < chunk_count && i < cJSON_GetArraySize(magic_scalars); i++) {
+            cJSON *item = cJSON_GetArrayItem(magic_scalars, i);
+            if (item && item->valuedouble != 0) { has_any_scalar = true; break; }
+        }
+        if (has_any_scalar) {
+            for (int g = 0; g < group_count; g++) {
+                uint64_t m[6] = {0};
+                for (int v = 0; v < 6; v++) {
+                    int ci = g * 6 + v;
+                    if (ci < chunk_count && ci < cJSON_GetArraySize(magic_scalars)) {
+                        cJSON *item = cJSON_GetArrayItem(magic_scalars, ci);
+                        m[v] = item ? (uint64_t)item->valuedouble : 0;
+                    }
                 }
-            }
-            uint64_t L1 = (m[0] + m[1] + m[2]) % modulus_M;
-            uint64_t L2 = (m[2] + m[3] + m[4]) % modulus_M;
-            uint64_t L3 = (m[4] + m[5] + m[0]) % modulus_M;
-            if (L1 != L2 || L2 != L3) {
-                cJSON_Delete(meta);
-                close_upload_session_lock(lock_fd);
-                cwist_query_map_destroy(kv);
-                send_json_response(res, session_error_json("htp line sum mismatch"), CWIST_HTTP_BAD_REQUEST);
-                return;
+                uint64_t L1 = (m[0] + m[1] + m[2]) % modulus_M;
+                uint64_t L2 = (m[2] + m[3] + m[4]) % modulus_M;
+                uint64_t L3 = (m[4] + m[5] + m[0]) % modulus_M;
+                if (L1 != L2 || L2 != L3) {
+                    cJSON_Delete(meta);
+                    close_upload_session_lock(lock_fd);
+                    cwist_query_map_destroy(kv);
+                    send_json_response(res, session_error_json("htp line sum mismatch"), CWIST_HTTP_BAD_REQUEST);
+                    return;
+                }
             }
         }
     }
