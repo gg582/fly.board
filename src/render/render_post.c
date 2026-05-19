@@ -273,24 +273,24 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
                 if (author_id && author_id->valueint > 0) {
                     char uid_buf[32];
                     snprintf(uid_buf, sizeof(uid_buf), "%d", author_id->valueint);
-                    cwist_sstring_append(b, "<span class='post-badge'>&#128100; <a href='/user/");
+                    cwist_sstring_append(b, "<span class='post-badge'><a href='/user/");
                     cwist_sstring_append(b, uid_buf);
                     cwist_sstring_append(b, "'>");
                     cwist_sstring_append_escaped(b, author->valuestring);
                     cwist_sstring_append(b, "</a></span>");
                 } else {
-                    cwist_sstring_append(b, "<span class='post-badge'>&#128100; ");
+                    cwist_sstring_append(b, "<span class='post-badge'>");
                     cwist_sstring_append_escaped(b, author->valuestring);
                     cwist_sstring_append(b, "</span>");
                 }
             } else {
-                cwist_sstring_append(b, "<span class='post-badge'>&#128100; unknown</span>");
+                cwist_sstring_append(b, "<span class='post-badge'>unknown</span>");
             }
-            cwist_sstring_append(b, "<span class='post-badge'>&#128065; ");
+            cwist_sstring_append(b, "<span class='post-badge'>Views ");
             char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%d", views ? views->valueint : 0);
             cwist_sstring_append(b, vbuf);
             cwist_sstring_append(b, " views</span>");
-            cwist_sstring_append(b, "<span class='post-badge'>&#128197; ");
+            cwist_sstring_append(b, "<span class='post-badge'>");
             cwist_sstring_append_escaped(b, date && date->valuestring ? date->valuestring : "");
             cwist_sstring_append(b, "</span>");
             bool can_edit = (user_id > 0 && json_int(p, "user_id", 0) == user_id) || (user_role && strcmp(user_role, "admin") == 0);
@@ -397,7 +397,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     }
     cwist_sstring_append(b, "<div style='margin-bottom:10px'>");
     if (pqc_verified) {
-        cwist_sstring_append(b, "<span style='color:var(--accent);font-size:13px;font-weight:700'>&#128274; PQC Verified</span>");
+        cwist_sstring_append(b, "<span style='color:var(--accent);font-size:13px;font-weight:700'>PQC Verified</span>");
     }
     cwist_sstring_append(b, "</div>");
     cwist_sstring_append(b, "<h1 style='margin-bottom:6px;font-size:2.25rem;font-weight:800;letter-spacing:-0.03em;line-height:1.2'>");

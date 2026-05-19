@@ -49,22 +49,6 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     if (has_boards_bg) {
         cwist_sstring_append(b, "</div>");
     }
-    /* Board chips */
-    if (boards && cJSON_GetArraySize(boards) > 0) {
-        cwist_sstring_append(b, "<div style='margin:18px 0;text-align:center'>");
-        int n = cJSON_GetArraySize(boards);
-        for (int i = 0; i < n; i++) {
-            cJSON *bo = cJSON_GetArrayItem(boards, i);
-            cJSON *slug = cJSON_GetObjectItem(bo, "slug");
-            cJSON *name = cJSON_GetObjectItem(bo, "name");
-            cwist_sstring_append(b, "<a class='tag' href='/board/");
-            cwist_sstring_append(b, slug->valuestring);
-            cwist_sstring_append(b, "'>");
-            cwist_sstring_append_escaped(b, name->valuestring);
-            cwist_sstring_append(b, "</a>");
-        }
-        cwist_sstring_append(b, "</div>");
-    }
     if (user_role && strcmp(user_role, "admin") == 0) {
         cwist_sstring_append(b, "<div style='text-align:center;margin-bottom:24px'><a href='/board/new' class='btn'>New Board</a></div>");
     }
@@ -142,19 +126,19 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
 
                     cwist_sstring_append(b, "<div class='board-post-meta'>");
                     if (pauthor && pauthor->valuestring && pauthor->valuestring[0]) {
-                        cwist_sstring_append(b, "<span class='post-badge'>&#128100; ");
+                        cwist_sstring_append(b, "<span class='post-badge'>");
                         cwist_sstring_append_escaped(b, pauthor->valuestring);
                         cwist_sstring_append(b, "</span>");
                     }
                     if (pviews) {
-                        cwist_sstring_append(b, "<span class='post-badge'>&#128065; ");
+                        cwist_sstring_append(b, "<span class='post-badge'>Views ");
                         char views_buf[32];
                         snprintf(views_buf, sizeof(views_buf), "%d", json_int(p, "view_count", 0));
                         cwist_sstring_append(b, views_buf);
                         cwist_sstring_append(b, "</span>");
                     }
                     if (pdate && pdate->valuestring) {
-                        cwist_sstring_append(b, "<span class='post-badge'>&#128197; ");
+                        cwist_sstring_append(b, "<span class='post-badge'>");
                         cwist_sstring_append_escaped(b, pdate->valuestring);
                         cwist_sstring_append(b, "</span>");
                     }
