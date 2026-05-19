@@ -1602,70 +1602,77 @@
         asset.inflightChunks[chunkIndex] = true;
         asset.dispatchReservations = Math.max(0, Number(asset.dispatchReservations || 0)) + 1;
 
-        function attemptUpload(attempt) {
-            var xhr = new XMLHttpRequest();
-            xhr._tasfaKind = 'chunk';
-            asset.xhrs.push(xhr);
-            asset.transferProgress[chunkIndex] = 0;
-            asset.inflightRequests[chunkIndex] = xhr;
+        preprocessChunkPayload(asset, chunkIndex, blob).then(function(prepared) {
+            function attemptUpload(attempt) {
+                var xhr = new XMLHttpRequest();
+                xhr._tasfaKind = 'chunk';
+                asset.xhrs.push(xhr);
+                asset.transferProgress[chunkIndex] = 0;
+                asset.inflightRequests[chunkIndex] = xhr;
 
-            xhr.open('POST', UPLOAD_ENDPOINT, true);
-            xhr.timeout = 30000;
-            xhr.setRequestHeader('Accept', 'application/json');
-            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-            xhr.setRequestHeader('X-TASFA-Upload-ID', asset.uploadId);
-            xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
-            xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
+                xhr.open('POST', UPLOAD_ENDPOINT, true);
+                xhr.timeout = 30000;
+                xhr.setRequestHeader('Accept', 'application/json');
+                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                xhr.setRequestHeader('X-TASFA-Upload-ID', asset.uploadId);
+                xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
+                xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
+                xhr.setRequestHeader('X-TASFA-Stream-Mode', 'aes-256-gcm');
 
-            xhr.upload.onprogress = function(event) {
-                if (!event.lengthComputable) return;
-                asset.transferProgress[chunkIndex] = event.loaded;
-                updateAssetProgress(asset);
-            };
+                xhr.upload.onprogress = function(event) {
+                    if (!event.lengthComputable) return;
+                    asset.transferProgress[chunkIndex] = event.loaded;
+                    updateAssetProgress(asset);
+                };
 
-            xhr.onload = function() {
-                asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
-                if (asset.failed || asset.isCancelling) return;
-                finishNetworkAttempt(asset, chunkIndex);
-                resetInflightChunk(asset, chunkIndex, true);
-                if (xhr.status !== 200 && xhr.status !== 204) {
-                    if ((xhr.status === 429 || xhr.status >= 500) && attempt < retryCount) {
+                xhr.onload = function() {
+                    asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
+                    if (asset.failed || asset.isCancelling) return;
+                    finishNetworkAttempt(asset, chunkIndex);
+                    resetInflightChunk(asset, chunkIndex, true);
+                    if (xhr.status !== 200 && xhr.status !== 204) {
+                        if ((xhr.status === 429 || xhr.status >= 500) && attempt < retryCount) {
+                            setTimeout(function() { attemptUpload(attempt + 1); }, nextChunkRetryDelay(attempt, computeLinkStabilityScore(asset)));
+                            return;
+                        }
+                        markUploadFailure(asset, 'Upload failed [' + xhr.status + ']');
+                        return;
+                    }
+                    asset.transferProgress[chunkIndex] = blob.size;
+                    asset.receivedBitmap = setBitmapBit(asset.receivedBitmap, chunkIndex);
+                    asset.completedChunks = countBitmapBits(asset.receivedBitmap);
+                    asset.confirmedBytes = confirmedUploadBytes(asset);
+                    updateAssetProgress(asset);
+                    fillChunkWindowPlain(asset, file);
+                    maybeFinalizeChunkUpload(asset);
+                };
+
+                xhr.onerror = xhr.ontimeout = function() {
+                    asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
+                    if (asset.failed || asset.isCancelling) return;
+                    finishNetworkAttempt(asset, chunkIndex);
+                    resetInflightChunk(asset, chunkIndex, false);
+                    if (attempt < retryCount) {
                         setTimeout(function() { attemptUpload(attempt + 1); }, nextChunkRetryDelay(attempt, computeLinkStabilityScore(asset)));
                         return;
                     }
-                    markUploadFailure(asset, 'Upload failed [' + xhr.status + ']');
-                    return;
-                }
-                asset.transferProgress[chunkIndex] = blob.size;
-                asset.receivedBitmap = setBitmapBit(asset.receivedBitmap, chunkIndex);
-                asset.completedChunks = countBitmapBits(asset.receivedBitmap);
-                asset.confirmedBytes = confirmedUploadBytes(asset);
-                updateAssetProgress(asset);
-                fillChunkWindowPlain(asset, file);
-                maybeFinalizeChunkUpload(asset);
-            };
+                    markUploadFailure(asset, 'Upload failed [network]');
+                };
 
-            xhr.onerror = xhr.ontimeout = function() {
-                asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
-                if (asset.failed || asset.isCancelling) return;
-                finishNetworkAttempt(asset, chunkIndex);
-                resetInflightChunk(asset, chunkIndex, false);
-                if (attempt < retryCount) {
-                    setTimeout(function() { attemptUpload(attempt + 1); }, nextChunkRetryDelay(attempt, computeLinkStabilityScore(asset)));
-                    return;
-                }
-                markUploadFailure(asset, 'Upload failed [network]');
-            };
+                xhr.onabort = function() {
+                    asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
+                    finishNetworkAttempt(asset, chunkIndex);
+                    resetInflightChunk(asset, chunkIndex, false);
+                };
 
-            xhr.onabort = function() {
-                asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
-                finishNetworkAttempt(asset, chunkIndex);
-                resetInflightChunk(asset, chunkIndex, false);
-            };
-
-            xhr.send(blob);
-        }
-        attemptUpload(0);
+                xhr.send(prepared.payloadBuffer);
+            }
+            attemptUpload(0);
+        }).catch(function() {
+            delete asset.inflightChunks[chunkIndex];
+            asset.dispatchReservations = Math.max(0, Number(asset.dispatchReservations || 0) - 1);
+            markUploadFailure(asset, 'Browser crypto unavailable');
+        });
     }
 
     function fillChunkWindowPlain(asset, file) {
