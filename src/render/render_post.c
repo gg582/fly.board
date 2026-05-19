@@ -626,9 +626,19 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<textarea id='md-editor' name='content' rows='18' style='width:100%;min-height:500px;height:60vh;font-family:monospace;font-size:15px;border:none;border-radius:0;padding:16px;background:transparent;resize:vertical;outline:none;' required>");
     if (post) {
         cJSON *c = cJSON_GetObjectItem(post, "content");
-        char *tmp_content = sql_escape(c->valuestring);
-        cwist_sstring_append(b, tmp_content);
-        cwist_free(tmp_content);
+        const char *content_str = c && c->valuestring ? c->valuestring : "";
+        const char *p = content_str;
+        while (*p) {
+            const char *end = strstr(p, "</textarea>");
+            if (end) {
+                cwist_sstring_append_len(b, p, end - p);
+                cwist_sstring_append(b, "&lt;/textarea&gt;");
+                p = end + 11;
+            } else {
+                cwist_sstring_append(b, p);
+                break;
+            }
+        }
     }
     cwist_sstring_append(b, "</textarea></div>");
     cwist_sstring_append(b, "<div data-editor-pane='preview' style='display:none;background:var(--panel)'>");
