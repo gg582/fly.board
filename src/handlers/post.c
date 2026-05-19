@@ -11,6 +11,62 @@ static bool random_hex_local(char *out, size_t byte_len) {
     return true;
 }
 
+#include <ctype.h>
+
+static void rewrite_content_legacy_urls(cwist_db *db, char **content) {
+    if (!db || !content || !*content || !**content) return;
+    const char *prefix = "/file/download/";
+    size_t prefix_len = strlen(prefix);
+    cwist_sstring *out = cwist_sstring_create();
+    if (!out) return;
+    const char *p = *content;
+    while (*p) {
+        const char *found = strstr(p, prefix);
+        if (!found) {
+            cwist_sstring_append(out, p);
+            break;
+        }
+        cwist_sstring_append_len(out, p, found - p);
+        const char *num_start = found + prefix_len;
+        if (!isdigit((unsigned char)*num_start)) {
+            cwist_sstring_append_len(out, found, prefix_len);
+            p = num_start;
+            continue;
+        }
+        int fid = 0;
+        const char *num_end = num_start;
+        while (isdigit((unsigned char)*num_end)) {
+            if (fid > (INT_MAX / 10) || (fid == INT_MAX / 10 && (*num_end - '0') > (INT_MAX % 10))) {
+                fid = 0; break;
+            }
+            fid = fid * 10 + (*num_end - '0');
+            num_end++;
+        }
+        if (fid <= 0) {
+            cwist_sstring_append_len(out, found, num_end - found);
+            p = num_end;
+            continue;
+        }
+        cJSON *file = db_file_get(db, fid);
+        if (file) {
+            cJSON *fp = cJSON_GetObjectItem(file, "file_path");
+            if (fp && cJSON_IsString(fp) && fp->valuestring && strncmp(fp->valuestring, "public/uploads/", 15) == 0) {
+                cwist_sstring_append(out, "/assets/uploads/");
+                cwist_sstring_append(out, fp->valuestring + 15);
+            } else {
+                cwist_sstring_append_len(out, found, num_end - found);
+            }
+            cJSON_Delete(file);
+        } else {
+            cwist_sstring_append_len(out, found, num_end - found);
+        }
+        p = num_end;
+    }
+    cwist_free(*content);
+    *content = strdup(out->data);
+    cwist_sstring_destroy(out);
+}
+
 static void attach_media_meta_to_post(cwist_db *db, const char *media_meta_json, int post_id, int uid, const char *role) {
     if (!db || !media_meta_json || !media_meta_json[0] || post_id <= 0) return;
     cJSON *arr = cJSON_Parse(media_meta_json);
@@ -216,6 +272,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     int board_id = board_id_str ? atoi(board_id_str) : 0;
+    rewrite_content_legacy_urls(req->db, &content);
     char *sl = generate_slug(title);
 
     /* PQC sign: title + "\n" + content */
@@ -398,6 +455,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     cJSON_Delete(post);
 
     int board_id = board_id_str ? atoi(board_id_str) : 0;
+    rewrite_content_legacy_urls(req->db, &content);
     size_t msg_len2 = (title ? strlen(title) : 0) + 1 + (content ? strlen(content) : 0);
     char *msg2 = (char *)cwist_alloc(msg_len2 + 1);
     snprintf(msg2, msg_len2 + 1, "%s\n%s", title ? title : "", content ? content : "");

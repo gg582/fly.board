@@ -294,7 +294,7 @@
 
     function insertAssetMarkdown(asset) {
         if (!asset.url) return;
-        var url = asset.fid !== null ? ('/file/download/' + asset.fid) : asset.url;
+        var url = asset.blob_url || asset.url;
         var isMedia = /^image\//.test(asset.mime_type || '') || /^video\//.test(asset.mime_type || '') || /^audio\//.test(asset.mime_type || '');
         if (isMedia) {
             insertAtCursor('![' + asset.filename + '](' + url + ')\n');
@@ -782,6 +782,7 @@
     function finalizeUploadSuccess(asset, response) {
         asset.fid = response.fid || response.id || asset.fid;
         asset.url = response.url;
+        asset.blob_url = response.blob_url || '';
         asset.filename = response.filename || asset.filename;
         asset.mime_type = response.mime_type || asset.mime_type || '';
         asset.deletePin = response.delete_pin || '';
@@ -795,7 +796,7 @@
         clearRecoveryTimer(asset);
         clearSchedulerTimer(asset);
         resetAllInflightChunks(asset, true);
-        replaceAllInEditor(asset.placeholderUrl, asset.url);
+        replaceAllInEditor(asset.placeholderUrl, asset.blob_url || asset.url);
         asset.mode = isEditorMode ? 'inline' : 'attachment';
         asset.xhrs = [];
         asset.uploadToken = null;
@@ -830,7 +831,7 @@
         if (isEditorMode) {
             setModeButtons(asset.ui, asset.mode);
             var isMedia = /^image\//.test(asset.mime_type || '') || /^video\//.test(asset.mime_type || '') || /^audio\//.test(asset.mime_type || '');
-            if (isMedia && asset.mode === 'inline' && !editorHasUrl('/file/download/' + asset.fid)) {
+            if (isMedia && asset.mode === 'inline' && !editorHasUrl(asset.blob_url || asset.url) && !editorHasUrl('/file/download/' + asset.fid)) {
                 insertAssetMarkdown(asset);
             }
         }
