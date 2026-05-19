@@ -54,8 +54,6 @@
     var UPLOAD_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024;
     var UPLOAD_PREPARED_BUDGET_BYTES = 96 * 1024 * 1024;
     var UPLOAD_ACTIVE_BUDGET_BYTES = 128 * 1024 * 1024;
-    var hmacKeyCache = {};
-
     function escapeHtml(value) {
         return String(value || '')
             .replace(/&/g, '&amp;')
@@ -997,46 +995,6 @@
         return uploadWorkerBridge;
     }
 
-    function gzipArrayBuffer(buffer) {
-        if (typeof CompressionStream !== 'function') return Promise.resolve({ payloadBuffer: buffer, contentEncoding: 'identity' });
-        var stream = new Blob([buffer]).stream().pipeThrough(new CompressionStream('gzip'));
-        return new Response(stream).arrayBuffer().then(function(gzipped) {
-            return {
-                payloadBuffer: gzipped,
-                contentEncoding: gzipped.byteLength < buffer.byteLength ? 'gzip' : 'identity'
-            };
-        }).then(function(result) {
-            if (result.contentEncoding === 'identity') result.payloadBuffer = buffer;
-            return result;
-        });
-    }
-
-    function shouldCompressUpload(file) {
-        var mime = String(file && file.type || '').toLowerCase();
-        if (!mime) return false;
-        if (/^(image|audio|video)\//.test(mime)) return false;
-        if (/^(application\/(zip|gzip|x-gzip|x-7z-compressed|x-rar-compressed|pdf)|font\/)/.test(mime)) return false;
-        return /^(text\/|application\/(json|javascript|xml|xhtml\+xml|svg\+xml))/.test(mime);
-    }
-
-    function getOrImportHmacKey(secret) {
-        if (!secret || !window.crypto || !window.crypto.subtle || !window.TextEncoder) {
-            return Promise.reject(new Error('crypto unavailable'));
-        }
-        if (hmacKeyCache[secret]) return Promise.resolve(hmacKeyCache[secret]);
-        var enc = new TextEncoder();
-        return window.crypto.subtle.importKey(
-            'raw',
-            enc.encode(secret),
-            { name: 'HMAC', hash: 'SHA-256' },
-            false,
-            ['sign']
-        ).then(function(key) {
-            hmacKeyCache[secret] = key;
-            return key;
-        });
-    }
-
     function preprocessChunkPayload(asset, chunkIndex, blockOffset, nonce, vertexId, magicSum, blob) {
         return blob.arrayBuffer().then(function(buffer) {
             var bridge = getUploadWorkerBridge();
@@ -1044,25 +1002,17 @@
                 return bridge.request({
                     type: 'prepare-upload',
                     uploadId: asset.uploadId,
-                    uploadSecret: asset.uploadSecret,
+                    streamKeyHex: asset.streamKeyHex,
+                    streamIvSeedHex: asset.streamIvSeedHex,
                     chunkIndex: chunkIndex,
                     blockOffset: blockOffset,
-                    nonce: nonce,
+                    blockIndex: Math.floor(blockOffset / Math.max(1, Number(asset.transportBlockSize || asset.chunkSize || UPLOAD_CHUNK_SIZE))),
                     vertexId: vertexId,
                     magicSum: magicSum,
-                    shouldCompress: shouldCompressUpload(asset && asset.file),
                     chunkBuffer: buffer
                 }, [buffer]);
             }
-            return createChunkSignature(asset, chunkIndex, blockOffset, nonce, vertexId, magicSum).then(function(signature) {
-                var payloadPromise = shouldCompressUpload(asset && asset.file)
-                    ? gzipArrayBuffer(buffer)
-                    : Promise.resolve({ payloadBuffer: buffer, contentEncoding: 'identity' });
-                return payloadPromise.then(function(result) {
-                    result.signature = signature;
-                    return result;
-                });
-            });
+            return Promise.reject(new Error('worker unavailable'));
         });
     }
 
@@ -1073,17 +1023,16 @@
         })).then(function(buffers) {
             var bridge = getUploadWorkerBridge();
             if (bridge) {
-                var shouldCompress = shouldCompressUpload(asset && asset.file);
                 return bridge.request({
                     type: 'prepare-upload-batch',
                     uploadId: asset.uploadId,
-                    uploadSecret: asset.uploadSecret,
-                    shouldCompress: shouldCompress,
+                    streamKeyHex: asset.streamKeyHex,
+                    streamIvSeedHex: asset.streamIvSeedHex,
                     chunks: metas.map(function(meta, index) {
                         return {
                             chunkIndex: meta.chunkIndex,
                             blockOffset: meta.start,
-                            nonce: meta.nonce,
+                            blockIndex: meta.blockIndex,
                             vertexId: meta.vertexId,
                             magicSum: meta.magicSum,
                             chunkBuffer: buffers[index]
@@ -1093,21 +1042,7 @@
                     return (result && result.chunks) || [];
                 });
             }
-            return Promise.all(metas.map(function(meta, index) {
-                return createChunkSignature(asset, meta.chunkIndex, meta.start, meta.nonce, meta.vertexId, meta.magicSum).then(function(signature) {
-                    var payloadPromise = shouldCompressUpload(asset && asset.file)
-                        ? gzipArrayBuffer(buffers[index])
-                        : Promise.resolve({ payloadBuffer: buffers[index], contentEncoding: 'identity' });
-                    return payloadPromise.then(function(result) {
-                        return {
-                            chunkIndex: meta.chunkIndex,
-                            payloadBuffer: result.payloadBuffer,
-                            contentEncoding: result.contentEncoding,
-                            signature: signature
-                        };
-                    });
-                });
-            }));
+            return Promise.reject(new Error('worker unavailable'));
         });
     }
 
@@ -1285,29 +1220,6 @@
         }
     }
 
-    function createChunkSignature(asset, chunkIndex, blockOffset, nonce, vertexId, magicSum) {
-        if (!asset || !asset.uploadSecret) return Promise.reject(new Error('crypto unavailable'));
-        var enc = new TextEncoder();
-        var message = [
-            asset.uploadId,
-            String(chunkIndex),
-            String(blockOffset),
-            nonce || '',
-            vertexId || '',
-            String(magicSum)
-        ].join(':');
-        return getOrImportHmacKey(asset.uploadSecret).then(function(key) {
-            return window.crypto.subtle.sign('HMAC', key, enc.encode(message));
-        }).then(function(signature) {
-            var bytes = new Uint8Array(signature);
-            var hex = '';
-            for (var i = 0; i < bytes.length; i += 1) {
-                hex += bytes[i].toString(16).padStart(2, '0');
-            }
-            return hex;
-        });
-    }
-
     function chunkGridCols(chunkCount) {
         var cols = 1;
         while (cols * cols < chunkCount) cols += 1;
@@ -1409,7 +1321,7 @@
             chunkIndex: chunkIndex,
             vertexId: vertex.q + ':' + vertex.r,
             magicSum: chunkMagicSum(chunkIndex, asset.totalChunks),
-            nonce: Math.random().toString(36).slice(2) + Date.now().toString(36)
+            nonce: ''
         };
     }
 
@@ -1454,11 +1366,8 @@
                         if (!prepared || !meta) return;
                         asset.preparedChunks[meta.blockIndex] = {
                             payloadBuffer: prepared.payloadBuffer,
-                            contentEncoding: prepared.contentEncoding,
-                            signature: prepared.signature,
                             start: meta.start,
                             end: meta.end,
-                            nonce: meta.nonce,
                             vertexId: meta.vertexId,
                             magicSum: meta.magicSum,
                             blobSize: meta.blob.size
@@ -1549,6 +1458,8 @@
         asset.totalTransportBlocks = Number(payload.transport_block_count || asset.totalTransportBlocks || Math.max(1, Math.ceil(asset.fileSize / asset.transportBlockSize)));
         asset.receivedBitmap = payload.received_bitmap || asset.receivedBitmap || '';
         asset.receivedBlockBitmap = payload.received_block_bitmap || asset.receivedBlockBitmap || '';
+        asset.streamKeyHex = payload.stream_key_hex || asset.streamKeyHex || '';
+        asset.streamIvSeedHex = payload.stream_iv_seed_hex || asset.streamIvSeedHex || '';
         asset.resumeFromByte = Number(payload.resume_from_byte || asset.resumeFromByte || 0);
         asset.completedChunks = Number(payload.received_chunks || 0);
         asset.currentParallel = clampParallelToBudget(asset, payload.current_parallel_chunks || payload.initial_parallel_chunks || asset.currentParallel || UPLOAD_DEFAULT_PARALLEL);
@@ -1850,11 +1761,19 @@
                 recordLinkSuccess(asset, Date.now() - Number(xhr._tasfaStartedAt || Date.now()));
                 asset.lastChunkResponseAt = Date.now();
                 var payload = null;
-                try {
-                    payload = JSON.parse(xhr.responseText);
-                } catch (err) {
-                    recoverOrContinue(asset, file, blockIndex, 'recover');
-                    return;
+                if (xhr.status === 204 || !xhr.responseText) {
+                    payload = {
+                        ok: true,
+                        accepted: true,
+                        chunk_complete: xhr.getResponseHeader('X-TASFA-Chunk-Complete') === '1'
+                    };
+                } else {
+                    try {
+                        payload = JSON.parse(xhr.responseText);
+                    } catch (err) {
+                        recoverOrContinue(asset, file, blockIndex, 'recover');
+                        return;
+                    }
                 }
                 if (!payload || payload.ok === false) {
                     recoverOrContinue(asset, file, blockIndex, 'recover');
@@ -1944,7 +1863,6 @@
                 blob = meta.blob;
                 return preprocessChunkPayload(asset, topologyChunkIndex, meta.start, meta.nonce, meta.vertexId, meta.magicSum, meta.blob).then(function(prepared) {
                     prepared.start = meta.start;
-                    prepared.nonce = meta.nonce;
                     prepared.vertexId = meta.vertexId;
                     prepared.magicSum = meta.magicSum;
                     prepared.blobSize = meta.blob.size;
@@ -1965,13 +1883,9 @@
                 xhr.setRequestHeader('X-TASFA-Chunk-Index', String(topologyChunkIndex));
                 xhr.setRequestHeader('X-TASFA-Transport-Block-Index', String(blockIndex));
                 xhr.setRequestHeader('X-TASFA-Block-Offset', String(prepared.start));
-                xhr.setRequestHeader('X-TASFA-Nonce', prepared.nonce);
+                xhr.setRequestHeader('X-TASFA-Stream-Mode', 'aes-256-gcm');
                 xhr.setRequestHeader('X-TASFA-Vertex-Id', prepared.vertexId);
                 xhr.setRequestHeader('X-TASFA-Magic-Sum', String(prepared.magicSum));
-                xhr.setRequestHeader('X-TASFA-Chunk-Signature', prepared.signature);
-                if (prepared.contentEncoding && prepared.contentEncoding !== 'identity') {
-                    xhr.setRequestHeader('Content-Encoding', prepared.contentEncoding);
-                }
                 xhr.send(prepared.payloadBuffer);
             }).catch(function() {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
@@ -2083,12 +1997,15 @@
                 finalizeUploadSuccess(asset, payload);
                 return;
             }
-            if (!payload || payload.ok === false || !payload.upload_id || !payload.upload_token || !payload.upload_secret) {
+            if (!payload || payload.ok === false || !payload.upload_id || !payload.upload_token ||
+                !payload.stream_key_hex || !payload.stream_iv_seed_hex) {
                 throw new Error((payload && payload.error) || 'upload init failed');
             }
             asset.uploadId = payload.upload_id;
             asset.uploadToken = payload.upload_token;
             asset.uploadSecret = payload.upload_secret;
+            asset.streamKeyHex = payload.stream_key_hex;
+            asset.streamIvSeedHex = payload.stream_iv_seed_hex;
             asset.chunkSize = Number(payload.chunk_size || UPLOAD_CHUNK_SIZE);
             asset.transportBlockSize = Number(payload.transport_block_size || asset.chunkSize);
             asset.totalTransportBlocks = Number(payload.transport_block_count || Math.max(1, Math.ceil(file.size / asset.transportBlockSize)));
@@ -2170,6 +2087,8 @@
             uploadId: null,
             uploadToken: null,
             uploadSecret: null,
+            streamKeyHex: '',
+            streamIvSeedHex: '',
             fileSize: file.size,
             chunkSize: UPLOAD_CHUNK_SIZE,
             transportBlockSize: UPLOAD_CHUNK_SIZE,

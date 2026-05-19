@@ -1,4 +1,4 @@
-self.__tasfaHmacKeys = self.__tasfaHmacKeys || {};
+self.__tasfaStreamKeys = self.__tasfaStreamKeys || {};
 
 self.onmessage = function(event) {
     var data = event.data || {};
@@ -20,9 +20,7 @@ self.onmessage = function(event) {
             return {
                 id: data.id,
                 ok: true,
-                signature: result.signature,
                 payloadBuffer: result.payloadBuffer,
-                contentEncoding: result.contentEncoding,
                 transferList: [result.payloadBuffer]
             };
         });
@@ -37,59 +35,79 @@ self.onmessage = function(event) {
     });
 };
 
-function getOrImportHmacKey(secret) {
-    if (!secret) return Promise.reject(new Error('missing upload secret'));
-    if (self.__tasfaHmacKeys[secret]) return Promise.resolve(self.__tasfaHmacKeys[secret]);
+function hexToBytes(hex) {
+    var source = String(hex || '');
+    if (!source || source.length % 2 !== 0) return null;
+    var bytes = new Uint8Array(source.length / 2);
+    for (var i = 0; i < source.length; i += 2) {
+        bytes[i / 2] = parseInt(source.slice(i, i + 2), 16);
+    }
+    return bytes;
+}
+
+function deriveStreamIv(seedHex, blockIndex) {
+    var seed = hexToBytes(seedHex);
+    if (!seed || seed.length !== 12) throw new Error('invalid stream iv seed');
+    seed[8] ^= (blockIndex >>> 24) & 0xff;
+    seed[9] ^= (blockIndex >>> 16) & 0xff;
+    seed[10] ^= (blockIndex >>> 8) & 0xff;
+    seed[11] ^= blockIndex & 0xff;
+    return seed;
+}
+
+function buildStreamAad(data) {
     var enc = new TextEncoder();
+    return enc.encode([
+        data.uploadId || '',
+        String(data.chunkIndex || 0),
+        String(data.blockOffset || 0),
+        data.vertexId || '',
+        String(data.magicSum || 0)
+    ].join(':'));
+}
+
+function getOrImportStreamKey(keyHex) {
+    if (!keyHex) return Promise.reject(new Error('missing stream key'));
+    if (self.__tasfaStreamKeys[keyHex]) return Promise.resolve(self.__tasfaStreamKeys[keyHex]);
+    var keyBytes = hexToBytes(keyHex);
+    if (!keyBytes) return Promise.reject(new Error('invalid stream key'));
     return self.crypto.subtle.importKey(
         'raw',
-        enc.encode(secret),
-        { name: 'HMAC', hash: 'SHA-256' },
+        keyBytes,
+        { name: 'AES-GCM' },
         false,
-        ['sign']
+        ['encrypt']
     ).then(function(key) {
-        self.__tasfaHmacKeys[secret] = key;
+        self.__tasfaStreamKeys[keyHex] = key;
         return key;
     });
 }
 
-function createChunkSignature(data) {
+function encryptChunkBuffer(data) {
     if (!self.crypto || !self.crypto.subtle || !self.TextEncoder) {
         return Promise.reject(new Error('crypto unavailable'));
     }
-    var enc = new TextEncoder();
-    var message = [
-        data.uploadId,
-        String(data.chunkIndex),
-        String(data.blockOffset),
-        data.nonce || '',
-        data.vertexId || '',
-        String(data.magicSum)
-    ].join(':');
-    return getOrImportHmacKey(data.uploadSecret || '').then(function(key) {
-        return self.crypto.subtle.sign('HMAC', key, enc.encode(message));
-    }).then(function(signature) {
-        var bytes = new Uint8Array(signature);
-        var hex = '';
-        for (var i = 0; i < bytes.length; i += 1) {
-            hex += bytes[i].toString(16).padStart(2, '0');
-        }
-        return hex;
+    var iv = deriveStreamIv(data.streamIvSeedHex, Number(data.blockIndex || 0));
+    var aad = buildStreamAad(data);
+    return getOrImportStreamKey(data.streamKeyHex || '').then(function(key) {
+        return self.crypto.subtle.encrypt({
+            name: 'AES-GCM',
+            iv: iv,
+            additionalData: aad,
+            tagLength: 128
+        }, key, data.chunkBuffer);
+    }).then(function(buffer) {
+        return {
+            payloadBuffer: buffer
+        };
     });
 }
 
 function prepareSingleChunk(data) {
-    return createChunkSignature(data).then(function(signature) {
-        var payloadPromise = data.shouldCompress
-            ? gzipChunk(data.chunkBuffer)
-            : Promise.resolve({ payloadBuffer: data.chunkBuffer, contentEncoding: 'identity' });
-        return payloadPromise.then(function(result) {
-            return {
-                signature: signature,
-                payloadBuffer: result.payloadBuffer,
-                contentEncoding: result.contentEncoding
-            };
-        });
+    return encryptChunkBuffer(data).then(function(result) {
+        return {
+            payloadBuffer: result.payloadBuffer
+        };
     });
 }
 
@@ -98,34 +116,20 @@ function prepareChunkBatch(data) {
     return Promise.all(chunks.map(function(chunk) {
         return prepareSingleChunk({
             uploadId: data.uploadId,
-            uploadSecret: data.uploadSecret,
-            shouldCompress: data.shouldCompress,
+            streamKeyHex: data.streamKeyHex,
+            streamIvSeedHex: data.streamIvSeedHex,
             chunkIndex: chunk.chunkIndex,
             blockOffset: chunk.blockOffset,
-            nonce: chunk.nonce,
+            blockIndex: chunk.blockIndex,
             vertexId: chunk.vertexId,
             magicSum: chunk.magicSum,
             chunkBuffer: chunk.chunkBuffer
         }).then(function(result) {
             return {
                 chunkIndex: chunk.chunkIndex,
-                signature: result.signature,
-                payloadBuffer: result.payloadBuffer,
-                contentEncoding: result.contentEncoding
+                blockIndex: chunk.blockIndex,
+                payloadBuffer: result.payloadBuffer
             };
         });
     }));
-}
-
-function gzipChunk(buffer) {
-    if (!buffer || typeof CompressionStream !== 'function') {
-        return Promise.resolve({ payloadBuffer: buffer, contentEncoding: 'identity' });
-    }
-    var stream = new Blob([buffer]).stream().pipeThrough(new CompressionStream('gzip'));
-    return new Response(stream).arrayBuffer().then(function(gzipped) {
-        if (gzipped.byteLength < buffer.byteLength) {
-            return { payloadBuffer: gzipped, contentEncoding: 'gzip' };
-        }
-        return { payloadBuffer: buffer, contentEncoding: 'identity' };
-    });
 }

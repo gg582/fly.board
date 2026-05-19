@@ -4,6 +4,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <openssl/crypto.h>
+#include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
 #include <strings.h>
@@ -31,6 +32,8 @@ static const int TASFA_DIRS[6][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, -1}, 
 typedef struct {
     char upload_token[64];
     char upload_secret[64];
+    unsigned char stream_key[32];
+    unsigned char stream_iv_seed[12];
     int chunk_count;
     int chunk_size;
     int transport_block_size;
@@ -134,6 +137,61 @@ static bool hmac_sha256_hex(const char *secret, const char *message, char *out, 
     for (unsigned int i = 0; i < md_len; i++) snprintf(out + (i * 2), out_len - (i * 2), "%02x", md[i]);
     out[64] = '\0';
     return true;
+}
+
+static char *hex_encode_alloc(const unsigned char *data, size_t len) {
+    if (!data || !len) return NULL;
+    char *out = (char *)cwist_alloc((len * 2) + 1);
+    if (!out) return NULL;
+    for (size_t i = 0; i < len; i++) snprintf(out + (i * 2), 3, "%02x", data[i]);
+    out[len * 2] = '\0';
+    return out;
+}
+
+static void derive_stream_iv(unsigned char out[12], const unsigned char seed[12], int block_index) {
+    memcpy(out, seed, 12);
+    out[8] ^= (unsigned char)((block_index >> 24) & 0xff);
+    out[9] ^= (unsigned char)((block_index >> 16) & 0xff);
+    out[10] ^= (unsigned char)((block_index >> 8) & 0xff);
+    out[11] ^= (unsigned char)(block_index & 0xff);
+}
+
+static int build_stream_aad(unsigned char *out, size_t out_len, const char *upload_id, int chunk_index,
+                            long long block_offset, const char *vertex_id, int magic_sum) {
+    if (!out || !out_len) return -1;
+    return snprintf((char *)out, out_len, "%s:%d:%lld:%s:%d",
+                    upload_id ? upload_id : "", chunk_index, block_offset, vertex_id ? vertex_id : "", magic_sum);
+}
+
+static bool decrypt_stream_block(const unsigned char *key, const unsigned char *iv_seed, int block_index,
+                                 const char *upload_id, int chunk_index, long long block_offset,
+                                 const char *vertex_id, int magic_sum,
+                                 const unsigned char *ciphertext, size_t ciphertext_len,
+                                 unsigned char *plaintext, size_t plaintext_len) {
+    if (!key || !iv_seed || !ciphertext || ciphertext_len < 16 || !plaintext) return false;
+    if (plaintext_len + 16 != ciphertext_len) return false;
+    unsigned char iv[12];
+    unsigned char aad[512];
+    int aad_len = build_stream_aad(aad, sizeof(aad), upload_id, chunk_index, block_offset, vertex_id, magic_sum);
+    if (aad_len <= 0) return false;
+    derive_stream_iv(iv, iv_seed, block_index);
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return false;
+    bool ok = false;
+    int out_len = 0;
+    int final_len = 0;
+    const unsigned char *tag = ciphertext + plaintext_len;
+    if (EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL) != 1) goto cleanup;
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, sizeof(iv), NULL) != 1) goto cleanup;
+    if (EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv) != 1) goto cleanup;
+    if (EVP_DecryptUpdate(ctx, NULL, &out_len, aad, aad_len) != 1) goto cleanup;
+    if (EVP_DecryptUpdate(ctx, plaintext, &out_len, ciphertext, (int)plaintext_len) != 1) goto cleanup;
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, (void *)tag) != 1) goto cleanup;
+    if (EVP_DecryptFinal_ex(ctx, plaintext + out_len, &final_len) != 1) goto cleanup;
+    ok = (size_t)(out_len + final_len) == plaintext_len;
+cleanup:
+    EVP_CIPHER_CTX_free(ctx);
+    return ok;
 }
 
 static bool verify_upload_signature(const char *secret, const char *upload_id, int chunk_index, long long block_offset,
@@ -249,6 +307,10 @@ static void upload_session_state_bin_path(char *out, size_t out_len, const char 
 
 static void upload_session_block_state_bin_path(char *out, size_t out_len, const char *upload_id) {
     snprintf(out, out_len, "%s/%s/blocks.bin", TASFA_UPLOAD_DIR, upload_id);
+}
+
+static void upload_session_chunk_count_bin_path(char *out, size_t out_len, const char *upload_id) {
+    snprintf(out, out_len, "%s/%s/chunk_counts.bin", TASFA_UPLOAD_DIR, upload_id);
 }
 
 static void upload_session_temp_path(char *out, size_t out_len, const char *upload_id) {
@@ -384,6 +446,13 @@ static bool save_upload_block_state_bin(const char *upload_id, int block_count, 
     return file_write(path, bitmap, (size_t)block_count);
 }
 
+static bool save_upload_chunk_count_state_bin(const char *upload_id, int chunk_count, const uint16_t *counts) {
+    char path[PATH_MAX];
+    upload_session_chunk_count_bin_path(path, sizeof(path), upload_id);
+    if (!counts || chunk_count <= 0) return false;
+    return file_write(path, counts, (size_t)chunk_count * sizeof(uint16_t));
+}
+
 static char* load_upload_session_state_bin(const char *upload_id, int chunk_count) {
     char path[PATH_MAX];
     upload_session_state_bin_path(path, sizeof(path), upload_id);
@@ -423,15 +492,28 @@ static bool mark_chunk_received_in_session_state(const char *upload_id, int chun
     return ok;
 }
 
-static bool mark_transport_block_received(const char *upload_id, int block_index) {
+static bool mark_transport_block_received_once(const char *upload_id, int block_index, bool *was_newly_marked) {
     char path[PATH_MAX];
     upload_session_block_state_bin_path(path, sizeof(path), upload_id);
     int fd = open(path, O_RDWR);
     if (fd < 0) return false;
-    unsigned char val = '1';
-    bool ok = (pwrite(fd, &val, 1, (off_t)block_index) == 1);
+    unsigned char current = '0';
+    ssize_t got = pread(fd, &current, 1, (off_t)block_index);
+    if (got != 1) {
+        close(fd);
+        return false;
+    }
+    bool is_new = current != '1';
+    if (is_new) {
+        unsigned char val = '1';
+        if (pwrite(fd, &val, 1, (off_t)block_index) != 1) {
+            close(fd);
+            return false;
+        }
+    }
     close(fd);
-    return ok;
+    if (was_newly_marked) *was_newly_marked = is_new;
+    return true;
 }
 
 static int blocks_per_chunk(void) {
@@ -450,14 +532,42 @@ static int block_count_for_chunk(int chunk_index, long long total_size) {
     return (int)(((chunk_end - chunk_start) + TASFA_TRANSPORT_BLOCK_SIZE - 1) / TASFA_TRANSPORT_BLOCK_SIZE);
 }
 
-static bool is_chunk_complete_from_block_bitmap(const char *block_bitmap, int chunk_index, long long total_size) {
-    if (!block_bitmap) return false;
-    int first = first_block_index_for_chunk(chunk_index);
-    int count = block_count_for_chunk(chunk_index, total_size);
-    if (count <= 0) return false;
-    for (int i = 0; i < count; i++) {
-        if (block_bitmap[first + i] != '1') return false;
+static uint16_t *chunk_counts_from_block_bitmap(const char *block_bitmap, int chunk_count, long long total_size) {
+    if (!block_bitmap || chunk_count <= 0) return NULL;
+    uint16_t *counts = (uint16_t *)cwist_alloc((size_t)chunk_count * sizeof(uint16_t));
+    if (!counts) return NULL;
+    memset(counts, 0, (size_t)chunk_count * sizeof(uint16_t));
+    for (int chunk_index = 0; chunk_index < chunk_count; chunk_index++) {
+        int first = first_block_index_for_chunk(chunk_index);
+        int count = block_count_for_chunk(chunk_index, total_size);
+        for (int i = 0; i < count; i++) {
+            if (block_bitmap[first + i] == '1') counts[chunk_index] += 1;
+        }
     }
+    return counts;
+}
+
+static bool update_chunk_receive_count(const char *upload_id, int chunk_index, int required_blocks,
+                                       bool increment, bool *chunk_complete) {
+    char path[PATH_MAX];
+    upload_session_chunk_count_bin_path(path, sizeof(path), upload_id);
+    int fd = open(path, O_RDWR);
+    if (fd < 0) return false;
+    uint16_t count = 0;
+    ssize_t got = pread(fd, &count, sizeof(count), (off_t)((size_t)chunk_index * sizeof(uint16_t)));
+    if (got != (ssize_t)sizeof(count)) {
+        close(fd);
+        return false;
+    }
+    if (increment && count < UINT16_MAX) {
+        count += 1;
+        if (pwrite(fd, &count, sizeof(count), (off_t)((size_t)chunk_index * sizeof(uint16_t))) != (ssize_t)sizeof(count)) {
+            close(fd);
+            return false;
+        }
+    }
+    close(fd);
+    if (chunk_complete) *chunk_complete = count >= (uint16_t)required_blocks;
     return true;
 }
 
@@ -662,6 +772,10 @@ static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
     cJSON_AddStringToObject(obj, "upload_id", upload_id ? upload_id : "");
     cJSON_AddStringToObject(obj, "upload_token", json_string(meta, "upload_token", ""));
     cJSON_AddStringToObject(obj, "upload_secret", json_string(meta, "upload_secret", ""));
+    cJSON_AddStringToObject(obj, "stream_key_hex", json_string(meta, "stream_key_hex", ""));
+    cJSON_AddStringToObject(obj, "stream_iv_seed_hex", json_string(meta, "stream_iv_seed_hex", ""));
+    cJSON_AddStringToObject(obj, "stream_session_signature", json_string(meta, "stream_session_signature", ""));
+    cJSON_AddStringToObject(obj, "stream_mode", "aes-256-gcm");
     cJSON_AddNumberToObject(obj, "chunk_size", json_int(meta, "chunk_size", TASFA_CHUNK_SIZE));
     cJSON_AddNumberToObject(obj, "chunk_count", chunk_count);
     cJSON_AddNumberToObject(obj, "transport_block_size", json_int(meta, "transport_block_size", TASFA_TRANSPORT_BLOCK_SIZE));
@@ -973,8 +1087,29 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         }
         char upload_token[49];
         char upload_secret[49];
+        unsigned char stream_key[32] = {0};
+        unsigned char stream_iv_seed[12] = {0};
         char *bitmap = rolled_over ? previous_chunk_bitmap : bitmap_create(chunk_count);
-        if (!bitmap || !random_hex(upload_token, 24) || !random_hex(upload_secret, 24)) {
+        if (!bitmap || RAND_bytes(stream_key, sizeof(stream_key)) != 1 || RAND_bytes(stream_iv_seed, sizeof(stream_iv_seed)) != 1 ||
+            !random_hex(upload_token, 24) || !random_hex(upload_secret, 24)) {
+            if (!rolled_over && bitmap) cwist_free(bitmap);
+            if (previous_block_bitmap) cwist_free(previous_block_bitmap);
+            if (previous_meta) cJSON_Delete(previous_meta);
+            close_upload_session_lock(previous_lock_fd);
+            cwist_query_map_destroy(kv);
+            send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
+            return;
+        }
+        char *stream_key_hex = hex_encode_alloc(stream_key, sizeof(stream_key));
+        char *stream_iv_seed_hex = hex_encode_alloc(stream_iv_seed, sizeof(stream_iv_seed));
+        char session_sig_message[512];
+        snprintf(session_sig_message, sizeof(session_sig_message), "%s:%s:%s:%s",
+                 upload_id, upload_token, stream_key_hex ? stream_key_hex : "", stream_iv_seed_hex ? stream_iv_seed_hex : "");
+        char *stream_session_signature = NULL;
+        fly_crypto_sign((const uint8_t *)session_sig_message, strlen(session_sig_message), &stream_session_signature);
+        if (!stream_key_hex || !stream_iv_seed_hex) {
+            if (stream_key_hex) cwist_free(stream_key_hex);
+            if (stream_iv_seed_hex) cwist_free(stream_iv_seed_hex);
             if (!rolled_over && bitmap) cwist_free(bitmap);
             if (previous_block_bitmap) cwist_free(previous_block_bitmap);
             if (previous_meta) cJSON_Delete(previous_meta);
@@ -997,6 +1132,9 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         cJSON_AddStringToObject(meta, "session_id", session_id ? session_id : "");
         cJSON_AddStringToObject(meta, "upload_token", upload_token);
         cJSON_AddStringToObject(meta, "upload_secret", upload_secret);
+        cJSON_AddStringToObject(meta, "stream_key_hex", stream_key_hex);
+        cJSON_AddStringToObject(meta, "stream_iv_seed_hex", stream_iv_seed_hex);
+        cJSON_AddStringToObject(meta, "stream_session_signature", stream_session_signature ? stream_session_signature : "");
         cJSON_AddStringToObject(meta, "temp_path", temp_path);
         cJSON_AddNumberToObject(meta, "chunk_size", TASFA_CHUNK_SIZE);
         cJSON_AddNumberToObject(meta, "chunk_count", chunk_count);
@@ -1004,7 +1142,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         cJSON_AddNumberToObject(meta, "transport_block_count", transport_block_count_for_size(total_size));
         cJSON_AddNumberToObject(meta, "total_size", (double)total_size);
         cJSON_AddStringToObject(meta, "received_bitmap", bitmap);
-        cJSON_AddNumberToObject(meta, "received_chunks", 0);
+        cJSON_AddNumberToObject(meta, "received_chunks", bitmap_count_set(bitmap, chunk_count));
         cJSON_AddNumberToObject(meta, "current_parallel_chunks", initial_parallel);
         cJSON_AddNumberToObject(meta, "max_parallel_chunks", max_parallel);
         if (rolled_over) cJSON_AddStringToObject(meta, "rolled_over_from", previous_upload_id);
@@ -1017,6 +1155,8 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         tasfa_meta_bin_t mbin = {0};
         strncpy(mbin.upload_token, upload_token, sizeof(mbin.upload_token)-1);
         strncpy(mbin.upload_secret, upload_secret, sizeof(mbin.upload_secret)-1);
+        memcpy(mbin.stream_key, stream_key, sizeof(stream_key));
+        memcpy(mbin.stream_iv_seed, stream_iv_seed, sizeof(stream_iv_seed));
         mbin.chunk_count = chunk_count;
         mbin.chunk_size = TASFA_CHUNK_SIZE;
         mbin.transport_block_size = TASFA_TRANSPORT_BLOCK_SIZE;
@@ -1028,16 +1168,26 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         snprintf(mbin.temp_path, sizeof(mbin.temp_path), "%s", temp_path);
         
         char *block_bitmap = rolled_over ? previous_block_bitmap : bitmap_create(mbin.transport_block_count);
+        uint16_t *chunk_counts = rolled_over
+            ? chunk_counts_from_block_bitmap(previous_block_bitmap, chunk_count, total_size)
+            : (uint16_t *)cwist_alloc((size_t)chunk_count * sizeof(uint16_t));
+        if (!rolled_over && chunk_counts) memset(chunk_counts, 0, (size_t)chunk_count * sizeof(uint16_t));
         if (!block_bitmap ||
+            !chunk_counts ||
             !save_upload_session(upload_id, meta) || !save_upload_session_state(upload_id, meta) ||
             !save_upload_session_state_bin(upload_id, chunk_count, bitmap) ||
             !save_upload_block_state_bin(upload_id, mbin.transport_block_count, block_bitmap) ||
+            !save_upload_chunk_count_state_bin(upload_id, chunk_count, chunk_counts) ||
             !save_upload_session_meta_bin(upload_id, &mbin)) {
             if (!rolled_over && block_bitmap) cwist_free(block_bitmap);
             if (!rolled_over && bitmap) cwist_free(bitmap);
+            if (chunk_counts) cwist_free(chunk_counts);
             cJSON_Delete(meta);
             cleanup_upload_session(upload_id);
             if (rolled_over && previous_temp_path[0]) rename(temp_path, previous_temp_path);
+            cwist_free(stream_key_hex);
+            cwist_free(stream_iv_seed_hex);
+            if (stream_session_signature) cwist_free(stream_session_signature);
             if (previous_meta) cJSON_Delete(previous_meta);
             close_upload_session_lock(previous_lock_fd);
             cwist_query_map_destroy(kv);
@@ -1046,6 +1196,10 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         }
         cwist_free(block_bitmap);
         cwist_free(bitmap);
+        cwist_free(chunk_counts);
+        cwist_free(stream_key_hex);
+        cwist_free(stream_iv_seed_hex);
+        if (stream_session_signature) cwist_free(stream_session_signature);
         previous_block_bitmap = NULL;
         previous_chunk_bitmap = NULL;
         if (rolled_over) {
@@ -1073,6 +1227,26 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         if (random_hex(upload_token, 24)) cJSON_ReplaceItemInObject(meta, "upload_token", cJSON_CreateString(upload_token));
         char upload_secret[49];
         if (random_hex(upload_secret, 24)) cJSON_ReplaceItemInObject(meta, "upload_secret", cJSON_CreateString(upload_secret));
+        unsigned char stream_key[32];
+        unsigned char stream_iv_seed[12];
+        if (RAND_bytes(stream_key, sizeof(stream_key)) == 1 && RAND_bytes(stream_iv_seed, sizeof(stream_iv_seed)) == 1) {
+            char *stream_key_hex = hex_encode_alloc(stream_key, sizeof(stream_key));
+            char *stream_iv_seed_hex = hex_encode_alloc(stream_iv_seed, sizeof(stream_iv_seed));
+            char session_sig_message[512];
+            snprintf(session_sig_message, sizeof(session_sig_message), "%s:%s:%s:%s",
+                     upload_id, json_string(meta, "upload_token", ""), stream_key_hex ? stream_key_hex : "", stream_iv_seed_hex ? stream_iv_seed_hex : "");
+            char *stream_session_signature = NULL;
+            fly_crypto_sign((const uint8_t *)session_sig_message, strlen(session_sig_message), &stream_session_signature);
+            if (stream_key_hex && stream_iv_seed_hex) {
+                cJSON_ReplaceItemInObject(meta, "stream_key_hex", cJSON_CreateString(stream_key_hex));
+                cJSON_ReplaceItemInObject(meta, "stream_iv_seed_hex", cJSON_CreateString(stream_iv_seed_hex));
+                cJSON_ReplaceItemInObject(meta, "stream_session_signature",
+                                          cJSON_CreateString(stream_session_signature ? stream_session_signature : ""));
+            }
+            if (stream_key_hex) cwist_free(stream_key_hex);
+            if (stream_iv_seed_hex) cwist_free(stream_iv_seed_hex);
+            if (stream_session_signature) cwist_free(stream_session_signature);
+        }
         char expires_at[32];
         snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_UPLOAD_TTL));
         cJSON_ReplaceItemInObject(meta, "expires_at", cJSON_CreateString(expires_at));
@@ -1081,6 +1255,8 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         tasfa_meta_bin_t mbin = {0};
         strncpy(mbin.upload_token, json_string(meta, "upload_token", ""), sizeof(mbin.upload_token)-1);
         strncpy(mbin.upload_secret, json_string(meta, "upload_secret", ""), sizeof(mbin.upload_secret)-1);
+        memcpy(mbin.stream_key, stream_key, sizeof(stream_key));
+        memcpy(mbin.stream_iv_seed, stream_iv_seed, sizeof(stream_iv_seed));
         mbin.chunk_count = json_int(meta, "chunk_count", 0);
         mbin.chunk_size = TASFA_CHUNK_SIZE;
         mbin.total_size = json_long_long(meta, "total_size", 0);
@@ -1204,6 +1380,7 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     const char *nonce = cwist_http_header_get(req->headers, "X-TASFA-Nonce");
     const char *vertex_id = cwist_http_header_get(req->headers, "X-TASFA-Vertex-Id");
     const char *signature = cwist_http_header_get(req->headers, "X-TASFA-Chunk-Signature");
+    const char *stream_mode = cwist_http_header_get(req->headers, "X-TASFA-Stream-Mode");
     const char *content_encoding = cwist_http_header_get(req->headers, "Content-Encoding");
     const char *chunk_index_str = cwist_http_header_get(req->headers, "X-TASFA-Chunk-Index");
     const char *transport_block_index_str = cwist_http_header_get(req->headers, "X-TASFA-Transport-Block-Index");
@@ -1245,9 +1422,11 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     
+    bool encrypted_stream = stream_mode && strcmp(stream_mode, "aes-256-gcm") == 0;
     const char *rule = upload_topology_rule_violation(chunk_index, mbin.chunk_count, vertex_id, magic_sum);
-    if (!nonce || !signature || !mbin.upload_secret[0] || rule ||
-        !verify_upload_signature(mbin.upload_secret, upload_id, chunk_index, block_offset, nonce, vertex_id, magic_sum, signature)) {
+    bool signature_ok = encrypted_stream || (nonce && signature && mbin.upload_secret[0] &&
+        verify_upload_signature(mbin.upload_secret, upload_id, chunk_index, block_offset, nonce, vertex_id, magic_sum, signature));
+    if (rule || !signature_ok) {
         cJSON *meta = load_upload_session(upload_id);
         cJSON *obj = build_upload_recoverable_json(meta, upload_id, chunk_index, rule ? rule : "signature_mismatch");
         cJSON_Delete(meta);
@@ -1265,7 +1444,17 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     bool stored = false;
     int fd = open(mbin.temp_path, O_WRONLY);
     if (fd >= 0) {
-        if (content_encoding && strcmp(content_encoding, "gzip") == 0) {
+        if (encrypted_stream) {
+            unsigned char *plaintext = (unsigned char *)cwist_alloc((size_t)expected_size);
+            if (plaintext &&
+                decrypt_stream_block(mbin.stream_key, mbin.stream_iv_seed, transport_block_index,
+                                     upload_id, chunk_index, block_offset, vertex_id, magic_sum,
+                                     (const unsigned char *)req->body->data, req->body->size,
+                                     plaintext, (size_t)expected_size)) {
+                stored = pwrite_all(fd, plaintext, (size_t)expected_size, (off_t)expected_offset);
+            }
+            if (plaintext) cwist_free(plaintext);
+        } else if (content_encoding && strcmp(content_encoding, "gzip") == 0) {
             unsigned char *inflated = (unsigned char *)cwist_alloc((size_t)expected_size);
             if (inflated && inflate_gzip_exact((const unsigned char *)req->body->data, req->body->size, inflated, (size_t)expected_size)) {
                 stored = pwrite_all(fd, inflated, (size_t)expected_size, (off_t)expected_offset);
@@ -1281,15 +1470,25 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    mark_transport_block_received(upload_id, transport_block_index);
+    bool was_newly_marked = false;
     bool chunk_complete = false;
-    char *block_bitmap = load_upload_block_state_bin(upload_id, mbin.transport_block_count);
-    if (block_bitmap && is_chunk_complete_from_block_bitmap(block_bitmap, chunk_index, mbin.total_size)) {
-        mark_chunk_received_in_session_state(upload_id, chunk_index);
-        chunk_complete = true;
+    int required_blocks = block_count_for_chunk(chunk_index, mbin.total_size);
+    if (!mark_transport_block_received_once(upload_id, transport_block_index, &was_newly_marked) ||
+        !update_chunk_receive_count(upload_id, chunk_index, required_blocks, was_newly_marked, &chunk_complete)) {
+        send_json_response(res, session_error_json("chunk state update failed"), CWIST_HTTP_INTERNAL_ERROR);
+        return;
+    }
+    if (chunk_complete) mark_chunk_received_in_session_state(upload_id, chunk_index);
+
+    bool send_progress_snapshot = (transport_block_index % 128 == 0) || chunk_complete;
+    if (!send_progress_snapshot) {
+        res->status_code = CWIST_HTTP_NO_CONTENT;
+        cwist_http_header_add(&res->headers, "X-TASFA-Accepted", "1");
+        if (chunk_complete) cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Complete", "1");
+        cwist_sstring_assign(res->body, "");
+        return;
     }
 
-    /* Return a small ACK payload and only send full progress snapshots occasionally. */
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddBoolToObject(obj, "ok", true);
     cJSON_AddBoolToObject(obj, "partial", true);
@@ -1297,21 +1496,14 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     cJSON_AddStringToObject(obj, "upload_id", upload_id);
     cJSON_AddNumberToObject(obj, "transport_block_index", transport_block_index);
     cJSON_AddBoolToObject(obj, "chunk_complete", chunk_complete);
-    
-    /* Return progress occasionally or at the end */
-    if (transport_block_index % 32 == 0 || chunk_complete) {
-        int received_count = count_received_chunks_in_session(upload_id, mbin.chunk_count);
-        cJSON_AddNumberToObject(obj, "received_chunks", received_count);
-        
+    cJSON_AddNumberToObject(obj, "received_chunks", count_received_chunks_in_session(upload_id, mbin.chunk_count));
+    if (chunk_complete) {
         char *bin_bitmap = load_upload_session_state_bin(upload_id, mbin.chunk_count);
         if (bin_bitmap) {
             cJSON_AddStringToObject(obj, "received_bitmap", bin_bitmap);
             cwist_free(bin_bitmap);
         }
-        if (block_bitmap) cJSON_AddStringToObject(obj, "received_block_bitmap", block_bitmap);
     }
-    if (block_bitmap) cwist_free(block_bitmap);
-
     cJSON_AddNumberToObject(obj, "chunk_index", chunk_index);
     send_json_response(res, obj, CWIST_HTTP_OK);
 }

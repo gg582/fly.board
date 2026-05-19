@@ -37,20 +37,18 @@ The browser negotiates an upload session first, then sends transport blocks with
 - `X-TASFA-Chunk-Index`
 - `X-TASFA-Transport-Block-Index`
 - `X-TASFA-Block-Offset`
-- `X-TASFA-Nonce`
+- `X-TASFA-Stream-Mode`
 - `X-TASFA-Vertex-Id`
 - `X-TASFA-Magic-Sum`
-- `X-TASFA-Chunk-Signature`
-
-If a chunk compresses well, the worker may send it with `Content-Encoding: gzip`. Otherwise it stays `identity`.
+- optional recovery-only compatibility headers for older upload sessions
 
 Upload verification checks:
 
 - upload token match
-- HMAC-SHA256 signature
 - expected block offset
 - deterministic topology vertex
 - deterministic topology magic sum
+- AES-256-GCM authentication tag on the encrypted transport block
 
 Upload acceptance is bitmap-based. The server stores session state under `data/tasfa/uploads/<upload_id>/`.
 
@@ -60,10 +58,13 @@ Current transport behavior:
 - topology chunks are currently `1 MiB`
 - transport blocks are currently `128 KiB`
 - a single topology chunk is carried by multiple ordered transport blocks
-- topology headers and signatures are attached per transport block using the owning topology chunk index
+- the browser encrypts each transport block with a per-session `AES-256-GCM` stream key
+- the stream key and IV seed are issued during `init` and included in a PQC-signed session envelope
+- topology headers are attached per transport block using the owning topology chunk index
 - client-side scheduling distinguishes `dispatchReservations` from real network `activeRequests`
 - only requests that have actually crossed into `xhr.send()` consume transport slots
-- preprocessing, compression, and HMAC staging are prevented from serializing the wire
+- the hot path avoids gzip and per-block JSON progress snapshots
+- the server uses per-chunk receive counters to decide chunk completion instead of reloading the whole block bitmap on every block
 
 ## Download Protocol
 
@@ -120,6 +121,7 @@ The client treats the server bitmap as authoritative for uploads, while using lo
 - the client clears prepared payload buffers and inflight network state before restarting on the new session.
 - upload defaults are tuned to avoid sparse-file write contention and TLS churn without collapsing aggregate in-flight bytes.
 - upload scheduling now separates `dispatchReservations` from real network `activeRequests`, so chunk preprocessing cannot falsely consume transport slots and serialize the wire.
+- most accepted transport blocks now return `204 No Content`; full JSON progress snapshots are reserved for chunk boundaries and occasional sync points.
 - **Atomic State Persistence**: Server-side state writes (`meta.json`, `state.json`) use temporary files and `rename()` to prevent corruption during concurrent access or crashes.
 - **IndexedDB Download Cache**: The browser stores downloaded chunks in `tasfa_cache` (IndexedDB). Handshakes check this cache to enable seamless resume even after tab closure or page refresh.
 - **Visibility-Aware Scheduling**: The client scheduler monitors `visibilityState`. Background tabs use relaxed stall timeouts (10s+) to accommodate browser throttling, while foreground tabs stay aggressive.
@@ -134,6 +136,16 @@ Topology is not the wire unit anymore. It is the integrity and repair layer.
 - the server emits `topology_frontier_bitmap` and `topology_damage_bitmap` when it needs the client to repair around a rejected or missing area
 - the client rebuilds upload priority as `damage -> frontier -> remaining`
 - transport blocks carry bytes; topology decides what is valid and what should be repaired first
+
+## Stream Security
+
+Upload confidentiality and integrity are split into a session layer and a wire layer.
+
+- `init` returns `stream_key_hex`, `stream_iv_seed_hex`, and `stream_session_signature`
+- `stream_session_signature` is produced by the server PQC signing key over the negotiated stream envelope
+- the browser uses the negotiated key material to encrypt each transport block with `AES-256-GCM`
+- the server reconstructs the IV from `stream_iv_seed_hex + transport_block_index`, validates the topology metadata as AAD, then decrypts and writes the plaintext block
+- initial and final session transitions still carry the heavier negotiation and verification; the middle transfer path stays on encrypted block streaming plus topology checks
 
 ## Multi-TASFA Download
 
@@ -160,8 +172,9 @@ The browser now boots TASFA directly for file interactions.
 
 Each upload session preallocates one temporary file:
 
-- temp file path: `public/uploads/.chunks/<upload_id>/upload.bin.part`
-- metadata path: `public/uploads/.chunks/<upload_id>/meta.json`
+- temp file path: `data/tasfa/uploads/<upload_id>/upload.bin.part`
+- metadata path: `data/tasfa/uploads/<upload_id>/meta.json`
+- state files: `state.json`, `state.bin`, `blocks.bin`, `chunk_counts.bin`, `meta.bin`
 
 Chunks are written into fixed offsets with `pwrite()`. After all chunks are confirmed, the temp file is renamed into `public/uploads/` and inserted into the `files` table.
 
