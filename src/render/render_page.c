@@ -132,8 +132,8 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *script = cwist_html_element_create("script");
     cwist_html_element_set_text(script,
         "(function(){"
-        "function lockBodyScroll(){var y=window.scrollY||window.pageYOffset||0;document.body.dataset.navScrollY=String(y);document.body.style.position='fixed';document.body.style.top='-'+y+'px';document.body.style.left='0';document.body.style.right='0';document.body.style.width='100%';document.body.style.overflow='hidden';}"
-        "function unlockBodyScroll(){var y=parseInt(document.body.dataset.navScrollY||'0',10)||0;document.body.style.position='';document.body.style.top='';document.body.style.left='';document.body.style.right='';document.body.style.width='';document.body.style.overflow='';delete document.body.dataset.navScrollY;window.scrollTo(0,y);}"
+        "function lockBodyScroll(){document.documentElement.classList.add('nav-open');document.body.classList.add('nav-open');}"
+        "function unlockBodyScroll(){document.documentElement.classList.remove('nav-open');document.body.classList.remove('nav-open');}"
         "function setMobileNav(open){var nav=document.querySelector('.nav-links');var overlay=document.querySelector('.mobile-overlay');var btn=document.querySelector('.burger-btn');if(!nav||!overlay||!btn)return;nav.classList.toggle('open',open);nav.style.display=open?'flex':'';overlay.classList.toggle('open',open);btn.classList.toggle('open',open);btn.setAttribute('aria-expanded',open?'true':'false');if(open){lockBodyScroll();}else{unlockBodyScroll();}}"
         "window.toggleMobileNav=function(){var nav=document.querySelector('.nav-links');if(!nav)return;setMobileNav(!nav.classList.contains('open'));};"
         "var CACHE_KEY='fly_themes';"

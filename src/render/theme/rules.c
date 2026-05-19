@@ -47,6 +47,12 @@ void rule_base(cJSON *rules) {
     add_decl(b, "overflow-x", "clip");
     cJSON_AddItemToArray(rules, b);
 
+    cJSON *nav_open = create_rule("html.nav-open, body.nav-open");
+    add_decl(nav_open, "overflow", "hidden");
+    add_decl(nav_open, "touch-action", "none");
+    add_decl(nav_open, "overscroll-behavior", "none");
+    cJSON_AddItemToArray(rules, nav_open);
+
     /* JetBrains Mono @font-face for code */
     cJSON *ff = create_rule("@font-face");
     add_decl(ff, "font-family", "'JetBrains Mono'");
