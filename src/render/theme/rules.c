@@ -1298,15 +1298,16 @@ void rule_markdown(cJSON *rules) {
     cJSON *media_name = create_rule(".media-name");
     add_decl(media_name, "font-weight", "700");
     add_decl(media_name, "line-height", "1.4");
-    add_decl(media_name, "overflow-wrap", "anywhere");
-    add_decl(media_name, "word-break", "break-word");
+    add_decl(media_name, "overflow-wrap", "break-word");
+    add_decl(media_name, "word-break", "normal");
+    add_decl(media_name, "hyphens", "auto");
     cJSON_AddItemToArray(rules, media_name);
 
     cJSON *media_status = create_rule(".media-status");
     add_decl(media_status, "margin-top", "6px");
     add_decl(media_status, "font-size", "13px");
     add_decl(media_status, "color", "var(--muted)");
-    add_decl(media_status, "overflow-wrap", "anywhere");
+    add_decl(media_status, "overflow-wrap", "break-word");
     cJSON_AddItemToArray(rules, media_status);
 
     cJSON *media_actions = create_rule(".media-actions");

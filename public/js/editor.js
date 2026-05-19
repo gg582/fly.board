@@ -1456,6 +1456,56 @@
         });
     }
 
+    function shouldAccelerateParallel(asset) {
+        if (!asset || asset.failed || asset.isCancelling || asset.recovering || asset.isPaused) return false;
+        if (!asset.uploadId || !asset.uploadToken) return false;
+        if ((asset.currentParallel || 0) >= (asset.maxParallel || 0)) return false;
+        if ((asset.activeRequests || 0) < Math.max(2, (asset.currentParallel || 0) - 1)) return false;
+        if ((Date.now() - Number(asset.lastRenegotiateAt || 0)) < MIN_RENEGOTIATE_INTERVAL_MS) return false;
+        var state = ensureLinkState(asset);
+        if (Number(state.recentRetries || 0) > 0 || Number(state.recentTimeouts || 0) > 0) return false;
+        if (Number(state.successes || 0) < Math.max(4, (asset.currentParallel || 0))) return false;
+        return computeLinkStabilityScore(asset) >= 78;
+    }
+
+    function requestUploadAcceleration(asset) {
+        if (!shouldAccelerateParallel(asset)) return Promise.resolve(false);
+        asset.lastRenegotiateAt = Date.now();
+        var suggested = Math.min(
+            clampParallelToBudget(asset, (asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) + Math.max(2, Math.ceil((asset.currentParallel || 0) * 0.25))),
+            asset.maxParallel || UPLOAD_MAX_PARALLEL
+        );
+        var linkHints = buildLinkHintFields(asset);
+        return fetchWithTimeout(UPLOAD_RENEGOTIATE_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: encodeFormBody({
+                upload_id: asset.uploadId,
+                upload_token: asset.uploadToken,
+                suggested_parallel: suggested,
+                link_stability_score: linkHints.link_stability_score || '',
+                link_effective_type: linkHints.link_effective_type || '',
+                link_downlink_mbps: linkHints.link_downlink_mbps || '',
+                link_rtt_ms: linkHints.link_rtt_ms || '',
+                link_retry_events: linkHints.link_retry_events || 0,
+                link_timeout_events: linkHints.link_timeout_events || 0,
+                link_save_data: linkHints.link_save_data || '0'
+            })
+        }, UPLOAD_SESSION_FETCH_TIMEOUT_MS).then(function(response) {
+            if (!response.ok) throw new Error('renegotiate:' + response.status);
+            return response.json();
+        }).then(function(payload) {
+            applyServerSessionState(asset, payload);
+            return true;
+        }).catch(function() {
+            return false;
+        });
+    }
+
     function queueNextChunkIndex(asset) {
         if (asset.nextChunkCursor >= asset.pendingChunks.length && hasMissingChunks(asset)) {
             rebuildPendingChunks(asset);
@@ -1473,10 +1523,15 @@
         var total = activeUploadBytes(asset);
         if (asset.recovering || asset.isPaused) total = confirmed;
         asset.lastVisualBytes = Math.max(confirmed, Math.max(asset.lastVisualBytes || 0, total));
-        if (asset.completedChunks === asset.totalChunks) asset.lastVisualBytes = asset.fileSize;
+        if (asset.completedChunks === asset.totalChunks && confirmed >= (asset.fileSize || 0)) {
+            asset.lastVisualBytes = asset.fileSize;
+        }
         var visual = Math.min(asset.fileSize || 0, asset.lastVisualBytes || 0);
-        var percent = asset.fileSize ? Math.min(100, Math.round((visual / asset.fileSize) * 100)) : 0;
-        asset.ui.status.textContent = 'Uploading [' + percent + '%]';
+        var percent = asset.fileSize ? Math.min(99, Math.round((visual / asset.fileSize) * 100)) : 0;
+        if (asset.completedChunks === asset.totalChunks && confirmed >= (asset.fileSize || 0)) {
+            percent = 100;
+        }
+        asset.ui.status.textContent = percent >= 100 ? 'Uploaded [100%]' : ('Uploading [' + percent + '%]');
         asset.ui.progressInner.style.width = percent + '%';
     }
 
@@ -1555,9 +1610,30 @@
     function maybeFinalizeChunkUpload(asset) {
         if (asset.failed || asset.isCancelling || asset.finalizing || asset.activeRequests > 0) return;
         if (asset.completedChunks !== asset.totalChunks) return;
+        if (hasMissingChunks(asset)) return;
         asset.finalizing = true;
-        asset.ui.status.textContent = 'Finalizing upload on server';
-        finalizeChunkedUpload(asset);
+        asset.ui.status.textContent = 'Verifying uploaded chunks';
+        syncUploadSession(asset).then(function() {
+            if (asset.failed || asset.isCancelling) {
+                asset.finalizing = false;
+                return;
+            }
+            if (asset.completedChunks !== asset.totalChunks || hasMissingChunks(asset)) {
+                asset.finalizing = false;
+                asset.ui.status.textContent = 'Repairing missing chunks';
+                fillChunkWindow(asset, asset.file);
+                return;
+            }
+            asset.ui.status.textContent = 'Finalizing upload on server';
+            finalizeChunkedUpload(asset);
+        }).catch(function() {
+            if (asset.failed || asset.isCancelling) {
+                asset.finalizing = false;
+                return;
+            }
+            asset.finalizing = false;
+            scheduleRecovery(asset, 'recover');
+        });
     }
 
     function restartUploadSession(asset, reason) {
@@ -1730,6 +1806,7 @@
                 resetInflightChunk(asset, chunkIndex, true);
                 markSchedulerActivity(asset);
                 updateAssetProgress(asset);
+                requestUploadAcceleration(asset);
                 fillChunkWindow(asset, file);
                 maybeFinalizeChunkUpload(asset);
             };
@@ -1963,6 +2040,7 @@
             topologyDamageBitmap: '',
             topologyRule: '',
             activeRequests: 0,
+            lastRenegotiateAt: 0,
             inflightChunks: {},
             inflightRequests: {},
             chunkActivityAt: {},
