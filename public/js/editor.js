@@ -29,19 +29,21 @@
     var UPLOAD_CANCEL_ENDPOINT = '/file/upload/cancel';
     var UPLOAD_WORKER_URL = '/assets/js/tasfa-upload-worker.js';
     var UPLOAD_CHUNK_SIZE = 16 * 1024 * 1024;
-    var UPLOAD_DEFAULT_PARALLEL = 16;
-    var UPLOAD_MAX_PARALLEL = 64;
+    var UPLOAD_DEFAULT_PARALLEL = 6;
+    var UPLOAD_MAX_PARALLEL = 12;
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
     var UPLOAD_RECOVERY_MAX_DELAY = 8000;
     var UPLOAD_SCHEDULER_TICK_MS = 20;
-    var UPLOAD_STALL_TIMEOUT_MS = 5000;
-    var UPLOAD_PROGRESS_STALL_TIMEOUT_MS = 8000;
-    var UPLOAD_STARTUP_STALL_TIMEOUT_MS = 10000;
+    var UPLOAD_STALL_TIMEOUT_MS = 12000;
+    var UPLOAD_PROGRESS_STALL_TIMEOUT_MS = 20000;
+    var UPLOAD_STARTUP_STALL_TIMEOUT_MS = 20000;
     var UPLOAD_SESSION_FETCH_TIMEOUT_MS = 8000;
-    var UPLOAD_CHUNK_RETRY_LIMIT = 7;
-    var UPLOAD_WORKER_POOL_LIMIT = 12;
+    var UPLOAD_CHUNK_RETRY_LIMIT = 5;
+    var UPLOAD_WORKER_POOL_LIMIT = 6;
     var TASFA_CLIENT_STRIPE_COUNT = 32;
     var uploadWorkerBridge = null;
+    var FileUploadQueue = [];
+    var isFileUploadRunning = false;
     var FAST_RENEGOTIATE_DELAY_MS = 4000;
     var MIN_RENEGOTIATE_INTERVAL_MS = 50;
     var UPLOAD_ROLLOVER_RETRY_LIMIT = 24;
@@ -345,6 +347,9 @@
         AssetRegistry = AssetRegistry.filter(function(item) {
             return item.client_uuid !== asset.client_uuid;
         });
+        FileUploadQueue = FileUploadQueue.filter(function(uuid) {
+            return uuid !== asset.client_uuid;
+        });
         syncMediaMeta();
     }
 
@@ -567,6 +572,12 @@
         };
 
         if (!isEditorMode) {
+            ui.btnUpload.style.display = '';
+            ui.btnUpload.disabled = asset.fid === null || asset.isUploading || FileUploadQueue.indexOf(asset.client_uuid) !== -1;
+            ui.btnUpload.onclick = function() {
+                enqueueFileUpload(asset);
+                processFileUploadQueue();
+            };
             ui.btnInsert.textContent = 'Open';
             ui.btnInsert.onclick = function() {
                 if (asset.fid !== null) window.location.href = '/file/' + asset.fid;
@@ -669,6 +680,8 @@
             URL.revokeObjectURL(asset.blobUrl);
             asset.blobUrl = null;
         }
+        isFileUploadRunning = false;
+        processFileUploadQueue();
     }
 
     function markUploadFailure(asset, message) {
@@ -684,6 +697,8 @@
         asset.xhrs = [];
         updateFileRepoUploadButton();
         updateSubmitButtons();
+        isFileUploadRunning = false;
+        processFileUploadQueue();
     }
 
     function fileRepoPendingAssets() {
