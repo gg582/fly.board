@@ -245,7 +245,7 @@
         var lastErr = null;
         for (var i = 0; i <= retries; i += 1) {
             var controller = new AbortController();
-            var timeoutLimit = document.visibilityState === 'hidden' ? 30000 : DOWNLOAD_FETCH_TIMEOUT_MS;
+            var timeoutLimit = document.visibilityState === 'hidden' ? 30000 : ((lane.session.pacingMs || 0) > 20 ? 10000 : DOWNLOAD_FETCH_TIMEOUT_MS);
             var timeoutId = setTimeout(function() { controller.abort(); }, timeoutLimit);
             var startedAt = Date.now();
             try {
@@ -302,9 +302,11 @@
                                 }
                             }
                             if (lane.windowSize < lane.session.maxParallel) {
+                                var isPoor = (lane.session.pacingMs || 0) > 20;
+                                var increment = isPoor ? Math.max(4, Math.ceil(lane.windowSize * 0.12)) : Math.max(16, Math.ceil(lane.windowSize * 0.35));
                                 lane.windowSize = Math.min(
                                     lane.session.maxParallel,
-                                    lane.windowSize + Math.max(12, Math.ceil(lane.windowSize * 0.2))
+                                    lane.windowSize + increment
                                 );
                             }
                             if (!finishIfDone()) {
@@ -351,14 +353,19 @@
                 bitmap: new Array(primarySession.chunkCount).fill(0)
             };
 
+            var cachePromises = [];
             for (var i = 0; i < primarySession.chunkCount; i++) {
-                var data = await TasfaDB.getChunk(baseUrl + ':' + i);
-                if (data) {
-                    allBytes.set(new Uint8Array(data), i * primarySession.chunkSize);
-                    sharedState.bitmap[i] = 1;
-                    sharedState.completedChunks++;
-                }
+                cachePromises.push((function(idx) {
+                    return TasfaDB.getChunk(baseUrl + ':' + idx).then(function(data) {
+                        if (data && !sharedState.bitmap[idx]) {
+                            allBytes.set(new Uint8Array(data), idx * primarySession.chunkSize);
+                            sharedState.bitmap[idx] = 1;
+                            sharedState.completedChunks++;
+                        }
+                    }).catch(function(){});
+                })(i));
             }
+            await Promise.all(cachePromises);
 
             if (sharedState.completedChunks < sharedState.chunkCount) {
                 var lanes = await buildDownloadLanes(baseUrl, primarySession, linkState);

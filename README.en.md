@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> One of the few simple blog engines running at **22-30 MB RSS** at idle, and **~369 MB** under C10k (10,000 concurrent connections).  
+> One of the few simple blog engines running at **100-200 MB RSS** at idle, and **~369 MB** under C10k (10,000 concurrent connections).  
 > A lightweight board-and-blog engine built on the C-based CWIST web framework, supporting HTTPS/3, Argon2id, PQC signatures, and NATS messaging.
 
 ## Features
 
-- **Memory Efficient** – Stack+heap C implementation. **22-30 MB RSS** at idle; **~369 MB** max RSS under 10,000 concurrent connections (C10k).
+- **Memory Efficient** – Stack+heap C implementation. **100-200 MB RSS** at idle; **~369 MB** max RSS under 10,000 concurrent connections (C10k).
 - **Modern Transport** – TLS 1.3 + HTTP/3 (QUIC) by default. Optional ECH (Encrypted Client Hello).
 - **Secure Auth** – Client-side SHA-512 prehash + server-side **Argon2id** (OpenSSL 3 KDF). JWT session cookies.
 - **Board / Blog Hybrid** – Slug-based markdown posts + multiple boards + nested comments.
