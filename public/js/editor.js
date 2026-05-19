@@ -34,14 +34,15 @@
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
     var UPLOAD_RECOVERY_MAX_DELAY = 8000;
     var UPLOAD_SCHEDULER_TICK_MS = 10;
-    var UPLOAD_STALL_TIMEOUT_MS = 5000;
+    var UPLOAD_STALL_TIMEOUT_MS = 140;
+    var UPLOAD_PROGRESS_STALL_TIMEOUT_MS = 90;
     var UPLOAD_SESSION_FETCH_TIMEOUT_MS = 8000;
     var UPLOAD_CHUNK_RETRY_LIMIT = 7;
     var UPLOAD_WORKER_POOL_LIMIT = 16;
     var TASFA_CLIENT_STRIPE_COUNT = 32;
     var uploadWorkerBridge = null;
-    var FAST_RENEGOTIATE_DELAY_MS = 100;
-    var MIN_RENEGOTIATE_INTERVAL_MS = 1200;
+    var FAST_RENEGOTIATE_DELAY_MS = 50;
+    var MIN_RENEGOTIATE_INTERVAL_MS = 50;
     var LINK_DEGRADE_RETRY_THRESHOLD = 18;
     var LINK_DEGRADE_TIMEOUT_THRESHOLD = 6;
     var LINK_RECENT_DECAY_SUCCESS_STEP = 6;
@@ -1142,7 +1143,12 @@
                 var now = Date.now();
                 var chunkActivity = asset.chunkActivityAt || {};
                 var stalled = Object.keys(chunkActivity).some(function(key) {
-                    return now - Number(chunkActivity[key] || 0) > UPLOAD_STALL_TIMEOUT_MS;
+                    var chunkIndex = Number(key);
+                    var sentBytes = Number((asset.chunkProgress && asset.chunkProgress[chunkIndex]) || 0);
+                    var stallLimit = sentBytes > 0 ? UPLOAD_PROGRESS_STALL_TIMEOUT_MS : UPLOAD_STALL_TIMEOUT_MS;
+                    var linkState = ensureLinkState(asset);
+                    var rttFloor = Math.min(240, Math.max(stallLimit, Math.ceil(Number(linkState.ewmaRttMs || 0) * 1.35)));
+                    return now - Number(chunkActivity[key] || 0) > rttFloor;
                 });
                 if (stalled) {
                     rolloverUploadSession(asset, 'timeout');
@@ -1381,6 +1387,7 @@
         asset.completedChunks = Number(payload.received_chunks || 0);
         asset.currentParallel = clampParallelToBudget(asset, payload.current_parallel_chunks || payload.initial_parallel_chunks || asset.currentParallel || UPLOAD_DEFAULT_PARALLEL);
         asset.maxParallel = Math.max(asset.currentParallel, clampParallelToBudget(asset, payload.max_parallel_chunks || asset.maxParallel || UPLOAD_MAX_PARALLEL));
+        asset.peakParallel = Math.max(Number(asset.peakParallel || 0), Number(asset.currentParallel || 0), Number(asset.maxParallel || 0));
         asset.topologyFrontierBitmap = payload.topology_frontier_bitmap || asset.topologyFrontierBitmap || '';
         asset.topologyDamageBitmap = payload.topology_damage_bitmap || '';
         asset.topologyRule = payload.topology_rule || '';
@@ -1438,7 +1445,10 @@
         if (!shouldAccelerateParallel(asset)) return Promise.resolve(false);
         asset.lastRenegotiateAt = Date.now();
         var suggested = Math.min(
-            clampParallelToBudget(asset, (asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) + Math.max(2, Math.ceil((asset.currentParallel || 0) * 0.25))),
+            clampParallelToBudget(asset, Math.max(
+                Number(asset.peakParallel || 0),
+                (asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) + Math.max(4, Math.ceil((asset.currentParallel || 0) * 0.5))
+            )),
             asset.maxParallel || UPLOAD_MAX_PARALLEL
         );
         var linkHints = buildLinkHintFields(asset);
@@ -1605,6 +1615,8 @@
 
     function rolloverUploadSession(asset, reason) {
         if (!asset || asset.isCancelling || !asset.file) return;
+        var resumeUploadId = asset.uploadId;
+        var resumeUploadToken = asset.uploadToken;
         clearRecoveryTimer(asset);
         clearSchedulerTimer(asset);
         abortInflightRequests(asset);
@@ -1616,7 +1628,14 @@
         asset.recoveryEpoch = Number(asset.recoveryEpoch || 0) + 1;
         asset.ui.status.textContent = reason === 'offline' ? 'Waiting for network' : 'Rolling over upload session';
         if (!navigator.onLine) return;
-        initChunkedUpload(asset, asset.file, 'rollover', asset.uploadId, asset.uploadToken);
+        var continueRollover = function() {
+            initChunkedUpload(asset, asset.file, 'rollover', resumeUploadId, resumeUploadToken);
+        };
+        if (resumeUploadId && resumeUploadToken) {
+            syncUploadSession(asset).then(continueRollover).catch(continueRollover);
+            return;
+        }
+        continueRollover();
     }
 
     function dispatchChunk(asset, file, chunkIndex, retryCount) {
@@ -1842,6 +1861,10 @@
             '&chunk_count=' + encodeURIComponent(String(chunkCount)) +
             '&post_id=' + encodeURIComponent(window.POST_ID || 0) +
             '&session_id=' + encodeURIComponent(asset.client_uuid || '') +
+            '&suggested_parallel=' + encodeURIComponent(String(Math.max(
+                Number(asset.peakParallel || 0),
+                Number(asset.currentParallel || UPLOAD_DEFAULT_PARALLEL)
+            ))) +
             '&link_stability_score=' + encodeURIComponent(String(linkHints.link_stability_score || '')) +
             '&link_effective_type=' + encodeURIComponent(linkHints.link_effective_type || '') +
             '&link_downlink_mbps=' + encodeURIComponent(String(linkHints.link_downlink_mbps || '')) +
@@ -1955,6 +1978,7 @@
             totalChunks: 0,
             currentParallel: UPLOAD_DEFAULT_PARALLEL,
             maxParallel: UPLOAD_MAX_PARALLEL,
+            peakParallel: UPLOAD_DEFAULT_PARALLEL,
             topologyFrontierBitmap: '',
             topologyDamageBitmap: '',
             topologyRule: '',

@@ -2,6 +2,7 @@
     var cache = new Map();
     var DOWNLOAD_FETCH_TIMEOUT_MS = 6000;
     var DOWNLOAD_RETRY_LIMIT = 5;
+    var DOWNLOAD_MULTI_SESSION_CAP = 4;
     var SPACER_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
     function handshakeUrl(baseUrl) {
@@ -76,7 +77,7 @@
     }
 
     function nextRetryDelay(attempt) {
-        return Math.min(1000, 120 * Math.pow(1.6, Math.max(0, Number(attempt) || 0)));
+        return Math.min(400, 50 * Math.pow(1.45, Math.max(0, Number(attempt) || 0)));
     }
 
     function writeCoalescedBuffer(target, buffer, session, startChunk, span) {
@@ -91,92 +92,202 @@
         }
     }
 
+    function normalizeDownloadSession(session) {
+        if (!session) return null;
+        var chunkCount = Math.max(1, Number(session.chunk_count) || 1);
+        var maxParallel = Math.max(1, Math.min(Number(session.max_parallel_chunks) || 20, Math.max(chunkCount, 1)));
+        var initialParallel = Math.max(1, Math.min(Number(session.initial_parallel_chunks) || maxParallel, maxParallel));
+        return {
+            raw: session,
+            sessionId: session.session_id,
+            sessionToken: session.session_token,
+            chunkSize: Math.max(1, Number(session.chunk_size) || 1),
+            chunkCount: chunkCount,
+            totalSize: Math.max(0, Number(session.total_size) || 0),
+            mimeType: session.mime_type || 'application/octet-stream',
+            filename: session.filename || 'download',
+            maxParallel: maxParallel,
+            initialParallel: initialParallel,
+            pacingMs: Math.max(0, Number(session.dispatch_pacing_ms) || 0),
+            coalesceChunks: Math.max(1, Math.min(Number(session.coalesce_chunks) || 1, 64))
+        };
+    }
+
+    async function fetchDownloadSession(baseUrl, linkState) {
+        var hsUrl = handshakeUrl(baseUrl);
+        if (!hsUrl) throw new Error('unsupported base url');
+        var session = normalizeDownloadSession(await fetchJson(hsUrl + '?' + buildLinkHintQuery(linkState || {})));
+        if (!session || !session.sessionId || !session.sessionToken) {
+            throw new Error((session && session.error) || 'invalid handshake');
+        }
+        return session;
+    }
+
+    function chooseMultiTasfaSessionCount(session) {
+        var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        var saveData = !!(conn && conn.saveData);
+        var downlink = conn && typeof conn.downlink === 'number' ? conn.downlink : 0;
+        var cores = Math.max(1, Number(navigator.hardwareConcurrency) || 1);
+        var memory = Math.max(0, Number(navigator.deviceMemory) || 0);
+        var chunkCount = Math.max(1, Number(session && session.chunkCount) || 1);
+        var coalesce = Math.max(1, Number(session && session.coalesceChunks) || 1);
+        if (saveData || chunkCount < 24 || cores < 4) return 1;
+
+        var count = 1;
+        if (downlink >= 12 && cores >= 4 && chunkCount >= 32) count = 2;
+        if (downlink >= 28 && cores >= 8 && memory >= 4 && chunkCount >= 96) count = 3;
+        if (downlink >= 60 && cores >= 10 && memory >= 8 && chunkCount >= 160) count = 4;
+
+        var groupBudget = Math.max(1, Math.floor(chunkCount / Math.max(8, coalesce)));
+        return Math.max(1, Math.min(DOWNLOAD_MULTI_SESSION_CAP, count, groupBudget));
+    }
+
+    async function buildDownloadLanes(baseUrl, primarySession, linkState) {
+        var lanes = [{
+            session: primarySession,
+            windowSize: primarySession.initialParallel,
+            linkState: Object.assign({}, linkState || {})
+        }];
+        var targetCount = chooseMultiTasfaSessionCount(primarySession);
+        if (targetCount <= 1) return lanes;
+
+        var extraRequests = [];
+        for (var i = 1; i < targetCount; i += 1) {
+            extraRequests.push(fetchDownloadSession(baseUrl, linkState));
+        }
+        var results = await Promise.allSettled(extraRequests);
+        results.forEach(function(result) {
+            if (result.status !== 'fulfilled') return;
+            var session = result.value;
+            if (!session ||
+                session.chunkCount !== primarySession.chunkCount ||
+                session.chunkSize !== primarySession.chunkSize ||
+                session.totalSize !== primarySession.totalSize) {
+                return;
+            }
+            lanes.push({
+                session: session,
+                windowSize: session.initialParallel,
+                linkState: Object.assign({}, linkState || {})
+            });
+        });
+        return lanes;
+    }
+
+    function reserveDownloadGroup(sharedState, span) {
+        if (!sharedState || sharedState.nextChunk >= sharedState.chunkCount) return null;
+        var startChunk = sharedState.nextChunk;
+        var size = Math.min(Math.max(1, span || 1), sharedState.chunkCount - startChunk);
+        sharedState.nextChunk += size;
+        return { startChunk: startChunk, span: size };
+    }
+
+    async function fetchGroupWithRetry(baseUrl, lane, allBytes, startChunk, span, retries) {
+        var lastErr = null;
+        for (var i = 0; i <= retries; i += 1) {
+            var controller = new AbortController();
+            var timeoutId = setTimeout(function() { controller.abort(); }, DOWNLOAD_FETCH_TIMEOUT_MS);
+            var startedAt = Date.now();
+            try {
+                var url = chunkUrl(baseUrl, lane.session.sessionId, lane.session.sessionToken, startChunk) + '&span=' + String(span);
+                var response = await fetch(url, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                if (!response.ok) throw new Error('chunk:' + response.status);
+                lane.linkState.ewmaRttMs = lane.linkState.ewmaRttMs > 0
+                    ? ((lane.linkState.ewmaRttMs * 0.7) + ((Date.now() - startedAt) * 0.3))
+                    : (Date.now() - startedAt);
+                writeCoalescedBuffer(allBytes, await response.arrayBuffer(), lane.session.raw, startChunk, span);
+                return;
+            } catch (e) {
+                clearTimeout(timeoutId);
+                lastErr = e;
+                lane.linkState.retries = Number(lane.linkState.retries || 0) + 1;
+                if (e && e.name === 'AbortError') lane.linkState.timeouts = Number(lane.linkState.timeouts || 0) + 1;
+                if (e && e.message === 'timeout:fetch') lane.linkState.timeouts = Number(lane.linkState.timeouts || 0) + 1;
+                if (i < retries) await new Promise(function(r) { setTimeout(r, nextRetryDelay(i)); });
+            }
+        }
+        throw lastErr;
+    }
+
+    function runDownloadLane(baseUrl, lane, sharedState, allBytes) {
+        return new Promise(function(resolve, reject) {
+            function finishIfDone() {
+                if (sharedState.failed) return true;
+                if (sharedState.completedChunks >= sharedState.chunkCount && lane.active === 0) {
+                    resolve();
+                    return true;
+                }
+                return false;
+            }
+
+            function pump() {
+                if (finishIfDone()) return;
+                var reservedAny = false;
+                while (lane.active < lane.windowSize) {
+                    var group = reserveDownloadGroup(sharedState, lane.session.coalesceChunks);
+                    if (!group) break;
+                    reservedAny = true;
+                    lane.active += 1;
+                    fetchGroupWithRetry(baseUrl, lane, allBytes, group.startChunk, group.span, DOWNLOAD_RETRY_LIMIT).then(function(currentGroup) {
+                        return function() {
+                            lane.active -= 1;
+                            sharedState.completedChunks += currentGroup.span;
+                            if (lane.windowSize < lane.session.maxParallel) {
+                                lane.windowSize = Math.min(
+                                    lane.session.maxParallel,
+                                    lane.windowSize + Math.max(12, Math.ceil(lane.windowSize * 0.2))
+                                );
+                            }
+                            if (!finishIfDone()) {
+                                if (lane.session.pacingMs > 0) setTimeout(pump, lane.session.pacingMs);
+                                else pump();
+                            }
+                        };
+                    }(group)).catch(function(error) {
+                        sharedState.failed = error || new Error('download failed');
+                        reject(sharedState.failed);
+                    });
+                    if (lane.session.pacingMs > 0) break;
+                }
+
+                if (lane.session.pacingMs > 0 && !sharedState.failed && sharedState.nextChunk < sharedState.chunkCount && lane.active < lane.windowSize) {
+                    setTimeout(pump, lane.session.pacingMs);
+                } else if (!reservedAny && !sharedState.failed && lane.active === 0 && sharedState.completedChunks < sharedState.chunkCount) {
+                    setTimeout(pump, 16);
+                } else {
+                    finishIfDone();
+                }
+            }
+
+            lane.active = 0;
+            pump();
+        });
+    }
+
     async function fetchBlobViaTasfa(baseUrl) {
         if (cache.has(baseUrl)) return cache.get(baseUrl);
 
         var promise = (async function() {
-            var hsUrl = handshakeUrl(baseUrl);
-            if (!hsUrl) throw new Error('unsupported base url');
             var linkState = { ewmaRttMs: 0, retries: 0, timeouts: 0 };
-            var session = await fetchJson(hsUrl + '?' + buildLinkHintQuery(linkState));
-            if (!session || session.ok === false || !session.session_id || !session.session_token) {
-                throw new Error((session && session.error) || 'invalid handshake');
-            }
-
-            var chunkCount = Math.max(1, Number(session.chunk_count) || 1);
-            var maxParallel = Math.max(1, Math.min(Number(session.max_parallel_chunks) || 20, chunkCount));
-            var initialParallel = Math.max(1, Math.min(Number(session.initial_parallel_chunks) || maxParallel, maxParallel));
-            var pacingMs = Math.max(0, Number(session.dispatch_pacing_ms) || 0);
-            var coalesceChunks = Math.max(1, Math.min(Number(session.coalesce_chunks) || 1, 48));
-            var allBytes = new Uint8Array(Math.max(0, Number(session.total_size) || 0));
-            var nextIndex = 0;
-            var windowSize = initialParallel;
-            var active = 0;
-
-            async function fetchGroupWithRetry(startChunk, span, retries) {
-                var lastErr = null;
-                for (var i = 0; i <= retries; i += 1) {
-                    var controller = new AbortController();
-                    var timeoutId = setTimeout(function() { controller.abort(); }, DOWNLOAD_FETCH_TIMEOUT_MS);
-                    var startedAt = Date.now();
-                    try {
-                        var url = chunkUrl(baseUrl, session.session_id, session.session_token, startChunk) + '&span=' + String(span);
-                        var response = await fetch(url, {
-                            headers: { 'X-Requested-With': 'XMLHttpRequest' },
-                            signal: controller.signal
-                        });
-                        clearTimeout(timeoutId);
-                        if (!response.ok) throw new Error('chunk:' + response.status);
-                        linkState.ewmaRttMs = linkState.ewmaRttMs > 0 ? ((linkState.ewmaRttMs * 0.75) + ((Date.now() - startedAt) * 0.25)) : (Date.now() - startedAt);
-                        writeCoalescedBuffer(allBytes, await response.arrayBuffer(), session, startChunk, span);
-                        return;
-                    } catch (e) {
-                        clearTimeout(timeoutId);
-                        lastErr = e;
-                        linkState.retries += 1;
-                        if (e && e.name === 'AbortError') linkState.timeouts += 1;
-                        if (e && e.message === 'timeout:fetch') linkState.timeouts += 1;
-                        if (i < retries) await new Promise(function(r) { setTimeout(r, nextRetryDelay(i)); });
-                    }
-                }
-                throw lastErr;
-            }
-
-            await new Promise(function(resolve, reject) {
-                function schedule() {
-                    if (nextIndex >= chunkCount && active === 0) {
-                        resolve();
-                        return;
-                    }
-
-                    while (active < windowSize && nextIndex < chunkCount) {
-                        var chunkIndex = nextIndex;
-                        var span = Math.min(coalesceChunks, chunkCount - chunkIndex);
-                        nextIndex += span;
-                        active += 1;
-                        fetchGroupWithRetry(chunkIndex, span, DOWNLOAD_RETRY_LIMIT).then(function() {
-                            active -= 1;
-                            if (windowSize < maxParallel) windowSize = Math.min(maxParallel, windowSize + 8);
-                            if (pacingMs > 0) setTimeout(schedule, pacingMs);
-                            else schedule();
-                        }).catch(function(error) {
-                            windowSize = Math.max(1, windowSize - 1);
-                            active -= 1;
-                            reject(error);
-                        });
-                        if (pacingMs > 0) break;
-                    }
-
-                    if (active > 0 && pacingMs > 0 && nextIndex < chunkCount) {
-                        setTimeout(schedule, pacingMs);
-                    }
-                }
-
-                schedule();
-            });
+            var primarySession = await fetchDownloadSession(baseUrl, linkState);
+            var lanes = await buildDownloadLanes(baseUrl, primarySession, linkState);
+            var allBytes = new Uint8Array(primarySession.totalSize);
+            var sharedState = {
+                chunkCount: primarySession.chunkCount,
+                nextChunk: 0,
+                completedChunks: 0,
+                failed: null
+            };
+            await Promise.all(lanes.map(function(lane) {
+                return runDownloadLane(baseUrl, lane, sharedState, allBytes);
+            }));
             return {
-                blob: new Blob([allBytes.buffer], { type: session.mime_type || 'application/octet-stream' }),
-                filename: session.filename || 'download'
+                blob: new Blob([allBytes.buffer], { type: primarySession.mimeType }),
+                filename: primarySession.filename
             };
         })();
 

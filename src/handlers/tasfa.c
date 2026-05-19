@@ -183,23 +183,22 @@ static void choose_upload_window(int score, int *initial_parallel, int *max_para
 }
 
 static void choose_download_profile(int score, int *initial_parallel, int *max_parallel, int *pacing_ms, int *coalesce_chunks) {
-    int initial_value = 64;
-    int max_value = 160;
+    int initial_value = 96;
+    int max_value = 224;
     int pace = 0;
-    int coalesce = 40;
+    int coalesce = 48;
     if (score < 45) {
-        initial_value = 24;
-        max_value = 48;
-        pace = 1;
-        coalesce = 16;
+        initial_value = 32;
+        max_value = 72;
+        coalesce = 20;
     } else if (score < 65) {
-        initial_value = 40;
-        max_value = 88;
-        coalesce = 24;
+        initial_value = 56;
+        max_value = 128;
+        coalesce = 28;
     } else if (score < 85) {
-        initial_value = 52;
-        max_value = 120;
-        coalesce = 32;
+        initial_value = 80;
+        max_value = 176;
+        coalesce = 40;
     }
     if (initial_parallel) *initial_parallel = initial_value;
     if (max_parallel) *max_parallel = max_value;
@@ -669,6 +668,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     const char *session_id = cwist_query_map_get(kv, "session_id");
     const char *resume_upload_id = cwist_query_map_get(kv, "resume_upload_id");
     const char *resume_upload_token = cwist_query_map_get(kv, "resume_upload_token");
+    int suggested_parallel = atoi(cwist_query_map_get(kv, "suggested_parallel") ? cwist_query_map_get(kv, "suggested_parallel") : "0");
     int chunk_count = atoi(cwist_query_map_get(kv, "chunk_count") ? cwist_query_map_get(kv, "chunk_count") : "0");
     long long total_size = atoll(cwist_query_map_get(kv, "total_size") ? cwist_query_map_get(kv, "total_size") : "0");
     int post_id = atoi(cwist_query_map_get(kv, "post_id") ? cwist_query_map_get(kv, "post_id") : "0");
@@ -702,7 +702,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
             meta = NULL;
         }
     }
-    if (session_id && session_id[0] && find_upload_id_by_session_id(session_id, upload_id, sizeof(upload_id))) {
+    if (!resumed && session_id && session_id[0] && find_upload_id_by_session_id(session_id, upload_id, sizeof(upload_id))) {
         meta = load_upload_session(upload_id);
         if (meta && json_long_long(meta, "total_size", 0) == total_size && strcmp(json_string(meta, "filename", ""), filename) == 0) {
             resumed = true;
@@ -737,6 +737,11 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         }
         int initial_parallel = 0, max_parallel = 0;
         choose_upload_window(score, &initial_parallel, &max_parallel);
+        if (suggested_parallel > 0) {
+            int suggested = clamp_int(suggested_parallel, 2, TASFA_UPLOAD_MAX_PARALLEL);
+            if (initial_parallel < suggested) initial_parallel = suggested;
+            if (max_parallel < suggested) max_parallel = suggested;
+        }
         meta = cJSON_CreateObject();
         cJSON_AddNumberToObject(meta, "uid", uid);
         cJSON_AddNumberToObject(meta, "post_id", post_id);
@@ -766,6 +771,11 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     } else {
         int initial_parallel = 0, max_parallel = 0;
         choose_upload_window(score, &initial_parallel, &max_parallel);
+        if (suggested_parallel > 0) {
+            int suggested = clamp_int(suggested_parallel, 2, TASFA_UPLOAD_MAX_PARALLEL);
+            if (initial_parallel < suggested) initial_parallel = suggested;
+            if (max_parallel < suggested) max_parallel = suggested;
+        }
         int current_parallel = json_int(meta, "current_parallel_chunks", initial_parallel);
         int current_max = json_int(meta, "max_parallel_chunks", max_parallel);
         if (initial_parallel < current_parallel) initial_parallel = current_parallel;

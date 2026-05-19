@@ -69,25 +69,29 @@ No direct file bytes are served from the public file endpoints anymore.
 Current tuned values in this tree:
 
 - upload chunk size: `4 MiB`
-- default browser upload parallelism: `16`
-- max browser upload parallelism: `72`
-- worker pool cap for upload preprocessing: `14`
+- default browser upload parallelism: `24`
+- max browser upload parallelism: `96`
+- worker pool cap for upload preprocessing: `16`
 - browser-side upload memory budget assumption: `512 MiB`
 - client stripe bucket count for chunk interleaving: `32`
+- upload stall thresholds: first-byte `140 ms`, in-flight progress gap `90 ms`, with RTT-aware floor
+- upload fast renegotiate cadence: `50 ms`
 
 Server-side negotiated upload window:
 
-- strong links: initial `18`, max `48`
-- medium links: initial `12`, max `48`
-- weaker links: initial `8`, max `36`
-- unstable links: initial `5`, max `20`
+- strong links: initial `32`, max `96`
+- medium links: initial `26`, max `96`
+- weaker links: initial `18`, max `72`
+- unstable links: initial `12`, max `48`
+- rollover init also accepts a client `suggested_parallel` hint so resumed sessions can jump straight back to the last proven peak instead of slowly climbing again
 
 Server-side negotiated download profile:
 
-- strong links: initial `64`, max `160`, coalesce `40`
-- medium links: initial `52`, max `120`, coalesce `32`
-- weaker links: initial `40`, max `88`, coalesce `24`
-- unstable links: initial `24`, max `48`, coalesce `16`, pacing `1 ms`
+- strong links: initial `96`, max `224`, coalesce `48`
+- medium links: initial `80`, max `176`, coalesce `40`
+- weaker links: initial `56`, max `128`, coalesce `28`
+- unstable links: initial `32`, max `72`, coalesce `20`
+- server-side pacing is now held at `0 ms`; retries back off only on actual fetch failure
 
 ## Resume and Session Rollover
 
@@ -100,11 +104,24 @@ The client treats the server bitmap as authoritative.
 - the client rebuilds its pending queue as `damage -> frontier -> remaining`.
 - stale callbacks from a superseded session generation are ignored on the browser side.
 - when chunk validation or transport state goes bad, the browser rolls the upload into a fresh negotiated session using the existing authoritative bitmap instead of trying to limp along inside the old callback chain.
-- rollover retries now stay on a short cadence instead of exponential recovery backoff.
+- rollover retries now stay on a `50 ms` cadence instead of exponential recovery backoff.
 - if the previous session already committed chunks, the next session continues from the remaining bitmap gap only.
+- rollover first refreshes the authoritative bitmap, then resumes with `resume_upload_id` and `resume_upload_token`; the new session must not discard already-written chunk extents.
 - upload preprocessing now runs in a prepare-ahead cache so compression/HMAC work overlaps active network transfers.
 - upload window refill now ticks at `10 ms`, can prepare up to `48` chunks ahead, and climbs by `+2` while still below half of the server ceiling.
+- upload renegotiation now biases to `max(peak_parallel, current + 50%)` rather than a small incremental raise.
 - download chunk grouping now allows up to `64` chunk spans per request and grows the fetch window more aggressively before backing off.
+
+## Multi-TASFA Download
+
+When the browser has enough spare CPU, memory, and link budget, the client now opens more than one TASFA download session for the same file.
+
+- the first handshake still defines the canonical file shape: `chunk_size`, `chunk_count`, `total_size`
+- extra handshakes are admitted only if they report the same file shape
+- each session gets its own `session_id` and `session_token`, but they all write into the same client-side destination buffer
+- chunk groups are reserved from one shared cursor, so sessions never intentionally duplicate the same span
+- session fan-out is capped at `4` and only activates on larger files plus stronger clients; `Save-Data`, small files, or weak devices stay on one session
+- retries stay short and local to the lane that failed; successful lanes keep draining the remaining queue instead of collapsing the whole download window first
 
 ## Page Integration
 
