@@ -472,6 +472,12 @@
         btnAttachment.textContent = 'Attachment';
         btnAttachment.disabled = true;
 
+        var btnUpload = document.createElement('button');
+        btnUpload.type = 'button';
+        btnUpload.className = 'btn media-upload-btn';
+        btnUpload.textContent = 'Upload';
+        btnUpload.style.display = 'none';
+
         var btnDelete = document.createElement('button');
         btnDelete.type = 'button';
         btnDelete.className = 'btn btn-outline media-delete-btn';
@@ -480,6 +486,7 @@
         actions.appendChild(btnInsert);
         actions.appendChild(btnInline);
         actions.appendChild(btnAttachment);
+        actions.appendChild(btnUpload);
         actions.appendChild(btnDelete);
 
         card.appendChild(thumb);
@@ -495,8 +502,30 @@
             btnInsert: btnInsert,
             btnInline: btnInline,
             btnAttachment: btnAttachment,
+            btnUpload: btnUpload,
             btnDelete: btnDelete
         };
+    }
+
+    function enqueueFileUpload(asset) {
+        if (!asset || asset.isUploading || asset.fid !== null || asset.failed) return;
+        if (FileUploadQueue.indexOf(asset.client_uuid) !== -1) return;
+        FileUploadQueue.push(asset.client_uuid);
+        if (asset.ui && asset.ui.status) asset.ui.status.textContent = 'Waiting...';
+        if (asset.ui && asset.ui.btnUpload) asset.ui.btnUpload.disabled = true;
+    }
+
+    function processFileUploadQueue() {
+        if (isFileUploadRunning) return;
+        var nextUuid = FileUploadQueue.shift();
+        if (!nextUuid) return;
+        var asset = AssetRegistry.find(function(a) { return a.client_uuid === nextUuid; });
+        if (!asset || asset.fid !== null || asset.isUploading || asset.failed) {
+            processFileUploadQueue();
+            return;
+        }
+        isFileUploadRunning = true;
+        startQueuedAssetUpload(asset);
     }
 
     function bindAssetControls(asset) {
@@ -689,18 +718,32 @@
         if (syncStatus && locked) syncStatus.textContent = 'Uploading files, save is locked';
     }
 
+    function updateQueuedSummary() {
+        if (!isFileRepoMode) return;
+        var summary = document.getElementById('file-repo-queued-summary');
+        if (!summary) return;
+        var pending = fileRepoPendingAssets();
+        if (pending.length === 0) {
+            summary.innerHTML = '';
+            summary.style.display = 'none';
+            return;
+        }
+        var html = '<strong>Queued (' + pending.length + ')</strong>: ' +
+            pending.map(function(a) { return escapeHtml(a.filename); }).join(', ');
+        summary.innerHTML = html;
+        summary.style.display = 'block';
+    }
+
     function updateFileRepoUploadButton() {
         if (!isFileRepoMode || !fileRepoUploadButton) return;
         var pending = fileRepoPendingAssets().length;
-        var active = fileRepoActiveUploads().length;
-        fileRepoUploadButton.disabled = pending === 0 || active > 0;
-        if (active > 0) {
+        fileRepoUploadButton.disabled = pending === 0 && FileUploadQueue.length === 0;
+        if (isFileUploadRunning) {
             fileRepoUploadButton.textContent = 'Uploading...';
-        } else if (pending > 0) {
-            fileRepoUploadButton.textContent = 'Upload queued files (' + pending + ')';
         } else {
             fileRepoUploadButton.textContent = 'Upload queued files';
         }
+        updateQueuedSummary();
         updateSubmitButtons();
     }
 
@@ -1621,7 +1664,8 @@
 
     function flushQueuedFileRepoUploads() {
         if (!isFileRepoMode) return;
-        fileRepoPendingAssets().forEach(startQueuedAssetUpload);
+        fileRepoPendingAssets().forEach(enqueueFileUpload);
+        processFileUploadQueue();
         updateFileRepoUploadButton();
     }
 
