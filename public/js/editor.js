@@ -689,150 +689,79 @@
         return { start: start, end: end, size: Math.max(0, end - start) };
     }
 
-    function transportBlockByteRange(asset, blockIndex) {
-        var blockSize = Math.max(1, Number(asset && asset.transportBlockSize || asset && asset.chunkSize || UPLOAD_CHUNK_SIZE));
-        var start = blockIndex * blockSize;
-        var end = Math.min(start + blockSize, asset.fileSize);
-        return { start: start, end: end, size: Math.max(0, end - start) };
-    }
-
-    function topologyChunkIndexForBlock(asset, blockIndex) {
-        var chunkSize = Math.max(1, Number(asset && asset.chunkSize || UPLOAD_CHUNK_SIZE));
-        var blockSize = Math.max(1, Number(asset && asset.transportBlockSize || chunkSize));
-        var blocksPerChunk = Math.max(1, Math.floor(chunkSize / blockSize));
-        return Math.floor(blockIndex / blocksPerChunk);
-    }
-
     function countBitmapBits(bitmap) {
-        var total = 0;
-        for (var i = 0; i < String(bitmap || '').length; i += 1) {
-            if (bitmap.charAt(i) === '1') total += 1;
+        if (!bitmap) return 0;
+        var count = 0;
+        for (var i = 0; i < bitmap.length; i += 1) {
+            if (bitmap.charAt(i) === '1') count += 1;
         }
-        return total;
+        return count;
     }
 
     function setBitmapBit(bitmap, index) {
-        var source = String(bitmap || '');
-        if (index < 0 || index >= source.length || source.charAt(index) === '1') return source;
-        return source.slice(0, index) + '1' + source.slice(index + 1);
+        if (!bitmap || index < 0 || index >= bitmap.length) return bitmap || '';
+        if (bitmap.charAt(index) === '1') return bitmap;
+        return bitmap.substring(0, index) + '1' + bitmap.substring(index + 1);
     }
 
-    function firstBlockIndexForChunk(asset, chunkIndex) {
-        var chunkSize = Math.max(1, Number(asset && asset.chunkSize || UPLOAD_CHUNK_SIZE));
-        var blockSize = Math.max(1, Number(asset && asset.transportBlockSize || chunkSize));
-        var blocksPerChunk = Math.max(1, Math.floor(chunkSize / blockSize));
-        return chunkIndex * blocksPerChunk;
-    }
-
-    function blockCountForChunk(asset, chunkIndex) {
-        if (!asset) return 0;
-        var chunkRange = chunkByteRange(asset, chunkIndex);
-        var blockSize = Math.max(1, Number(asset.transportBlockSize || asset.chunkSize || UPLOAD_CHUNK_SIZE));
-        if (chunkRange.size <= 0) return 0;
-        return Math.ceil(chunkRange.size / blockSize);
-    }
-
-    function computeConfirmedUploadBytes(asset, bitmap) {
-        if (!asset) return 0;
-        var total = 0;
-        var usingBlockBitmap = !!(bitmap || asset.receivedBlockBitmap);
-        var source = String(bitmap || asset.receivedBlockBitmap || asset.receivedBitmap || '');
-        for (var i = 0; i < source.length; i += 1) {
-            if (source.charAt(i) === '1') {
-                total += usingBlockBitmap ? transportBlockByteRange(asset, i).size : chunkByteRange(asset, i).size;
+    function confirmedUploadBytes(asset) {
+        if (!asset || !asset.receivedBitmap) return 0;
+        var confirmed = 0;
+        for (var i = 0; i < asset.totalChunks; i += 1) {
+            if (asset.receivedBitmap.charAt(i) === '1') {
+                confirmed += chunkByteRange(asset, i).size;
             }
         }
-        return total;
+        return confirmed;
     }
 
-    function contiguousConfirmedUploadBytes(asset, bitmap) {
-        if (!asset) return 0;
-        var source = String(bitmap || asset.receivedBlockBitmap || '');
-        if (!source) return 0;
-        var total = 0;
-        for (var i = 0; i < source.length; i += 1) {
-            if (source.charAt(i) !== '1') break;
-            total += transportBlockByteRange(asset, i).size;
+    function contiguousConfirmedUploadBytes(asset) {
+        if (!asset || !asset.receivedBitmap) return 0;
+        var confirmed = 0;
+        for (var i = 0; i < asset.totalChunks; i += 1) {
+            if (asset.receivedBitmap.charAt(i) !== '1') break;
+            confirmed += chunkByteRange(asset, i).size;
         }
-        return total;
+        return confirmed;
     }
 
     function syncConfirmedProgress(asset) {
         if (!asset) return;
-        asset.confirmedBytes = computeConfirmedUploadBytes(asset);
-        if (!asset.transferProgress || asset.transferProgress.length !== asset.totalTransportBlocks) {
-            asset.transferProgress = new Array(asset.totalTransportBlocks).fill(0);
+        asset.confirmedBytes = confirmedUploadBytes(asset);
+        if (!asset.transferProgress || asset.transferProgress.length !== asset.totalChunks) {
+            asset.transferProgress = new Array(asset.totalChunks).fill(0);
         }
-        for (var i = 0; i < asset.totalTransportBlocks; i += 1) {
-            if (asset.receivedBlockBitmap.charAt(i) === '1') {
-                asset.transferProgress[i] = transportBlockByteRange(asset, i).size;
-            } else if (!asset.inflightChunks || !asset.inflightChunks[i]) {
-                asset.transferProgress[i] = 0;
-            }
-        }
-    }
-
-    function confirmedUploadBytes(asset) {
-        if (!asset) return 0;
-        if (typeof asset.confirmedBytes === 'number') return asset.confirmedBytes;
-        asset.confirmedBytes = computeConfirmedUploadBytes(asset);
-        return asset.confirmedBytes;
     }
 
     function activeUploadBytes(asset) {
-        var confirmed = confirmedUploadBytes(asset);
-        var transient = 0;
-        var progress = asset.transferProgress || [];
-        for (var i = 0; i < progress.length; i += 1) {
-            if (asset.receivedBlockBitmap && asset.receivedBlockBitmap.charAt(i) === '1') continue;
-            transient += progress[i] || 0;
+        if (!asset) return 0;
+        var active = asset.confirmedBytes || 0;
+        if (asset.transferProgress) {
+            for (var i = 0; i < asset.transferProgress.length; i += 1) {
+                active += Number(asset.transferProgress[i] || 0);
+            }
         }
-        return Math.min(asset.fileSize || 0, confirmed + transient);
+        return active;
     }
 
     function encodeFormBody(values) {
-        return Object.keys(values).map(function(key) {
-            return encodeURIComponent(key) + '=' + encodeURIComponent(String(values[key]));
+        return Object.keys(values).map(function(k) {
+            return encodeURIComponent(k) + '=' + encodeURIComponent(values[k]);
         }).join('&');
     }
 
     function fetchWithTimeout(url, options, timeoutMs) {
-        var controller = window.AbortController ? new AbortController() : null;
-        var timerId = null;
-        var requestOptions = Object.assign({}, options || {});
-        if (controller) requestOptions.signal = controller.signal;
-        function cleanup() {
-            if (timerId) {
-                window.clearTimeout(timerId);
-                timerId = null;
-            }
-        }
-        var fetchPromise = fetch(url, requestOptions).then(function(response) {
-            cleanup();
-            return response;
-        }).catch(function(error) {
-            cleanup();
-            if (error && error.name === 'AbortError') {
-                throw new Error('timeout:fetch');
-            }
-            throw error;
+        return new Promise(function(resolve, reject) {
+            var controller = new AbortController();
+            var tid = setTimeout(function() { controller.abort(); reject(new Error('timeout:fetch')); }, timeoutMs || 8000);
+            fetch(url, Object.assign({}, options, { signal: controller.signal })).then(function(r) {
+                clearTimeout(tid);
+                resolve(r);
+            }).catch(function(e) {
+                clearTimeout(tid);
+                reject(e);
+            });
         });
-        if (!(timeoutMs > 0)) return fetchPromise;
-        if (controller) {
-            timerId = window.setTimeout(function() {
-                controller.abort();
-            }, timeoutMs);
-            return fetchPromise;
-        }
-        return Promise.race([
-            fetchPromise,
-            new Promise(function(_, reject) {
-                timerId = window.setTimeout(function() {
-                    cleanup();
-                    reject(new Error('timeout:fetch'));
-                }, timeoutMs);
-            })
-        ]);
     }
 
     function getConnectionInfo() {
@@ -846,43 +775,23 @@
     }
 
     function ensureLinkState(asset) {
-        if (!asset.linkState) {
-            asset.linkState = {
-                ewmaRttMs: 0,
-                retries: 0,
-                timeouts: 0,
-                recentRetries: 0,
-                recentTimeouts: 0,
-                successes: 0
-            };
-        }
+        if (!asset) return {};
+        if (!asset.linkState) asset.linkState = { ewmaRttMs: 0, retries: 0, timeouts: 0, successes: 0, recentRetries: 0, recentTimeouts: 0 };
         return asset.linkState;
     }
 
     function recordLinkSuccess(asset, elapsedMs) {
         var state = ensureLinkState(asset);
-        state.successes += 1;
-        if (elapsedMs > 0) {
-            state.ewmaRttMs = state.ewmaRttMs > 0 ? ((state.ewmaRttMs * 0.75) + (elapsedMs * 0.25)) : elapsedMs;
-        }
-        if (state.successes % LINK_RECENT_DECAY_SUCCESS_STEP === 0) {
-            state.recentRetries = Math.max(0, Number(state.recentRetries || 0) - 1);
-            state.recentTimeouts = Math.max(0, Number(state.recentTimeouts || 0) - 1);
-        }
+        state.ewmaRttMs = state.ewmaRttMs > 0 ? (state.ewmaRttMs * 0.7 + elapsedMs * 0.3) : elapsedMs;
+        state.successes = (state.successes || 0) + 1;
+        state.recentRetries = Math.max(0, (state.recentRetries || 0) - 1);
+        state.recentTimeouts = Math.max(0, (state.recentTimeouts || 0) - 1);
     }
 
     function recordLinkPenalty(asset, reason) {
         var state = ensureLinkState(asset);
-        state.retries += 1;
-        state.recentRetries = Math.min(24, Number(state.recentRetries || 0) + 1);
-        if (reason === 'timeout') state.timeouts += 1;
-        if (reason === 'timeout') state.recentTimeouts = Math.min(12, Number(state.recentTimeouts || 0) + 1);
-    }
-
-    function shouldReduceParallel(asset) {
-        var state = ensureLinkState(asset);
-        return Number(state.recentTimeouts || 0) >= LINK_DEGRADE_TIMEOUT_THRESHOLD ||
-            Number(state.recentRetries || 0) >= LINK_DEGRADE_RETRY_THRESHOLD;
+        if (reason === 'retry') { state.retries = (state.retries || 0) + 1; state.recentRetries = (state.recentRetries || 0) + 1; }
+        else if (reason === 'timeout') { state.timeouts = (state.timeouts || 0) + 1; state.recentTimeouts = (state.recentTimeouts || 0) + 1; }
     }
 
     function computeLinkStabilityScore(asset) {
@@ -896,16 +805,15 @@
         else if (conn.downlinkMbps >= 10) score += 12;
         else if (conn.downlinkMbps >= 3) score += 6;
         else if (conn.downlinkMbps > 0 && conn.downlinkMbps < 1.5) score -= 10;
-        var rtt = state.ewmaRttMs || conn.rttMs || 0;
-        if (rtt > 0) {
-            if (rtt <= 60) score += 16;
-            else if (rtt <= 120) score += 8;
-            else if (rtt <= 220) score += 2;
-            else if (rtt <= 450) score -= 10;
+        if (state.ewmaRttMs > 0) {
+            if (state.ewmaRttMs <= 60) score += 16;
+            else if (state.ewmaRttMs <= 120) score += 8;
+            else if (state.ewmaRttMs <= 220) score += 2;
+            else if (state.ewmaRttMs <= 450) score -= 10;
             else score -= 18;
         }
-        score -= state.retries * 5;
-        score -= state.timeouts * 12;
+        score -= (state.recentRetries || 0) * 5;
+        score -= (state.recentTimeouts || 0) * 12;
         if (conn.saveData) score -= 10;
         if (score < 10) score = 10;
         if (score > 100) score = 100;
@@ -930,15 +838,11 @@
         if (uploadWorkerBridge) return uploadWorkerBridge;
         if (!window.Worker) return null;
         try {
-            var workerCount = Math.max(2, Math.min(
-                UPLOAD_WORKER_POOL_LIMIT,
-                Math.max(2, Number(window.navigator && window.navigator.hardwareConcurrency) || 4) - 1
-            ));
+            var workerCount = Math.max(2, Math.min(UPLOAD_WORKER_POOL_LIMIT, Math.max(2, Number(window.navigator && window.navigator.hardwareConcurrency) || 4) - 1));
             var seq = 0;
             var pending = {};
             var queue = [];
             var workers = [];
-
             function flushWorkerQueue() {
                 for (var i = 0; i < workers.length && queue.length; i += 1) {
                     if (workers[i].busy) continue;
@@ -947,55 +851,41 @@
                     workers[i].worker.postMessage(next.message, next.transferList || []);
                 }
             }
-
             function attachWorker(workerState) {
                 workerState.worker.onmessage = function(event) {
                     var data = event.data || {};
                     var job = pending[data.id];
                     workerState.busy = false;
-                    if (!job) {
-                        flushWorkerQueue();
-                        return;
-                    }
+                    if (!job) { flushWorkerQueue(); return; }
                     delete pending[data.id];
                     if (data.ok) job.resolve(data);
                     else job.reject(new Error(data.error || 'worker failed'));
                     flushWorkerQueue();
                 };
-                workerState.worker.onerror = function() {
-                    workerState.busy = false;
-                    flushWorkerQueue();
-                };
+                workerState.worker.onerror = function() { workerState.busy = false; flushWorkerQueue(); };
             }
-
             for (var i = 0; i < workerCount; i += 1) {
                 var worker = new Worker(UPLOAD_WORKER_URL);
                 var workerState = { worker: worker, busy: false };
                 attachWorker(workerState);
                 workers.push(workerState);
             }
-
             uploadWorkerBridge = {
                 request: function(message, transferList) {
                     return new Promise(function(resolve, reject) {
                         seq += 1;
                         message.id = seq;
                         pending[seq] = { resolve: resolve, reject: reject };
-                        queue.push({
-                            message: message,
-                            transferList: transferList || []
-                        });
+                        queue.push({ message: message, transferList: transferList || [] });
                         flushWorkerQueue();
                     });
                 }
             };
-        } catch (err) {
-            uploadWorkerBridge = null;
-        }
+        } catch (err) { uploadWorkerBridge = null; }
         return uploadWorkerBridge;
     }
 
-    function preprocessChunkPayload(asset, chunkIndex, blockOffset, nonce, vertexId, magicSum, blob) {
+    function preprocessChunkPayload(asset, chunkIndex, blob) {
         return blob.arrayBuffer().then(function(buffer) {
             var bridge = getUploadWorkerBridge();
             if (bridge) {
@@ -1005,10 +895,6 @@
                     streamKeyHex: asset.streamKeyHex,
                     streamIvSeedHex: asset.streamIvSeedHex,
                     chunkIndex: chunkIndex,
-                    blockOffset: blockOffset,
-                    blockIndex: Math.floor(blockOffset / Math.max(1, Number(asset.transportBlockSize || asset.chunkSize || UPLOAD_CHUNK_SIZE))),
-                    vertexId: vertexId,
-                    magicSum: magicSum,
                     chunkBuffer: buffer
                 }, [buffer]);
             }
@@ -1016,117 +902,71 @@
         });
     }
 
-    function preprocessChunkBatch(asset, metas) {
-        if (!metas || !metas.length) return Promise.resolve([]);
-        return Promise.all(metas.map(function(meta) {
-            return meta.blob.arrayBuffer();
-        })).then(function(buffers) {
-            var bridge = getUploadWorkerBridge();
-            if (bridge) {
-                return bridge.request({
-                    type: 'prepare-upload-batch',
-                    uploadId: asset.uploadId,
-                    streamKeyHex: asset.streamKeyHex,
-                    streamIvSeedHex: asset.streamIvSeedHex,
-                    chunks: metas.map(function(meta, index) {
-                        return {
-                            chunkIndex: meta.chunkIndex,
-                            blockOffset: meta.start,
-                            blockIndex: meta.blockIndex,
-                            vertexId: meta.vertexId,
-                            magicSum: meta.magicSum,
-                            chunkBuffer: buffers[index]
-                        };
-                    })
-                }, buffers).then(function(result) {
-                    return (result && result.chunks) || [];
-                });
-            }
-            return Promise.reject(new Error('worker unavailable'));
-        });
-    }
-
     function clearRecoveryTimer(asset) {
-        if (!asset || !asset.recoveryTimer) return;
-        window.clearTimeout(asset.recoveryTimer);
-        asset.recoveryTimer = null;
+        if (asset && asset.recoveryTimer) { clearTimeout(asset.recoveryTimer); asset.recoveryTimer = null; }
     }
 
     function clearSchedulerTimer(asset) {
-        if (!asset || !asset.schedulerTimer) return;
-        window.clearTimeout(asset.schedulerTimer);
-        asset.schedulerTimer = null;
+        if (asset && asset.schedulerTimer) { clearTimeout(asset.schedulerTimer); asset.schedulerTimer = null; }
     }
 
     function bumpUploadSessionGeneration(asset) {
-        if (!asset) return 0;
-        asset.sessionGeneration = Number(asset.sessionGeneration || 0) + 1;
+        asset.sessionGeneration = (asset.sessionGeneration || 0) + 1;
         return asset.sessionGeneration;
     }
 
     function nextChunkRetryDelay(attempt) {
-        return Math.min(600, 70 * Math.pow(1.45, Math.max(0, Number(attempt) || 0)));
+        return Math.min(UPLOAD_RECOVERY_MAX_DELAY, UPLOAD_RECOVERY_BASE_DELAY * Math.pow(1.6, Math.max(0, Number(attempt) || 0)));
     }
 
     function budgetParallelLimit(chunkSize) {
-        var size = Math.max(1, Number(chunkSize || UPLOAD_CHUNK_SIZE));
-        return Math.max(4, Math.min(UPLOAD_MAX_PARALLEL, Math.floor(UPLOAD_ACTIVE_BUDGET_BYTES / size)));
+        return Math.max(2, Math.min(UPLOAD_MAX_PARALLEL, Math.floor(UPLOAD_MEMORY_BUDGET_BYTES / Math.max(1, chunkSize))));
     }
 
     function clampParallelToBudget(asset, value) {
-        var requested = Math.max(1, Number(value || 0) || UPLOAD_DEFAULT_PARALLEL);
-        return Math.max(1, Math.min(requested, budgetParallelLimit(asset && (asset.transportBlockSize || asset.chunkSize))));
+        var limit = budgetParallelLimit(asset && asset.chunkSize ? asset.chunkSize : UPLOAD_CHUNK_SIZE);
+        return Math.max(2, Math.min(limit, Math.max(2, Number(value) || 2)));
     }
 
     function markSchedulerActivity(asset) {
-        if (!asset) return;
-        asset.lastSchedulerActivityAt = Date.now();
+        if (asset) asset.lastSchedulerActivityAt = Date.now();
     }
 
     function finishNetworkAttempt(asset, chunkIndex) {
-        if (!asset || !asset.chunkNetworkStarted || !asset.chunkNetworkStarted[chunkIndex]) return;
-        delete asset.chunkNetworkStarted[chunkIndex];
-        asset.activeRequests = Math.max(0, Number(asset.activeRequests || 0) - 1);
+        if (!asset || !asset.inflightRequests) return;
+        delete asset.inflightRequests[chunkIndex];
     }
 
     function resetInflightChunk(asset, chunkIndex, keepProgress) {
-        if (!asset) return;
-        if (!keepProgress && asset.transferProgress && asset.receivedBlockBitmap && asset.receivedBlockBitmap.charAt(chunkIndex) !== '1') {
-            asset.transferProgress[chunkIndex] = 0;
-        }
-        if (asset.inflightRequests) delete asset.inflightRequests[chunkIndex];
-        if (asset.chunkActivityAt) delete asset.chunkActivityAt[chunkIndex];
-        finishNetworkAttempt(asset, chunkIndex);
-        if (asset.inflightChunks && asset.inflightChunks[chunkIndex]) {
-            delete asset.inflightChunks[chunkIndex];
-            asset.dispatchReservations = Math.max(0, Number(asset.dispatchReservations || 0) - 1);
-        }
+        if (!asset || !asset.inflightChunks) return;
+        delete asset.inflightChunks[chunkIndex];
+        asset.dispatchReservations = Math.max(0, Number(asset.dispatchReservations || 0) - 1);
+        if (!keepProgress && asset.transferProgress) asset.transferProgress[chunkIndex] = 0;
     }
 
     function requeueChunk(asset, chunkIndex) {
-        if (!asset || chunkIndex === null || chunkIndex === undefined) return;
-        if (asset.receivedBlockBitmap && asset.receivedBlockBitmap.charAt(chunkIndex) === '1') return;
+        if (!asset || asset.receivedBitmap && asset.receivedBitmap.charAt(chunkIndex) === '1') return;
         if (!asset.pendingChunks) asset.pendingChunks = [];
-        if (asset.pendingChunks.indexOf(chunkIndex) !== -1) return;
-        var insertAt = Math.max(0, Math.min(Number(asset.nextChunkCursor || 0), asset.pendingChunks.length));
-        asset.pendingChunks.splice(insertAt, 0, chunkIndex);
+        if (asset.pendingChunks.indexOf(chunkIndex) < 0) asset.pendingChunks.push(chunkIndex);
     }
 
     function recoverOrContinue(asset, file, chunkIndex, reason) {
+        if (!asset || asset.failed || asset.isCancelling || asset.recovering) return;
+        if (reason === 'timeout' || reason === 'slow') {
+            recordLinkPenalty(asset, reason === 'slow' ? 'retry' : 'timeout');
+        }
         resetInflightChunk(asset, chunkIndex, false);
         requeueChunk(asset, chunkIndex);
-        rolloverUploadSession(asset, reason || 'rollover');
+        updateAssetProgress(asset);
+        fillChunkWindow(asset, file);
     }
 
     function resetAllInflightChunks(asset, keepProgress) {
         if (!asset) return;
         var inflight = asset.inflightChunks || {};
-        Object.keys(inflight).forEach(function(key) {
-            resetInflightChunk(asset, Number(key), keepProgress);
-        });
+        Object.keys(inflight).forEach(function(key) { resetInflightChunk(asset, Number(key), keepProgress); });
         asset.inflightChunks = {};
         asset.inflightRequests = {};
-        asset.chunkNetworkStarted = {};
         asset.chunkActivityAt = {};
         asset.dispatchReservations = 0;
         asset.activeRequests = 0;
@@ -1148,9 +988,7 @@
             try { xhr.abort(); } catch (err) {}
         });
         resetAllInflightChunks(asset, false);
-        asset.xhrs = (asset.xhrs || []).filter(function(xhr) {
-            return xhr && xhr._tasfaKind === 'finalize';
-        });
+        asset.xhrs = (asset.xhrs || []).filter(function(xhr) { return xhr && xhr._tasfaKind === 'finalize'; });
         asset.suppressAbortHandling = false;
         clearPreparedChunks(asset);
     }
@@ -1158,34 +996,23 @@
     function startSchedulerLoop(asset) {
         if (!asset) return;
         clearSchedulerTimer(asset);
-
         function tick() {
             try {
                 if (!asset || asset.failed || asset.isCancelling || asset.fid !== null || !asset.isUploading) {
                     clearSchedulerTimer(asset);
                     return;
                 }
-
                 if (!asset.recovering && !asset.isPaused && !asset.finalizing) {
                     var now = Date.now();
                     var chunkActivity = asset.chunkActivityAt || {};
                     var stalled = Object.keys(chunkActivity).some(function(key) {
                         var chunkIndex = Number(key);
                         var sentBytes = Number((asset.transferProgress && asset.transferProgress[chunkIndex]) || 0);
-                        var hasConfirmedTraffic = Number(asset.lastChunkResponseAt || 0) > 0 ||
-                            confirmedUploadBytes(asset) > 0 ||
-                            Number(asset.completedChunks || 0) > 0;
-                        var stallLimit = !hasConfirmedTraffic
-                            ? UPLOAD_STARTUP_STALL_TIMEOUT_MS
-                            : (sentBytes > 0 ? UPLOAD_PROGRESS_STALL_TIMEOUT_MS : UPLOAD_STALL_TIMEOUT_MS);
-                        if (document.visibilityState === 'hidden') {
-                            stallLimit = Math.max(stallLimit, 10000);
-                        }
+                        var hasConfirmedTraffic = Number(asset.lastChunkResponseAt || 0) > 0 || confirmedUploadBytes(asset) > 0 || Number(asset.completedChunks || 0) > 0;
+                        var stallLimit = !hasConfirmedTraffic ? UPLOAD_STARTUP_STALL_TIMEOUT_MS : (sentBytes > 0 ? UPLOAD_PROGRESS_STALL_TIMEOUT_MS : UPLOAD_STALL_TIMEOUT_MS);
+                        if (document.visibilityState === 'hidden') stallLimit = Math.max(stallLimit, 10000);
                         var linkState = ensureLinkState(asset);
-                        var rttFloor = Math.max(
-                            stallLimit,
-                            Math.min(10000, Math.ceil(Number(linkState.ewmaRttMs || 0) * 3.5))
-                        );
+                        var rttFloor = Math.max(stallLimit, Math.min(10000, Math.ceil(Number(linkState.ewmaRttMs || 0) * 3.5)));
                         return now - Number(chunkActivity[key] || 0) > rttFloor;
                     });
                     if (stalled) {
@@ -1193,143 +1020,33 @@
                         clearSchedulerTimer(asset);
                         return;
                     }
-
-                if (Number(asset.dispatchReservations || 0) === 0 && hasMissingChunks(asset) && asset.nextChunkCursor >= asset.pendingChunks.length) {
-                    rebuildPendingChunks(asset);
+                    if (Number(asset.dispatchReservations || 0) === 0 && hasMissingChunks(asset) && asset.nextChunkCursor >= asset.pendingChunks.length) {
+                        rebuildPendingChunks(asset);
+                    }
+                    if (Number(asset.dispatchReservations || 0) < asset.currentParallel || Number(asset.dispatchReservations || 0) === 0) {
+                        fillChunkWindow(asset, asset.file);
+                    }
                 }
-
-                if (Number(asset.dispatchReservations || 0) < asset.currentParallel || Number(asset.dispatchReservations || 0) === 0) {
-                    fillChunkWindow(asset, asset.file);
-                }
-            }
-            } catch (err) {
-                console.error('TASFA scheduler tick failed:', err);
-            }
+            } catch (err) { console.error('TASFA scheduler tick failed:', err); }
             asset.schedulerTimer = window.setTimeout(tick, UPLOAD_SCHEDULER_TICK_MS);
         }
-
         asset.schedulerTimer = window.setTimeout(tick, UPLOAD_SCHEDULER_TICK_MS);
-
         if (!asset._visibilityHandler) {
             asset._visibilityHandler = function() {
-                if (document.visibilityState === 'visible' && asset.isUploading && !asset.schedulerTimer) {
-                    startSchedulerLoop(asset);
-                }
+                if (document.visibilityState === 'visible' && asset.isUploading && !asset.schedulerTimer) startSchedulerLoop(asset);
             };
             document.addEventListener('visibilitychange', asset._visibilityHandler);
         }
     }
 
-    function chunkGridCols(chunkCount) {
-        var cols = 1;
-        while (cols * cols < chunkCount) cols += 1;
-        return cols;
-    }
-
-    function chunkVertex(chunkIndex, chunkCount) {
-        var cols = chunkGridCols(chunkCount);
-        return {
-            q: chunkIndex % cols,
-            r: Math.floor(chunkIndex / cols)
-        };
-    }
-
-    function chunkMagicSum(chunkIndex, chunkCount) {
-        var dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
-        var cols = chunkGridCols(chunkCount);
-        var pos = chunkVertex(chunkIndex, chunkCount);
-        var sum = chunkIndex + 1;
-        for (var i = 0; i < dirs.length; i += 1) {
-            var nq = pos.q + dirs[i][0];
-            var nr = pos.r + dirs[i][1];
-            if (nq < 0 || nr < 0) continue;
-            var nextIndex = nr * cols + nq;
-            if (nextIndex >= 0 && nextIndex < chunkCount) sum += nextIndex + 1;
-        }
-        return sum;
-    }
-
-    function estimatedChunkStripe(chunkIndex, chunkCount) {
-        if (chunkCount <= 0) return 0;
-        var chunksPerStripe = Math.ceil(chunkCount / TASFA_CLIENT_STRIPE_COUNT);
-        var stripe = Math.floor(chunkIndex / Math.max(1, chunksPerStripe));
-        if (stripe >= TASFA_CLIENT_STRIPE_COUNT) stripe = TASFA_CLIENT_STRIPE_COUNT - 1;
-        return stripe;
-    }
-
-    function interleaveChunkOrder(indices, chunkCount) {
-        var buckets = [];
-        for (var i = 0; i < TASFA_CLIENT_STRIPE_COUNT; i += 1) buckets.push([]);
-        for (var j = 0; j < indices.length; j += 1) {
-            var chunkIndex = indices[j];
-            buckets[estimatedChunkStripe(chunkIndex, chunkCount)].push(chunkIndex);
-        }
-        var interleaved = [];
-        var added = true;
-        while (added) {
-            added = false;
-            for (var stripe = 0; stripe < buckets.length; stripe += 1) {
-                if (!buckets[stripe].length) continue;
-                interleaved.push(buckets[stripe].shift());
-                added = true;
-            }
-        }
-        return interleaved;
-    }
-
-    function buildPriorityChunkOrder(bitmap, chunkCount, frontierBitmap, damageBitmap) {
-        var damage = [];
-        var frontier = [];
-        var rest = [];
-        var seen = {};
-
-        function pushBitmapCandidates(candidateBitmap, target) {
-            if (!candidateBitmap) return;
-            for (var idx = 0; idx < chunkCount; idx += 1) {
-                if (candidateBitmap.charAt(idx) !== '1') continue;
-                if (bitmap && bitmap.charAt(idx) === '1') continue;
-                if (seen[idx]) continue;
-                seen[idx] = true;
-                target.push(idx);
-            }
-        }
-
-        pushBitmapCandidates(damageBitmap, damage);
-        pushBitmapCandidates(frontierBitmap, frontier);
-        for (var i = 0; i < chunkCount; i += 1) {
-            if (!bitmap || bitmap.charAt(i) !== '1') {
-                if (seen[i]) continue;
-                seen[i] = true;
-                rest.push(i);
-            }
-        }
-        return interleaveChunkOrder(damage, chunkCount)
-            .concat(interleaveChunkOrder(frontier, chunkCount))
-            .concat(interleaveChunkOrder(rest, chunkCount));
-    }
-
-    function buildTransportBlockMeta(asset, file, blockIndex) {
-        var range = transportBlockByteRange(asset, blockIndex);
-        var chunkIndex = topologyChunkIndexForBlock(asset, blockIndex);
+    function buildChunkMeta(asset, file, chunkIndex) {
+        var range = chunkByteRange(asset, chunkIndex);
         var blob = file.slice(range.start, range.end);
-        var vertex = chunkVertex(chunkIndex, asset.totalChunks);
-        return {
-            start: range.start,
-            end: range.end,
-            blob: blob,
-            blockIndex: blockIndex,
-            chunkIndex: chunkIndex,
-            vertexId: vertex.q + ':' + vertex.r,
-            magicSum: chunkMagicSum(chunkIndex, asset.totalChunks),
-            nonce: ''
-        };
+        return { start: range.start, end: range.end, blob: blob, chunkIndex: chunkIndex };
     }
 
     function prepareAheadTarget(asset) {
-        var chunkSize = Math.max(1, Number(asset && (asset.transportBlockSize || asset.chunkSize) || UPLOAD_CHUNK_SIZE));
-        var budgetCount = Math.max(6, Math.floor(UPLOAD_PREPARED_BUDGET_BYTES / chunkSize));
-        var concurrencyCount = Math.max(4, Number(asset && asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) * PREPARE_AHEAD_MULTIPLIER);
-        return Math.max(6, Math.min(96, budgetCount, concurrencyCount));
+        return Math.max(4, Math.min(32, asset.currentParallel || UPLOAD_DEFAULT_PARALLEL));
     }
 
     function schedulePrepareAhead(asset, file) {
@@ -1337,93 +1054,55 @@
         if (!asset.preparedChunks) asset.preparedChunks = {};
         if (!asset.prepareInflight) asset.prepareInflight = {};
         if (!asset.prepareInflightCount) asset.prepareInflightCount = 0;
-
         var target = prepareAheadTarget(asset);
         var generation = Number(asset.sessionGeneration || 0);
         for (var i = asset.nextChunkCursor; i < asset.pendingChunks.length;) {
             if ((Object.keys(asset.preparedChunks).length + Number(asset.prepareInflightCount || 0)) >= target) break;
-            var batch = [];
-            var blockIndex = asset.pendingChunks[i];
-            while (i < asset.pendingChunks.length && batch.length < PREPARE_BATCH_SIZE &&
-                (Object.keys(asset.preparedChunks).length + Number(asset.prepareInflightCount || 0)) < target) {
-                blockIndex = asset.pendingChunks[i];
-                i += 1;
-                if (blockIndex === null || blockIndex === undefined) continue;
-                if (asset.receivedBlockBitmap && asset.receivedBlockBitmap.charAt(blockIndex) === '1') continue;
-                if (asset.inflightChunks && asset.inflightChunks[blockIndex]) continue;
-                if (asset.preparedChunks[blockIndex] || asset.prepareInflight[blockIndex]) continue;
-                asset.prepareInflight[blockIndex] = true;
-                asset.prepareInflightCount += 1;
-                var meta = buildTransportBlockMeta(asset, file, blockIndex);
-                batch.push(meta);
-            }
-            if (!batch.length) continue;
-            (function(batchMetas) {
-                preprocessChunkBatch(asset, batchMetas).then(function(results) {
+            var chunkIndex = asset.pendingChunks[i];
+            i += 1;
+            if (chunkIndex === null || chunkIndex === undefined) continue;
+            if (asset.receivedBitmap && asset.receivedBitmap.charAt(chunkIndex) === '1') continue;
+            if (asset.inflightChunks && asset.inflightChunks[chunkIndex]) continue;
+            if (asset.preparedChunks[chunkIndex] || asset.prepareInflight[chunkIndex]) continue;
+            asset.prepareInflight[chunkIndex] = true;
+            asset.prepareInflightCount += 1;
+            var meta = buildChunkMeta(asset, file, chunkIndex);
+            (function(idx, b) {
+                preprocessChunkPayload(asset, idx, b).then(function(prepared) {
                     if (generation !== Number(asset.sessionGeneration || 0)) return;
-                    results.forEach(function(prepared, index) {
-                        var meta = batchMetas[index];
-                        if (!prepared || !meta) return;
-                        asset.preparedChunks[meta.blockIndex] = {
-                            payloadBuffer: prepared.payloadBuffer,
-                            start: meta.start,
-                            end: meta.end,
-                            vertexId: meta.vertexId,
-                            magicSum: meta.magicSum,
-                            blobSize: meta.blob.size
-                        };
-                    });
-                }).catch(function() {
-                }).finally(function() {
-                    batchMetas.forEach(function(meta) {
-                        if (asset.prepareInflight && asset.prepareInflight[meta.blockIndex]) {
-                            delete asset.prepareInflight[meta.blockIndex];
-                            asset.prepareInflightCount = Math.max(0, Number(asset.prepareInflightCount || 0) - 1);
-                        }
-                    });
+                    asset.preparedChunks[idx] = prepared;
+                }).catch(function() {}).finally(function() {
+                    if (asset.prepareInflight && asset.prepareInflight[idx]) {
+                        delete asset.prepareInflight[idx];
+                        asset.prepareInflightCount = Math.max(0, Number(asset.prepareInflightCount || 0) - 1);
+                    }
                 });
-            })(batch);
+            })(chunkIndex, meta.blob);
         }
     }
 
     function rebuildPendingChunks(asset) {
         if (!asset || asset.rebuildingPending) return;
         asset.rebuildingPending = true;
-        
         if (asset.pendingChunks && asset.pendingChunks.length > (asset.currentParallel * 2)) {
             asset.rebuildingPending = false;
             return;
         }
-
         setTimeout(function() {
-            var orderedChunks = buildPriorityChunkOrder(
-                asset.receivedBitmap,
-                asset.totalChunks,
-                asset.topologyFrontierBitmap,
-                asset.topologyDamageBitmap
-            );
-            var pendingBlocks = [];
-            var blockBitmap = String(asset.receivedBlockBitmap || '');
-            for (var i = 0; i < orderedChunks.length; i += 1) {
-                var chunkIndex = orderedChunks[i];
-                var firstBlock = firstBlockIndexForChunk(asset, chunkIndex);
-                var totalBlocks = blockCountForChunk(asset, chunkIndex);
-                for (var offset = 0; offset < totalBlocks; offset += 1) {
-                    var blockIndex = firstBlock + offset;
-                    if (blockBitmap && blockBitmap.charAt(blockIndex) === '1') continue;
-                    pendingBlocks.push(blockIndex);
-                }
+            var pending = [];
+            for (var i = 0; i < asset.totalChunks; i += 1) {
+                if (!asset.receivedBitmap || asset.receivedBitmap.charAt(i) !== '1') pending.push(i);
             }
             if (Number(asset.resumeFromByte || 0) > 0) {
-                var resumeBlock = Math.max(0, Math.floor(Number(asset.resumeFromByte || 0) / Math.max(1, Number(asset.transportBlockSize || asset.chunkSize || UPLOAD_CHUNK_SIZE))));
-                pendingBlocks.sort(function(a, b) {
-                    var aAfter = a >= resumeBlock ? 0 : 1;
-                    var bAfter = b >= resumeBlock ? 0 : 1;
+                var resumeChunk = Math.max(0, Math.floor(Number(asset.resumeFromByte || 0) / Math.max(1, Number(asset.chunkSize || UPLOAD_CHUNK_SIZE))));
+                pending.sort(function(a, b) {
+                    var aAfter = a >= resumeChunk ? 0 : 1;
+                    var bAfter = b >= resumeChunk ? 0 : 1;
                     if (aAfter !== bAfter) return aAfter - bAfter;
                     return a - b;
                 });
             }
-            asset.pendingChunks = pendingBlocks;
+            asset.pendingChunks = pending;
             asset.nextChunkCursor = 0;
             asset.rebuildingPending = false;
         }, 0);
@@ -1436,17 +1115,13 @@
 
     function uploadRolloverDelay(asset) {
         var confirmed = confirmedUploadBytes(asset);
-        if (confirmed > 0 || Number(asset && asset.completedChunks || 0) > 0) {
-            return 700;
-        }
+        if (confirmed > 0 || Number(asset && asset.completedChunks || 0) > 0) return 700;
         return 8000;
     }
 
     function uploadRolloverLimit(asset) {
         var confirmed = confirmedUploadBytes(asset);
-        if (confirmed > 0 || Number(asset && asset.completedChunks || 0) > 0) {
-            return UPLOAD_ROLLOVER_RETRY_LIMIT;
-        }
+        if (confirmed > 0 || Number(asset && asset.completedChunks || 0) > 0) return UPLOAD_ROLLOVER_RETRY_LIMIT;
         return UPLOAD_STARTUP_ROLLOVER_RETRY_LIMIT;
     }
 
@@ -1454,10 +1129,7 @@
         if (!asset || !payload) return;
         asset.chunkSize = Number(payload.chunk_size || asset.chunkSize || UPLOAD_CHUNK_SIZE);
         asset.totalChunks = Number(payload.chunk_count || asset.totalChunks || Math.max(1, Math.ceil(asset.fileSize / asset.chunkSize)));
-        asset.transportBlockSize = Number(payload.transport_block_size || asset.transportBlockSize || asset.chunkSize || UPLOAD_CHUNK_SIZE);
-        asset.totalTransportBlocks = Number(payload.transport_block_count || asset.totalTransportBlocks || Math.max(1, Math.ceil(asset.fileSize / asset.transportBlockSize)));
         asset.receivedBitmap = payload.received_bitmap || asset.receivedBitmap || '';
-        asset.receivedBlockBitmap = payload.received_block_bitmap || asset.receivedBlockBitmap || '';
         asset.streamKeyHex = payload.stream_key_hex || asset.streamKeyHex || '';
         asset.streamIvSeedHex = payload.stream_iv_seed_hex || asset.streamIvSeedHex || '';
         asset.resumeFromByte = Number(payload.resume_from_byte || asset.resumeFromByte || 0);
@@ -1465,29 +1137,17 @@
         asset.currentParallel = clampParallelToBudget(asset, payload.current_parallel_chunks || payload.initial_parallel_chunks || asset.currentParallel || UPLOAD_DEFAULT_PARALLEL);
         asset.maxParallel = Math.max(asset.currentParallel, clampParallelToBudget(asset, payload.max_parallel_chunks || asset.maxParallel || UPLOAD_MAX_PARALLEL));
         asset.peakParallel = Math.max(Number(asset.peakParallel || 0), Number(asset.currentParallel || 0), Number(asset.maxParallel || 0));
-        asset.topologyFrontierBitmap = payload.topology_frontier_bitmap || asset.topologyFrontierBitmap || '';
-        asset.topologyDamageBitmap = payload.topology_damage_bitmap || '';
-        asset.topologyRule = payload.topology_rule || '';
         rebuildPendingChunks(asset);
         syncConfirmedProgress(asset);
         updateAssetProgress(asset);
     }
 
     function syncUploadSession(asset) {
-        if (!asset || !asset.uploadId || !asset.uploadToken) {
-            return Promise.reject(new Error('upload session missing'));
-        }
+        if (!asset || !asset.uploadId || !asset.uploadToken) return Promise.reject(new Error('upload session missing'));
         return fetchWithTimeout(UPLOAD_STATUS_ENDPOINT, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: encodeFormBody({
-                upload_id: asset.uploadId,
-                upload_token: asset.uploadToken
-            })
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: encodeFormBody({ upload_id: asset.uploadId, upload_token: asset.uploadToken })
         }, UPLOAD_SESSION_FETCH_TIMEOUT_MS).then(function(response) {
             if (!response.ok) throw new Error('status:' + response.status);
             return response.json();
@@ -1512,48 +1172,23 @@
     function requestUploadAcceleration(asset) {
         if (!shouldAccelerateParallel(asset)) return Promise.resolve(false);
         asset.lastRenegotiateAt = Date.now();
-        var suggested = Math.min(
-            clampParallelToBudget(asset, Math.max(
-                Number(asset.peakParallel || 0),
-                (asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) + Math.max(8, Math.ceil((asset.currentParallel || 0) * 0.5))
-            )),
-            asset.maxParallel || UPLOAD_MAX_PARALLEL
-        );
+        var suggested = Math.min(clampParallelToBudget(asset, Math.max(Number(asset.peakParallel || 0), (asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) + Math.max(8, Math.ceil((asset.currentParallel || 0) * 0.5)))), asset.maxParallel || UPLOAD_MAX_PARALLEL);
         var linkHints = buildLinkHintFields(asset);
         return fetchWithTimeout(UPLOAD_RENEGOTIATE_ENDPOINT, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: encodeFormBody({
-                upload_id: asset.uploadId,
-                upload_token: asset.uploadToken,
-                suggested_parallel: suggested,
-                link_stability_score: linkHints.link_stability_score || '',
-                link_effective_type: linkHints.link_effective_type || '',
-                link_downlink_mbps: linkHints.link_downlink_mbps || '',
-                link_rtt_ms: linkHints.link_rtt_ms || '',
-                link_retry_events: linkHints.link_retry_events || 0,
-                link_timeout_events: linkHints.link_timeout_events || 0,
-                link_save_data: linkHints.link_save_data || '0'
-            })
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: encodeFormBody({ upload_id: asset.uploadId, upload_token: asset.uploadToken, suggested_parallel: suggested, link_stability_score: linkHints.link_stability_score || '', link_effective_type: linkHints.link_effective_type || '', link_downlink_mbps: linkHints.link_downlink_mbps || '', link_rtt_ms: linkHints.link_rtt_ms || '', link_retry_events: linkHints.link_retry_events || 0, link_timeout_events: linkHints.link_timeout_events || 0, link_save_data: linkHints.link_save_data || '0' })
         }, UPLOAD_SESSION_FETCH_TIMEOUT_MS).then(function(response) {
             if (!response.ok) throw new Error('renegotiate:' + response.status);
             return response.json();
         }).then(function(payload) {
             applyServerSessionState(asset, payload);
             return true;
-        }).catch(function() {
-            return false;
-        });
+        }).catch(function() { return false; });
     }
 
     function queueNextChunkIndex(asset) {
-        if (asset.nextChunkCursor >= asset.pendingChunks.length && hasMissingChunks(asset)) {
-            rebuildPendingChunks(asset);
-        }
+        if (asset.nextChunkCursor >= asset.pendingChunks.length && hasMissingChunks(asset)) rebuildPendingChunks(asset);
         while (asset.nextChunkCursor < asset.pendingChunks.length) {
             var nextIndex = asset.pendingChunks[asset.nextChunkCursor];
             asset.nextChunkCursor += 1;
@@ -1567,14 +1202,10 @@
         var total = activeUploadBytes(asset);
         if (asset.recovering || asset.isPaused) total = confirmed;
         asset.lastVisualBytes = Math.max(confirmed, Math.max(asset.lastVisualBytes || 0, total));
-        if (asset.completedChunks === asset.totalChunks && confirmed >= (asset.fileSize || 0)) {
-            asset.lastVisualBytes = asset.fileSize;
-        }
+        if (asset.completedChunks === asset.totalChunks && confirmed >= (asset.fileSize || 0)) asset.lastVisualBytes = asset.fileSize;
         var visual = Math.min(asset.fileSize || 0, asset.lastVisualBytes || 0);
         var percent = asset.fileSize ? Math.min(99, Math.round((visual / asset.fileSize) * 100)) : 0;
-        if (asset.completedChunks === asset.totalChunks && confirmed >= (asset.fileSize || 0)) {
-            percent = 100;
-        }
+        if (asset.completedChunks === asset.totalChunks && confirmed >= (asset.fileSize || 0)) percent = 100;
         asset.ui.status.textContent = percent >= 100 ? 'Uploaded [100%]' : ('Uploading [' + percent + '%]');
         asset.ui.progressInner.style.width = percent + '%';
     }
@@ -1588,68 +1219,39 @@
         xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
         xhr.setRequestHeader('Accept', 'application/json');
         xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-
         xhr.onload = function() {
             asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
             if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
             if (xhr.status !== 200) {
-                if (xhr.status === 404 || xhr.status === 403) {
-                    asset.finalizing = false;
-                    rolloverUploadSession(asset, 'finalize');
-                    return;
-                }
-                if (xhr.status === 429 || xhr.status >= 500) {
-                    asset.finalizing = false;
-                    rolloverUploadSession(asset, 'finalize');
-                    return;
-                }
+                if (xhr.status === 404 || xhr.status === 403) { asset.finalizing = false; rolloverUploadSession(asset, 'finalize'); return; }
+                if (xhr.status === 429 || xhr.status >= 500) { asset.finalizing = false; rolloverUploadSession(asset, 'finalize'); return; }
                 markUploadFailure(asset, 'Upload failed [' + xhr.status + ']');
                 return;
             }
             var payload = null;
-            try {
-                payload = JSON.parse(xhr.responseText);
-            } catch (err) {
-                markUploadFailure(asset, 'Upload failed [invalid JSON]');
-                return;
-            }
+            try { payload = JSON.parse(xhr.responseText); } catch (err) { markUploadFailure(asset, 'Upload failed [invalid JSON]'); return; }
             if (!payload || payload.ok === false || !payload.url) {
-                if (payload && (payload.error === 'upload session not found' || payload.error === 'upload session expired')) {
-                    asset.finalizing = false;
-                    rolloverUploadSession(asset, 'finalize');
-                    return;
-                }
+                if (payload && (payload.error === 'upload session not found' || payload.error === 'upload session expired')) { asset.finalizing = false; rolloverUploadSession(asset, 'finalize'); return; }
                 markUploadFailure(asset, 'Upload failed [' + ((payload && payload.error) || 'unknown error') + ']');
                 return;
             }
             finalizeUploadSuccess(asset, payload);
         };
-
         xhr.onerror = xhr.ontimeout = function() {
             asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
             if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
             asset.ui.status.textContent = 'Rolling over upload session';
             syncUploadSession(asset).then(function() {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
-                if (asset.completedChunks === asset.totalChunks) {
-                    asset.finalizing = false;
-                    finalizeChunkedUpload(asset);
-                    return;
-                }
-                asset.finalizing = false;
-                fillChunkWindow(asset, asset.file);
+                if (asset.completedChunks === asset.totalChunks) { asset.finalizing = false; finalizeChunkedUpload(asset); return; }
+                asset.finalizing = false; fillChunkWindow(asset, asset.file);
             }).catch(function() {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
-                asset.finalizing = false;
-                rolloverUploadSession(asset, 'finalize');
+                asset.finalizing = false; rolloverUploadSession(asset, 'finalize');
             });
         };
-
         xhr.timeout = 15000;
-        xhr.send(encodeFormBody({
-            upload_id: asset.uploadId,
-            upload_token: asset.uploadToken
-        }));
+        xhr.send(encodeFormBody({ upload_id: asset.uploadId, upload_token: asset.uploadToken }));
     }
 
     function maybeFinalizeChunkUpload(asset) {
@@ -1659,76 +1261,56 @@
         asset.finalizing = true;
         asset.ui.status.textContent = 'Verifying uploaded chunks';
         syncUploadSession(asset).then(function() {
-            if (asset.failed || asset.isCancelling) {
-                asset.finalizing = false;
-                return;
-            }
-            if (asset.completedChunks !== asset.totalChunks || hasMissingChunks(asset)) {
-                asset.finalizing = false;
-                asset.ui.status.textContent = 'Rolling over remaining chunks';
-                fillChunkWindow(asset, asset.file);
-                return;
-            }
+            if (asset.failed || asset.isCancelling) { asset.finalizing = false; return; }
+            if (asset.completedChunks !== asset.totalChunks || hasMissingChunks(asset)) { asset.finalizing = false; asset.ui.status.textContent = 'Rolling over remaining chunks'; fillChunkWindow(asset, asset.file); return; }
             asset.ui.status.textContent = 'Finalizing upload on server';
             finalizeChunkedUpload(asset);
         }).catch(function() {
-            if (asset.failed || asset.isCancelling) {
-                asset.finalizing = false;
-                return;
-            }
-            asset.finalizing = false;
-            rolloverUploadSession(asset, 'finalize');
+            if (asset.failed || asset.isCancelling) { asset.finalizing = false; return; }
+            asset.finalizing = false; rolloverUploadSession(asset, 'finalize');
         });
     }
 
     function rolloverUploadSession(asset, reason) {
         if (!asset || asset.isCancelling || !asset.file) return;
         var rolloverState = {
-            uploadId: asset.uploadId,
-            uploadToken: asset.uploadToken,
+            uploadId: asset.uploadId, uploadToken: asset.uploadToken,
             confirmedBytes: contiguousConfirmedUploadBytes(asset),
-            receivedBitmap: String(asset.receivedBitmap || ''),
-            receivedBlockBitmap: String(asset.receivedBlockBitmap || '')
+            receivedBitmap: String(asset.receivedBitmap || '')
         };
-        clearRecoveryTimer(asset);
-        clearSchedulerTimer(asset);
-        abortInflightRequests(asset);
-        asset.recovering = true;
-        asset.isPaused = true;
-        asset.dispatchReservations = 0;
-        asset.activeRequests = 0;
-        asset.inflightChunks = {};
-        asset.chunkNetworkStarted = {};
-        asset.finalizing = false;
+        clearRecoveryTimer(asset); clearSchedulerTimer(asset); abortInflightRequests(asset);
+        asset.recovering = true; asset.isPaused = true;
+        asset.dispatchReservations = 0; asset.activeRequests = 0;
+        asset.inflightChunks = {}; asset.chunkNetworkStarted = {}; asset.finalizing = false;
         asset.recoveryEpoch = Number(asset.recoveryEpoch || 0) + 1;
-        asset.transferProgress = new Array(asset.totalTransportBlocks || 0).fill(0);
+        asset.transferProgress = new Array(asset.totalChunks || 0).fill(0);
         syncConfirmedProgress(asset);
         asset.ui.status.textContent = reason === 'offline' ? 'Waiting for network' : 'Rolling over upload session';
         if (!navigator.onLine) return;
         initChunkedUpload(asset, asset.file, 'rollover', rolloverState);
     }
 
-    function dispatchChunk(asset, file, blockIndex, retryCount) {
+    function dispatchChunk(asset, file, chunkIndex, retryCount) {
         if (asset.failed || asset.isCancelling || asset.isPaused) return;
         var sessionGeneration = Number(asset.sessionGeneration || 0);
-        var preparedState = asset.preparedChunks && asset.preparedChunks[blockIndex] ? asset.preparedChunks[blockIndex] : null;
-        var topologyChunkIndex = topologyChunkIndexForBlock(asset, blockIndex);
-        var start = preparedState ? preparedState.start : transportBlockByteRange(asset, blockIndex).start;
-        var end = preparedState ? preparedState.end : transportBlockByteRange(asset, blockIndex).end;
+        var preparedState = asset.preparedChunks && asset.preparedChunks[chunkIndex] ? asset.preparedChunks[chunkIndex] : null;
+        var range = chunkByteRange(asset, chunkIndex);
+        var start = preparedState ? preparedState.start : range.start;
+        var end = preparedState ? preparedState.end : range.end;
         var blob = file.slice(start, end);
-        asset.inflightChunks[blockIndex] = true;
+        asset.inflightChunks[chunkIndex] = true;
         asset.dispatchReservations = Math.max(0, Number(asset.dispatchReservations || 0)) + 1;
         markSchedulerActivity(asset);
-        if (preparedState && asset.preparedChunks) delete asset.preparedChunks[blockIndex];
+        if (preparedState && asset.preparedChunks) delete asset.preparedChunks[chunkIndex];
         schedulePrepareAhead(asset, file);
 
         function attemptUpload(attempt) {
             var xhr = new XMLHttpRequest();
             xhr._tasfaKind = 'chunk';
             asset.xhrs.push(xhr);
-            asset.transferProgress[blockIndex] = 0;
-            asset.inflightRequests[blockIndex] = xhr;
-            asset.chunkActivityAt[blockIndex] = Date.now();
+            asset.transferProgress[chunkIndex] = 0;
+            asset.inflightRequests[chunkIndex] = xhr;
+            asset.chunkActivityAt[chunkIndex] = Date.now();
 
             xhr.open('POST', UPLOAD_ENDPOINT, true);
             xhr.timeout = 15000;
@@ -1737,8 +1319,8 @@
 
             xhr.upload.onprogress = function(event) {
                 if (!event.lengthComputable || asset.failed || asset.isCancelling || sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
-                asset.transferProgress[blockIndex] = event.loaded;
-                asset.chunkActivityAt[blockIndex] = Date.now();
+                asset.transferProgress[chunkIndex] = event.loaded;
+                asset.chunkActivityAt[chunkIndex] = Date.now();
                 markSchedulerActivity(asset);
                 updateAssetProgress(asset);
             };
@@ -1747,7 +1329,7 @@
                 asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 if (asset.failed || asset.isCancelling || asset.recovering) return;
-                finishNetworkAttempt(asset, blockIndex);
+                finishNetworkAttempt(asset, chunkIndex);
                 if (xhr.status !== 200 && xhr.status !== 204) {
                     if ((xhr.status === 429 || xhr.status >= 500) && attempt < retryCount) {
                         recordLinkPenalty(asset, xhr.status === 429 ? 'retry' : 'timeout');
@@ -1755,75 +1337,53 @@
                         return;
                     }
                     recordLinkPenalty(asset, xhr.status === 429 ? 'retry' : 'timeout');
-                    recoverOrContinue(asset, file, blockIndex, xhr.status === 429 ? 'slow' : 'timeout');
+                    recoverOrContinue(asset, file, chunkIndex, xhr.status === 429 ? 'slow' : 'timeout');
                     return;
                 }
                 recordLinkSuccess(asset, Date.now() - Number(xhr._tasfaStartedAt || Date.now()));
                 asset.lastChunkResponseAt = Date.now();
+                if (xhr.status === 204) {
+                    asset.transferProgress[chunkIndex] = blob.size;
+                    asset.receivedBitmap = setBitmapBit(asset.receivedBitmap, chunkIndex);
+                    asset.completedChunks = countBitmapBits(asset.receivedBitmap);
+                    asset.confirmedBytes = confirmedUploadBytes(asset);
+                    resetInflightChunk(asset, chunkIndex, true);
+                    markSchedulerActivity(asset);
+                    updateAssetProgress(asset);
+                    requestUploadAcceleration(asset);
+                    fillChunkWindow(asset, file);
+                    maybeFinalizeChunkUpload(asset);
+                    return;
+                }
                 var payload = null;
-                if (xhr.status === 204 || !xhr.responseText) {
-                    payload = {
-                        ok: true,
-                        accepted: true,
-                        chunk_complete: xhr.getResponseHeader('X-TASFA-Chunk-Complete') === '1'
-                    };
-                } else {
-                    try {
-                        payload = JSON.parse(xhr.responseText);
-                    } catch (err) {
-                        recoverOrContinue(asset, file, blockIndex, 'recover');
-                        return;
-                    }
+                try { payload = JSON.parse(xhr.responseText); } catch (err) {
+                    recoverOrContinue(asset, file, chunkIndex, 'recover');
+                    return;
                 }
                 if (!payload || payload.ok === false) {
-                    recoverOrContinue(asset, file, blockIndex, 'recover');
+                    recoverOrContinue(asset, file, chunkIndex, 'recover');
                     return;
                 }
                 if (payload.accepted === false && payload.recoverable) {
-                    asset.transferProgress[blockIndex] = 0;
+                    asset.transferProgress[chunkIndex] = 0;
                     asset.receivedBitmap = payload.received_bitmap || asset.receivedBitmap;
-                    asset.receivedBlockBitmap = payload.received_block_bitmap || asset.receivedBlockBitmap;
-                    asset.confirmedBytes = computeConfirmedUploadBytes(asset, asset.receivedBlockBitmap || asset.receivedBitmap);
+                    asset.confirmedBytes = confirmedUploadBytes(asset);
                     asset.resumeFromByte = Math.max(Number(asset.resumeFromByte || 0), contiguousConfirmedUploadBytes(asset));
                     asset.completedChunks = Number(payload.received_chunks || asset.completedChunks);
-                    if (payload.next_parallel_chunks) {
-                        asset.currentParallel = clampParallelToBudget(asset, Math.min(asset.maxParallel, Number(payload.next_parallel_chunks)));
-                    }
-                    asset.topologyFrontierBitmap = payload.topology_frontier_bitmap || asset.topologyFrontierBitmap || '';
-                    asset.topologyDamageBitmap = payload.topology_damage_bitmap || '';
-                    asset.topologyRule = payload.topology_rule || '';
-                    if (payload.retry_parallel_chunks) {
-                        asset.currentParallel = Math.max(asset.currentParallel, clampParallelToBudget(asset, Math.min(asset.maxParallel, Number(payload.retry_parallel_chunks))));
-                    }
                     rebuildPendingChunks(asset);
-                    resetInflightChunk(asset, blockIndex, false);
+                    resetInflightChunk(asset, chunkIndex, false);
                     markSchedulerActivity(asset);
-                    asset.ui.status.textContent = asset.topologyRule ? ('Repairing topology [' + asset.topologyRule + ']') : 'Recovering missing chunks';
                     updateAssetProgress(asset);
                     fillChunkWindow(asset, file);
                     return;
                 }
-                asset.transferProgress[blockIndex] = blob.size;
-                asset.receivedBlockBitmap = payload.received_block_bitmap || setBitmapBit(asset.receivedBlockBitmap, blockIndex);
-                asset.confirmedBytes = confirmedUploadBytes(asset) + blob.size;
-                if (payload.chunk_complete) {
-                    asset.receivedBitmap = setBitmapBit(payload.received_bitmap || asset.receivedBitmap, topologyChunkIndex);
-                } else if (payload.received_bitmap) {
-                    asset.receivedBitmap = payload.received_bitmap;
-                }
-                if (payload.received_block_bitmap) {
-                    asset.confirmedBytes = computeConfirmedUploadBytes(asset, payload.received_block_bitmap);
-                }
-                asset.completedChunks = Number(payload.received_chunks || countBitmapBits(asset.receivedBitmap));
-                if (payload.next_parallel_chunks) {
-                    asset.currentParallel = clampParallelToBudget(asset, Math.min(asset.maxParallel, Number(payload.next_parallel_chunks)));
-                }
-                asset.topologyFrontierBitmap = payload.topology_frontier_bitmap || asset.topologyFrontierBitmap || '';
-                asset.topologyDamageBitmap = payload.topology_damage_bitmap || '';
-                asset.topologyRule = payload.topology_rule || '';
+                asset.transferProgress[chunkIndex] = blob.size;
+                asset.receivedBitmap = setBitmapBit(asset.receivedBitmap, chunkIndex);
+                asset.completedChunks = countBitmapBits(asset.receivedBitmap);
+                asset.confirmedBytes = confirmedUploadBytes(asset);
                 asset.resumeFromByte = Math.max(Number(asset.resumeFromByte || 0), contiguousConfirmedUploadBytes(asset));
                 rebuildPendingChunks(asset);
-                resetInflightChunk(asset, blockIndex, true);
+                resetInflightChunk(asset, chunkIndex, true);
                 markSchedulerActivity(asset);
                 updateAssetProgress(asset);
                 requestUploadAcceleration(asset);
@@ -1835,66 +1395,56 @@
                 asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 if (asset.failed || asset.isCancelling || asset.recovering) return;
-                finishNetworkAttempt(asset, blockIndex);
+                finishNetworkAttempt(asset, chunkIndex);
                 if (attempt < retryCount) {
                     recordLinkPenalty(asset, 'timeout');
                     setTimeout(function() { attemptUpload(attempt + 1); }, nextChunkRetryDelay(attempt));
                     return;
                 }
                 recordLinkPenalty(asset, 'timeout');
-                recoverOrContinue(asset, file, blockIndex, 'timeout');
+                recoverOrContinue(asset, file, chunkIndex, 'timeout');
             };
 
             xhr.onabort = function() {
                 asset.xhrs = asset.xhrs.filter(function(item) { return item !== xhr; });
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 if (asset.suppressAbortHandling || asset.recovering) return;
-                finishNetworkAttempt(asset, blockIndex);
+                finishNetworkAttempt(asset, chunkIndex);
                 if (!asset.isCancelling && !asset.failed) {
                     recordLinkPenalty(asset, navigator.onLine ? 'retry' : 'timeout');
-                    recoverOrContinue(asset, file, blockIndex, navigator.onLine ? 'recover' : 'offline');
+                    recoverOrContinue(asset, file, chunkIndex, navigator.onLine ? 'recover' : 'offline');
                 }
             };
 
             xhr._tasfaStartedAt = Date.now();
             var dispatchMeta = preparedState ? Promise.resolve(preparedState) : (function() {
-                var meta = buildTransportBlockMeta(asset, file, blockIndex);
-                start = meta.start;
-                blob = meta.blob;
-                return preprocessChunkPayload(asset, topologyChunkIndex, meta.start, meta.nonce, meta.vertexId, meta.magicSum, meta.blob).then(function(prepared) {
-                    prepared.start = meta.start;
-                    prepared.vertexId = meta.vertexId;
-                    prepared.magicSum = meta.magicSum;
-                    prepared.blobSize = meta.blob.size;
-                    prepared.blockIndex = meta.blockIndex;
+                return preprocessChunkPayload(asset, chunkIndex, blob).then(function(prepared) {
+                    prepared.start = range.start;
+                    prepared.blobSize = blob.size;
+                    prepared.chunkIndex = chunkIndex;
                     return prepared;
                 });
             })();
             dispatchMeta.then(function(prepared) {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 if (!asset.chunkNetworkStarted) asset.chunkNetworkStarted = {};
-                if (!asset.chunkNetworkStarted[blockIndex]) {
-                    asset.chunkNetworkStarted[blockIndex] = true;
+                if (!asset.chunkNetworkStarted[chunkIndex]) {
+                    asset.chunkNetworkStarted[chunkIndex] = true;
                     asset.activeRequests = Math.max(0, Number(asset.activeRequests || 0)) + 1;
                 }
                 xhr.setRequestHeader('Content-Type', 'application/octet-stream');
                 xhr.setRequestHeader('X-TASFA-Upload-ID', asset.uploadId);
                 xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
-                xhr.setRequestHeader('X-TASFA-Chunk-Index', String(topologyChunkIndex));
-                xhr.setRequestHeader('X-TASFA-Transport-Block-Index', String(blockIndex));
-                xhr.setRequestHeader('X-TASFA-Block-Offset', String(prepared.start));
+                xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
                 xhr.setRequestHeader('X-TASFA-Stream-Mode', 'aes-256-gcm');
-                xhr.setRequestHeader('X-TASFA-Vertex-Id', prepared.vertexId);
-                xhr.setRequestHeader('X-TASFA-Magic-Sum', String(prepared.magicSum));
                 xhr.send(prepared.payloadBuffer);
             }).catch(function() {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
-                delete asset.inflightChunks[blockIndex];
+                delete asset.inflightChunks[chunkIndex];
                 asset.dispatchReservations = Math.max(0, Number(asset.dispatchReservations || 0) - 1);
                 markUploadFailure(asset, 'Browser crypto unavailable');
             });
         }
-
         attemptUpload(0);
     }
 
@@ -1914,27 +1464,17 @@
 
     function beginChunkUpload(asset, file) {
         asset.isUploading = true;
-        clearRecoveryTimer(asset);
-        clearSchedulerTimer(asset);
+        clearRecoveryTimer(asset); clearSchedulerTimer(asset);
         asset.file = file;
         asset.chunkSize = asset.chunkSize || UPLOAD_CHUNK_SIZE;
-        asset.transportBlockSize = asset.transportBlockSize || asset.chunkSize;
         asset.totalChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
-        asset.totalTransportBlocks = asset.totalTransportBlocks || Math.max(1, Math.ceil(file.size / asset.transportBlockSize));
         asset.resumeFromByte = Math.max(Number(asset.resumeFromByte || 0), contiguousConfirmedUploadBytes(asset));
         syncConfirmedProgress(asset);
         if (!asset.pendingChunks || !asset.pendingChunks.length) rebuildPendingChunks(asset);
         else asset.nextChunkCursor = 0;
-        asset.finalizing = false;
-        asset.failed = false;
-        asset.recovering = false;
-        asset.isPaused = false;
-        asset.dispatchReservations = 0;
-        asset.activeRequests = 0;
-        asset.inflightChunks = {};
-        asset.inflightRequests = {};
-        asset.chunkNetworkStarted = {};
-        asset.chunkActivityAt = {};
+        asset.finalizing = false; asset.failed = false; asset.recovering = false; asset.isPaused = false;
+        asset.dispatchReservations = 0; asset.activeRequests = 0;
+        asset.inflightChunks = {}; asset.inflightRequests = {}; asset.chunkNetworkStarted = {}; asset.chunkActivityAt = {};
         asset.xhrs = [];
         asset.lastVisualBytes = Math.max(asset.lastVisualBytes || 0, confirmedUploadBytes(asset));
         asset.lastSchedulerActivityAt = Date.now();
@@ -1949,17 +1489,11 @@
 
     function initChunkedUpload(asset, file, reason, rolloverState) {
         var sessionGeneration = bumpUploadSessionGeneration(asset);
-        asset.isUploading = true;
-        asset.failed = false;
-        asset.isPaused = false;
-        asset.recovering = false;
-        updateFileRepoUploadButton();
-        updateSubmitButtons();
+        asset.isUploading = true; asset.failed = false; asset.isPaused = false; asset.recovering = false;
+        updateFileRepoUploadButton(); updateSubmitButtons();
         var chunkCount = Math.max(1, Math.ceil(file.size / UPLOAD_CHUNK_SIZE));
         var linkHints = buildLinkHintFields(asset);
-        var suggestedParallel = reason === 'rollover'
-            ? UPLOAD_DEFAULT_PARALLEL
-            : Math.max(Number(asset.peakParallel || 0), Number(asset.currentParallel || UPLOAD_DEFAULT_PARALLEL));
+        var suggestedParallel = reason === 'rollover' ? UPLOAD_DEFAULT_PARALLEL : Math.max(Number(asset.peakParallel || 0), Number(asset.currentParallel || UPLOAD_DEFAULT_PARALLEL));
         var body = 'filename=' + encodeURIComponent(file.name) +
             '&total_size=' + encodeURIComponent(String(file.size)) +
             '&chunk_count=' + encodeURIComponent(String(chunkCount)) +
@@ -1980,11 +1514,7 @@
         }
         fetchWithTimeout(UPLOAD_INIT_ENDPOINT, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             body: body
         }, UPLOAD_SESSION_FETCH_TIMEOUT_MS).then(function(response) {
             if (!response.ok) throw new Error('init:' + response.status);
@@ -1997,8 +1527,7 @@
                 finalizeUploadSuccess(asset, payload);
                 return;
             }
-            if (!payload || payload.ok === false || !payload.upload_id || !payload.upload_token ||
-                !payload.stream_key_hex || !payload.stream_iv_seed_hex) {
+            if (!payload || payload.ok === false || !payload.upload_id || !payload.upload_token || !payload.stream_key_hex || !payload.stream_iv_seed_hex) {
                 throw new Error((payload && payload.error) || 'upload init failed');
             }
             asset.uploadId = payload.upload_id;
@@ -2007,51 +1536,29 @@
             asset.streamKeyHex = payload.stream_key_hex;
             asset.streamIvSeedHex = payload.stream_iv_seed_hex;
             asset.chunkSize = Number(payload.chunk_size || UPLOAD_CHUNK_SIZE);
-            asset.transportBlockSize = Number(payload.transport_block_size || asset.chunkSize);
-            asset.totalTransportBlocks = Number(payload.transport_block_count || Math.max(1, Math.ceil(file.size / asset.transportBlockSize)));
             asset.currentParallel = clampParallelToBudget(asset, payload.initial_parallel_chunks || UPLOAD_DEFAULT_PARALLEL);
             asset.maxParallel = Math.max(asset.currentParallel, clampParallelToBudget(asset, payload.max_parallel_chunks || UPLOAD_MAX_PARALLEL));
             asset.receivedBitmap = payload.received_bitmap || '';
-            asset.receivedBlockBitmap = payload.received_block_bitmap || '';
             asset.resumeFromByte = Number(payload.resume_from_byte || 0);
             asset.completedChunks = Number(payload.received_chunks || 0);
-            asset.topologyFrontierBitmap = '';
-            asset.topologyDamageBitmap = '';
-            asset.topologyRule = '';
             asset.recoveryAttempts = 0;
             syncConfirmedProgress(asset);
-            asset.ui.status.textContent = (rolloverState && rolloverState.uploadId) || payload.resumed
-                ? 'Rolled over upload session'
-                : 'Negotiated upload session';
+            asset.ui.status.textContent = (rolloverState && rolloverState.uploadId) || payload.resumed ? 'Rolled over upload session' : 'Negotiated upload session';
             beginChunkUpload(asset, file);
         }).catch(function(error) {
             if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
             var message = error && error.message ? error.message : '';
-            if (message.indexOf('init:4') === 0) {
-                markUploadFailure(asset, 'Upload failed [' + message + ']');
-                return;
-            }
+            if (message.indexOf('init:4') === 0) { markUploadFailure(asset, 'Upload failed [' + message + ']'); return; }
             var nextRecoveryAttempts = Number(asset.recoveryAttempts || 0) + 1;
             asset.recoveryAttempts = nextRecoveryAttempts;
-            asset.recovering = true;
-            asset.isPaused = true;
-            if (nextRecoveryAttempts > uploadRolloverLimit(asset)) {
-                markUploadFailure(asset, 'Upload failed [rollover limit]');
-                return;
-            }
+            asset.recovering = true; asset.isPaused = true;
+            if (nextRecoveryAttempts > uploadRolloverLimit(asset)) { markUploadFailure(asset, 'Upload failed [rollover limit]'); return; }
             asset.ui.status.textContent = navigator.onLine ? 'Rolling over upload session' : 'Waiting for network';
             clearRecoveryTimer(asset);
             asset.recoveryTimer = window.setTimeout(function() {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
-                if (!navigator.onLine) {
-                    rolloverUploadSession(asset, 'offline');
-                    return;
-                }
-                initChunkedUpload(asset, file, reason || 'rollover', rolloverState || {
-                    uploadId: asset.uploadId,
-                    uploadToken: asset.uploadToken,
-                    confirmedBytes: contiguousConfirmedUploadBytes(asset)
-                });
+                if (!navigator.onLine) { rolloverUploadSession(asset, 'offline'); return; }
+                initChunkedUpload(asset, file, reason || 'rollover', rolloverState || { uploadId: asset.uploadId, uploadToken: asset.uploadToken, confirmedBytes: contiguousConfirmedUploadBytes(asset) });
             }, uploadRolloverDelay(asset));
         });
     }
@@ -2091,13 +1598,10 @@
             streamIvSeedHex: '',
             fileSize: file.size,
             chunkSize: UPLOAD_CHUNK_SIZE,
-            transportBlockSize: UPLOAD_CHUNK_SIZE,
-            totalTransportBlocks: 0,
             transferProgress: [],
             confirmedBytes: 0,
             resumeFromByte: 0,
             receivedBitmap: '',
-            receivedBlockBitmap: '',
             completedChunks: 0,
             pendingChunks: [],
             nextChunkCursor: 0,
@@ -2105,9 +1609,6 @@
             currentParallel: UPLOAD_DEFAULT_PARALLEL,
             maxParallel: UPLOAD_MAX_PARALLEL,
             peakParallel: UPLOAD_DEFAULT_PARALLEL,
-            topologyFrontierBitmap: '',
-            topologyDamageBitmap: '',
-            topologyRule: '',
             dispatchReservations: 0,
             activeRequests: 0,
             lastRenegotiateAt: 0,
@@ -2117,45 +1618,25 @@
             chunkActivityAt: {},
             lastVisualBytes: 0,
             lastSchedulerActivityAt: 0,
-            recoveryAttempts: 0,
             lastChunkResponseAt: 0,
-            lastRenegotiateAt: 0,
-            linkState: {
-                ewmaRttMs: 0,
-                retries: 0,
-                timeouts: 0,
-                recentRetries: 0,
-                recentTimeouts: 0,
-                successes: 0
-            },
+            recoveryEpoch: 0,
+            recoveryAttempts: 0,
             recoveryTimer: null,
             schedulerTimer: null,
-            recoveryEpoch: 0,
-            preparedChunks: {},
-            prepareInflight: {},
-            prepareInflightCount: 0,
             sessionGeneration: 0,
-            suppressAbortHandling: false,
+            isUploading: false,
+            isPaused: false,
+            recovering: false,
             finalizing: false,
             failed: false,
-            recovering: false,
-            isPaused: false,
             isCancelling: false,
-            isUploading: false,
-            deletePin: '',
-            ui: ui,
-            isExisting: false
+            ui: ui
         };
-
         AssetRegistry.push(asset);
-        uploadPreview.appendChild(ui.el);
         bindAssetControls(asset);
-        if (isEditorMode) insertAtCursor('![' + file.name + '](' + placeholderUrl + ')\n');
-        syncMediaMeta();
         updateFileRepoUploadButton();
-        if (isEditorMode) {
-            initChunkedUpload(asset, file);
-        }
+        updateSubmitButtons();
+        if (isEditorMode) { initChunkedUpload(asset, file); }
     }
 
     function bootstrapExistingAssets() {

@@ -4,8 +4,7 @@ TASFA is the file-transfer protocol used in this tree for uploads and downloads.
 
 ## Routes
 
-Upload session lifecycle:
-
+Upload:
 - `POST /file/upload/init`
 - `POST /file/upload/status`
 - `POST /file/upload/renegotiate`
@@ -13,8 +12,7 @@ Upload session lifecycle:
 - `POST /file/upload/complete`
 - `POST /file/upload/cancel`
 
-Download session lifecycle:
-
+Download:
 - `GET /file/download/:id/handshake`
 - `GET /file/download/:id/chunk/:chunk_index`
 - `GET /assets/tasfa/img/:filename/handshake`
@@ -22,174 +20,51 @@ Download session lifecycle:
 - `GET /assets/tasfa/uploads/:filename/handshake`
 - `GET /assets/tasfa/uploads/:filename/chunk/:chunk_index`
 
-Compatibility guardrails:
-
-- `GET /file/download/:id` does not stream bytes directly.
-- `GET /assets/uploads/:filename` does not stream bytes directly.
-- `POST /file/upload` requires TASFA headers.
-
 ## Upload Protocol
 
-The browser negotiates an upload session first, then sends transport blocks with TASFA headers:
+The browser negotiates an upload session first, then sends **chunks** (up to `16 MiB`) with TASFA headers:
 
 - `X-TASFA-Upload-ID`
 - `X-TASFA-Upload-Token`
 - `X-TASFA-Chunk-Index`
-- `X-TASFA-Transport-Block-Index`
-- `X-TASFA-Block-Offset`
-- `X-TASFA-Stream-Mode`
-- `X-TASFA-Vertex-Id`
-- `X-TASFA-Magic-Sum`
-- optional recovery-only compatibility headers for older upload sessions
+- `X-TASFA-Stream-Mode: aes-256-gcm`
 
-Upload verification checks:
+Each chunk is encrypted with a per-session `AES-256-GCM` stream key. The server decrypts and writes the chunk directly to the preallocated temp file at `chunk_index * chunk_size`. There are no transport blocks anymore.
 
-- upload token match
-- expected block offset
-- deterministic topology vertex
-- deterministic topology magic sum
-- AES-256-GCM authentication tag on the encrypted transport block
+### Remainder (last partial chunk)
 
-Upload acceptance is bitmap-based. The server stores session state under `data/tasfa/uploads/<upload_id>/`.
+If the file size is not a multiple of the chunk size, the last chunk is a **remainder**. It is sent as a single blob with its exact byte range; the server writes it at the correct offset. No padding or splitting is performed.
 
-Current transport behavior:
+### Final checks
 
-- topology ownership still lives at the TASFA chunk level
-- topology chunks are currently `16 MiB`
-- transport blocks are currently `512 KiB`
-- a single topology chunk is carried by multiple ordered transport blocks
-- the browser encrypts each transport block with a per-session `AES-256-GCM` stream key
-- the stream key and IV seed are issued during `init` and included in a PQC-signed session envelope
-- topology headers are attached per transport block using the owning topology chunk index
-- client-side scheduling distinguishes `dispatchReservations` from real network `activeRequests`
-- only requests that have actually crossed into `xhr.send()` consume transport slots
-- the hot path avoids gzip and per-block JSON progress snapshots
-- the server uses per-chunk receive counters to decide chunk completion instead of reloading the whole block bitmap on every block
+- **init** issues the stream envelope and a PQC-signed session signature.
+- **complete** verifies that the chunk bitmap is fully closed, runs a final topology check, and computes a SHA-256 checksum of the final file.
 
 ## Download Protocol
 
-Downloads are also session-based:
-
 1. Client requests a handshake.
-2. Server returns `session_id`, `session_token`, `chunk_size`, `chunk_count`, and download concurrency hints.
+2. Server returns `session_id`, `session_token`, `chunk_size`, `chunk_count`, and concurrency hints.
 3. Client fetches chunk groups with `span=...`.
 4. Browser assembles the response into one contiguous buffer.
 
-No direct file bytes are served from the public file endpoints anymore.
-
 ## Runtime Settings
 
-Current tuned values in this tree:
-
 - upload chunk size: `16 MiB`
-- upload transport block size: `512 KiB`
 - default browser upload parallelism: `16`
 - max browser upload parallelism: `64`
-- max browser download sessions: `6` (multi-TASFA)
-- worker pool cap for upload preprocessing: `12`
-- browser-side prepared upload budget: `96 MiB`
-- browser-side active upload budget: `128 MiB`
-- upload rollover cadence: steady-state `700 ms`, startup `8000 ms`
-- stall thresholds: foreground steady-state `1500 ms`, background `10000 ms`, startup `3000 ms`
-
-Server-side negotiated upload window:
-
-- strong links: initial `16`, max `64`
-- medium links: initial `14`, max `64`
-- weaker links: initial `10`, max `32`
-- unstable links: initial `4`, max `16`
-
-Server-side negotiated download profile:
-
-- strong links: initial `112`, max `256`, coalesce `64`
-- medium links: initial `96`, max `224`, coalesce `48`
-- weaker links: initial `64`, max `160`, coalesce `32`
-- unstable links: initial `32`, max `96`, coalesce `24`
-
-## Resume and Session Rollover
-
-The client treats the server bitmap as authoritative for uploads, while using local IndexedDB for download persistence.
-
-- `status` returns the current bitmap and negotiated window.
-- `renegotiate` recalculates the current window from fresh link hints, with an aggressive acceleration bias (+8 chunks or +50% per successful step).
-- `status` also returns `topology_closed_bitmap`, `topology_closure_complete`, and `client_stripes`.
-- the client rebuilds its pending queue as `damage -> frontier -> remaining`.
-- when transport state goes bad, the browser starts a fresh upload session instead of reusing the old one.
-- rollover sends `rollover_upload_id`, `rollover_upload_token`, and `client_confirmed_bytes`.
-- the server migrates the preallocated temp file and both authoritative bitmaps into the new session, then returns fresh tokens plus `resume_from_byte`.
-- `resume_from_byte` is computed from the server's contiguous confirmed transport blocks and is used as the authoritative resume floor.
-- the client clears prepared payload buffers and inflight network state before restarting on the new session.
-- upload defaults are tuned to avoid sparse-file write contention and TLS churn without collapsing aggregate in-flight bytes.
-- upload scheduling now separates `dispatchReservations` from real network `activeRequests`, so chunk preprocessing cannot falsely consume transport slots and serialize the wire.
-- most accepted transport blocks now return `204 No Content`; full JSON progress snapshots are reserved for chunk boundaries and occasional sync points.
-- **Atomic State Persistence**: Server-side state writes (`meta.json`, `state.json`) use temporary files and `rename()` to prevent corruption during concurrent access or crashes.
-- **IndexedDB Download Cache**: The browser stores downloaded chunks in `tasfa_cache` (IndexedDB). Handshakes check this cache to enable seamless resume even after tab closure or page refresh.
-- **Visibility-Aware Scheduling**: The client scheduler monitors `visibilityState`. Background tabs use relaxed stall timeouts (10s+) to accommodate browser throttling, while foreground tabs stay aggressive.
-- **Automatic Wake-up**: A `visibilitychange` listener ensures the transfer loop resumes immediately when a tab returns to the foreground.
-
-## Topology Role
-
-Topology is not the wire unit anymore. It is the integrity and repair layer.
-
-- each topology chunk has a deterministic `vertex_id` and `magic_sum`
-- the server validates those values for every transport block using the owning chunk index
-- the server emits `topology_frontier_bitmap` and `topology_damage_bitmap` when it needs the client to repair around a rejected or missing area
-- the client rebuilds upload priority as `damage -> frontier -> remaining`
-- transport blocks carry bytes; topology decides what is valid and what should be repaired first
-
-## Stream Security
-
-Upload confidentiality and integrity are split into a session layer and a wire layer.
-
-- `init` returns `stream_key_hex`, `stream_iv_seed_hex`, and `stream_session_signature`
-- `stream_session_signature` is produced by the server PQC signing key over the negotiated stream envelope
-- the browser uses the negotiated key material to encrypt each transport block with `AES-256-GCM`
-- the server reconstructs the IV from `stream_iv_seed_hex + transport_block_index`, validates the topology metadata as AAD, then decrypts and writes the plaintext block
-- initial and final session transitions still carry the heavier negotiation and verification; the middle transfer path stays on encrypted block streaming plus topology checks
-
-## Multi-TASFA Download
-
-When the browser has enough spare CPU, memory, and link budget, the client now opens more than one TASFA download session for the same file.
-
-- the first handshake still defines the canonical file shape: `chunk_size`, `chunk_count`, `total_size`
-- extra handshakes are admitted only if they report the same file shape
-- each session gets its own `session_id` and `session_token`, but they all write into the same client-side destination buffer
-- chunk groups are reserved from one shared cursor, so sessions never intentionally duplicate the same span
-- session fan-out is capped at `6` and only activates on larger files plus stronger clients.
-- retries stay short and local to the lane that failed; successful lanes keep draining the remaining queue instead of collapsing the whole download window first
-
-## Page Integration
-
-The browser now boots TASFA directly for file interactions.
-
-- download links render as `data-tasfa-download-link`
-- streamed media render as `data-tasfa-download`
-- the global TASFA client upgrades initial DOM and future dynamic DOM mutations
-- the editor preview path re-runs TASFA affordances after each markdown refresh
-- post/file attachment binding uses explicit `media_meta`, not broad orphan adoption by `user_id`
+- max browser download sessions: `6`
 
 ## Storage Model
 
 Each upload session preallocates one temporary file:
 
-- temp file path: `data/tasfa/uploads/<upload_id>/upload.bin.part`
-- metadata path: `data/tasfa/uploads/<upload_id>/meta.json`
-- state files: `state.json`, `state.bin`, `blocks.bin`, `chunk_counts.bin`, `meta.bin`
+- temp file: `data/tasfa/uploads/<upload_id>/upload.bin.part`
+- metadata: `data/tasfa/uploads/<upload_id>/meta.json`
+- fast binary meta: `data/tasfa/uploads/<upload_id>/meta.bin`
+- state: `data/tasfa/uploads/<upload_id>/state.json`, `data/tasfa/uploads/<upload_id>/state.bin`
 
-Chunks are written into fixed offsets with `pwrite()`. After all chunks are confirmed, the temp file is renamed into `public/uploads/` and inserted into the `files` table.
+The server no longer maintains `blocks.bin` or `chunk_counts.bin`. Chunk completion is a single bitmap write.
 
 ## Delete PIN
 
-Completed TASFA file uploads now issue a one-time delete PIN:
-
-- the clear PIN is returned once in the upload-complete response
-- only the hash is stored in the database
-- `/file/delete` accepts normal owner/admin deletion or matching `delete_pin`
-
-## Current Limits
-
-This implementation is production-oriented but still intentionally simple:
-
-- upload session state is file-backed JSON, not a dedicated in-memory coordinator
-- direct file endpoints are disabled instead of transparently proxying into TASFA
-- anonymous post delete PIN support is not part of this file-transfer layer
+Completed uploads receive a one-time delete PIN. The clear PIN is returned once; only its hash is stored.
