@@ -1337,6 +1337,23 @@ void rule_markdown(cJSON *rules) {
     add_decl(media_actions_btn, "justify-content", "center");
     cJSON_AddItemToArray(rules, media_actions_btn);
 
+    cJSON *media_cancel = create_rule(".media-cancel-btn, .media-remove-btn");
+    add_decl(media_cancel, "background", "transparent");
+    add_decl(media_cancel, "color", "#ef4444");
+    add_decl(media_cancel, "border", "1px solid #ef4444");
+    cJSON_AddItemToArray(rules, media_cancel);
+
+    cJSON *media_cancel_h = create_rule(".media-cancel-btn:hover, .media-remove-btn:hover");
+    add_decl(media_cancel_h, "filter", "brightness(1.1)");
+    add_decl(media_cancel_h, "background", "rgba(239,68,68,0.08)");
+    cJSON_AddItemToArray(rules, media_cancel_h);
+
+    cJSON *media_retry = create_rule(".media-retry-btn");
+    add_decl(media_retry, "background", "var(--accent)");
+    add_decl(media_retry, "color", "#fff");
+    add_decl(media_retry, "border", "none");
+    cJSON_AddItemToArray(rules, media_retry);
+
     /* File repository list */
     cJSON *fr_list = create_rule(".file-repo-list");
     add_decl(fr_list, "display", "grid");
@@ -1481,6 +1498,7 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".media-actions", "grid-template-columns: repeat(2, minmax(0, 1fr))");
     add_decl(mq, ".media-actions", "gap: 10px");
     add_decl(mq, ".media-actions .btn", "width: 100%");
+    add_decl(mq, ".media-actions .btn:nth-last-child(1):nth-child(odd)", "grid-column: 1 / -1");
     add_decl(mq, ".media-status", "margin-top: 8px");
     add_decl(mq, ".mobile-overlay", "display: block");
     add_decl(mq, ".hero-logo", "height: 100px");
