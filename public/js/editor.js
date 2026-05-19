@@ -375,7 +375,7 @@
             "<p style='color:var(--muted);font-size:13px'>" +
             escapeHtml(response.mime_type || 'unknown/mime') + " &middot; " +
             String(response.size || asset.fileSize || 0) + " bytes</p>" +
-            "<div style='display:flex;gap:8px'>" +
+            "<div class='file-card-actions' style='display:flex;gap:10px;flex-wrap:wrap;margin-top:12px'>" +
             "<a href='/file/" + String(asset.fid) + "' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Open</a>" +
             "<a href='#' data-tasfa-download-link='" + escapeHtml(asset.url || ('/file/download/' + String(asset.fid))) + "' class='btn' style='font-size:12px;padding:4px 10px'>Download</a>" +
             "</div>" +
@@ -386,22 +386,9 @@
     function createMediaCard(filename, previewUrl, isImage) {
         var card = document.createElement('div');
         card.className = 'media-card';
-        card.style.display = 'grid';
-        card.style.gridTemplateColumns = '96px minmax(0, 1fr) auto';
-        card.style.gap = '12px';
-        card.style.alignItems = 'center';
 
         var thumb = document.createElement('div');
         thumb.className = 'media-thumb';
-        thumb.style.width = '96px';
-        thumb.style.height = '96px';
-        thumb.style.minWidth = '96px';
-        thumb.style.borderRadius = '14px';
-        thumb.style.overflow = 'hidden';
-        thumb.style.background = 'var(--hover)';
-        thumb.style.display = 'flex';
-        thumb.style.alignItems = 'center';
-        thumb.style.justifyContent = 'center';
         if (isImage) {
             var img = document.createElement('img');
             img.src = previewUrl;
@@ -428,7 +415,7 @@
 
         var status = document.createElement('div');
         status.className = 'media-status';
-        status.textContent = isEditorMode ? 'Queued for upload [0%]' : 'Queued for manual upload';
+        status.textContent = isEditorMode ? 'Queued [0%]' : 'Queued';
 
         var progress = document.createElement('div');
         progress.className = 'media-progress-bar';

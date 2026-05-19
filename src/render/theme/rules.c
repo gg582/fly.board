@@ -1265,6 +1265,54 @@ void rule_markdown(cJSON *rules) {
     add_decl(file_repo_actions, "align-items", "center");
     add_decl(file_repo_actions, "row-gap", "10px");
     cJSON_AddItemToArray(rules, file_repo_actions);
+
+    cJSON *media_card = create_rule(".media-card");
+    add_decl(media_card, "display", "grid");
+    add_decl(media_card, "grid-template-columns", "96px minmax(0, 1fr) auto");
+    add_decl(media_card, "gap", "12px");
+    add_decl(media_card, "align-items", "center");
+    cJSON_AddItemToArray(rules, media_card);
+
+    cJSON *media_thumb = create_rule(".media-thumb");
+    add_decl(media_thumb, "width", "96px");
+    add_decl(media_thumb, "height", "96px");
+    add_decl(media_thumb, "min-width", "96px");
+    add_decl(media_thumb, "border-radius", "14px");
+    add_decl(media_thumb, "overflow", "hidden");
+    add_decl(media_thumb, "background", "var(--hover)");
+    add_decl(media_thumb, "display", "flex");
+    add_decl(media_thumb, "align-items", "center");
+    add_decl(media_thumb, "justify-content", "center");
+    cJSON_AddItemToArray(rules, media_thumb);
+
+    cJSON *media_info = create_rule(".media-info");
+    add_decl(media_info, "min-width", "0");
+    cJSON_AddItemToArray(rules, media_info);
+
+    cJSON *media_name = create_rule(".media-name");
+    add_decl(media_name, "font-weight", "700");
+    add_decl(media_name, "line-height", "1.4");
+    add_decl(media_name, "overflow-wrap", "anywhere");
+    add_decl(media_name, "word-break", "break-word");
+    cJSON_AddItemToArray(rules, media_name);
+
+    cJSON *media_status = create_rule(".media-status");
+    add_decl(media_status, "margin-top", "6px");
+    add_decl(media_status, "font-size", "13px");
+    add_decl(media_status, "color", "var(--muted)");
+    add_decl(media_status, "overflow-wrap", "anywhere");
+    cJSON_AddItemToArray(rules, media_status);
+
+    cJSON *media_actions = create_rule(".media-actions");
+    add_decl(media_actions, "display", "flex");
+    add_decl(media_actions, "flex-direction", "column");
+    add_decl(media_actions, "align-items", "stretch");
+    add_decl(media_actions, "gap", "8px");
+    cJSON_AddItemToArray(rules, media_actions);
+
+    cJSON *media_actions_btn = create_rule(".media-actions .btn");
+    add_decl(media_actions_btn, "justify-content", "center");
+    cJSON_AddItemToArray(rules, media_actions_btn);
 }
 
 void rule_animations(cJSON *rules) {
@@ -1347,6 +1395,16 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".file-card-actions", "margin-top: 14px");
     add_decl(mq, ".file-card-actions", "gap: 12px");
     add_decl(mq, ".file-card-actions .btn", "margin-right: 2px");
+    add_decl(mq, ".media-card", "grid-template-columns: 1fr");
+    add_decl(mq, ".media-card", "gap: 14px");
+    add_decl(mq, ".media-thumb", "width: 100%");
+    add_decl(mq, ".media-thumb", "height: 160px");
+    add_decl(mq, ".media-thumb", "min-width: 0");
+    add_decl(mq, ".media-actions", "display: grid");
+    add_decl(mq, ".media-actions", "grid-template-columns: repeat(2, minmax(0, 1fr))");
+    add_decl(mq, ".media-actions", "gap: 10px");
+    add_decl(mq, ".media-actions .btn", "width: 100%");
+    add_decl(mq, ".media-status", "margin-top: 8px");
     add_decl(mq, ".mobile-overlay", "display: block");
     add_decl(mq, ".hero-logo", "height: 100px");
     add_decl(mq, ".hero h1", "font-size: clamp(2rem, 8vw, 3rem)");
