@@ -53,6 +53,21 @@ Chunk verification currently checks:
 
 Chunk acceptance is bitmap-based. The server stores session state under `public/uploads/.chunks/<upload_id>/`.
 
+Current transport behavior:
+
+- topology ownership still lives at the TASFA chunk level
+- upload chunks are currently `1 MiB`
+- client-side scheduling now distinguishes `dispatchReservations` from real network `activeRequests`
+- only requests that have actually crossed into `xhr.send()` consume transport slots
+- preprocessing, compression, and HMAC staging are intentionally prevented from serializing the wire
+
+Planned breaking-change direction:
+
+- keep the hexagonal topology semantics at the chunk index layer
+- move the transport below that layer toward chunk-internal streaming / block framing
+- allow a single topology chunk to be emitted as multiple ordered transport blocks instead of one monolithic body
+- preserve resumability and topology validation without requiring whole-chunk wire stalls
+
 ## Download Protocol
 
 Downloads are also session-based:

@@ -115,7 +115,7 @@ void handler_themes_json(cwist_http_request *req, cwist_http_response *res) {
     }
 }
 
-/* ---- RSS Feed with footprint optimization ---- */
+/* ---- RSS Feed ---- */
 static char *rfc822_time(const char *iso) {
     static char buf[64];
     struct tm tm = {0};
