@@ -111,9 +111,8 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
     cwist_sstring_append(b, "<input id='file-input' type='file' multiple style='margin-top:12px'>");
     cwist_sstring_append(b, "</div>");
     cwist_sstring_append(b, "<div id='upload-preview' style='margin-top:14px;display:grid;gap:10px'></div>");
-    cwist_sstring_append(b, "<div style='display:flex;gap:10px;align-items:center;margin-top:14px'>");
+    cwist_sstring_append(b, "<div class='file-repo-upload-actions' style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px'>");
     cwist_sstring_append(b, "<button id='file-repo-upload-btn' type='button' class='btn'>Upload queued files</button>");
-    cwist_sstring_append(b, "<span style='color:var(--muted);font-size:13px'>The page never falls back to legacy multipart upload.</span>");
     cwist_sstring_append(b, "</div></div>");
 
     cwist_sstring_append(b, "<h3 style='margin-top:28px'>Files</h3>");
@@ -148,7 +147,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             cwist_sstring_append(b, " &middot; ");
             cwist_sstring_append(b, sz_buf);
             cwist_sstring_append(b, " bytes</p>");
-            cwist_sstring_append(b, "<div style='display:flex;gap:8px'><a href='#' data-tasfa-download-link='/file/download/");
+            cwist_sstring_append(b, "<div class='file-card-actions' style='display:flex;gap:10px;flex-wrap:wrap;margin-top:12px'><a href='#' data-tasfa-download-link='/file/download/");
             cwist_sstring_append(b, fid_buf);
             cwist_sstring_append(b, "' class='btn' style='font-size:12px;padding:4px 10px'>Download</a>");
             if (can_delete) {

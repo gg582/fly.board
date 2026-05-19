@@ -1260,6 +1260,11 @@ void rule_markdown(cJSON *rules) {
     cJSON *dropdown_panel = create_rule(".dropdown-panel");
     add_decl(dropdown_panel, "padding", "10px 0 0");
     cJSON_AddItemToArray(rules, dropdown_panel);
+
+    cJSON *file_repo_actions = create_rule(".file-repo-upload-actions, .file-card-actions");
+    add_decl(file_repo_actions, "align-items", "center");
+    add_decl(file_repo_actions, "row-gap", "10px");
+    cJSON_AddItemToArray(rules, file_repo_actions);
 }
 
 void rule_animations(cJSON *rules) {
@@ -1337,6 +1342,11 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".theme-switch", "padding: 14px 24px");
     add_decl(mq, ".theme-toggle-btn", "width: 100%");
     add_decl(mq, ".theme-toggle-btn", "justify-content: space-between");
+    add_decl(mq, ".file-repo-upload-actions", "margin-top: 18px");
+    add_decl(mq, ".file-repo-upload-actions", "row-gap: 12px");
+    add_decl(mq, ".file-card-actions", "margin-top: 14px");
+    add_decl(mq, ".file-card-actions", "gap: 12px");
+    add_decl(mq, ".file-card-actions .btn", "margin-right: 2px");
     add_decl(mq, ".mobile-overlay", "display: block");
     add_decl(mq, ".hero-logo", "height: 100px");
     add_decl(mq, ".hero h1", "font-size: clamp(2rem, 8vw, 3rem)");
