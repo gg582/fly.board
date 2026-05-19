@@ -964,20 +964,76 @@
         return uploadWorkerBridge;
     }
 
+    function balanceGroupMagicScalars(asset, groupIdx) {
+        var M = asset.modulusM;
+        var chunkCount = asset.totalChunks;
+        var groupStart = groupIdx * 6;
+        var groupEnd = Math.min(groupStart + 6, chunkCount);
+        var s = [0, 0, 0, 0, 0, 0];
+        for (var v = 0; v < 6; v++) {
+            var ci = groupStart + v;
+            s[v] = (ci < chunkCount) ? (asset.chunkScalars[ci] || 0) : 0;
+        }
+        var L1 = (s[0] + s[1] + s[2]) % M;
+        var L2 = (s[2] + s[3] + s[4]) % M;
+        var L3 = (s[4] + s[5] + s[0]) % M;
+        var lineSum = L1;
+        var delta2 = (lineSum - L2 + M) % M;
+        var delta3 = (lineSum - L3 + M) % M;
+        for (var v = 0; v < 6; v++) {
+            var ci = groupStart + v;
+            if (ci >= chunkCount) continue;
+            if (v === 3) asset.magicScalars[ci] = (s[3] + delta2) % M;
+            else if (v === 5) asset.magicScalars[ci] = (s[5] + delta3) % M;
+            else asset.magicScalars[ci] = s[v];
+        }
+    }
+
     function preprocessChunkPayload(asset, chunkIndex, blob) {
         return blob.arrayBuffer().then(function(buffer) {
-            var bridge = getUploadWorkerBridge();
-            if (bridge) {
-                return bridge.request({
-                    type: 'prepare-upload',
-                    uploadId: asset.uploadId,
-                    streamKeyHex: asset.streamKeyHex,
-                    streamIvSeedHex: asset.streamIvSeedHex,
-                    chunkIndex: chunkIndex,
-                    chunkBuffer: buffer
-                }, [buffer]);
-            }
-            return Promise.reject(new Error('worker unavailable'));
+            return crypto.subtle.digest('SHA-512', buffer).then(function(hashBuffer) {
+                var hashBytes = new Uint8Array(hashBuffer);
+                var hashHex = '';
+                for (var i = 0; i < hashBytes.length; i++) {
+                    hashHex += hashBytes[i].toString(16).padStart(2, '0');
+                }
+                var hashU64 = 0;
+                for (var i = 0; i < 8; i++) {
+                    hashU64 = (hashU64 * 256) + hashBytes[i];
+                }
+                var scalar = hashU64 % asset.modulusM;
+                asset.chunkHashes[chunkIndex] = hashHex;
+                asset.chunkScalars[chunkIndex] = scalar;
+
+                var groupIdx = Math.floor(chunkIndex / 6);
+                var groupStart = groupIdx * 6;
+                var groupEnd = Math.min(groupStart + 6, asset.totalChunks);
+                var groupComplete = true;
+                for (var i = groupStart; i < groupEnd; i++) {
+                    if (asset.chunkScalars[i] === undefined) { groupComplete = false; break; }
+                }
+                if (groupComplete && asset.groupBalanced && !asset.groupBalanced[groupIdx]) {
+                    balanceGroupMagicScalars(asset, groupIdx);
+                    asset.groupBalanced[groupIdx] = true;
+                    if (asset.groupReadyCallbacks && asset.groupReadyCallbacks[groupIdx]) {
+                        asset.groupReadyCallbacks[groupIdx].forEach(function(cb) { cb(); });
+                        delete asset.groupReadyCallbacks[groupIdx];
+                    }
+                }
+
+                var bridge = getUploadWorkerBridge();
+                if (bridge) {
+                    return bridge.request({
+                        type: 'prepare-upload',
+                        uploadId: asset.uploadId,
+                        streamKeyHex: asset.streamKeyHex,
+                        streamIvSeedHex: asset.streamIvSeedHex,
+                        chunkIndex: chunkIndex,
+                        chunkBuffer: buffer
+                    }, [buffer]);
+                }
+                return Promise.reject(new Error('worker unavailable'));
+            });
         });
     }
 
@@ -1526,12 +1582,30 @@
                     asset.chunkNetworkStarted[chunkIndex] = true;
                     asset.activeRequests = Math.max(0, Number(asset.activeRequests || 0)) + 1;
                 }
-                xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-                xhr.setRequestHeader('X-TASFA-Upload-ID', asset.uploadId);
-                xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
-                xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
-                xhr.setRequestHeader('X-TASFA-Stream-Mode', 'aes-256-gcm');
-                xhr.send(prepared.payloadBuffer);
+                function sendChunk() {
+                    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+                    xhr.setRequestHeader('X-TASFA-Upload-ID', asset.uploadId);
+                    xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
+                    xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
+                    xhr.setRequestHeader('X-TASFA-Stream-Mode', 'aes-256-gcm');
+                    if (asset.chunkHashes && asset.chunkHashes[chunkIndex]) {
+                        xhr.setRequestHeader('X-TASFA-Hash-Tag', asset.chunkHashes[chunkIndex]);
+                    }
+                    if (asset.magicScalars && asset.magicScalars[chunkIndex] !== undefined) {
+                        xhr.setRequestHeader('X-TASFA-Magic-Scalar', String(asset.magicScalars[chunkIndex]));
+                    }
+                    xhr.send(prepared.payloadBuffer);
+                }
+                var groupIdx = Math.floor(chunkIndex / 6);
+                if (asset.magicScalars && asset.magicScalars[chunkIndex] !== undefined) {
+                    sendChunk();
+                } else {
+                    if (!asset.groupReadyCallbacks) asset.groupReadyCallbacks = {};
+                    if (!asset.groupReadyCallbacks[groupIdx]) asset.groupReadyCallbacks[groupIdx] = [];
+                    asset.groupReadyCallbacks[groupIdx].push(function() {
+                        if (sessionGeneration === Number(asset.sessionGeneration || 0)) sendChunk();
+                    });
+                }
             }).catch(function() {
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 delete asset.inflightChunks[chunkIndex];
@@ -1646,6 +1720,9 @@
             asset.chunkSize = Number(payload.chunk_size || UPLOAD_CHUNK_SIZE);
             asset.currentParallel = clampParallelToBudget(asset, payload.initial_parallel_chunks || UPLOAD_DEFAULT_PARALLEL);
             asset.maxParallel = Math.max(asset.currentParallel, clampParallelToBudget(asset, payload.max_parallel_chunks || UPLOAD_MAX_PARALLEL));
+            asset.modulusM = Number(payload.modulus_M || 0);
+            asset.groupCount = Number(payload.group_count || 0);
+            if (asset.modulusM === 0) asset.modulusM = 1;
             asset.receivedBitmap = payload.received_bitmap || '';
             asset.resumeFromByte = Number(payload.resume_from_byte || 0);
             asset.completedChunks = Number(payload.received_chunks || 0);
@@ -1743,6 +1820,13 @@
             finalizing: false,
             failed: false,
             isCancelling: false,
+            chunkHashes: [],
+            chunkScalars: [],
+            magicScalars: [],
+            groupBalanced: [],
+            groupReadyCallbacks: {},
+            modulusM: 0,
+            groupCount: 0,
             ui: ui
         };
         AssetRegistry.push(asset);
