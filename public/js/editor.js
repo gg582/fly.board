@@ -1332,6 +1332,24 @@
                             asset._fallbackCheckedAt = now;
                             asset._fallbackBytesAtStart = confirmedUploadBytes(asset);
                         }
+                        // Tail-chunk fast fallback: last few chunks stalled → finish via plain upload immediately
+                        var remaining = 0;
+                        if (asset.receivedBitmap) {
+                            for (var i = 0; i < asset.totalChunks; i++) {
+                                if (asset.receivedBitmap.charAt(i) !== '1') remaining++;
+                            }
+                        }
+                        var progress = asset.fileSize ? (confirmedUploadBytes(asset) / asset.fileSize) : 0;
+                        if (remaining > 0 && remaining <= 3 && progress > 0.93) {
+                            if (!asset._tailFallbackAt) asset._tailFallbackAt = now;
+                            else if (now - asset._tailFallbackAt > 10000) {
+                                fallbackToPlainTasfa(asset);
+                                clearSchedulerTimer(asset);
+                                return;
+                            }
+                        } else {
+                            asset._tailFallbackAt = 0;
+                        }
                     }
                 }
             } catch (err) { console.error('TASFA scheduler tick failed:', err); }
