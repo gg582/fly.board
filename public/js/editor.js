@@ -41,10 +41,10 @@
     var UPLOAD_WORKER_POOL_LIMIT = 16;
     var TASFA_CLIENT_STRIPE_COUNT = 32;
     var uploadWorkerBridge = null;
-    var FAST_RENEGOTIATE_DELAY_MS = 1000;
+    var FAST_RENEGOTIATE_DELAY_MS = 4000;
     var MIN_RENEGOTIATE_INTERVAL_MS = 50;
     var UPLOAD_ROLLOVER_RETRY_LIMIT = 24;
-    var UPLOAD_STARTUP_ROLLOVER_RETRY_LIMIT = 72;
+    var UPLOAD_STARTUP_ROLLOVER_RETRY_LIMIT = 96;
     var LINK_DEGRADE_RETRY_THRESHOLD = 18;
     var LINK_DEGRADE_TIMEOUT_THRESHOLD = 6;
     var LINK_RECENT_DECAY_SUCCESS_STEP = 6;
@@ -1381,6 +1381,14 @@
         return confirmedUploadBytes(asset) < (asset.fileSize || 0);
     }
 
+    function uploadRolloverDelay(asset) {
+        var confirmed = confirmedUploadBytes(asset);
+        if (confirmed > 0 || Number(asset && asset.completedChunks || 0) > 0) {
+            return FAST_RENEGOTIATE_DELAY_MS;
+        }
+        return 8000;
+    }
+
     function uploadRolloverLimit(asset) {
         var confirmed = confirmedUploadBytes(asset);
         if (confirmed > 0 || Number(asset && asset.completedChunks || 0) > 0) {
@@ -1697,6 +1705,7 @@
                     return;
                 }
                 recordLinkSuccess(asset, Date.now() - Number(xhr._tasfaStartedAt || Date.now()));
+                asset.lastChunkResponseAt = Date.now();
                 var payload = null;
                 try {
                     payload = JSON.parse(xhr.responseText);
@@ -1948,7 +1957,7 @@
                     return;
                 }
                 initChunkedUpload(asset, file, reason || 'rollover', resumeUploadId || asset.uploadId, resumeUploadToken || asset.uploadToken);
-            }, FAST_RENEGOTIATE_DELAY_MS);
+            }, uploadRolloverDelay(asset));
         });
     }
 
@@ -2005,6 +2014,7 @@
             lastVisualBytes: 0,
             lastSchedulerActivityAt: 0,
             recoveryAttempts: 0,
+            lastChunkResponseAt: 0,
             lastRenegotiateAt: 0,
             linkState: {
                 ewmaRttMs: 0,
