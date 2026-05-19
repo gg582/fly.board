@@ -1040,7 +1040,8 @@
                         if (score < 45) stallLimit = Math.max(stallLimit, 12000);
                         else if (score < 65) stallLimit = Math.max(stallLimit, 8000);
                         var rttFloor = Math.max(stallLimit, Math.min(15000, Math.ceil(Number(linkState.ewmaRttMs || 0) * (score < 45 ? 5.0 : 3.5))));
-                        return now - Number(chunkActivity[key] || 0) > rttFloor;
+                        var lastActivity = Math.max(Number(chunkActivity[key] || 0), Number((asset.chunkNetworkStartedAt && asset.chunkNetworkStartedAt[key]) || 0));
+                        return now - lastActivity > rttFloor;
                     });
                     if (stalled) {
                         rolloverUploadSession(asset, 'timeout');
@@ -1076,8 +1077,7 @@
         var dl = typeof downlinkMbps === 'number' ? downlinkMbps : 0;
         if (score >= 85 && dl >= 50) return 64 * 1024 * 1024;
         if (score >= 65 && dl >= 20) return 32 * 1024 * 1024;
-        if (score >= 45) return 16 * 1024 * 1024;
-        return 8 * 1024 * 1024;
+        return 16 * 1024 * 1024;
     }
 
     function prepareAheadTarget(asset) {
@@ -1349,7 +1349,7 @@
             asset.chunkActivityAt[chunkIndex] = Date.now();
 
             xhr.open('POST', UPLOAD_ENDPOINT, true);
-            xhr.timeout = 15000;
+            xhr.timeout = 30000;
             xhr.setRequestHeader('Accept', 'application/json');
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
 
