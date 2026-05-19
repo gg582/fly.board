@@ -18,9 +18,9 @@
 #define TASFA_UPLOAD_TTL 86400
 #define TASFA_DOWNLOAD_TTL 86400
 #define TASFA_UPLOAD_DEFAULT_PARALLEL 24
-#define TASFA_UPLOAD_MAX_PARALLEL 96
-#define TASFA_DOWNLOAD_DEFAULT_PARALLEL 20
-#define TASFA_DOWNLOAD_MAX_PARALLEL 160
+#define TASFA_UPLOAD_MAX_PARALLEL 160
+#define TASFA_DOWNLOAD_DEFAULT_PARALLEL 24
+#define TASFA_DOWNLOAD_MAX_PARALLEL 256
 #define TASFA_CLIENT_STRIPES 32
 
 static const int TASFA_DIRS[6][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, -1}, {-1, 1}};
@@ -183,22 +183,22 @@ static void choose_upload_window(int score, int *initial_parallel, int *max_para
 }
 
 static void choose_download_profile(int score, int *initial_parallel, int *max_parallel, int *pacing_ms, int *coalesce_chunks) {
-    int initial_value = 96;
-    int max_value = 224;
+    int initial_value = 112;
+    int max_value = 256;
     int pace = 0;
-    int coalesce = 48;
+    int coalesce = 64;
     if (score < 45) {
         initial_value = 32;
-        max_value = 72;
-        coalesce = 20;
+        max_value = 96;
+        coalesce = 24;
     } else if (score < 65) {
-        initial_value = 56;
-        max_value = 128;
-        coalesce = 28;
+        initial_value = 64;
+        max_value = 160;
+        coalesce = 32;
     } else if (score < 85) {
-        initial_value = 80;
-        max_value = 176;
-        coalesce = 40;
+        initial_value = 96;
+        max_value = 224;
+        coalesce = 48;
     }
     if (initial_parallel) *initial_parallel = initial_value;
     if (max_parallel) *max_parallel = max_value;
@@ -281,9 +281,24 @@ static cJSON *load_json_file(const char *path) {
 static bool save_json_file(const char *path, cJSON *root) {
     char *json = cJSON_PrintUnformatted(root);
     if (!json) return false;
-    bool ok = file_write(path, json, strlen(json));
+    size_t path_len = strlen(path);
+    if (path_len + 5 > PATH_MAX) {
+        free(json);
+        return false;
+    }
+    char temp_path[PATH_MAX];
+    memcpy(temp_path, path, path_len);
+    memcpy(temp_path + path_len, ".tmp", 5);
+    if (!file_write(temp_path, json, strlen(json))) {
+        free(json);
+        return false;
+    }
     free(json);
-    return ok;
+    if (rename(temp_path, path) != 0) {
+        unlink(temp_path);
+        return false;
+    }
+    return true;
 }
 
 static cJSON *load_upload_session(const char *upload_id) {

@@ -2,8 +2,57 @@
     var cache = new Map();
     var DOWNLOAD_FETCH_TIMEOUT_MS = 6000;
     var DOWNLOAD_RETRY_LIMIT = 5;
-    var DOWNLOAD_MULTI_SESSION_CAP = 4;
+    var DOWNLOAD_MULTI_SESSION_CAP = 6;
     var SPACER_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+    var TasfaDB = {
+        _db: null,
+        open: function() {
+            if (this._db) return Promise.resolve(this._db);
+            return new Promise(function(resolve, reject) {
+                try {
+                    var request = indexedDB.open('tasfa_cache', 1);
+                    request.onupgradeneeded = function(e) {
+                        var db = e.target.result;
+                        if (!db.objectStoreNames.contains('chunks')) {
+                            db.createObjectStore('chunks');
+                        }
+                    };
+                    request.onsuccess = function(e) {
+                        TasfaDB._db = e.target.result;
+                        resolve(TasfaDB._db);
+                    };
+                    request.onerror = function(e) { resolve(null); };
+                } catch (err) { resolve(null); }
+            });
+        },
+        putChunk: function(key, data) {
+            return this.open().then(function(db) {
+                if (!db) return;
+                return new Promise(function(resolve) {
+                    try {
+                        var tx = db.transaction('chunks', 'readwrite');
+                        tx.objectStore('chunks').put(data, key);
+                        tx.oncomplete = function() { resolve(); };
+                        tx.onerror = function() { resolve(); };
+                    } catch (err) { resolve(); }
+                });
+            });
+        },
+        getChunk: function(key) {
+            return this.open().then(function(db) {
+                if (!db) return null;
+                return new Promise(function(resolve) {
+                    try {
+                        var tx = db.transaction('chunks', 'readonly');
+                        var req = tx.objectStore('chunks').get(key);
+                        req.onsuccess = function(e) { resolve(e.target.result); };
+                        req.onerror = function() { resolve(null); };
+                    } catch (err) { resolve(null); }
+                });
+            });
+        }
+    };
 
     function handshakeUrl(baseUrl) {
         if (baseUrl.indexOf('/file/download/') === 0) return baseUrl + '/handshake';
@@ -80,14 +129,16 @@
         return Math.min(400, 50 * Math.pow(1.45, Math.max(0, Number(attempt) || 0)));
     }
 
-    function writeCoalescedBuffer(target, buffer, session, startChunk, span) {
+    function writeCoalescedBuffer(target, buffer, session, startChunk, span, baseUrl) {
         var total = new Uint8Array(buffer);
         var offset = 0;
         for (var i = 0; i < span; i += 1) {
             var chunkIndex = startChunk + i;
             var remaining = (Number(session.total_size) || 0) - (chunkIndex * Number(session.chunk_size));
             var expected = Math.min(Number(session.chunk_size), remaining);
-            target.set(total.subarray(offset, offset + expected), chunkIndex * Number(session.chunk_size));
+            var chunkData = total.subarray(offset, offset + expected);
+            target.set(chunkData, chunkIndex * Number(session.chunk_size));
+            TasfaDB.putChunk(baseUrl + ':' + chunkIndex, chunkData.buffer.slice(chunkData.byteOffset, chunkData.byteOffset + chunkData.byteLength));
             offset += expected;
         }
     }
@@ -176,17 +227,26 @@
 
     function reserveDownloadGroup(sharedState, span) {
         if (!sharedState || sharedState.nextChunk >= sharedState.chunkCount) return null;
+        while (sharedState.nextChunk < sharedState.chunkCount && sharedState.bitmap[sharedState.nextChunk]) {
+            sharedState.nextChunk++;
+        }
+        if (sharedState.nextChunk >= sharedState.chunkCount) return null;
+
         var startChunk = sharedState.nextChunk;
-        var size = Math.min(Math.max(1, span || 1), sharedState.chunkCount - startChunk);
-        sharedState.nextChunk += size;
-        return { startChunk: startChunk, span: size };
+        var actualSpan = 0;
+        while (actualSpan < span && (startChunk + actualSpan) < sharedState.chunkCount && !sharedState.bitmap[startChunk + actualSpan]) {
+            actualSpan++;
+        }
+        sharedState.nextChunk += actualSpan;
+        return { startChunk: startChunk, span: actualSpan };
     }
 
     async function fetchGroupWithRetry(baseUrl, lane, allBytes, startChunk, span, retries) {
         var lastErr = null;
         for (var i = 0; i <= retries; i += 1) {
             var controller = new AbortController();
-            var timeoutId = setTimeout(function() { controller.abort(); }, DOWNLOAD_FETCH_TIMEOUT_MS);
+            var timeoutLimit = document.visibilityState === 'hidden' ? 30000 : DOWNLOAD_FETCH_TIMEOUT_MS;
+            var timeoutId = setTimeout(function() { controller.abort(); }, timeoutLimit);
             var startedAt = Date.now();
             try {
                 var url = chunkUrl(baseUrl, lane.session.sessionId, lane.session.sessionToken, startChunk) + '&span=' + String(span);
@@ -199,7 +259,7 @@
                 lane.linkState.ewmaRttMs = lane.linkState.ewmaRttMs > 0
                     ? ((lane.linkState.ewmaRttMs * 0.7) + ((Date.now() - startedAt) * 0.3))
                     : (Date.now() - startedAt);
-                writeCoalescedBuffer(allBytes, await response.arrayBuffer(), lane.session.raw, startChunk, span);
+                writeCoalescedBuffer(allBytes, await response.arrayBuffer(), lane.session.raw, startChunk, span, baseUrl);
                 return;
             } catch (e) {
                 clearTimeout(timeoutId);
@@ -235,7 +295,12 @@
                     fetchGroupWithRetry(baseUrl, lane, allBytes, group.startChunk, group.span, DOWNLOAD_RETRY_LIMIT).then(function(currentGroup) {
                         return function() {
                             lane.active -= 1;
-                            sharedState.completedChunks += currentGroup.span;
+                            for (var i = 0; i < currentGroup.span; i++) {
+                                if (!sharedState.bitmap[currentGroup.startChunk + i]) {
+                                    sharedState.bitmap[currentGroup.startChunk + i] = 1;
+                                    sharedState.completedChunks += 1;
+                                }
+                            }
                             if (lane.windowSize < lane.session.maxParallel) {
                                 lane.windowSize = Math.min(
                                     lane.session.maxParallel,
@@ -269,22 +334,39 @@
     }
 
     async function fetchBlobViaTasfa(baseUrl) {
-        if (cache.has(baseUrl)) return cache.get(baseUrl);
+        if (cache.has(baseUrl)) {
+            var cached = cache.get(baseUrl);
+            if (cached && typeof cached.then === 'function') return cached;
+        }
 
         var promise = (async function() {
             var linkState = { ewmaRttMs: 0, retries: 0, timeouts: 0 };
             var primarySession = await fetchDownloadSession(baseUrl, linkState);
-            var lanes = await buildDownloadLanes(baseUrl, primarySession, linkState);
             var allBytes = new Uint8Array(primarySession.totalSize);
             var sharedState = {
                 chunkCount: primarySession.chunkCount,
                 nextChunk: 0,
                 completedChunks: 0,
-                failed: null
+                failed: null,
+                bitmap: new Array(primarySession.chunkCount).fill(0)
             };
-            await Promise.all(lanes.map(function(lane) {
-                return runDownloadLane(baseUrl, lane, sharedState, allBytes);
-            }));
+
+            for (var i = 0; i < primarySession.chunkCount; i++) {
+                var data = await TasfaDB.getChunk(baseUrl + ':' + i);
+                if (data) {
+                    allBytes.set(new Uint8Array(data), i * primarySession.chunkSize);
+                    sharedState.bitmap[i] = 1;
+                    sharedState.completedChunks++;
+                }
+            }
+
+            if (sharedState.completedChunks < sharedState.chunkCount) {
+                var lanes = await buildDownloadLanes(baseUrl, primarySession, linkState);
+                await Promise.all(lanes.map(function(lane) {
+                    return runDownloadLane(baseUrl, lane, sharedState, allBytes);
+                }));
+            }
+
             return {
                 blob: new Blob([allBytes.buffer], { type: primarySession.mimeType }),
                 filename: primarySession.filename

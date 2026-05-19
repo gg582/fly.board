@@ -30,13 +30,13 @@
     var UPLOAD_WORKER_URL = '/assets/js/tasfa-upload-worker.js';
     var UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024;
     var UPLOAD_DEFAULT_PARALLEL = 24;
-    var UPLOAD_MAX_PARALLEL = 96;
+    var UPLOAD_MAX_PARALLEL = 160;
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
     var UPLOAD_RECOVERY_MAX_DELAY = 8000;
-    var UPLOAD_SCHEDULER_TICK_MS = 10;
-    var UPLOAD_STARTUP_STALL_TIMEOUT_MS = 2500;
-    var UPLOAD_STALL_TIMEOUT_MS = 700;
-    var UPLOAD_PROGRESS_STALL_TIMEOUT_MS = 1200;
+    var UPLOAD_SCHEDULER_TICK_MS = 20;
+    var UPLOAD_STARTUP_STALL_TIMEOUT_MS = 3000;
+    var UPLOAD_STALL_TIMEOUT_MS = 1500;
+    var UPLOAD_PROGRESS_STALL_TIMEOUT_MS = 2500;
     var UPLOAD_SESSION_FETCH_TIMEOUT_MS = 8000;
     var UPLOAD_CHUNK_RETRY_LIMIT = 7;
     var UPLOAD_WORKER_POOL_LIMIT = 16;
@@ -1137,49 +1137,64 @@
         clearSchedulerTimer(asset);
 
         function tick() {
-            if (!asset || asset.failed || asset.isCancelling || asset.fid !== null || !asset.isUploading) {
-                clearSchedulerTimer(asset);
-                return;
-            }
-
-            if (!asset.recovering && !asset.isPaused && !asset.finalizing) {
-                var now = Date.now();
-                var chunkActivity = asset.chunkActivityAt || {};
-                var stalled = Object.keys(chunkActivity).some(function(key) {
-                    var chunkIndex = Number(key);
-                    var sentBytes = Number((asset.chunkProgress && asset.chunkProgress[chunkIndex]) || 0);
-                    var hasConfirmedTraffic = Number(asset.lastChunkResponseAt || 0) > 0 ||
-                        confirmedUploadBytes(asset) > 0 ||
-                        Number(asset.completedChunks || 0) > 0;
-                    var stallLimit = !hasConfirmedTraffic
-                        ? UPLOAD_STARTUP_STALL_TIMEOUT_MS
-                        : (sentBytes > 0 ? UPLOAD_PROGRESS_STALL_TIMEOUT_MS : UPLOAD_STALL_TIMEOUT_MS);
-                    var linkState = ensureLinkState(asset);
-                    var rttFloor = Math.max(
-                        stallLimit,
-                        Math.min(4000, Math.ceil(Number(linkState.ewmaRttMs || 0) * 2.5))
-                    );
-                    return now - Number(chunkActivity[key] || 0) > rttFloor;
-                });
-                if (stalled) {
-                    rolloverUploadSession(asset, 'timeout');
+            try {
+                if (!asset || asset.failed || asset.isCancelling || asset.fid !== null || !asset.isUploading) {
                     clearSchedulerTimer(asset);
                     return;
                 }
 
-                if (asset.activeRequests === 0 && hasMissingChunks(asset) && asset.nextChunkCursor >= asset.pendingChunks.length) {
-                    rebuildPendingChunks(asset);
-                }
+                if (!asset.recovering && !asset.isPaused && !asset.finalizing) {
+                    var now = Date.now();
+                    var chunkActivity = asset.chunkActivityAt || {};
+                    var stalled = Object.keys(chunkActivity).some(function(key) {
+                        var chunkIndex = Number(key);
+                        var sentBytes = Number((asset.chunkProgress && asset.chunkProgress[chunkIndex]) || 0);
+                        var hasConfirmedTraffic = Number(asset.lastChunkResponseAt || 0) > 0 ||
+                            confirmedUploadBytes(asset) > 0 ||
+                            Number(asset.completedChunks || 0) > 0;
+                        var stallLimit = !hasConfirmedTraffic
+                            ? UPLOAD_STARTUP_STALL_TIMEOUT_MS
+                            : (sentBytes > 0 ? UPLOAD_PROGRESS_STALL_TIMEOUT_MS : UPLOAD_STALL_TIMEOUT_MS);
+                        if (document.visibilityState === 'hidden') {
+                            stallLimit = Math.max(stallLimit, 10000);
+                        }
+                        var linkState = ensureLinkState(asset);
+                        var rttFloor = Math.max(
+                            stallLimit,
+                            Math.min(10000, Math.ceil(Number(linkState.ewmaRttMs || 0) * 3.5))
+                        );
+                        return now - Number(chunkActivity[key] || 0) > rttFloor;
+                    });
+                    if (stalled) {
+                        rolloverUploadSession(asset, 'timeout');
+                        clearSchedulerTimer(asset);
+                        return;
+                    }
 
-                if (asset.activeRequests < asset.currentParallel || asset.activeRequests === 0) {
-                    fillChunkWindow(asset, asset.file);
+                    if (asset.activeRequests === 0 && hasMissingChunks(asset) && asset.nextChunkCursor >= asset.pendingChunks.length) {
+                        rebuildPendingChunks(asset);
+                    }
+
+                    if (asset.activeRequests < asset.currentParallel || asset.activeRequests === 0) {
+                        fillChunkWindow(asset, asset.file);
+                    }
                 }
+            } catch (err) {
+                console.error('TASFA scheduler tick failed:', err);
             }
-
             asset.schedulerTimer = window.setTimeout(tick, UPLOAD_SCHEDULER_TICK_MS);
         }
 
         asset.schedulerTimer = window.setTimeout(tick, UPLOAD_SCHEDULER_TICK_MS);
+
+        if (!asset._visibilityHandler) {
+            asset._visibilityHandler = function() {
+                if (document.visibilityState === 'visible' && asset.isUploading && !asset.schedulerTimer) {
+                    startSchedulerLoop(asset);
+                }
+            };
+            document.addEventListener('visibilitychange', asset._visibilityHandler);
+        }
     }
 
     function createChunkSignature(asset, chunkIndex, blockOffset, nonce, vertexId, magicSum) {
@@ -1474,7 +1489,7 @@
         var suggested = Math.min(
             clampParallelToBudget(asset, Math.max(
                 Number(asset.peakParallel || 0),
-                (asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) + Math.max(4, Math.ceil((asset.currentParallel || 0) * 0.5))
+                (asset.currentParallel || UPLOAD_DEFAULT_PARALLEL) + Math.max(8, Math.ceil((asset.currentParallel || 0) * 0.5))
             )),
             asset.maxParallel || UPLOAD_MAX_PARALLEL
         );
@@ -1863,7 +1878,7 @@
         asset.inflightRequests = {};
         asset.chunkActivityAt = {};
         asset.xhrs = [];
-        asset.lastVisualBytes = confirmedUploadBytes(asset);
+        asset.lastVisualBytes = Math.max(asset.lastVisualBytes || 0, confirmedUploadBytes(asset));
         asset.lastSchedulerActivityAt = Date.now();
         asset.currentParallel = clampParallelToBudget(asset, Math.min(asset.maxParallel || UPLOAD_MAX_PARALLEL, asset.currentParallel || UPLOAD_DEFAULT_PARALLEL));
         clearPreparedChunks(asset);
