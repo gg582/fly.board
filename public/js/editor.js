@@ -880,22 +880,6 @@
         if (syncStatus && locked) syncStatus.textContent = 'Uploading files, save is locked';
     }
 
-    function updateQueuedSummary() {
-        if (!isFileRepoMode) return;
-        var summary = document.getElementById('file-repo-queued-summary');
-        if (!summary) return;
-        var pending = fileRepoPendingAssets();
-        if (pending.length === 0) {
-            summary.innerHTML = '';
-            summary.style.display = 'none';
-            return;
-        }
-        var html = '<strong>Queued (' + pending.length + ')</strong>: ' +
-            pending.map(function(a) { return escapeHtml(a.filename); }).join(', ');
-        summary.innerHTML = html;
-        summary.style.display = 'block';
-    }
-
     function updateFileRepoUploadButton() {
         if (!isFileRepoMode || !fileRepoUploadButton) return;
         var pending = fileRepoPendingAssets().length;
@@ -905,7 +889,6 @@
         } else {
             fileRepoUploadButton.textContent = 'Upload queued files';
         }
-        updateQueuedSummary();
         updateSubmitButtons();
     }
 
@@ -1978,6 +1961,7 @@
             ui: ui
         };
         AssetRegistry.push(asset);
+        if (uploadPreview) uploadPreview.appendChild(ui.el);
         bindAssetControls(asset);
         updateFileRepoUploadButton();
         updateSubmitButtons();
