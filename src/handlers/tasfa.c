@@ -1210,9 +1210,11 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     cJSON_AddNumberToObject(obj, "id", fid);
     cJSON_AddNumberToObject(obj, "fid", fid);
     cJSON_AddStringToObject(obj, "filename", filename);
-    char url[512], checksum_hex[65];
+    char url[512], blob_url[PATH_MAX], checksum_hex[65];
     snprintf(url, sizeof(url), "/file/download/%d", fid);
+    snprintf(blob_url, sizeof(blob_url), "/assets/uploads/%s", final_path + 15);
     cJSON_AddStringToObject(obj, "url", url);
+    cJSON_AddStringToObject(obj, "blob_url", blob_url);
     cJSON_AddStringToObject(obj, "delete_pin", delete_pin);
     for (int i = 0; i < 32; i++) snprintf(checksum_hex + (i * 2), 3, "%02x", checksum[i]);
     checksum_hex[64] = '\0';
