@@ -1384,7 +1384,7 @@
     function uploadRolloverDelay(asset) {
         var confirmed = confirmedUploadBytes(asset);
         if (confirmed > 0 || Number(asset && asset.completedChunks || 0) > 0) {
-            return FAST_RENEGOTIATE_DELAY_MS;
+            return 700;
         }
         return 8000;
     }
