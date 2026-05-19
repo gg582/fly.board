@@ -359,6 +359,17 @@ static int transport_block_count_for_size(long long total_size) {
     return (int)((total_size + TASFA_TRANSPORT_BLOCK_SIZE - 1) / TASFA_TRANSPORT_BLOCK_SIZE);
 }
 
+static long long contiguous_transport_bytes_from_bitmap(const char *bitmap, int block_count, int block_size, long long total_size) {
+    if (!bitmap || block_count <= 0 || block_size <= 0 || total_size <= 0) return 0;
+    long long confirmed = 0;
+    for (int i = 0; i < block_count; i++) {
+        if (bitmap[i] != '1') break;
+        long long next = confirmed + (long long)block_size;
+        confirmed = next > total_size ? total_size : next;
+    }
+    return confirmed;
+}
+
 static bool save_upload_session_state_bin(const char *upload_id, int chunk_count, const char *bitmap) {
     char path[PATH_MAX];
     upload_session_state_bin_path(path, sizeof(path), upload_id);
@@ -644,6 +655,9 @@ static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
     char *frontier = topology_frontier_bitmap_create(bitmap, chunk_count);
     int transport_block_count = json_int(meta, "transport_block_count", transport_block_count_for_size(json_long_long(meta, "total_size", 0)));
     char *block_bitmap = load_upload_block_state_bin(upload_id, transport_block_count);
+    long long total_size = json_long_long(meta, "total_size", 0);
+    long long resume_from_byte = contiguous_transport_bytes_from_bitmap(
+        block_bitmap, transport_block_count, json_int(meta, "transport_block_size", TASFA_TRANSPORT_BLOCK_SIZE), total_size);
     cJSON_AddBoolToObject(obj, "ok", true);
     cJSON_AddStringToObject(obj, "upload_id", upload_id ? upload_id : "");
     cJSON_AddStringToObject(obj, "upload_token", json_string(meta, "upload_token", ""));
@@ -652,7 +666,8 @@ static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
     cJSON_AddNumberToObject(obj, "chunk_count", chunk_count);
     cJSON_AddNumberToObject(obj, "transport_block_size", json_int(meta, "transport_block_size", TASFA_TRANSPORT_BLOCK_SIZE));
     cJSON_AddNumberToObject(obj, "transport_block_count", transport_block_count);
-    cJSON_AddNumberToObject(obj, "total_size", (double)json_long_long(meta, "total_size", 0));
+    cJSON_AddNumberToObject(obj, "total_size", (double)total_size);
+    cJSON_AddNumberToObject(obj, "resume_from_byte", (double)resume_from_byte);
     cJSON_AddStringToObject(obj, "received_bitmap", bitmap);
     cJSON_AddStringToObject(obj, "received_block_bitmap", block_bitmap ? block_bitmap : "");
     cJSON_AddNumberToObject(obj, "received_chunks", received_chunks);
@@ -840,6 +855,9 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     const char *session_id = cwist_query_map_get(kv, "session_id");
     const char *resume_upload_id = cwist_query_map_get(kv, "resume_upload_id");
     const char *resume_upload_token = cwist_query_map_get(kv, "resume_upload_token");
+    const char *rollover_upload_id = cwist_query_map_get(kv, "rollover_upload_id");
+    const char *rollover_upload_token = cwist_query_map_get(kv, "rollover_upload_token");
+    long long client_confirmed_bytes = atoll(cwist_query_map_get(kv, "client_confirmed_bytes") ? cwist_query_map_get(kv, "client_confirmed_bytes") : "0");
     int suggested_parallel = atoi(cwist_query_map_get(kv, "suggested_parallel") ? cwist_query_map_get(kv, "suggested_parallel") : "0");
     int chunk_count = atoi(cwist_query_map_get(kv, "chunk_count") ? cwist_query_map_get(kv, "chunk_count") : "0");
     long long total_size = atoll(cwist_query_map_get(kv, "total_size") ? cwist_query_map_get(kv, "total_size") : "0");
@@ -861,6 +879,45 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     char upload_id[33];
     cJSON *meta = NULL;
     bool resumed = false;
+    bool rolled_over = false;
+    char previous_upload_id[33] = {0};
+    int previous_lock_fd = -1;
+    cJSON *previous_meta = NULL;
+    char *previous_chunk_bitmap = NULL;
+    char *previous_block_bitmap = NULL;
+    char previous_temp_path[PATH_MAX] = {0};
+    int previous_chunk_count = 0;
+    int previous_transport_block_count = 0;
+    if (rollover_upload_id && rollover_upload_id[0] && rollover_upload_token && rollover_upload_token[0] && is_safe_segment(rollover_upload_id)) {
+        previous_lock_fd = open_upload_session_lock(rollover_upload_id);
+        previous_meta = previous_lock_fd >= 0 ? load_upload_session(rollover_upload_id) : NULL;
+        if (previous_meta &&
+            secure_str_eq(rollover_upload_token, json_string(previous_meta, "upload_token", "")) &&
+            json_long_long(previous_meta, "total_size", 0) == total_size &&
+            strcmp(json_string(previous_meta, "filename", ""), filename) == 0) {
+            snprintf(previous_upload_id, sizeof(previous_upload_id), "%s", rollover_upload_id);
+            previous_chunk_count = json_int(previous_meta, "chunk_count", 0);
+            previous_transport_block_count = json_int(previous_meta, "transport_block_count",
+                                                      transport_block_count_for_size(total_size));
+            snprintf(previous_temp_path, sizeof(previous_temp_path), "%s", json_string(previous_meta, "temp_path", ""));
+            previous_chunk_bitmap = load_upload_session_state_bin(rollover_upload_id, previous_chunk_count);
+            previous_block_bitmap = load_upload_block_state_bin(rollover_upload_id, previous_transport_block_count);
+            rolled_over = previous_chunk_bitmap && previous_block_bitmap && previous_temp_path[0];
+        }
+        if (!rolled_over) {
+            if (previous_chunk_bitmap) cwist_free(previous_chunk_bitmap);
+            if (previous_block_bitmap) cwist_free(previous_block_bitmap);
+            previous_chunk_bitmap = NULL;
+            previous_block_bitmap = NULL;
+            if (previous_meta) {
+                cJSON_Delete(previous_meta);
+                previous_meta = NULL;
+            }
+            close_upload_session_lock(previous_lock_fd);
+            previous_lock_fd = -1;
+        }
+    }
+    if (rolled_over) resumed = false;
     if (resume_upload_id && resume_upload_id[0] && resume_upload_token && resume_upload_token[0] && is_safe_segment(resume_upload_id)) {
         meta = load_upload_session(resume_upload_id);
         if (meta &&
@@ -885,6 +942,10 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     }
     if (!resumed) {
         if (!random_hex(upload_id, 16)) {
+            if (previous_chunk_bitmap) cwist_free(previous_chunk_bitmap);
+            if (previous_block_bitmap) cwist_free(previous_block_bitmap);
+            if (previous_meta) cJSON_Delete(previous_meta);
+            close_upload_session_lock(previous_lock_fd);
             cwist_query_map_destroy(kv);
             send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
             return;
@@ -893,16 +954,31 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         char temp_path[PATH_MAX];
         upload_session_dir(dir_path, sizeof(dir_path), upload_id);
         upload_session_temp_path(temp_path, sizeof(temp_path), upload_id);
-        if (!dir_ensure(dir_path) || !ensure_preallocated_file(temp_path, total_size)) {
+        bool temp_ready = false;
+        if (dir_ensure(dir_path)) {
+            if (rolled_over) {
+                temp_ready = rename(previous_temp_path, temp_path) == 0;
+            } else {
+                temp_ready = ensure_preallocated_file(temp_path, total_size);
+            }
+        }
+        if (!temp_ready) {
+            if (previous_chunk_bitmap) cwist_free(previous_chunk_bitmap);
+            if (previous_block_bitmap) cwist_free(previous_block_bitmap);
+            if (previous_meta) cJSON_Delete(previous_meta);
+            close_upload_session_lock(previous_lock_fd);
             cwist_query_map_destroy(kv);
             send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
             return;
         }
         char upload_token[49];
         char upload_secret[49];
-        char *bitmap = bitmap_create(chunk_count);
+        char *bitmap = rolled_over ? previous_chunk_bitmap : bitmap_create(chunk_count);
         if (!bitmap || !random_hex(upload_token, 24) || !random_hex(upload_secret, 24)) {
-            if (bitmap) cwist_free(bitmap);
+            if (!rolled_over && bitmap) cwist_free(bitmap);
+            if (previous_block_bitmap) cwist_free(previous_block_bitmap);
+            if (previous_meta) cJSON_Delete(previous_meta);
+            close_upload_session_lock(previous_lock_fd);
             cwist_query_map_destroy(kv);
             send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
             return;
@@ -931,6 +1007,8 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         cJSON_AddNumberToObject(meta, "received_chunks", 0);
         cJSON_AddNumberToObject(meta, "current_parallel_chunks", initial_parallel);
         cJSON_AddNumberToObject(meta, "max_parallel_chunks", max_parallel);
+        if (rolled_over) cJSON_AddStringToObject(meta, "rolled_over_from", previous_upload_id);
+        if (rolled_over) cJSON_AddNumberToObject(meta, "client_confirmed_bytes", (double)client_confirmed_bytes);
         char expires_at[32];
         snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_UPLOAD_TTL));
         cJSON_AddStringToObject(meta, "expires_at", expires_at);
@@ -947,24 +1025,36 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         strncpy(mbin.filename, filename, sizeof(mbin.filename)-1);
         mbin.post_id = post_id;
         mbin.uid = uid;
-        strncpy(mbin.temp_path, temp_path, sizeof(mbin.temp_path)-1);
+        snprintf(mbin.temp_path, sizeof(mbin.temp_path), "%s", temp_path);
         
-        char *block_bitmap = bitmap_create(mbin.transport_block_count);
+        char *block_bitmap = rolled_over ? previous_block_bitmap : bitmap_create(mbin.transport_block_count);
         if (!block_bitmap ||
             !save_upload_session(upload_id, meta) || !save_upload_session_state(upload_id, meta) ||
             !save_upload_session_state_bin(upload_id, chunk_count, bitmap) ||
             !save_upload_block_state_bin(upload_id, mbin.transport_block_count, block_bitmap) ||
             !save_upload_session_meta_bin(upload_id, &mbin)) {
-            if (block_bitmap) cwist_free(block_bitmap);
-            cwist_free(bitmap);
+            if (!rolled_over && block_bitmap) cwist_free(block_bitmap);
+            if (!rolled_over && bitmap) cwist_free(bitmap);
             cJSON_Delete(meta);
             cleanup_upload_session(upload_id);
+            if (rolled_over && previous_temp_path[0]) rename(temp_path, previous_temp_path);
+            if (previous_meta) cJSON_Delete(previous_meta);
+            close_upload_session_lock(previous_lock_fd);
             cwist_query_map_destroy(kv);
             send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
             return;
         }
         cwist_free(block_bitmap);
         cwist_free(bitmap);
+        previous_block_bitmap = NULL;
+        previous_chunk_bitmap = NULL;
+        if (rolled_over) {
+            cleanup_upload_session(previous_upload_id);
+            if (previous_meta) cJSON_Delete(previous_meta);
+            close_upload_session_lock(previous_lock_fd);
+            previous_meta = NULL;
+            previous_lock_fd = -1;
+        }
     } else {
         int initial_parallel = 0, max_parallel = 0;
         choose_upload_window(score, &initial_parallel, &max_parallel);
@@ -993,9 +1083,9 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         strncpy(mbin.upload_secret, json_string(meta, "upload_secret", ""), sizeof(mbin.upload_secret)-1);
         mbin.chunk_count = json_int(meta, "chunk_count", 0);
         mbin.chunk_size = TASFA_CHUNK_SIZE;
+        mbin.total_size = json_long_long(meta, "total_size", 0);
         mbin.transport_block_size = json_int(meta, "transport_block_size", TASFA_TRANSPORT_BLOCK_SIZE);
         mbin.transport_block_count = json_int(meta, "transport_block_count", transport_block_count_for_size(mbin.total_size));
-        mbin.total_size = json_long_long(meta, "total_size", 0);
         strncpy(mbin.filename, json_string(meta, "filename", ""), sizeof(mbin.filename)-1);
         mbin.post_id = json_int(meta, "post_id", 0);
         mbin.uid = json_int(meta, "uid", 0);
@@ -1005,6 +1095,10 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         save_upload_session_state(upload_id, meta);
         save_upload_session_meta_bin(upload_id, &mbin);
     }
+    if (previous_chunk_bitmap) cwist_free(previous_chunk_bitmap);
+    if (previous_block_bitmap) cwist_free(previous_block_bitmap);
+    if (previous_meta) cJSON_Delete(previous_meta);
+    close_upload_session_lock(previous_lock_fd);
     cwist_query_map_destroy(kv);
     cJSON *obj = build_upload_status_json(meta, upload_id);
     cJSON_Delete(meta);

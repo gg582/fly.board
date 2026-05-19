@@ -719,15 +719,66 @@
         return source.slice(0, index) + '1' + source.slice(index + 1);
     }
 
-    function confirmedUploadBytes(asset) {
+    function firstBlockIndexForChunk(asset, chunkIndex) {
+        var chunkSize = Math.max(1, Number(asset && asset.chunkSize || UPLOAD_CHUNK_SIZE));
+        var blockSize = Math.max(1, Number(asset && asset.transportBlockSize || chunkSize));
+        var blocksPerChunk = Math.max(1, Math.floor(chunkSize / blockSize));
+        return chunkIndex * blocksPerChunk;
+    }
+
+    function blockCountForChunk(asset, chunkIndex) {
+        if (!asset) return 0;
+        var chunkRange = chunkByteRange(asset, chunkIndex);
+        var blockSize = Math.max(1, Number(asset.transportBlockSize || asset.chunkSize || UPLOAD_CHUNK_SIZE));
+        if (chunkRange.size <= 0) return 0;
+        return Math.ceil(chunkRange.size / blockSize);
+    }
+
+    function computeConfirmedUploadBytes(asset, bitmap) {
+        if (!asset) return 0;
         var total = 0;
-        var bitmap = asset.receivedBlockBitmap || asset.receivedBitmap || '';
-        for (var i = 0; i < bitmap.length; i += 1) {
-            if (bitmap.charAt(i) === '1') {
-                total += asset.receivedBlockBitmap ? transportBlockByteRange(asset, i).size : chunkByteRange(asset, i).size;
+        var usingBlockBitmap = !!(bitmap || asset.receivedBlockBitmap);
+        var source = String(bitmap || asset.receivedBlockBitmap || asset.receivedBitmap || '');
+        for (var i = 0; i < source.length; i += 1) {
+            if (source.charAt(i) === '1') {
+                total += usingBlockBitmap ? transportBlockByteRange(asset, i).size : chunkByteRange(asset, i).size;
             }
         }
         return total;
+    }
+
+    function contiguousConfirmedUploadBytes(asset, bitmap) {
+        if (!asset) return 0;
+        var source = String(bitmap || asset.receivedBlockBitmap || '');
+        if (!source) return 0;
+        var total = 0;
+        for (var i = 0; i < source.length; i += 1) {
+            if (source.charAt(i) !== '1') break;
+            total += transportBlockByteRange(asset, i).size;
+        }
+        return total;
+    }
+
+    function syncConfirmedProgress(asset) {
+        if (!asset) return;
+        asset.confirmedBytes = computeConfirmedUploadBytes(asset);
+        if (!asset.transferProgress || asset.transferProgress.length !== asset.totalTransportBlocks) {
+            asset.transferProgress = new Array(asset.totalTransportBlocks).fill(0);
+        }
+        for (var i = 0; i < asset.totalTransportBlocks; i += 1) {
+            if (asset.receivedBlockBitmap.charAt(i) === '1') {
+                asset.transferProgress[i] = transportBlockByteRange(asset, i).size;
+            } else if (!asset.inflightChunks || !asset.inflightChunks[i]) {
+                asset.transferProgress[i] = 0;
+            }
+        }
+    }
+
+    function confirmedUploadBytes(asset) {
+        if (!asset) return 0;
+        if (typeof asset.confirmedBytes === 'number') return asset.confirmedBytes;
+        asset.confirmedBytes = computeConfirmedUploadBytes(asset);
+        return asset.confirmedBytes;
     }
 
     function activeUploadBytes(asset) {
@@ -1446,11 +1497,22 @@
             var blockBitmap = String(asset.receivedBlockBitmap || '');
             for (var i = 0; i < orderedChunks.length; i += 1) {
                 var chunkIndex = orderedChunks[i];
-                for (var blockIndex = 0; blockIndex < Number(asset.totalTransportBlocks || 0); blockIndex += 1) {
-                    if (topologyChunkIndexForBlock(asset, blockIndex) !== chunkIndex) continue;
+                var firstBlock = firstBlockIndexForChunk(asset, chunkIndex);
+                var totalBlocks = blockCountForChunk(asset, chunkIndex);
+                for (var offset = 0; offset < totalBlocks; offset += 1) {
+                    var blockIndex = firstBlock + offset;
                     if (blockBitmap && blockBitmap.charAt(blockIndex) === '1') continue;
                     pendingBlocks.push(blockIndex);
                 }
+            }
+            if (Number(asset.resumeFromByte || 0) > 0) {
+                var resumeBlock = Math.max(0, Math.floor(Number(asset.resumeFromByte || 0) / Math.max(1, Number(asset.transportBlockSize || asset.chunkSize || UPLOAD_CHUNK_SIZE))));
+                pendingBlocks.sort(function(a, b) {
+                    var aAfter = a >= resumeBlock ? 0 : 1;
+                    var bAfter = b >= resumeBlock ? 0 : 1;
+                    if (aAfter !== bAfter) return aAfter - bAfter;
+                    return a - b;
+                });
             }
             asset.pendingChunks = pendingBlocks;
             asset.nextChunkCursor = 0;
@@ -1487,6 +1549,7 @@
         asset.totalTransportBlocks = Number(payload.transport_block_count || asset.totalTransportBlocks || Math.max(1, Math.ceil(asset.fileSize / asset.transportBlockSize)));
         asset.receivedBitmap = payload.received_bitmap || asset.receivedBitmap || '';
         asset.receivedBlockBitmap = payload.received_block_bitmap || asset.receivedBlockBitmap || '';
+        asset.resumeFromByte = Number(payload.resume_from_byte || asset.resumeFromByte || 0);
         asset.completedChunks = Number(payload.received_chunks || 0);
         asset.currentParallel = clampParallelToBudget(asset, payload.current_parallel_chunks || payload.initial_parallel_chunks || asset.currentParallel || UPLOAD_DEFAULT_PARALLEL);
         asset.maxParallel = Math.max(asset.currentParallel, clampParallelToBudget(asset, payload.max_parallel_chunks || asset.maxParallel || UPLOAD_MAX_PARALLEL));
@@ -1495,15 +1558,7 @@
         asset.topologyDamageBitmap = payload.topology_damage_bitmap || '';
         asset.topologyRule = payload.topology_rule || '';
         rebuildPendingChunks(asset);
-        if (!asset.transferProgress || asset.transferProgress.length !== asset.totalTransportBlocks) {
-            asset.transferProgress = new Array(asset.totalTransportBlocks).fill(0);
-        }
-        for (var i = 0; i < asset.totalTransportBlocks; i += 1) {
-            if (asset.receivedBlockBitmap.charAt(i) === '1') {
-                var range = transportBlockByteRange(asset, i);
-                asset.transferProgress[i] = Math.max(asset.transferProgress[i] || 0, range.size);
-            }
-        }
+        syncConfirmedProgress(asset);
         updateAssetProgress(asset);
     }
 
@@ -1717,8 +1772,13 @@
 
     function rolloverUploadSession(asset, reason) {
         if (!asset || asset.isCancelling || !asset.file) return;
-        var resumeUploadId = asset.uploadId;
-        var resumeUploadToken = asset.uploadToken;
+        var rolloverState = {
+            uploadId: asset.uploadId,
+            uploadToken: asset.uploadToken,
+            confirmedBytes: contiguousConfirmedUploadBytes(asset),
+            receivedBitmap: String(asset.receivedBitmap || ''),
+            receivedBlockBitmap: String(asset.receivedBlockBitmap || '')
+        };
         clearRecoveryTimer(asset);
         clearSchedulerTimer(asset);
         abortInflightRequests(asset);
@@ -1730,16 +1790,11 @@
         asset.chunkNetworkStarted = {};
         asset.finalizing = false;
         asset.recoveryEpoch = Number(asset.recoveryEpoch || 0) + 1;
+        asset.transferProgress = new Array(asset.totalTransportBlocks || 0).fill(0);
+        syncConfirmedProgress(asset);
         asset.ui.status.textContent = reason === 'offline' ? 'Waiting for network' : 'Rolling over upload session';
         if (!navigator.onLine) return;
-        var continueRollover = function() {
-            initChunkedUpload(asset, asset.file, 'rollover', resumeUploadId, resumeUploadToken);
-        };
-        if (resumeUploadId && resumeUploadToken) {
-            syncUploadSession(asset).then(continueRollover).catch(continueRollover);
-            return;
-        }
-        continueRollover();
+        initChunkedUpload(asset, asset.file, 'rollover', rolloverState);
     }
 
     function dispatchChunk(asset, file, blockIndex, retryCount) {
@@ -1809,6 +1864,8 @@
                     asset.transferProgress[blockIndex] = 0;
                     asset.receivedBitmap = payload.received_bitmap || asset.receivedBitmap;
                     asset.receivedBlockBitmap = payload.received_block_bitmap || asset.receivedBlockBitmap;
+                    asset.confirmedBytes = computeConfirmedUploadBytes(asset, asset.receivedBlockBitmap || asset.receivedBitmap);
+                    asset.resumeFromByte = Math.max(Number(asset.resumeFromByte || 0), contiguousConfirmedUploadBytes(asset));
                     asset.completedChunks = Number(payload.received_chunks || asset.completedChunks);
                     if (payload.next_parallel_chunks) {
                         asset.currentParallel = clampParallelToBudget(asset, Math.min(asset.maxParallel, Number(payload.next_parallel_chunks)));
@@ -1829,10 +1886,14 @@
                 }
                 asset.transferProgress[blockIndex] = blob.size;
                 asset.receivedBlockBitmap = payload.received_block_bitmap || setBitmapBit(asset.receivedBlockBitmap, blockIndex);
+                asset.confirmedBytes = confirmedUploadBytes(asset) + blob.size;
                 if (payload.chunk_complete) {
                     asset.receivedBitmap = setBitmapBit(payload.received_bitmap || asset.receivedBitmap, topologyChunkIndex);
                 } else if (payload.received_bitmap) {
                     asset.receivedBitmap = payload.received_bitmap;
+                }
+                if (payload.received_block_bitmap) {
+                    asset.confirmedBytes = computeConfirmedUploadBytes(asset, payload.received_block_bitmap);
                 }
                 asset.completedChunks = Number(payload.received_chunks || countBitmapBits(asset.receivedBitmap));
                 if (payload.next_parallel_chunks) {
@@ -1841,6 +1902,7 @@
                 asset.topologyFrontierBitmap = payload.topology_frontier_bitmap || asset.topologyFrontierBitmap || '';
                 asset.topologyDamageBitmap = payload.topology_damage_bitmap || '';
                 asset.topologyRule = payload.topology_rule || '';
+                asset.resumeFromByte = Math.max(Number(asset.resumeFromByte || 0), contiguousConfirmedUploadBytes(asset));
                 rebuildPendingChunks(asset);
                 resetInflightChunk(asset, blockIndex, true);
                 markSchedulerActivity(asset);
@@ -1945,9 +2007,8 @@
         asset.transportBlockSize = asset.transportBlockSize || asset.chunkSize;
         asset.totalChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
         asset.totalTransportBlocks = asset.totalTransportBlocks || Math.max(1, Math.ceil(file.size / asset.transportBlockSize));
-        if (!asset.transferProgress || asset.transferProgress.length !== asset.totalTransportBlocks) {
-            asset.transferProgress = new Array(asset.totalTransportBlocks).fill(0);
-        }
+        asset.resumeFromByte = Math.max(Number(asset.resumeFromByte || 0), contiguousConfirmedUploadBytes(asset));
+        syncConfirmedProgress(asset);
         if (!asset.pendingChunks || !asset.pendingChunks.length) rebuildPendingChunks(asset);
         else asset.nextChunkCursor = 0;
         asset.finalizing = false;
@@ -1972,7 +2033,7 @@
         updateSubmitButtons();
     }
 
-    function initChunkedUpload(asset, file, reason, resumeUploadId, resumeUploadToken) {
+    function initChunkedUpload(asset, file, reason, rolloverState) {
         var sessionGeneration = bumpUploadSessionGeneration(asset);
         asset.isUploading = true;
         asset.failed = false;
@@ -1982,15 +2043,15 @@
         updateSubmitButtons();
         var chunkCount = Math.max(1, Math.ceil(file.size / UPLOAD_CHUNK_SIZE));
         var linkHints = buildLinkHintFields(asset);
+        var suggestedParallel = reason === 'rollover'
+            ? UPLOAD_DEFAULT_PARALLEL
+            : Math.max(Number(asset.peakParallel || 0), Number(asset.currentParallel || UPLOAD_DEFAULT_PARALLEL));
         var body = 'filename=' + encodeURIComponent(file.name) +
             '&total_size=' + encodeURIComponent(String(file.size)) +
             '&chunk_count=' + encodeURIComponent(String(chunkCount)) +
             '&post_id=' + encodeURIComponent(window.POST_ID || 0) +
             '&session_id=' + encodeURIComponent(asset.client_uuid || '') +
-            '&suggested_parallel=' + encodeURIComponent(String(Math.max(
-                Number(asset.peakParallel || 0),
-                Number(asset.currentParallel || UPLOAD_DEFAULT_PARALLEL)
-            ))) +
+            '&suggested_parallel=' + encodeURIComponent(String(suggestedParallel)) +
             '&link_stability_score=' + encodeURIComponent(String(linkHints.link_stability_score || '')) +
             '&link_effective_type=' + encodeURIComponent(linkHints.link_effective_type || '') +
             '&link_downlink_mbps=' + encodeURIComponent(String(linkHints.link_downlink_mbps || '')) +
@@ -1998,9 +2059,10 @@
             '&link_retry_events=' + encodeURIComponent(String(linkHints.link_retry_events || '')) +
             '&link_timeout_events=' + encodeURIComponent(String(linkHints.link_timeout_events || '')) +
             '&link_save_data=' + encodeURIComponent(linkHints.link_save_data || '0');
-        if (resumeUploadId && resumeUploadToken) {
-            body += '&resume_upload_id=' + encodeURIComponent(resumeUploadId) +
-                '&resume_upload_token=' + encodeURIComponent(resumeUploadToken);
+        if (rolloverState && rolloverState.uploadId && rolloverState.uploadToken) {
+            body += '&rollover_upload_id=' + encodeURIComponent(rolloverState.uploadId) +
+                '&rollover_upload_token=' + encodeURIComponent(rolloverState.uploadToken) +
+                '&client_confirmed_bytes=' + encodeURIComponent(String(rolloverState.confirmedBytes || 0));
         }
         fetchWithTimeout(UPLOAD_INIT_ENDPOINT, {
             method: 'POST',
@@ -2034,12 +2096,14 @@
             asset.maxParallel = Math.max(asset.currentParallel, clampParallelToBudget(asset, payload.max_parallel_chunks || UPLOAD_MAX_PARALLEL));
             asset.receivedBitmap = payload.received_bitmap || '';
             asset.receivedBlockBitmap = payload.received_block_bitmap || '';
+            asset.resumeFromByte = Number(payload.resume_from_byte || 0);
             asset.completedChunks = Number(payload.received_chunks || 0);
             asset.topologyFrontierBitmap = '';
             asset.topologyDamageBitmap = '';
             asset.topologyRule = '';
             asset.recoveryAttempts = 0;
-            asset.ui.status.textContent = (resumeUploadId && resumeUploadToken) || payload.resumed
+            syncConfirmedProgress(asset);
+            asset.ui.status.textContent = (rolloverState && rolloverState.uploadId) || payload.resumed
                 ? 'Rolled over upload session'
                 : 'Negotiated upload session';
             beginChunkUpload(asset, file);
@@ -2066,7 +2130,11 @@
                     rolloverUploadSession(asset, 'offline');
                     return;
                 }
-                initChunkedUpload(asset, file, reason || 'rollover', resumeUploadId || asset.uploadId, resumeUploadToken || asset.uploadToken);
+                initChunkedUpload(asset, file, reason || 'rollover', rolloverState || {
+                    uploadId: asset.uploadId,
+                    uploadToken: asset.uploadToken,
+                    confirmedBytes: contiguousConfirmedUploadBytes(asset)
+                });
             }, uploadRolloverDelay(asset));
         });
     }
@@ -2107,6 +2175,8 @@
             transportBlockSize: UPLOAD_CHUNK_SIZE,
             totalTransportBlocks: 0,
             transferProgress: [],
+            confirmedBytes: 0,
+            resumeFromByte: 0,
             receivedBitmap: '',
             receivedBlockBitmap: '',
             completedChunks: 0,
