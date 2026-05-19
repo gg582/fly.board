@@ -178,4 +178,4 @@ Measured while maintaining 10,000 concurrent connections in a live environment (
 - **Zero Disk I/O**: Major page faults 0, Swaps 0, FS inputs 0 — pure in-memory processing under load
 - **High CPU Utilization**: Sustained ~93% CPU usage while remaining stable
 - **Long-term Stability**: Ran continuously for 24m 46s under C10k load and exited cleanly (status 0)
-- **Data Safety**: NukeDB safely persisted all data on SIGINT (89,208 FS outputs)
+- **Data Safety**: SQLite safely persisted all data on SIGINT (89,208 FS outputs)

@@ -178,4 +178,4 @@ MIT License
 - **I/O フリー**: Major page faults 0、Swaps 0、FS inputs 0 — 負荷時もディスク I/O なしの純メモリ処理
 - **CPU 活用**: 93% の CPU 使用率を維持しながら安定動作
 - **長時間安定性**: 24 分 46 秒間の継続的な C10k 負荷の後も正常終了（Exit status 0）
-- **データ安全性**: SIGINT 受信後も NukeDB がデータを安全に保存
+- **データ安全性**: SIGINT 受信後も SQLite がデータを安全に保存
