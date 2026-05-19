@@ -103,6 +103,15 @@ void rule_layout(cJSON *rules) {
     add_decl(shell, "padding", "16px");
     cJSON_AddItemToArray(rules, shell);
 
+    cJSON *content = create_rule(".content");
+    add_decl(content, "width", "100%");
+    add_decl(content, "display", "grid");
+    add_decl(content, "grid-template-columns", "minmax(0, 1fr) minmax(0, 880px) minmax(0, 1fr)");
+    add_decl(content, "margin", "0 auto");
+    add_decl(content, "padding", "0 20px 40px");
+    add_decl(content, "min-width", "0");
+    cJSON_AddItemToArray(rules, content);
+
     cJSON *nav = create_rule(".topbar");
     add_decl(nav, "display", "flex");
     add_decl(nav, "align-items", "center");
@@ -986,16 +995,38 @@ void rule_boards(cJSON *rules) {
 
 void rule_markdown(cJSON *rules) {
     cJSON *md = create_rule(".markdown-body");
-    add_decl(md, "max-width", "760px");
+    add_decl(md, "width", "min(100%, 760px)");
+    add_decl(md, "max-width", "100%");
     add_decl(md, "margin", "0 auto");
     add_decl(md, "line-height", "1.8");
+    add_decl(md, "min-width", "0");
+    add_decl(md, "overflow-wrap", "anywhere");
+    add_decl(md, "word-break", "break-word");
     cJSON_AddItemToArray(rules, md);
 
     cJSON *article = create_rule("article");
-    add_decl(article, "max-width", "920px");
+    add_decl(article, "grid-column", "2");
+    add_decl(article, "width", "100%");
+    add_decl(article, "max-width", "100%");
     add_decl(article, "margin", "0 auto");
     add_decl(article, "padding", "0 0 6px");
+    add_decl(article, "min-width", "0");
     cJSON_AddItemToArray(rules, article);
+
+    cJSON *article_children = create_rule("article > *");
+    add_decl(article_children, "max-width", "100%");
+    add_decl(article_children, "min-width", "0");
+    cJSON_AddItemToArray(rules, article_children);
+
+    cJSON *md_blocks = create_rule(".markdown-body p, .markdown-body li, .markdown-body blockquote, .markdown-body figcaption");
+    add_decl(md_blocks, "overflow-wrap", "anywhere");
+    add_decl(md_blocks, "word-break", "break-word");
+    cJSON_AddItemToArray(rules, md_blocks);
+
+    cJSON *md_links = create_rule(".markdown-body a");
+    add_decl(md_links, "overflow-wrap", "anywhere");
+    add_decl(md_links, "word-break", "break-word");
+    cJSON_AddItemToArray(rules, md_links);
 
     cJSON *md_h1 = create_rule(".markdown-body h1");
     add_decl(md_h1, "font-size", "2.25rem");
@@ -1029,6 +1060,7 @@ void rule_markdown(cJSON *rules) {
 
     cJSON *md_img = create_rule(".markdown-body img, .markdown-body video, .markdown-body audio");
     add_decl(md_img, "max-width", "100%");
+    add_decl(md_img, "width", "auto");
     add_decl(md_img, "height", "auto");
     add_decl(md_img, "border-radius", "12px");
     add_decl(md_img, "box-shadow", "0 2px 12px var(--shadow)");
@@ -1052,7 +1084,10 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_pre, "background", "var(--code-bg)");
     add_decl(md_pre, "padding", "16px");
     add_decl(md_pre, "border-radius", "10px");
-    add_decl(md_pre, "overflow", "auto");
+    add_decl(md_pre, "max-width", "100%");
+    add_decl(md_pre, "overflow-x", "auto");
+    add_decl(md_pre, "overflow-y", "hidden");
+    add_decl(md_pre, "white-space", "pre");
     add_decl(md_pre, "border", "1px solid var(--border)");
     add_decl(md_pre, "font-family", "var(--font-mono)");
     add_decl(md_pre, "font-size", "14px");
@@ -1064,6 +1099,9 @@ void rule_markdown(cJSON *rules) {
     cJSON *md_pre_code = create_rule(".markdown-body pre code");
     add_decl(md_pre_code, "font-family", "inherit");
     add_decl(md_pre_code, "font-size", "inherit");
+    add_decl(md_pre_code, "white-space", "inherit");
+    add_decl(md_pre_code, "word-break", "normal");
+    add_decl(md_pre_code, "overflow-wrap", "normal");
     cJSON_AddItemToArray(rules, md_pre_code);
 
     cJSON *md_pre_span = create_rule(".markdown-body pre code span");
@@ -1075,6 +1113,8 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_code, "padding", "2px 6px");
     add_decl(md_code, "border-radius", "4px");
     add_decl(md_code, "font-size", "0.92em");
+    add_decl(md_code, "overflow-wrap", "anywhere");
+    add_decl(md_code, "word-break", "break-word");
     add_decl(md_code, "transition", "background 0.5s ease");
     add_decl(md_code, "font-family", "var(--font-mono)");
     add_decl(md_code, "font-feature-settings", "\"liga\" 1, \"calt\" 1");
@@ -1091,14 +1131,19 @@ void rule_markdown(cJSON *rules) {
     cJSON_AddItemToArray(rules, md_blockquote);
 
     cJSON *md_tbl = create_rule(".markdown-body table");
+    add_decl(md_tbl, "display", "block");
     add_decl(md_tbl, "border-collapse", "collapse");
     add_decl(md_tbl, "width", "100%");
+    add_decl(md_tbl, "max-width", "100%");
     add_decl(md_tbl, "margin", "18px 0");
+    add_decl(md_tbl, "overflow-x", "auto");
     cJSON_AddItemToArray(rules, md_tbl);
 
     cJSON *md_thtd = create_rule(".markdown-body th, .markdown-body td");
     add_decl(md_thtd, "border", "1px solid var(--border)");
     add_decl(md_thtd, "padding", "8px 10px");
+    add_decl(md_thtd, "overflow-wrap", "anywhere");
+    add_decl(md_thtd, "word-break", "break-word");
     add_decl(md_thtd, "transition", "border-color 0.5s ease");
     cJSON_AddItemToArray(rules, md_thtd);
 
