@@ -1266,6 +1266,12 @@ void rule_markdown(cJSON *rules) {
     add_decl(file_repo_actions, "row-gap", "10px");
     cJSON_AddItemToArray(rules, file_repo_actions);
 
+    cJSON *file_card_actions_btn = create_rule(".file-card-actions .btn");
+    add_decl(file_card_actions_btn, "min-height", "30px");
+    add_decl(file_card_actions_btn, "line-height", "1.2");
+    add_decl(file_card_actions_btn, "justify-content", "center");
+    cJSON_AddItemToArray(rules, file_card_actions_btn);
+
     cJSON *media_card = create_rule(".media-card");
     add_decl(media_card, "display", "grid");
     add_decl(media_card, "grid-template-columns", "96px minmax(0, 1fr) auto");
