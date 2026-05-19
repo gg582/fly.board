@@ -371,8 +371,10 @@ void rule_layout(cJSON *rules) {
     add_decl(ua_navlinks, "position", "fixed");
     add_decl(ua_navlinks, "top", "0");
     add_decl(ua_navlinks, "left", "0");
+    add_decl(ua_navlinks, "bottom", "0");
     add_decl(ua_navlinks, "width", "260px");
-    add_decl(ua_navlinks, "height", "100vh");
+    add_decl(ua_navlinks, "height", "100dvh");
+    add_decl(ua_navlinks, "max-height", "100dvh");
     add_decl(ua_navlinks, "background", "color-mix(in srgb, var(--glass-bg) 96%, transparent)");
     add_decl(ua_navlinks, "backdrop-filter", "blur(24px) saturate(180%)");
     add_decl(ua_navlinks, "-webkit-backdrop-filter", "blur(24px) saturate(180%)");
@@ -380,6 +382,9 @@ void rule_layout(cJSON *rules) {
     add_decl(ua_navlinks, "align-items", "stretch");
     add_decl(ua_navlinks, "gap", "0");
     add_decl(ua_navlinks, "padding", "56px 0 24px");
+    add_decl(ua_navlinks, "overflow-y", "auto");
+    add_decl(ua_navlinks, "overscroll-behavior", "contain");
+    add_decl(ua_navlinks, "-webkit-overflow-scrolling", "touch");
     add_decl(ua_navlinks, "transform", "translateX(-100%)");
     add_decl(ua_navlinks, "transition", "transform 0.3s ease");
     add_decl(ua_navlinks, "z-index", "101");
@@ -1299,8 +1304,10 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".nav-links", "position: fixed");
     add_decl(mq, ".nav-links", "top: 0");
     add_decl(mq, ".nav-links", "left: 0");
+    add_decl(mq, ".nav-links", "bottom: 0");
     add_decl(mq, ".nav-links", "width: 260px");
-    add_decl(mq, ".nav-links", "height: 100vh");
+    add_decl(mq, ".nav-links", "height: 100dvh");
+    add_decl(mq, ".nav-links", "max-height: 100dvh");
     add_decl(mq, ".nav-links", "background: color-mix(in srgb, var(--glass-bg) 96%, transparent)");
     add_decl(mq, ".nav-links", "backdrop-filter: blur(24px) saturate(180%)");
     add_decl(mq, ".nav-links", "-webkit-backdrop-filter: blur(24px) saturate(180%)");
@@ -1308,6 +1315,9 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".nav-links", "align-items: stretch");
     add_decl(mq, ".nav-links", "gap: 0");
     add_decl(mq, ".nav-links", "padding: 56px 0 24px");
+    add_decl(mq, ".nav-links", "overflow-y: auto");
+    add_decl(mq, ".nav-links", "overscroll-behavior: contain");
+    add_decl(mq, ".nav-links", "-webkit-overflow-scrolling: touch");
     add_decl(mq, ".nav-links", "transform: translateX(-100%)");
     add_decl(mq, ".nav-links", "transition: transform 0.3s ease");
     add_decl(mq, ".nav-links", "z-index: 101");
