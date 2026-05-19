@@ -62,7 +62,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
     cwist_html_element_t *font_space = cwist_html_element_create("link");
     cwist_html_element_add_attr(font_space, "rel", "stylesheet");
-    cwist_html_element_add_attr(font_space, "href", "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap");
+    cwist_html_element_add_attr(font_space, "href", "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap");
     cwist_html_element_add_child(head, font_space);
 
     cwist_html_element_t *font_pretendard = cwist_html_element_create("link");
@@ -109,6 +109,17 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(editor_js, "src", "/assets/js/editor.js");
     cwist_html_element_add_attr(editor_js, "defer", "");
     cwist_html_element_add_child(head, editor_js);
+
+    cwist_html_element_t *device_script = cwist_html_element_create("script");
+    cwist_html_element_set_text(device_script,
+        "(function(){"
+        "var ua=navigator.userAgent||'';"
+        "var mobile=/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Silk/i.test(ua);"
+        "var touch=(navigator.maxTouchPoints||0)>1;"
+        "var screenWidth=(typeof window!=='undefined'&&window.screen&&window.screen.width)?window.screen.width:0;"
+        "if(mobile||(touch&&screenWidth>0&&screenWidth<=1024)){document.documentElement.classList.add('mobile-device');}"
+        "})();");
+    cwist_html_element_add_child(head, device_script);
 
     /* Progressive multi-theme loader: inline critical CSS to prevent FOUC */
     char *critical_css = theme_build_css(dark);
