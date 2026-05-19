@@ -385,6 +385,13 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
     cwist_html_element_add_child(body, shell);
     cwist_html_element_add_child(body, footer);
+
+    cwist_html_element_t *config_script = cwist_html_element_create("script");
+    char config_js[128];
+    snprintf(config_js, sizeof(config_js), "window.BLOG_USE_TASFA=%s;", g_config.use_tasfa ? "true" : "false");
+    cwist_html_element_set_text(config_script, config_js);
+    cwist_html_element_add_child(body, config_script);
+
     cwist_html_element_add_child(html, head);
     cwist_html_element_add_child(html, body);
 

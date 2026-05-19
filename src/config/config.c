@@ -11,6 +11,7 @@ static void set_default(void) {
     snprintf(g_config.brand_footer, sizeof(g_config.brand_footer), "Built with CWIST C Framework");
     snprintf(g_config.accent, sizeof(g_config.accent), "#3b82f6");
     g_config.port = 8443;
+    g_config.use_tasfa = true;
 }
 
 static void trim_newline(char *s) {
@@ -66,6 +67,8 @@ bool blog_config_load(const char *path) {
             snprintf(g_config.boards_img, sizeof(g_config.boards_img), "%s", val);
         } else if (strcmp(key, "files_img") == 0) {
             snprintf(g_config.files_img, sizeof(g_config.files_img), "%s", val);
+        } else if (strcmp(key, "use_tasfa") == 0) {
+            g_config.use_tasfa = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         }
     }
     fclose(f);
