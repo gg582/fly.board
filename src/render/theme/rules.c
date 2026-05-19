@@ -43,6 +43,8 @@ void rule_base(cJSON *rules) {
     cJSON *b = create_rule("html, body");
     add_decl(b, "margin", "0");
     add_decl(b, "padding", "0");
+    add_decl(b, "max-width", "100%");
+    add_decl(b, "overflow-x", "clip");
     cJSON_AddItemToArray(rules, b);
 
     /* JetBrains Mono @font-face for code */
@@ -110,7 +112,15 @@ void rule_layout(cJSON *rules) {
     add_decl(content, "margin", "0 auto");
     add_decl(content, "padding", "0 20px 40px");
     add_decl(content, "min-width", "0");
+    add_decl(content, "overflow-x", "clip");
     cJSON_AddItemToArray(rules, content);
+
+    cJSON *content_children = create_rule(".content > *");
+    add_decl(content_children, "grid-column", "2");
+    add_decl(content_children, "width", "100%");
+    add_decl(content_children, "max-width", "100%");
+    add_decl(content_children, "min-width", "0");
+    cJSON_AddItemToArray(rules, content_children);
 
     cJSON *nav = create_rule(".topbar");
     add_decl(nav, "display", "flex");
@@ -1005,7 +1015,6 @@ void rule_markdown(cJSON *rules) {
     cJSON_AddItemToArray(rules, md);
 
     cJSON *article = create_rule("article");
-    add_decl(article, "grid-column", "2");
     add_decl(article, "width", "100%");
     add_decl(article, "max-width", "100%");
     add_decl(article, "margin", "0 auto");
