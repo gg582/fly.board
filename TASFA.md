@@ -69,19 +69,20 @@ No direct file bytes are served from the public file endpoints anymore.
 Current tuned values in this tree:
 
 - upload chunk size: `4 MiB`
-- default browser upload parallelism: `24`
-- max browser upload parallelism: `160`
+- default browser upload parallelism: `8`
+- max browser upload parallelism: `48`
 - max browser download sessions: `6` (multi-TASFA)
-- worker pool cap for upload preprocessing: `16`
+- worker pool cap for upload preprocessing: `8`
+- browser-side active upload budget: `128 MiB`
 - upload rollover cadence: steady-state `700 ms`, startup `8000 ms`
 - stall thresholds: foreground steady-state `1500 ms`, background `10000 ms`, startup `3000 ms`
 
 Server-side negotiated upload window:
 
-- strong links: initial `32`, max `160`
-- medium links: initial `26`, max `160`
-- weaker links: initial `18`, max `72`
-- unstable links: initial `12`, max `48`
+- strong links: initial `12`, max `48`
+- medium links: initial `10`, max `48`
+- weaker links: initial `8`, max `24`
+- unstable links: initial `4`, max `12`
 
 Server-side negotiated download profile:
 
@@ -99,6 +100,7 @@ The client treats the server bitmap as authoritative for uploads, while using lo
 - `status` also returns `topology_closed_bitmap`, `topology_closure_complete`, and `client_stripes`.
 - the client rebuilds its pending queue as `damage -> frontier -> remaining`.
 - when chunk validation or transport state goes bad, the browser rolls the upload into a fresh negotiated session using the existing authoritative bitmap.
+- upload defaults are intentionally conservative now because sparse-file write contention and TLS churn were outperforming raw request fan-out in the bad direction.
 - **Atomic State Persistence**: Server-side state writes (`meta.json`, `state.json`) use temporary files and `rename()` to prevent corruption during concurrent access or crashes.
 - **IndexedDB Download Cache**: The browser stores downloaded chunks in `tasfa_cache` (IndexedDB). Handshakes check this cache to enable seamless resume even after tab closure or page refresh.
 - **Visibility-Aware Scheduling**: The client scheduler monitors `visibilityState`. Background tabs use relaxed stall timeouts (10s+) to accommodate browser throttling, while foreground tabs stay aggressive.

@@ -29,17 +29,17 @@
     var UPLOAD_CANCEL_ENDPOINT = '/file/upload/cancel';
     var UPLOAD_WORKER_URL = '/assets/js/tasfa-upload-worker.js';
     var UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024;
-    var UPLOAD_DEFAULT_PARALLEL = 24;
-    var UPLOAD_MAX_PARALLEL = 160;
+    var UPLOAD_DEFAULT_PARALLEL = 8;
+    var UPLOAD_MAX_PARALLEL = 48;
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
     var UPLOAD_RECOVERY_MAX_DELAY = 8000;
     var UPLOAD_SCHEDULER_TICK_MS = 20;
-    var UPLOAD_STARTUP_STALL_TIMEOUT_MS = 3000;
-    var UPLOAD_STALL_TIMEOUT_MS = 1500;
-    var UPLOAD_PROGRESS_STALL_TIMEOUT_MS = 2500;
+    var UPLOAD_STALL_TIMEOUT_MS = 5000;
+    var UPLOAD_PROGRESS_STALL_TIMEOUT_MS = 8000;
+    var UPLOAD_STARTUP_STALL_TIMEOUT_MS = 10000;
     var UPLOAD_SESSION_FETCH_TIMEOUT_MS = 8000;
     var UPLOAD_CHUNK_RETRY_LIMIT = 7;
-    var UPLOAD_WORKER_POOL_LIMIT = 16;
+    var UPLOAD_WORKER_POOL_LIMIT = 8;
     var TASFA_CLIENT_STRIPE_COUNT = 32;
     var uploadWorkerBridge = null;
     var FAST_RENEGOTIATE_DELAY_MS = 4000;
@@ -53,7 +53,7 @@
     var PREPARE_BATCH_SIZE = 4;
     var UPLOAD_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024;
     var UPLOAD_PREPARED_BUDGET_BYTES = 224 * 1024 * 1024;
-    var UPLOAD_ACTIVE_BUDGET_BYTES = 384 * 1024 * 1024;
+    var UPLOAD_ACTIVE_BUDGET_BYTES = 128 * 1024 * 1024;
     var hmacKeyCache = {};
 
     function escapeHtml(value) {
@@ -1389,15 +1389,24 @@
     }
 
     function rebuildPendingChunks(asset) {
-        if (!asset) return;
-        asset.pendingChunks = buildPriorityChunkOrder(
-            asset.receivedBitmap,
-            asset.totalChunks,
-            asset.topologyFrontierBitmap,
-            asset.topologyDamageBitmap
-        );
-        asset.nextChunkCursor = 0;
-        clearPreparedChunks(asset);
+        if (!asset || asset.rebuildingPending) return;
+        asset.rebuildingPending = true;
+        
+        if (asset.pendingChunks && asset.pendingChunks.length > (asset.currentParallel * 2)) {
+            asset.rebuildingPending = false;
+            return;
+        }
+
+        setTimeout(function() {
+            asset.pendingChunks = buildPriorityChunkOrder(
+                asset.receivedBitmap,
+                asset.totalChunks,
+                asset.topologyFrontierBitmap,
+                asset.topologyDamageBitmap
+            );
+            asset.nextChunkCursor = 0;
+            asset.rebuildingPending = false;
+        }, 0);
     }
 
     function hasMissingChunks(asset) {
