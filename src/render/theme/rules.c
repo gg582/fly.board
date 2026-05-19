@@ -216,6 +216,18 @@ void rule_layout(cJSON *rules) {
     add_decl(board_dd, "align-items", "center");
     cJSON_AddItemToArray(rules, board_dd);
 
+    cJSON *board_dd_after = create_rule(".nav-board-dropdown::after");
+    add_decl(board_dd_after, "content", "''");
+    add_decl(board_dd_after, "position", "absolute");
+    add_decl(board_dd_after, "top", "100%");
+    add_decl(board_dd_after, "left", "0");
+    add_decl(board_dd_after, "width", "100%");
+    add_decl(board_dd_after, "height", "10px");
+    add_decl(board_dd_after, "background", "transparent");
+    add_decl(board_dd_after, "pointer-events", "auto");
+    add_decl(board_dd_after, "z-index", "100");
+    cJSON_AddItemToArray(rules, board_dd_after);
+
     cJSON *board_menu = create_rule(".nav-board-menu");
     add_decl(board_menu, "position", "absolute");
     add_decl(board_menu, "top", "calc(100% + 10px)");
