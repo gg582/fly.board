@@ -34,7 +34,7 @@ This document records the findings from the investigation into file upload hangs
 ### 6. Monolithic Chunk Wire Stalls
 - **Symptoms**: Throughput looked good briefly, then uploads appeared to freeze around the first chunk boundary even though topology state itself was valid.
 - **Cause**: The transport was still effectively monolithic per topology chunk, so the first meaningful ACK could not arrive until a whole chunk body had crossed the wire and been verified.
-- **Current Resolution**: The wire protocol now uses `128 KiB` transport blocks under `1 MiB` topology chunks. The server tracks both chunk and block bitmaps, and a chunk is only marked complete after all of its transport blocks arrive.
+- **Current Resolution**: The wire protocol now uses `512 KiB` transport blocks under `16 MiB` topology chunks. The server tracks both chunk and block bitmaps, and a chunk is only marked complete after all of its transport blocks arrive.
 
 ### 7. Broken Rollover State
 - **Symptoms**: After a rollover, uploads could restart from the wrong place, keep stale window state, or appear hung even though some bytes had already been accepted.
@@ -44,7 +44,7 @@ This document records the findings from the investigation into file upload hangs
 ## Recommendations
 
 1.  **Tune Concurrency**: Balance concurrency based on network conditions. For local testing, 8-16 concurrent transport blocks are a saner baseline than jumping directly to extreme fan-out.
-2.  **Verify Chunking**: Use the negotiated `chunk_size` and `transport_block_size` returned by the server. Current values are `1 MiB` topology chunks and `128 KiB` transport blocks.
+2.  **Verify Chunking**: Use the negotiated `chunk_size` and `transport_block_size` returned by the server. Current values are `16 MiB` topology chunks and `512 KiB` transport blocks.
 3.  **App Limits**: If high concurrency is required, increase `cwist_app_set_max_memspace` and `cwist_app_configure_bdr` in `src/main.c`.
 4.  **Filesystem**: Use a filesystem that handles sparse files efficiently (like XFS or Ext4 with `posix_fallocate`).
 5.  **Do Not Conflate Prep With Wire Time**: Compression/HMAC staging should not block network admission control. Keep separate counters for prepared, reserved, and actively transmitting chunks.

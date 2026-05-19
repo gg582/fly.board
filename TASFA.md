@@ -55,8 +55,8 @@ Upload acceptance is bitmap-based. The server stores session state under `data/t
 Current transport behavior:
 
 - topology ownership still lives at the TASFA chunk level
-- topology chunks are currently `1 MiB`
-- transport blocks are currently `128 KiB`
+- topology chunks are currently `16 MiB`
+- transport blocks are currently `512 KiB`
 - a single topology chunk is carried by multiple ordered transport blocks
 - the browser encrypts each transport block with a per-session `AES-256-GCM` stream key
 - the stream key and IV seed are issued during `init` and included in a PQC-signed session envelope
@@ -81,8 +81,8 @@ No direct file bytes are served from the public file endpoints anymore.
 
 Current tuned values in this tree:
 
-- upload chunk size: `1 MiB`
-- upload transport block size: `128 KiB`
+- upload chunk size: `16 MiB`
+- upload transport block size: `512 KiB`
 - default browser upload parallelism: `16`
 - max browser upload parallelism: `64`
 - max browser download sessions: `6` (multi-TASFA)

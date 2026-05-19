@@ -15,13 +15,14 @@
 
 #define TASFA_UPLOAD_DIR "data/tasfa/uploads"
 #define TASFA_DOWNLOAD_DIR "data/tasfa/downloads"
-#define TASFA_CHUNK_SIZE (1 * 1024 * 1024)
-#define TASFA_TRANSPORT_BLOCK_SIZE (128 * 1024)
+#define TASFA_CHUNK_SIZE (16 * 1024 * 1024)
+#define TASFA_TRANSPORT_BLOCK_SIZE (512 * 1024)
 
 #define TASFA_UPLOAD_TTL 86400
 #define TASFA_DOWNLOAD_TTL 86400
 #define TASFA_UPLOAD_DEFAULT_PARALLEL 16
 #define TASFA_UPLOAD_MAX_PARALLEL 64
+#define TASFA_UPLOAD_PROGRESS_SNAPSHOT_INTERVAL 512
 #define TASFA_DOWNLOAD_DEFAULT_PARALLEL 24
 #define TASFA_DOWNLOAD_MAX_PARALLEL 256
 #define TASFA_CLIENT_STRIPES 32
@@ -1480,7 +1481,7 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     }
     if (chunk_complete) mark_chunk_received_in_session_state(upload_id, chunk_index);
 
-    bool send_progress_snapshot = (transport_block_index % 128 == 0) || chunk_complete;
+    bool send_progress_snapshot = (transport_block_index % TASFA_UPLOAD_PROGRESS_SNAPSHOT_INTERVAL == 0) || chunk_complete;
     if (!send_progress_snapshot) {
         res->status_code = CWIST_HTTP_NO_CONTENT;
         cwist_http_header_add(&res->headers, "X-TASFA-Accepted", "1");

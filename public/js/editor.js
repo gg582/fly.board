@@ -28,7 +28,7 @@
     var UPLOAD_COMPLETE_ENDPOINT = '/file/upload/complete';
     var UPLOAD_CANCEL_ENDPOINT = '/file/upload/cancel';
     var UPLOAD_WORKER_URL = '/assets/js/tasfa-upload-worker.js';
-    var UPLOAD_CHUNK_SIZE = 1 * 1024 * 1024;
+    var UPLOAD_CHUNK_SIZE = 16 * 1024 * 1024;
     var UPLOAD_DEFAULT_PARALLEL = 16;
     var UPLOAD_MAX_PARALLEL = 64;
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
@@ -1748,7 +1748,7 @@
                 if (sessionGeneration !== Number(asset.sessionGeneration || 0)) return;
                 if (asset.failed || asset.isCancelling || asset.recovering) return;
                 finishNetworkAttempt(asset, blockIndex);
-                if (xhr.status !== 200) {
+                if (xhr.status !== 200 && xhr.status !== 204) {
                     if ((xhr.status === 429 || xhr.status >= 500) && attempt < retryCount) {
                         recordLinkPenalty(asset, xhr.status === 429 ? 'retry' : 'timeout');
                         setTimeout(function() { attemptUpload(attempt + 1); }, nextChunkRetryDelay(attempt));
