@@ -111,6 +111,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
     cwist_sstring_append(b, "<input id='file-input' type='file' multiple style='margin-top:12px'>");
     cwist_sstring_append(b, "</div>");
     cwist_sstring_append(b, "<div id='upload-preview' style='margin-top:14px;display:grid;gap:10px'></div>");
+    cwist_sstring_append(b, "<div id='file-repo-queued-summary' style='margin-top:10px;font-size:13px;color:var(--muted)'></div>");
     cwist_sstring_append(b, "<div class='file-repo-upload-actions' style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px'>");
     cwist_sstring_append(b, "<button id='file-repo-upload-btn' type='button' class='btn'>Upload queued files</button>");
     cwist_sstring_append(b, "</div></div>");
