@@ -10,7 +10,7 @@ theme_color_t light = {
     .panel = "#ffffff", .accent = "#4f46e5", .accent2 = "#6366f1",
     .border = "#e5e7eb", .shadow = "rgba(0,0,0,0.08)",
     .hover = "#f3f4f6", .code_bg = "#f4f4f5",
-    .glass_bg = "rgba(255,255,255,0.65)", .glass_border = "rgba(255,255,255,0.5)"
+    .glass_bg = "rgba(255,255,255,0.54)", .glass_border = "rgba(255,255,255,0.7)"
 };
 
 theme_color_t dark = {
@@ -18,7 +18,7 @@ theme_color_t dark = {
     .panel = "#1a1a1e", .accent = "#818cf8", .accent2 = "#a5b4fc",
     .border = "#3f3f46", .shadow = "rgba(0,0,0,0.4)",
     .hover = "#27272a", .code_bg = "#27272a",
-    .glass_bg = "rgba(24,24,27,0.6)", .glass_border = "rgba(255,255,255,0.08)"
+    .glass_bg = "rgba(24,24,27,0.48)", .glass_border = "rgba(255,255,255,0.12)"
 };
 
 theme_color_t ocean = {
@@ -26,7 +26,7 @@ theme_color_t ocean = {
     .panel = "#11283d", .accent = "#38bdf8", .accent2 = "#7dd3fc",
     .border = "#1e3a5f", .shadow = "rgba(0,0,0,0.4)",
     .hover = "#163450", .code_bg = "#0f172a",
-    .glass_bg = "rgba(17,40,61,0.6)", .glass_border = "rgba(56,189,248,0.15)"
+    .glass_bg = "rgba(17,40,61,0.46)", .glass_border = "rgba(125,211,252,0.2)"
 };
 
 theme_color_t forest = {
@@ -34,7 +34,7 @@ theme_color_t forest = {
     .panel = "#162b20", .accent = "#34d399", .accent2 = "#6ee7b7",
     .border = "#22543d", .shadow = "rgba(0,0,0,0.4)",
     .hover = "#1c3a2a", .code_bg = "#14281e",
-    .glass_bg = "rgba(22,43,32,0.6)", .glass_border = "rgba(52,211,153,0.15)"
+    .glass_bg = "rgba(22,43,32,0.46)", .glass_border = "rgba(110,231,183,0.18)"
 };
 
 theme_color_t sepia = {
@@ -42,7 +42,7 @@ theme_color_t sepia = {
     .panel = "#efe6d0", .accent = "#b45309", .accent2 = "#d97706",
     .border = "#d6c6a8", .shadow = "rgba(67,52,34,0.08)",
     .hover = "#eaddc5", .code_bg = "#e8dec3",
-    .glass_bg = "rgba(239,230,208,0.7)", .glass_border = "rgba(255,255,255,0.4)"
+    .glass_bg = "rgba(239,230,208,0.56)", .glass_border = "rgba(255,255,255,0.62)"
 };
 
 theme_color_t *theme_by_name(const char *name) {
@@ -104,4 +104,3 @@ cJSON *build_theme_object(const char *name, theme_color_t *t) {
     cJSON_AddItemToObject(root, "rules", rules);
     return root;
 }
-

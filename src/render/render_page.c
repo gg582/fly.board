@@ -191,15 +191,6 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     /* Nav */
     cwist_html_element_t *nav = cwist_html_element_create("nav");
     cwist_html_element_add_class(nav, "topbar");
-    cwist_html_element_t *brand = cwist_html_element_create("a");
-    cwist_html_element_add_attr(brand, "href", "/");
-    cwist_html_element_add_class(brand, "topbar-brand");
-    cwist_html_element_t *brand_title = cwist_html_element_create("span");
-    cwist_html_element_add_class(brand_title, "topbar-title");
-    cwist_html_element_set_text(brand_title, g_config.title);
-    cwist_html_element_add_child(brand, brand_title);
-    cwist_html_element_add_child(nav, brand);
-
     cwist_html_element_t *burger_btn = cwist_html_element_create("button");
     cwist_html_element_add_attr(burger_btn, "type", "button");
     cwist_html_element_add_attr(burger_btn, "class", "burger-btn");
@@ -212,11 +203,21 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(burger_btn, burger_icon);
     cwist_html_element_add_child(nav, burger_btn);
 
+    cwist_html_element_t *brand = cwist_html_element_create("a");
+    cwist_html_element_add_attr(brand, "href", "/");
+    cwist_html_element_add_class(brand, "topbar-brand");
+    cwist_html_element_t *brand_title = cwist_html_element_create("span");
+    cwist_html_element_add_class(brand_title, "topbar-title");
+    cwist_html_element_set_text(brand_title, g_config.title);
+    cwist_html_element_add_child(brand, brand_title);
+    cwist_html_element_add_child(nav, brand);
+
     cwist_html_element_t *navlinks = cwist_html_element_create("div");
     cwist_html_element_add_class(navlinks, "nav-links");
     cwist_html_element_add_child(navlinks, nav_link("/", "Home"));
     cwist_html_element_t *boards_wrap = cwist_html_element_create("div");
     cwist_html_element_add_class(boards_wrap, "nav-board-dropdown");
+    cwist_html_element_add_class(boards_wrap, "desktop-only");
     cwist_html_element_t *boards_link = cwist_html_element_create("a");
     cwist_html_element_add_attr(boards_link, "href", "/boards");
     cwist_html_element_add_attr(boards_link, "class", "nav-item nav-board-trigger");
@@ -236,6 +237,9 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(boards_menu, boards_list);
     cwist_html_element_add_child(boards_wrap, boards_menu);
     cwist_html_element_add_child(navlinks, boards_wrap);
+    cwist_html_element_t *mobile_boards = nav_link("/boards", "All Boards");
+    cwist_html_element_add_class(mobile_boards, "mobile-only");
+    cwist_html_element_add_child(navlinks, mobile_boards);
     cwist_html_element_add_child(navlinks, nav_link("/files", "Files"));
     if (user_role && strcmp(user_role, "admin") == 0) {
         cwist_html_element_add_child(navlinks, nav_link("/admin/users", "Admin"));
