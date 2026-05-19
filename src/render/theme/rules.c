@@ -75,7 +75,7 @@ void rule_base(cJSON *rules) {
     add_decl(copy, "font-size", "1rem");
     cJSON_AddItemToArray(rules, copy);
 
-    cJSON *ui_copy = create_rule("button, label, .btn, .nav-item, .post-badge, .comment-meta, .board-post-meta, .post-row-meta, .theme-option");
+    cJSON *ui_copy = create_rule("button, label, .btn, .nav-item, .post-badge, .comment-meta, .board-post-meta, .post-row-meta");
     add_decl(ui_copy, "font-family", "var(--font-ui)");
     add_decl(ui_copy, "letter-spacing", "-0.015em");
     cJSON_AddItemToArray(rules, ui_copy);
@@ -381,16 +381,6 @@ void rule_layout(cJSON *rules) {
     cJSON *ua_theme_switch = create_rule("html.mobile-device .theme-switch");
     add_decl(ua_theme_switch, "padding", "14px 24px");
     cJSON_AddItemToArray(rules, ua_theme_switch);
-
-    cJSON *ua_theme_dropdown = create_rule("html.mobile-device .theme-dropdown");
-    add_decl(ua_theme_dropdown, "position", "static");
-    add_decl(ua_theme_dropdown, "opacity", "1");
-    add_decl(ua_theme_dropdown, "pointer-events", "auto");
-    add_decl(ua_theme_dropdown, "transform", "none");
-    add_decl(ua_theme_dropdown, "box-shadow", "none");
-    add_decl(ua_theme_dropdown, "border", "none");
-    add_decl(ua_theme_dropdown, "padding", "8px 0 0");
-    cJSON_AddItemToArray(rules, ua_theme_dropdown);
 
     cJSON *ua_overlay = create_rule("html.mobile-device .mobile-overlay");
     add_decl(ua_overlay, "display", "block");
@@ -1153,16 +1143,33 @@ void rule_markdown(cJSON *rules) {
     cJSON_AddItemToArray(rules, slider_thumb_moz);
 
     cJSON *theme_switch = create_rule(".theme-switch");
-    add_decl(theme_switch, "position", "relative");
     add_decl(theme_switch, "display", "inline-flex");
-    add_decl(theme_switch, "flex-direction", "column");
-    add_decl(theme_switch, "align-items", "flex-end");
+    add_decl(theme_switch, "align-items", "center");
     cJSON_AddItemToArray(rules, theme_switch);
 
     cJSON *theme_btn = create_rule(".theme-toggle-btn");
-    add_decl(theme_btn, "min-width", "88px");
-    add_decl(theme_btn, "justify-content", "space-between");
+    add_decl(theme_btn, "min-width", "96px");
+    add_decl(theme_btn, "display", "inline-flex");
+    add_decl(theme_btn, "align-items", "center");
+    add_decl(theme_btn, "justify-content", "center");
+    add_decl(theme_btn, "gap", "10px");
+    add_decl(theme_btn, "padding", "10px 14px");
+    add_decl(theme_btn, "background", "color-mix(in srgb, var(--glass-bg) 54%, transparent)");
+    add_decl(theme_btn, "border", "1px solid color-mix(in srgb, var(--glass-border) 88%, transparent)");
+    add_decl(theme_btn, "color", "var(--fg)");
+    add_decl(theme_btn, "box-shadow", "0 8px 22px color-mix(in srgb, var(--shadow) 28%, transparent)");
+    add_decl(theme_btn, "backdrop-filter", "blur(14px) saturate(150%)");
+    add_decl(theme_btn, "-webkit-backdrop-filter", "blur(14px) saturate(150%)");
+    add_decl(theme_btn, "transition", "background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease");
     cJSON_AddItemToArray(rules, theme_btn);
+
+    cJSON *theme_btn_h = create_rule(".theme-toggle-btn:hover");
+    add_decl(theme_btn_h, "background", "color-mix(in srgb, var(--glass-bg) 74%, transparent)");
+    add_decl(theme_btn_h, "border-color", "color-mix(in srgb, var(--accent) 36%, var(--glass-border))");
+    add_decl(theme_btn_h, "color", "var(--accent)");
+    add_decl(theme_btn_h, "box-shadow", "0 12px 28px color-mix(in srgb, var(--shadow) 34%, transparent)");
+    add_decl(theme_btn_h, "transform", "translateY(-1px)");
+    cJSON_AddItemToArray(rules, theme_btn_h);
 
     cJSON *theme_icon = create_rule(".theme-spin-icon");
     add_decl(theme_icon, "display", "inline-block");
@@ -1173,48 +1180,6 @@ void rule_markdown(cJSON *rules) {
     cJSON *theme_icon_spin = create_rule(".theme-spin-icon.spin");
     add_decl(theme_icon_spin, "transform", "rotate(180deg)");
     cJSON_AddItemToArray(rules, theme_icon_spin);
-
-    cJSON *theme_dd = create_rule(".theme-dropdown");
-    add_decl(theme_dd, "position", "absolute");
-    add_decl(theme_dd, "top", "calc(100% + 6px)");
-    add_decl(theme_dd, "right", "0");
-    add_decl(theme_dd, "min-width", "120px");
-    add_decl(theme_dd, "background", "var(--panel)");
-    add_decl(theme_dd, "border", "1px solid var(--border)");
-    add_decl(theme_dd, "box-shadow", "0 10px 26px var(--shadow)");
-    add_decl(theme_dd, "display", "flex");
-    add_decl(theme_dd, "flex-direction", "column");
-    add_decl(theme_dd, "padding", "6px");
-    add_decl(theme_dd, "opacity", "0");
-    add_decl(theme_dd, "pointer-events", "none");
-    add_decl(theme_dd, "transform", "translateY(-8px)");
-    add_decl(theme_dd, "transition", "opacity 0.2s ease, transform 0.2s ease");
-    cJSON_AddItemToArray(rules, theme_dd);
-
-    cJSON *theme_dd_open = create_rule(".theme-dropdown.open");
-    add_decl(theme_dd_open, "opacity", "1");
-    add_decl(theme_dd_open, "pointer-events", "auto");
-    add_decl(theme_dd_open, "transform", "translateY(0)");
-    cJSON_AddItemToArray(rules, theme_dd_open);
-
-    cJSON *theme_opt = create_rule(".theme-option");
-    add_decl(theme_opt, "text-align", "left");
-    add_decl(theme_opt, "padding", "8px 10px");
-    add_decl(theme_opt, "background", "transparent");
-    add_decl(theme_opt, "border", "none");
-    add_decl(theme_opt, "color", "var(--fg)");
-    add_decl(theme_opt, "font", "inherit");
-    add_decl(theme_opt, "cursor", "pointer");
-    cJSON_AddItemToArray(rules, theme_opt);
-
-    cJSON *theme_opt_h = create_rule(".theme-option:hover");
-    add_decl(theme_opt_h, "background", "var(--hover)");
-    cJSON_AddItemToArray(rules, theme_opt_h);
-
-    cJSON *theme_opt_active = create_rule(".theme-option.active");
-    add_decl(theme_opt_active, "color", "var(--accent)");
-    add_decl(theme_opt_active, "font-weight", "700");
-    cJSON_AddItemToArray(rules, theme_opt_active);
 
     cJSON *adv_btn_after = create_rule(".adv-toggle-btn::after");
     add_decl(adv_btn_after, "content", "'▾'");
@@ -1300,13 +1265,8 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".nav-item", "border-bottom: 1px solid var(--border)");
     add_decl(mq, ".nav-item:hover", "border-bottom-color: var(--border)");
     add_decl(mq, ".theme-switch", "padding: 14px 24px");
-    add_decl(mq, ".theme-dropdown", "position: static");
-    add_decl(mq, ".theme-dropdown", "opacity: 1");
-    add_decl(mq, ".theme-dropdown", "pointer-events: auto");
-    add_decl(mq, ".theme-dropdown", "transform: none");
-    add_decl(mq, ".theme-dropdown", "box-shadow: none");
-    add_decl(mq, ".theme-dropdown", "border: none");
-    add_decl(mq, ".theme-dropdown", "padding: 8px 0 0");
+    add_decl(mq, ".theme-toggle-btn", "width: 100%");
+    add_decl(mq, ".theme-toggle-btn", "justify-content: space-between");
     add_decl(mq, ".mobile-overlay", "display: block");
     add_decl(mq, ".hero-logo", "height: 100px");
     add_decl(mq, ".hero h1", "font-size: clamp(2rem, 8vw, 3rem)");

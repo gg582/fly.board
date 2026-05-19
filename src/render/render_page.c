@@ -152,14 +152,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "for(var i=0;i<pres.length;i++)pres[i].style.opacity='0.5';"
         "var l=document.getElementById('hl-theme');if(l)l.href=(name==='light'?HL_LIGHT:HL_DARK);"
         "setTimeout(function(){for(var i=0;i<pres.length;i++)pres[i].style.opacity='';},200);}"
-        "function updateBtn(name){var label=document.getElementById('theme-toggle-label');if(label)label.textContent=(name==='light'?'Dark':'Light');"
-        "var opts=document.querySelectorAll('.theme-option');for(var i=0;i<opts.length;i++){"
-        "var v=opts[i].getAttribute('data-theme');opts[i].classList.toggle('active',v===name);}}"
+        "function updateBtn(name){var label=document.getElementById('theme-toggle-label');var btn=document.querySelector('.theme-toggle-btn');"
+        "if(label)label.textContent=(name==='light'?'Dark':'Light');"
+        "if(btn)btn.setAttribute('aria-label',name==='light'?'Switch to dark mode':'Switch to light mode');}"
         "function rotateToggle(){var icon=document.getElementById('theme-spin');if(!icon)return;"
         "icon.classList.remove('spin');void icon.offsetWidth;icon.classList.add('spin');}"
-        "function closeMenu(){var m=document.getElementById('theme-dropdown');"
-        "var btn=document.querySelector('.theme-toggle-btn');"
-        "if(m)m.classList.remove('open');if(btn)btn.setAttribute('aria-expanded','false');}"
         "function renderBoardsDropdown(arr){var list=document.getElementById('boards-dropdown-list');if(!list)return;"
         "list.innerHTML='';for(var i=0;i<arr.length;i++){var b=arr[i];"
         "if(!b||!b.slug||!b.name)continue;var a=document.createElement('a');"
@@ -181,17 +178,13 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "window.toggleTheme=function(name){"
         "if(!name)name=(mode==='light'?'dark':'light');mode=name;"
         "document.cookie='theme='+mode+';path=/;max-age=31536000';"
-        "setHlCss(mode);updateBtn(mode);rotateToggle();closeMenu();"
+        "setHlCss(mode);updateBtn(mode);rotateToggle();"
         "if(themes){applyTheme(findTheme(themes,mode));return;}"
         "fetch('/themes.json').then(function(r){return r.json();}).then(function(arr){"
         "localStorage.setItem(CACHE_KEY,JSON.stringify(arr));themes=arr;applyTheme(findTheme(arr,mode));});"
         "};"
-        "window.toggleThemeMenu=function(ev){if(ev)ev.stopPropagation();"
-        "var m=document.getElementById('theme-dropdown');var btn=document.querySelector('.theme-toggle-btn');"
-        "if(!m)return;var open=!m.classList.contains('open');m.classList.toggle('open',open);"
-        "if(btn)btn.setAttribute('aria-expanded',open?'true':'false');};"
-        "document.addEventListener('click',function(ev){closeMenu();var nav=document.querySelector('.nav-links');var btn=document.querySelector('.burger-btn');if(!nav||!btn||!nav.classList.contains('open'))return;if(nav.contains(ev.target)||btn.contains(ev.target))return;setMobileNav(false);});"
-        "document.addEventListener('keydown',function(ev){if(ev.key==='Escape'){closeMenu();setMobileNav(false);}});"
+        "document.addEventListener('click',function(ev){var nav=document.querySelector('.nav-links');var btn=document.querySelector('.burger-btn');if(!nav||!btn||!nav.classList.contains('open'))return;if(nav.contains(ev.target)||btn.contains(ev.target))return;setMobileNav(false);});"
+        "document.addEventListener('keydown',function(ev){if(ev.key==='Escape'){setMobileNav(false);}});"
         "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',loadBoardsDropdown);}else{loadBoardsDropdown();}"
         "})();");
     cwist_html_element_add_child(head, script);
@@ -282,15 +275,15 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         cwist_html_element_add_child(navlinks, nav_link("/register", "Register"));
     }
 
-    /* Theme toggle + slider wrapper */
+    /* Single theme toggle */
     cwist_html_element_t *theme_wrapper = cwist_html_element_create("div");
     cwist_html_element_add_class(theme_wrapper, "theme-switch");
 
     cwist_html_element_t *theme_btn = cwist_html_element_create("button");
     cwist_html_element_add_attr(theme_btn, "type", "button");
-    cwist_html_element_add_attr(theme_btn, "onclick", "toggleThemeMenu(event)");
+    cwist_html_element_add_attr(theme_btn, "onclick", "toggleTheme()");
     cwist_html_element_add_attr(theme_btn, "class", "btn btn-outline theme-toggle-btn");
-    cwist_html_element_add_attr(theme_btn, "aria-expanded", "false");
+    cwist_html_element_add_attr(theme_btn, "aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
     cwist_html_element_set_text(theme_btn, "");
     cwist_html_element_t *theme_icon = cwist_html_element_create("span");
     cwist_html_element_add_attr(theme_icon, "id", "theme-spin");
@@ -303,31 +296,6 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_set_text(theme_label, dark ? "Light" : "Dark");
     cwist_html_element_add_child(theme_btn, theme_label);
     cwist_html_element_add_child(theme_wrapper, theme_btn);
-
-    cwist_html_element_t *theme_menu = cwist_html_element_create("div");
-    cwist_html_element_add_attr(theme_menu, "id", "theme-dropdown");
-    cwist_html_element_add_class(theme_menu, "theme-dropdown");
-    cwist_html_element_add_attr(theme_menu, "onclick", "event.stopPropagation()");
-
-    cwist_html_element_t *theme_light = cwist_html_element_create("button");
-    cwist_html_element_add_attr(theme_light, "type", "button");
-    cwist_html_element_add_attr(theme_light, "class", dark ? "theme-option" : "theme-option active");
-    cwist_html_element_add_attr(theme_light, "data-theme", "light");
-    cwist_html_element_add_attr(theme_light, "onclick", "toggleTheme('light')");
-    cwist_html_element_set_text(theme_light, "Light");
-    cwist_html_element_add_child(theme_menu, theme_light);
-
-    cwist_html_element_t *theme_dark = cwist_html_element_create("button");
-    cwist_html_element_add_attr(theme_dark, "type", "button");
-    cwist_html_element_add_attr(theme_dark, "class", dark ? "theme-option active" : "theme-option");
-    cwist_html_element_add_attr(theme_dark, "data-theme", "dark");
-    cwist_html_element_add_attr(theme_dark, "onclick", "toggleTheme('dark')");
-    cwist_html_element_set_text(theme_dark, "Dark");
-    cwist_html_element_add_child(theme_menu, theme_dark);
-
-    cwist_html_element_add_child(theme_wrapper, theme_menu);
-
-
     cwist_html_element_add_child(navlinks, theme_wrapper);
     cwist_html_element_add_child(nav, navlinks);
 
