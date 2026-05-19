@@ -1400,6 +1400,16 @@ void rule_markdown(cJSON *rules) {
     cJSON *fr_info = create_rule(".file-repo-card-info");
     add_decl(fr_info, "min-width", "0");
     cJSON_AddItemToArray(rules, fr_info);
+
+    cJSON *math_block = create_rule(".math-block");
+    add_decl(math_block, "display", "block");
+    add_decl(math_block, "overflow-x", "auto");
+    add_decl(math_block, "margin", "16px 0");
+    cJSON_AddItemToArray(rules, math_block);
+
+    cJSON *math_inline = create_rule(".math-inline");
+    add_decl(math_inline, "display", "inline-block");
+    cJSON_AddItemToArray(rules, math_inline);
 }
 
 void rule_animations(cJSON *rules) {

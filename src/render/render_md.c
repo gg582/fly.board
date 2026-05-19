@@ -6,8 +6,211 @@
 #include <md4c.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static const char *tasfa_spacer_gif = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+typedef struct {
+    char **expressions;
+    int count;
+    int capacity;
+} math_registry_t;
+
+static void math_registry_init(math_registry_t *reg) {
+    reg->expressions = NULL;
+    reg->count = 0;
+    reg->capacity = 0;
+}
+
+static void math_registry_add(math_registry_t *reg, const char *expr, size_t len) {
+    while (len > 0 && (expr[0] == ' ' || expr[0] == '\t' || expr[0] == '\n' || expr[0] == '\r')) {
+        expr++; len--;
+    }
+    while (len > 0 && (expr[len - 1] == ' ' || expr[len - 1] == '\t' || expr[len - 1] == '\n' || expr[len - 1] == '\r')) {
+        len--;
+    }
+    if (len == 0) {
+        expr = " ";
+        len = 1;
+    }
+    if (reg->count >= reg->capacity) {
+        reg->capacity = reg->capacity ? reg->capacity * 2 : 16;
+        reg->expressions = (char **)realloc(reg->expressions, sizeof(char *) * reg->capacity);
+    }
+    char *copy = (char *)malloc(len + 1);
+    memcpy(copy, expr, len);
+    copy[len] = '\0';
+    reg->expressions[reg->count++] = copy;
+}
+
+static void math_registry_free(math_registry_t *reg) {
+    for (int i = 0; i < reg->count; i++) free(reg->expressions[i]);
+    free(reg->expressions);
+    reg->expressions = NULL;
+    reg->count = 0;
+    reg->capacity = 0;
+}
+
+static void append_escaped_math(cwist_sstring *out, const char *text) {
+    while (*text) {
+        if (*text == '<') cwist_sstring_append(out, "&lt;");
+        else if (*text == '>') cwist_sstring_append(out, "&gt;");
+        else if (*text == '&') cwist_sstring_append(out, "&amp;");
+        else if (*text == '"') cwist_sstring_append(out, "&quot;");
+        else cwist_sstring_append_len(out, text, 1);
+        text++;
+    }
+}
+
+static bool is_line_start(const char *s, size_t pos) {
+    return pos == 0 || s[pos - 1] == '\n';
+}
+
+static bool is_code_fence_line(const char *s, size_t pos, size_t len) {
+    size_t k = pos;
+    while (k < len && (s[k] == ' ' || s[k] == '\t')) k++;
+    if (k + 3 <= len && strncmp(s + k, "```", 3) == 0) return true;
+    if (k + 3 <= len && strncmp(s + k, "~~~", 3) == 0) return true;
+    return false;
+}
+
+static char *protect_math(const char *md, math_registry_t *blocks, math_registry_t *inlines) {
+    size_t len = strlen(md);
+    cwist_sstring *out = cwist_sstring_create();
+    size_t i = 0;
+    int in_code_block = 0;
+
+    while (i < len) {
+        if (is_line_start(md, i) && is_code_fence_line(md, i, len)) {
+            in_code_block = !in_code_block;
+        }
+
+        if (in_code_block) {
+            cwist_sstring_append_len(out, md + i, 1);
+            i++;
+            continue;
+        }
+
+        /* Block math: $$...$$ */
+        if (i + 1 < len && md[i] == '$' && md[i + 1] == '$' && (i == 0 || md[i - 1] != '\\')) {
+            size_t j = i + 2;
+            while (j + 1 < len && !(md[j] == '$' && md[j + 1] == '$')) j++;
+            if (j + 1 < len) {
+                size_t expr_len = j - (i + 2);
+                math_registry_add(blocks, md + i + 2, expr_len);
+                char placeholder[64];
+                snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
+                cwist_sstring_append(out, placeholder);
+                i = j + 2;
+                continue;
+            }
+        }
+
+        /* Block math: \[...\] */
+        if (i + 1 < len && md[i] == '\\' && md[i + 1] == '[') {
+            size_t j = i + 2;
+            while (j + 1 < len && !(md[j] == '\\' && md[j + 1] == ']')) j++;
+            if (j + 1 < len) {
+                size_t expr_len = j - (i + 2);
+                math_registry_add(blocks, md + i + 2, expr_len);
+                char placeholder[64];
+                snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
+                cwist_sstring_append(out, placeholder);
+                i = j + 2;
+                continue;
+            }
+        }
+
+        /* Inline math: $...$ */
+        if (md[i] == '$' && (i == 0 || md[i - 1] != '\\')) {
+            size_t j = i + 1;
+            while (j < len && md[j] != '$' && md[j] != '\n') j++;
+            if (j < len && md[j] == '$') {
+                size_t expr_len = j - (i + 1);
+                if (expr_len > 0) {
+                    math_registry_add(inlines, md + i + 1, expr_len);
+                    char placeholder[64];
+                    snprintf(placeholder, sizeof(placeholder), "@@MATH_INLINE_%d@@", inlines->count - 1);
+                    cwist_sstring_append(out, placeholder);
+                    i = j + 1;
+                    continue;
+                }
+            }
+        }
+
+        /* Inline math: \(...\) */
+        if (i + 1 < len && md[i] == '\\' && md[i + 1] == '(') {
+            size_t j = i + 2;
+            while (j + 1 < len && !(md[j] == '\\' && md[j + 1] == ')')) j++;
+            if (j + 1 < len) {
+                size_t expr_len = j - (i + 2);
+                if (expr_len > 0) {
+                    math_registry_add(inlines, md + i + 2, expr_len);
+                    char placeholder[64];
+                    snprintf(placeholder, sizeof(placeholder), "@@MATH_INLINE_%d@@", inlines->count - 1);
+                    cwist_sstring_append(out, placeholder);
+                    i = j + 2;
+                    continue;
+                }
+            }
+        }
+
+        cwist_sstring_append_len(out, md + i, 1);
+        i++;
+    }
+
+    char *result = strdup(out->data);
+    cwist_sstring_destroy(out);
+    return result;
+}
+
+static void restore_math(cwist_sstring *html, const math_registry_t *blocks, const math_registry_t *inlines) {
+    const char *data = html->data;
+    size_t len = strlen(data);
+    cwist_sstring *out = cwist_sstring_create();
+    size_t i = 0;
+
+    while (i < len) {
+        if (i + 13 <= len && strncmp(data + i, "@@MATH_BLOCK_", 13) == 0) {
+            size_t j = i + 13;
+            int idx = 0;
+            while (j < len && data[j] >= '0' && data[j] <= '9') {
+                idx = idx * 10 + (data[j] - '0');
+                j++;
+            }
+            if (j + 2 <= len && strncmp(data + j, "@@", 2) == 0) {
+                cwist_sstring_append(out, "<span class=\"math-block\">");
+                if (idx >= 0 && idx < blocks->count) {
+                    append_escaped_math(out, blocks->expressions[idx]);
+                }
+                cwist_sstring_append(out, "</span>");
+                i = j + 2;
+                continue;
+            }
+        } else if (i + 14 <= len && strncmp(data + i, "@@MATH_INLINE_", 14) == 0) {
+            size_t j = i + 14;
+            int idx = 0;
+            while (j < len && data[j] >= '0' && data[j] <= '9') {
+                idx = idx * 10 + (data[j] - '0');
+                j++;
+            }
+            if (j + 2 <= len && strncmp(data + j, "@@", 2) == 0) {
+                cwist_sstring_append(out, "<span class=\"math-inline\">");
+                if (idx >= 0 && idx < inlines->count) {
+                    append_escaped_math(out, inlines->expressions[idx]);
+                }
+                cwist_sstring_append(out, "</span>");
+                i = j + 2;
+                continue;
+            }
+        }
+        cwist_sstring_append_len(out, data + i, 1);
+        i++;
+    }
+
+    cwist_sstring_assign(html, out->data);
+    cwist_sstring_destroy(out);
+}
 
 static void md_output_cb(const MD_CHAR *data, MD_SIZE size, void *userdata) {
     cwist_sstring *str = (cwist_sstring *)userdata;
@@ -204,15 +407,31 @@ static void inject_img_attrs(cwist_sstring *html) {
 }
 
 cwist_sstring *render_markdown_to_html(const char *md) {
+    math_registry_t blocks = {0}, inlines = {0};
+    math_registry_init(&blocks);
+    math_registry_init(&inlines);
+    char *protected = protect_math(md, &blocks, &inlines);
+
     cwist_sstring *html = cwist_sstring_create();
-    if (!html) return NULL;
-    cwist_sstring_assign(html, "");
-    unsigned flags = MD_DIALECT_GITHUB | MD_FLAG_TABLES | MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS;
-    int rc = md_html(md, (MD_SIZE)strlen(md), md_output_cb, html, flags, 0);
-    if (rc != 0) {
-        cwist_sstring_destroy(html);
+    if (!html) {
+        free(protected);
+        math_registry_free(&blocks);
+        math_registry_free(&inlines);
         return NULL;
     }
+    cwist_sstring_assign(html, "");
+    unsigned flags = MD_DIALECT_GITHUB | MD_FLAG_TABLES | MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS;
+    int rc = md_html(protected, (MD_SIZE)strlen(protected), md_output_cb, html, flags, 0);
+    free(protected);
+    if (rc != 0) {
+        cwist_sstring_destroy(html);
+        math_registry_free(&blocks);
+        math_registry_free(&inlines);
+        return NULL;
+    }
+    restore_math(html, &blocks, &inlines);
+    math_registry_free(&blocks);
+    math_registry_free(&inlines);
     inject_img_attrs(html);
     rewrite_tasfa_bootstrap(html);
     return html;

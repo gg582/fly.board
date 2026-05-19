@@ -100,6 +100,29 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "document.addEventListener('DOMContentLoaded',function(){hljs.highlightAll();});");
     cwist_html_element_add_child(head, hl_init);
 
+    /* KaTeX for math rendering */
+    cwist_html_element_t *katex_css = cwist_html_element_create("link");
+    cwist_html_element_add_attr(katex_css, "rel", "stylesheet");
+    cwist_html_element_add_attr(katex_css, "href", "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css");
+    cwist_html_element_add_child(head, katex_css);
+
+    cwist_html_element_t *katex_js = cwist_html_element_create("script");
+    cwist_html_element_add_attr(katex_js, "src", "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js");
+    cwist_html_element_add_child(head, katex_js);
+
+    cwist_html_element_t *katex_init = cwist_html_element_create("script");
+    cwist_html_element_set_text(katex_init,
+        "document.addEventListener('DOMContentLoaded',function(){"
+        "if(typeof katex==='undefined')return;"
+        "document.querySelectorAll('.math-inline').forEach(function(el){"
+        "try{katex.render(el.textContent,el,{throwOnError:false});}catch(e){}"
+        "});"
+        "document.querySelectorAll('.math-block').forEach(function(el){"
+        "try{katex.render(el.textContent,el,{displayMode:true,throwOnError:false});}catch(e){}"
+        "});"
+        "});");
+    cwist_html_element_add_child(head, katex_init);
+
     cwist_html_element_t *tasfa_js = cwist_html_element_create("script");
     cwist_html_element_add_attr(tasfa_js, "src", "/assets/js/tasfa-download.js");
     cwist_html_element_add_attr(tasfa_js, "defer", "");
