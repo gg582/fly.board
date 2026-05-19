@@ -70,51 +70,39 @@ Current tuned values in this tree:
 
 - upload chunk size: `4 MiB`
 - default browser upload parallelism: `24`
-- max browser upload parallelism: `96`
+- max browser upload parallelism: `160`
+- max browser download sessions: `6` (multi-TASFA)
 - worker pool cap for upload preprocessing: `16`
-- browser-side upload memory budget assumption: `512 MiB`
-- client stripe bucket count for chunk interleaving: `32`
-- upload stall thresholds: startup/no-response `2500 ms`, steady-state dispatch gap `700 ms`, in-flight progress gap `1200 ms`, with RTT-aware extension capped at `4000 ms`
 - upload rollover cadence: steady-state `700 ms`, startup `8000 ms`
-- upload rollover limits: steady-state `24`, startup-without-confirmed-bytes `96`
+- stall thresholds: foreground steady-state `1500 ms`, background `10000 ms`, startup `3000 ms`
 
 Server-side negotiated upload window:
 
-- strong links: initial `32`, max `96`
-- medium links: initial `26`, max `96`
+- strong links: initial `32`, max `160`
+- medium links: initial `26`, max `160`
 - weaker links: initial `18`, max `72`
 - unstable links: initial `12`, max `48`
-- rollover init also accepts a client `suggested_parallel` hint so resumed sessions can jump straight back to the last proven peak instead of slowly climbing again
 
 Server-side negotiated download profile:
 
-- strong links: initial `96`, max `224`, coalesce `48`
-- medium links: initial `80`, max `176`, coalesce `40`
-- weaker links: initial `56`, max `128`, coalesce `28`
-- unstable links: initial `32`, max `72`, coalesce `20`
-- server-side pacing is now held at `0 ms`; retries back off only on actual fetch failure
+- strong links: initial `112`, max `256`, coalesce `64`
+- medium links: initial `96`, max `224`, coalesce `48`
+- weaker links: initial `64`, max `160`, coalesce `32`
+- unstable links: initial `32`, max `96`, coalesce `24`
 
 ## Resume and Session Rollover
 
-The client treats the server bitmap as authoritative.
+The client treats the server bitmap as authoritative for uploads, while using local IndexedDB for download persistence.
 
 - `status` returns the current bitmap and negotiated window.
-- `renegotiate` recalculates the current window from fresh link hints, but the client now biases toward keeping or raising throughput instead of backing it down aggressively.
+- `renegotiate` recalculates the current window from fresh link hints, with an aggressive acceleration bias (+8 chunks or +50% per successful step).
 - `status` also returns `topology_closed_bitmap`, `topology_closure_complete`, and `client_stripes`.
-- recoverable topology/signature failures return bitmap state plus a damage bitmap and rule label.
 - the client rebuilds its pending queue as `damage -> frontier -> remaining`.
-- stale callbacks from a superseded session generation are ignored on the browser side.
-- when chunk validation or transport state goes bad, the browser rolls the upload into a fresh negotiated session using the existing authoritative bitmap instead of trying to limp along inside the old callback chain.
-- rollover retries now stay on a fixed `700 ms` cadence after the first confirmed bytes, and on `8000 ms` during startup, instead of exponential recovery backoff.
-- if the previous session already committed chunks, the next session continues from the remaining bitmap gap only.
-- rollover first refreshes the authoritative bitmap, then resumes with `resume_upload_id` and `resume_upload_token`; the new session must not discard already-written chunk extents.
-- startup sessions that have not yet confirmed any bytes get a larger rollover allowance before the browser gives up.
-- stall detection is driven by real chunk send and response activity, not by UI percentage.
-- startup uses a separate no-response threshold until the first real chunk acknowledgement lands, which avoids pathological early rollover on normal cold-start latency.
-- upload preprocessing now runs in a prepare-ahead cache so compression/HMAC work overlaps active network transfers.
-- upload window refill now ticks at `10 ms`, can prepare up to `48` chunks ahead, and climbs by `+2` while still below half of the server ceiling.
-- upload renegotiation now biases to `max(peak_parallel, current + 50%)` rather than a small incremental raise.
-- download chunk grouping now allows up to `64` chunk spans per request and grows the fetch window more aggressively before backing off.
+- when chunk validation or transport state goes bad, the browser rolls the upload into a fresh negotiated session using the existing authoritative bitmap.
+- **Atomic State Persistence**: Server-side state writes (`meta.json`, `state.json`) use temporary files and `rename()` to prevent corruption during concurrent access or crashes.
+- **IndexedDB Download Cache**: The browser stores downloaded chunks in `tasfa_cache` (IndexedDB). Handshakes check this cache to enable seamless resume even after tab closure or page refresh.
+- **Visibility-Aware Scheduling**: The client scheduler monitors `visibilityState`. Background tabs use relaxed stall timeouts (10s+) to accommodate browser throttling, while foreground tabs stay aggressive.
+- **Automatic Wake-up**: A `visibilitychange` listener ensures the transfer loop resumes immediately when a tab returns to the foreground.
 
 ## Multi-TASFA Download
 
@@ -124,7 +112,7 @@ When the browser has enough spare CPU, memory, and link budget, the client now o
 - extra handshakes are admitted only if they report the same file shape
 - each session gets its own `session_id` and `session_token`, but they all write into the same client-side destination buffer
 - chunk groups are reserved from one shared cursor, so sessions never intentionally duplicate the same span
-- session fan-out is capped at `4` and only activates on larger files plus stronger clients; `Save-Data`, small files, or weak devices stay on one session
+- session fan-out is capped at `6` and only activates on larger files plus stronger clients.
 - retries stay short and local to the lane that failed; successful lanes keep draining the remaining queue instead of collapsing the whole download window first
 
 ## Page Integration
