@@ -483,15 +483,37 @@
         btnUpload.textContent = 'Upload';
         btnUpload.style.display = 'none';
 
+        var btnCancel = document.createElement('button');
+        btnCancel.type = 'button';
+        btnCancel.className = 'btn btn-outline media-cancel-btn';
+        btnCancel.textContent = 'Cancel';
+        btnCancel.style.display = 'none';
+
+        var btnRemove = document.createElement('button');
+        btnRemove.type = 'button';
+        btnRemove.className = 'btn btn-outline media-remove-btn';
+        btnRemove.textContent = 'Remove';
+        btnRemove.style.display = 'none';
+
+        var btnRetry = document.createElement('button');
+        btnRetry.type = 'button';
+        btnRetry.className = 'btn media-retry-btn';
+        btnRetry.textContent = 'Retry';
+        btnRetry.style.display = 'none';
+
         var btnDelete = document.createElement('button');
         btnDelete.type = 'button';
         btnDelete.className = 'btn btn-outline media-delete-btn';
         btnDelete.textContent = 'Delete';
+        btnDelete.style.display = 'none';
 
         actions.appendChild(btnInsert);
         actions.appendChild(btnInline);
         actions.appendChild(btnAttachment);
         actions.appendChild(btnUpload);
+        actions.appendChild(btnCancel);
+        actions.appendChild(btnRemove);
+        actions.appendChild(btnRetry);
         actions.appendChild(btnDelete);
 
         card.appendChild(thumb);
@@ -508,6 +530,9 @@
             btnInline: btnInline,
             btnAttachment: btnAttachment,
             btnUpload: btnUpload,
+            btnCancel: btnCancel,
+            btnRemove: btnRemove,
+            btnRetry: btnRetry,
             btnDelete: btnDelete
         };
     }
@@ -518,6 +543,57 @@
         FileUploadQueue.push(asset.client_uuid);
         if (asset.ui && asset.ui.status) asset.ui.status.textContent = 'Waiting...';
         if (asset.ui && asset.ui.btnUpload) asset.ui.btnUpload.disabled = true;
+        updateMediaCardUI(asset);
+    }
+
+    function updateMediaCardUI(asset) {
+        if (!asset || !asset.ui) return;
+        var ui = asset.ui;
+        var isQueued = FileUploadQueue.indexOf(asset.client_uuid) !== -1;
+        var isUploading = asset.isUploading && !asset.failed && asset.fid === null && !asset.isCancelling;
+        var isDone = asset.fid !== null && !asset.failed;
+        var isFailed = asset.failed;
+        var isPending = !asset.isExisting && asset.fid === null && !asset.isUploading && !asset.uploadId && !asset.failed;
+
+        function hide(el) { if (el) el.style.display = 'none'; }
+        function show(el) { if (el) el.style.display = ''; }
+
+        hide(ui.btnInsert);
+        hide(ui.btnInline);
+        hide(ui.btnAttachment);
+        hide(ui.btnUpload);
+        hide(ui.btnDelete);
+        hide(ui.btnCancel);
+        hide(ui.btnRemove);
+        hide(ui.btnRetry);
+
+        if (isFailed) {
+            show(ui.btnRetry);
+            show(ui.btnRemove);
+        } else if (isUploading) {
+            show(ui.btnCancel);
+        } else if (isPending || isQueued) {
+            if (!isEditorMode) {
+                show(ui.btnUpload);
+            }
+            show(ui.btnRemove);
+        } else if (isDone) {
+            if (isEditorMode) {
+                show(ui.btnInsert);
+                show(ui.btnInline);
+                show(ui.btnAttachment);
+            } else {
+                show(ui.btnInsert);
+                show(ui.btnInline);
+            }
+            show(ui.btnDelete);
+        }
+
+        if (isDone) {
+            if (ui.btnInsert) ui.btnInsert.disabled = false;
+            if (ui.btnInline) ui.btnInline.disabled = false;
+            if (ui.btnAttachment) ui.btnAttachment.disabled = !isEditorMode;
+        }
     }
 
     function processFileUploadQueue() {
@@ -536,32 +612,11 @@
     function bindAssetControls(asset) {
         var ui = asset.ui;
 
-        ui.btnDelete.onclick = function() {
-            clearRecoveryTimer(asset);
-            if (asset.fid === null && asset.xhrs && asset.xhrs.length) {
-                asset.isCancelling = true;
-                asset.xhrs.slice().forEach(function(xhr) {
-                    try { xhr.abort(); } catch (err) {}
-                });
-                if (asset.uploadId) {
-                    fetch(UPLOAD_CANCEL_ENDPOINT, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: 'upload_ids=' + encodeURIComponent(JSON.stringify([asset.uploadId]))
-                    });
-                }
-            } else if (asset.fid !== null) {
-                fetch('/file/delete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'id=' + encodeURIComponent(String(asset.fid)) +
-                        '&delete_pin=' + encodeURIComponent(asset.deletePin || '')
-                });
-            }
-
+        function cleanupAssetUI() {
             removeMarkdownByUrl(asset.url || asset.placeholderUrl);
             if (asset.blobUrl) {
                 URL.revokeObjectURL(asset.blobUrl);
+                asset.blobUrl = null;
             }
             if (asset.ui && asset.ui.el) {
                 asset.ui.el.remove();
@@ -569,11 +624,101 @@
             removeAssetRecord(asset);
             updateFileRepoUploadButton();
             schedulePreview();
+        }
+
+        ui.btnCancel.onclick = function() {
+            clearRecoveryTimer(asset);
+            asset.isCancelling = true;
+            if (asset.xhrs && asset.xhrs.length) {
+                asset.xhrs.slice().forEach(function(xhr) {
+                    try { xhr.abort(); } catch (err) {}
+                });
+            }
+            abortInflightRequests(asset);
+            clearSchedulerTimer(asset);
+            if (asset.uploadId) {
+                fetch(UPLOAD_CANCEL_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'upload_ids=' + encodeURIComponent(JSON.stringify([asset.uploadId]))
+                });
+            }
+            asset.isUploading = false;
+            isFileUploadRunning = false;
+            processFileUploadQueue();
+            cleanupAssetUI();
+        };
+
+        ui.btnRemove.onclick = function() {
+            clearRecoveryTimer(asset);
+            if (asset.isUploading && !asset.isCancelling) {
+                asset.isCancelling = true;
+                if (asset.xhrs && asset.xhrs.length) {
+                    asset.xhrs.slice().forEach(function(xhr) {
+                        try { xhr.abort(); } catch (err) {}
+                    });
+                }
+                abortInflightRequests(asset);
+                clearSchedulerTimer(asset);
+                if (asset.uploadId) {
+                    fetch(UPLOAD_CANCEL_ENDPOINT, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: 'upload_ids=' + encodeURIComponent(JSON.stringify([asset.uploadId]))
+                    });
+                }
+                asset.isUploading = false;
+                isFileUploadRunning = false;
+                processFileUploadQueue();
+            }
+            cleanupAssetUI();
+        };
+
+        ui.btnRetry.onclick = function() {
+            if (!asset.file || asset.fid !== null) return;
+            asset.failed = false;
+            asset.isUploading = false;
+            asset.isCancelling = false;
+            asset.isPaused = false;
+            asset.recovering = false;
+            asset.recoveryAttempts = 0;
+            asset.uploadId = null;
+            asset.uploadToken = null;
+            asset.uploadSecret = null;
+            asset.receivedBitmap = '';
+            asset.completedChunks = 0;
+            asset.confirmedBytes = 0;
+            asset.resumeFromByte = 0;
+            asset.lastVisualBytes = 0;
+            asset.xhrs = [];
+            if (asset.ui && asset.ui.progressInner) {
+                asset.ui.progressInner.style.width = '0%';
+            }
+            if (asset.ui && asset.ui.progress) {
+                asset.ui.progress.style.display = '';
+            }
+            if (isEditorMode) {
+                initChunkedUpload(asset, asset.file);
+            } else {
+                enqueueFileUpload(asset);
+                processFileUploadQueue();
+            }
+        };
+
+        ui.btnDelete.onclick = function() {
+            clearRecoveryTimer(asset);
+            if (asset.fid !== null) {
+                fetch('/file/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'id=' + encodeURIComponent(String(asset.fid)) +
+                        '&delete_pin=' + encodeURIComponent(asset.deletePin || '')
+                });
+            }
+            cleanupAssetUI();
         };
 
         if (!isEditorMode) {
-            ui.btnUpload.style.display = '';
-            ui.btnUpload.disabled = asset.fid === null || asset.isUploading || FileUploadQueue.indexOf(asset.client_uuid) !== -1;
             ui.btnUpload.onclick = function() {
                 enqueueFileUpload(asset);
                 processFileUploadQueue();
@@ -591,35 +736,36 @@
             ui.btnAttachment.style.display = 'none';
             ui.btnInsert.disabled = asset.fid === null;
             ui.btnInline.disabled = asset.fid === null;
-            return;
+        } else {
+            ui.btnInsert.onclick = function() {
+                insertAssetMarkdown(asset);
+            };
+
+            ui.btnInline.onclick = function() {
+                if (!asset.url) return;
+                asset.mode = 'inline';
+                if (!editorHasUrl(asset.url)) {
+                    insertAssetMarkdown(asset);
+                } else {
+                    schedulePreview();
+                }
+                setModeButtons(ui, asset.mode);
+                syncMediaMeta();
+            };
+
+            ui.btnAttachment.onclick = function() {
+                if (!asset.url) return;
+                asset.mode = 'attachment';
+                removeMarkdownByUrl(asset.url);
+                setModeButtons(ui, asset.mode);
+                syncMediaMeta();
+                schedulePreview();
+            };
+
+            setModeButtons(ui, asset.mode);
         }
 
-        ui.btnInsert.onclick = function() {
-            insertAssetMarkdown(asset);
-        };
-
-        ui.btnInline.onclick = function() {
-            if (!asset.url) return;
-            asset.mode = 'inline';
-            if (!editorHasUrl(asset.url)) {
-                insertAssetMarkdown(asset);
-            } else {
-                schedulePreview();
-            }
-            setModeButtons(ui, asset.mode);
-            syncMediaMeta();
-        };
-
-        ui.btnAttachment.onclick = function() {
-            if (!asset.url) return;
-            asset.mode = 'attachment';
-            removeMarkdownByUrl(asset.url);
-            setModeButtons(ui, asset.mode);
-            syncMediaMeta();
-            schedulePreview();
-        };
-
-        setModeButtons(ui, asset.mode);
+        updateMediaCardUI(asset);
     }
 
     function finalizeUploadSuccess(asset, response) {
@@ -699,6 +845,7 @@
         updateSubmitButtons();
         isFileUploadRunning = false;
         processFileUploadQueue();
+        updateMediaCardUI(asset);
     }
 
     function fileRepoPendingAssets() {
@@ -1666,6 +1813,7 @@
         fillChunkWindow(asset, file);
         updateFileRepoUploadButton();
         updateSubmitButtons();
+        updateMediaCardUI(asset);
     }
 
     function initChunkedUpload(asset, file, reason, rolloverState) {
