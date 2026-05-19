@@ -49,7 +49,6 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
-    cJSON *boards = db_board_list(req->db);
     cJSON *posts = NULL;
     int page = 1, total_pages = 1;
     const char *page_str = cwist_query_map_get(req->query_params, "page");
@@ -66,7 +65,6 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
             CWIST_LOG_WARN("Post list: board not found slug='%s'", slug);
             res->status_code = CWIST_HTTP_NOT_FOUND;
             cwist_sstring_assign(res->body, "Board not found");
-            if (boards) cJSON_Delete(boards);
             return;
         }
         int bid = json_int(board, "id", 0);
@@ -89,9 +87,8 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     }
 
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page_html = render_post_list(posts, boards, dark, role, page, total_pages, slug, search, search_type, pp, uid);
+    cwist_sstring *page_html = render_post_list(posts, dark, role, page, total_pages, slug, search, search_type, pp, uid);
     if (posts) cJSON_Delete(posts);
-    if (boards) cJSON_Delete(boards);
     send_html_res(res, page_html);
     free(pp);
 }

@@ -9,10 +9,8 @@ void handler_home(cwist_http_request *req, cwist_http_response *res) {
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *posts = db_post_recent(req->db, 12);
-    cJSON *boards = db_board_list(req->db);
-    cwist_sstring *page = render_post_list(posts, boards, dark, role, 1, 1, "", NULL, NULL, pp, uid);
+    cwist_sstring *page = render_post_list(posts, dark, role, 1, 1, "", NULL, NULL, pp, uid);
     if (posts) cJSON_Delete(posts);
-    if (boards) cJSON_Delete(boards);
     send_html_res(res, page);
     free(pp);
 }

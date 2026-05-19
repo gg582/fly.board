@@ -110,7 +110,7 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
     }
 }
 
-cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id) {
+cwist_sstring *render_post_list(cJSON *posts, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id) {
     cwist_sstring *b = cwist_sstring_create();
     int has_home_bg = g_config.home_img[0];
     char bg_style[768] = {0};
@@ -155,24 +155,6 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         }
         cwist_sstring_append(b, "</div>");
 
-        /* Board chips */
-        if (boards && cJSON_GetArraySize(boards) > 0) {
-            cwist_sstring_append(b, "<div style='margin-bottom:18px;text-align:center");
-            if (has_home_bg) cwist_sstring_append(b, ";margin-top:18px");
-            cwist_sstring_append(b, "'>");
-            int n = cJSON_GetArraySize(boards);
-            for (int i = 0; i < n; i++) {
-                cJSON *bo = cJSON_GetArrayItem(boards, i);
-                cJSON *slug = cJSON_GetObjectItem(bo, "slug");
-                cJSON *name = cJSON_GetObjectItem(bo, "name");
-                cwist_sstring_append(b, "<a class='tag' href='/board/");
-                cwist_sstring_append(b, slug->valuestring);
-                cwist_sstring_append(b, "'>");
-                cwist_sstring_append_escaped(b, name->valuestring);
-                cwist_sstring_append(b, "</a>");
-            }
-            cwist_sstring_append(b, "</div>");
-        }
         if (has_home_bg) {
             cwist_sstring_append(b, "</div>");
             cwist_sstring_append(b, "<hr style='border:none;border-top:2px solid var(--border);margin:12px 0 24px'>");
