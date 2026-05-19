@@ -27,8 +27,6 @@
 #define TASFA_CLIENT_STRIPES 32
 #define TASFA_CACHE_SLOTS 512
 
-static const int TASFA_DIRS[6][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, -1}, {-1, 1}};
-
 /* Binary Metadata Structure for Fast Path */
 typedef struct {
     char upload_token[64];
@@ -630,44 +628,6 @@ static void cleanup_download_session(const char *session_id) {
     cleanup_dir_tree(dir_path);
 }
 
-/* --- Topology Logic (init / complete only) --- */
-
-static int chunk_grid_cols(int chunk_count) {
-    int cols = 1;
-    while (cols * cols < chunk_count) cols++;
-    return cols;
-}
-
-static void upload_vertex_for_index(int chunk_index, int chunk_count, int *q, int *r) {
-    int cols = chunk_grid_cols(chunk_count);
-    if (q) *q = chunk_index % cols;
-    if (r) *r = chunk_index / cols;
-}
-
-static int upload_magic_sum_for_index(int chunk_index, int chunk_count) {
-    int sum = chunk_index + 1;
-    int cols = chunk_grid_cols(chunk_count);
-    int q = chunk_index % cols;
-    int r = chunk_index / cols;
-    for (int i = 0; i < 6; i++) {
-        int nq = q + TASFA_DIRS[i][0];
-        int nr = r + TASFA_DIRS[i][1];
-        if (nq < 0 || nr < 0) continue;
-        int next = nr * cols + nq;
-        if (next >= 0 && next < chunk_count) sum += next + 1;
-    }
-    return sum;
-}
-
-static const char *upload_topology_rule_violation(int chunk_index, int chunk_count, const char *vertex_id, int magic_sum) {
-    int expected_q = 0, expected_r = 0, got_q = 0, got_r = 0;
-    if (!vertex_id || sscanf(vertex_id, "%d:%d", &got_q, &got_r) != 2) return "vertex_parse_mismatch";
-    upload_vertex_for_index(chunk_index, chunk_count, &expected_q, &expected_r);
-    if (got_q != expected_q || got_r != expected_r) return "vertex_position_mismatch";
-    if (magic_sum != upload_magic_sum_for_index(chunk_index, chunk_count)) return "magic_sum_mismatch";
-    return NULL;
-}
-
 /* --- Response Helpers --- */
 
 static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
@@ -682,20 +642,34 @@ static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
     cJSON_AddStringToObject(obj, "upload_secret", json_string(meta, "upload_secret", ""));
     cJSON_AddStringToObject(obj, "stream_key_hex", json_string(meta, "stream_key_hex", ""));
     cJSON_AddStringToObject(obj, "stream_iv_seed_hex", json_string(meta, "stream_iv_seed_hex", ""));
-    cJSON_AddStringToObject(obj, "stream_session_signature", json_string(meta, "stream_session_signature", ""));
     cJSON_AddStringToObject(obj, "stream_mode", "aes-256-gcm");
     cJSON_AddNumberToObject(obj, "chunk_size", json_int(meta, "chunk_size", TASFA_CHUNK_SIZE));
     cJSON_AddNumberToObject(obj, "chunk_count", chunk_count);
     cJSON_AddNumberToObject(obj, "total_size", (double)total_size);
     cJSON_AddStringToObject(obj, "received_bitmap", bitmap);
     cJSON_AddNumberToObject(obj, "received_chunks", received_chunks);
-    cJSON_AddNumberToObject(obj, "current_parallel_chunks", json_int(meta, "current_parallel_chunks", TASFA_UPLOAD_DEFAULT_PARALLEL));
-    cJSON_AddNumberToObject(obj, "initial_parallel_chunks", json_int(meta, "current_parallel_chunks", TASFA_UPLOAD_DEFAULT_PARALLEL));
-    cJSON_AddNumberToObject(obj, "max_parallel_chunks", json_int(meta, "max_parallel_chunks", TASFA_UPLOAD_MAX_PARALLEL));
+    cJSON_AddNumberToObject(obj, "current_parallel_chunks", json_int(meta, "current_parallel_chunks", 6));
+    cJSON_AddNumberToObject(obj, "initial_parallel_chunks", json_int(meta, "current_parallel_chunks", 6));
+    cJSON_AddNumberToObject(obj, "max_parallel_chunks", json_int(meta, "max_parallel_chunks", 6));
+    cJSON_AddNumberToObject(obj, "modulus_M", json_long_long(meta, "modulus_M", 0));
+    cJSON_AddNumberToObject(obj, "group_count", json_int(meta, "group_count", 0));
     cJSON_AddStringToObject(obj, "expires_at", json_string(meta, "expires_at", "0"));
     cJSON_AddBoolToObject(obj, "topology_closure_complete", chunk_count > 0 && received_chunks == chunk_count);
     cJSON_AddNumberToObject(obj, "client_stripes", TASFA_CLIENT_STRIPES);
     cJSON_AddNumberToObject(obj, "dispatch_pacing_ms", json_int(meta, "dispatch_pacing_ms", 0));
+
+    /* Missing vertices for HTP per-vertex retry */
+    cJSON *missing = cJSON_CreateArray();
+    for (int i = 0; i < chunk_count; i++) {
+        if (!bitmap || bitmap[i] != '1') {
+            cJSON *item = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item, "group_index", i / 6);
+            cJSON_AddNumberToObject(item, "vertex_index", i % 6);
+            cJSON_AddNumberToObject(item, "chunk_index", i);
+            cJSON_AddItemToArray(missing, item);
+        }
+    }
+    cJSON_AddItemToObject(obj, "missing_vertices", missing);
     return obj;
 }
 
@@ -776,32 +750,6 @@ static bool init_download_session(const char *filename, const char *mime, const 
     return true;
 }
 
-static bool find_upload_id_by_session_id(const char *session_id, char *out_upload_id, size_t out_len) {
-    DIR *dir = opendir(TASFA_UPLOAD_DIR);
-    if (!dir) return false;
-    struct dirent *ent;
-    bool found = false;
-    while ((ent = readdir(dir)) != NULL) {
-        if (ent->d_name[0] == '.') continue;
-        char meta_path[PATH_MAX];
-        snprintf(meta_path, sizeof(meta_path), "%s/%s/meta.json", TASFA_UPLOAD_DIR, ent->d_name);
-        cJSON *meta = load_json_file(meta_path);
-        if (!meta) continue;
-        if (strcmp(json_string(meta, "session_id", ""), session_id) == 0) {
-            size_t copy_len = strlen(ent->d_name);
-            if (copy_len >= out_len) copy_len = out_len - 1;
-            memcpy(out_upload_id, ent->d_name, copy_len);
-            out_upload_id[copy_len] = '\0';
-            found = true;
-            cJSON_Delete(meta);
-            break;
-        }
-        cJSON_Delete(meta);
-    }
-    closedir(dir);
-    return found;
-}
-
 static bool pwrite_all(int fd, const void *buf, size_t len, off_t offset) {
     const unsigned char *cursor = (const unsigned char *)buf;
     size_t written = 0;
@@ -837,269 +785,123 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     cwist_query_map_parse(kv, req->body->data);
     const char *filename = cwist_query_map_get(kv, "filename");
     const char *session_id = cwist_query_map_get(kv, "session_id");
-    const char *resume_upload_id = cwist_query_map_get(kv, "resume_upload_id");
-    const char *resume_upload_token = cwist_query_map_get(kv, "resume_upload_token");
-    const char *rollover_upload_id = cwist_query_map_get(kv, "rollover_upload_id");
-    const char *rollover_upload_token = cwist_query_map_get(kv, "rollover_upload_token");
-    long long client_confirmed_bytes = atoll(cwist_query_map_get(kv, "client_confirmed_bytes") ? cwist_query_map_get(kv, "client_confirmed_bytes") : "0");
-    int suggested_parallel = atoi(cwist_query_map_get(kv, "suggested_parallel") ? cwist_query_map_get(kv, "suggested_parallel") : "0");
     int chunk_count = atoi(cwist_query_map_get(kv, "chunk_count") ? cwist_query_map_get(kv, "chunk_count") : "0");
     long long total_size = atoll(cwist_query_map_get(kv, "total_size") ? cwist_query_map_get(kv, "total_size") : "0");
-    int client_chunk_size = atoi(cwist_query_map_get(kv, "chunk_size") ? cwist_query_map_get(kv, "chunk_size") : "0");
-    int actual_chunk_size = TASFA_CHUNK_SIZE;
-    if (client_chunk_size >= 1024*1024 && client_chunk_size <= 64*1024*1024) actual_chunk_size = client_chunk_size;
-    if (chunk_count <= 0 && total_size > 0) chunk_count = (int)((total_size + actual_chunk_size - 1) / actual_chunk_size);
+    if (chunk_count <= 0 && total_size > 0) chunk_count = (int)((total_size + TASFA_CHUNK_SIZE - 1) / TASFA_CHUNK_SIZE);
     if (chunk_count < 1) chunk_count = 1;
     int post_id = atoi(cwist_query_map_get(kv, "post_id") ? cwist_query_map_get(kv, "post_id") : "0");
-    int score = link_score_from_inputs(
-        cwist_query_map_get(kv, "link_stability_score"),
-        cwist_query_map_get(kv, "link_effective_type"),
-        cwist_query_map_get(kv, "link_downlink_mbps"),
-        cwist_query_map_get(kv, "link_rtt_ms"),
-        cwist_query_map_get(kv, "link_retry_events"),
-        cwist_query_map_get(kv, "link_timeout_events"),
-        cwist_query_map_get(kv, "link_save_data")
-    );
     if (!filename || !is_safe_filename_simple(filename) || chunk_count <= 0 || total_size <= 0 || !ensure_tasfa_roots()) {
         cwist_query_map_destroy(kv);
         send_json_response(res, session_error_json("invalid upload init payload"), CWIST_HTTP_BAD_REQUEST);
         return;
     }
     char upload_id[33];
-    cJSON *meta = NULL;
-    bool resumed = false;
-    bool rolled_over = false;
-    char previous_upload_id[33] = {0};
-    int previous_lock_fd = -1;
-    cJSON *previous_meta = NULL;
-    char *previous_chunk_bitmap = NULL;
-    char previous_temp_path[PATH_MAX] = {0};
-    int previous_chunk_count = 0;
+    if (!random_hex(upload_id, 16)) {
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
+        return;
+    }
+    char dir_path[PATH_MAX], temp_path[PATH_MAX];
+    upload_session_dir(dir_path, sizeof(dir_path), upload_id);
+    upload_session_temp_path(temp_path, sizeof(temp_path), upload_id);
+    if (!dir_ensure(dir_path) || !ensure_preallocated_file(temp_path, total_size)) {
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
+        return;
+    }
+    char upload_token[49], upload_secret[49];
+    unsigned char stream_key[32] = {0}, stream_iv_seed[12] = {0};
+    char *bitmap = bitmap_create(chunk_count);
+    if (!bitmap || RAND_bytes(stream_key, sizeof(stream_key)) != 1 || RAND_bytes(stream_iv_seed, sizeof(stream_iv_seed)) != 1 ||
+        !random_hex(upload_token, 24) || !random_hex(upload_secret, 24)) {
+        if (bitmap) cwist_free(bitmap);
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
+        return;
+    }
+    char *stream_key_hex = hex_encode_alloc(stream_key, sizeof(stream_key));
+    char *stream_iv_seed_hex = hex_encode_alloc(stream_iv_seed, sizeof(stream_iv_seed));
+    if (!stream_key_hex || !stream_iv_seed_hex) {
+        if (stream_key_hex) cwist_free(stream_key_hex);
+        if (stream_iv_seed_hex) cwist_free(stream_iv_seed_hex);
+        if (bitmap) cwist_free(bitmap);
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
+        return;
+    }
 
-    if (rollover_upload_id && rollover_upload_id[0] && rollover_upload_token && rollover_upload_token[0] && is_safe_segment(rollover_upload_id)) {
-        previous_lock_fd = open_upload_session_lock(rollover_upload_id);
-        previous_meta = previous_lock_fd >= 0 ? load_upload_session(rollover_upload_id) : NULL;
-        if (previous_meta &&
-            secure_str_eq(rollover_upload_token, json_string(previous_meta, "upload_token", "")) &&
-            json_long_long(previous_meta, "total_size", 0) == total_size &&
-            strcmp(json_string(previous_meta, "filename", ""), filename) == 0) {
-            snprintf(previous_upload_id, sizeof(previous_upload_id), "%s", rollover_upload_id);
-            previous_chunk_count = json_int(previous_meta, "chunk_count", 0);
-            snprintf(previous_temp_path, sizeof(previous_temp_path), "%s", json_string(previous_meta, "temp_path", ""));
-            previous_chunk_bitmap = load_upload_session_state_bin(rollover_upload_id, previous_chunk_count);
-            rolled_over = previous_chunk_bitmap && previous_temp_path[0];
-        }
-        if (!rolled_over) {
-            if (previous_chunk_bitmap) cwist_free(previous_chunk_bitmap);
-            previous_chunk_bitmap = NULL;
-            if (previous_meta) { cJSON_Delete(previous_meta); previous_meta = NULL; }
-            close_upload_session_lock(previous_lock_fd);
-            previous_lock_fd = -1;
+    /* Generate random modulus_M for HTP scalar math */
+    uint64_t modulus_M = 0;
+    while (modulus_M == 0) {
+        if (RAND_bytes((unsigned char *)&modulus_M, sizeof(modulus_M)) != 1) {
+            modulus_M = ((uint64_t)time(NULL) << 32) ^ (uint64_t)getpid();
+            if (modulus_M == 0) modulus_M = 1;
         }
     }
-    if (rolled_over) resumed = false;
-    if (resume_upload_id && resume_upload_id[0] && resume_upload_token && resume_upload_token[0] && is_safe_segment(resume_upload_id)) {
-        meta = load_upload_session(resume_upload_id);
-        if (meta && secure_str_eq(resume_upload_token, json_string(meta, "upload_token", "")) &&
-            json_long_long(meta, "total_size", 0) == total_size &&
-            strcmp(json_string(meta, "filename", ""), filename) == 0) {
-            snprintf(upload_id, sizeof(upload_id), "%s", resume_upload_id);
-            resumed = true;
-        } else if (meta) { cJSON_Delete(meta); meta = NULL; }
-    }
-    if (!resumed && session_id && session_id[0] && find_upload_id_by_session_id(session_id, upload_id, sizeof(upload_id))) {
-        meta = load_upload_session(upload_id);
-        if (meta && json_long_long(meta, "total_size", 0) == total_size && strcmp(json_string(meta, "filename", ""), filename) == 0) {
-            resumed = true;
-        } else if (meta) { cJSON_Delete(meta); meta = NULL; }
-    }
-    if (!resumed) {
-        if (!random_hex(upload_id, 16)) {
-            if (previous_chunk_bitmap) cwist_free(previous_chunk_bitmap);
-            if (previous_meta) cJSON_Delete(previous_meta);
-            close_upload_session_lock(previous_lock_fd);
-            cwist_query_map_destroy(kv);
-            send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
-            return;
-        }
-        char dir_path[PATH_MAX], temp_path[PATH_MAX];
-        upload_session_dir(dir_path, sizeof(dir_path), upload_id);
-        upload_session_temp_path(temp_path, sizeof(temp_path), upload_id);
-        bool temp_ready = false;
-        if (dir_ensure(dir_path)) {
-            if (rolled_over) { temp_ready = rename(previous_temp_path, temp_path) == 0; }
-            else { temp_ready = ensure_preallocated_file(temp_path, total_size); }
-        }
-        if (!temp_ready) {
-            if (previous_chunk_bitmap) cwist_free(previous_chunk_bitmap);
-            if (previous_meta) cJSON_Delete(previous_meta);
-            close_upload_session_lock(previous_lock_fd);
-            cwist_query_map_destroy(kv);
-            send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
-            return;
-        }
-        char upload_token[49], upload_secret[49];
-        unsigned char stream_key[32] = {0}, stream_iv_seed[12] = {0};
-        char *bitmap = rolled_over ? previous_chunk_bitmap : bitmap_create(chunk_count);
-        if (!bitmap || RAND_bytes(stream_key, sizeof(stream_key)) != 1 || RAND_bytes(stream_iv_seed, sizeof(stream_iv_seed)) != 1 ||
-            !random_hex(upload_token, 24) || !random_hex(upload_secret, 24)) {
-            if (!rolled_over && bitmap) cwist_free(bitmap);
-            if (previous_meta) cJSON_Delete(previous_meta);
-            close_upload_session_lock(previous_lock_fd);
-            cwist_query_map_destroy(kv);
-            send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
-            return;
-        }
-        char *stream_key_hex = hex_encode_alloc(stream_key, sizeof(stream_key));
-        char *stream_iv_seed_hex = hex_encode_alloc(stream_iv_seed, sizeof(stream_iv_seed));
-        char session_sig_message[512];
-        snprintf(session_sig_message, sizeof(session_sig_message), "%s:%s:%s:%s",
-                 upload_id, upload_token, stream_key_hex ? stream_key_hex : "", stream_iv_seed_hex ? stream_iv_seed_hex : "");
-        char *stream_session_signature = NULL;
-        fly_crypto_sign((const uint8_t *)session_sig_message, strlen(session_sig_message), &stream_session_signature);
-        if (!stream_key_hex || !stream_iv_seed_hex) {
-            if (stream_key_hex) cwist_free(stream_key_hex);
-            if (stream_iv_seed_hex) cwist_free(stream_iv_seed_hex);
-            if (!rolled_over && bitmap) cwist_free(bitmap);
-            if (previous_meta) cJSON_Delete(previous_meta);
-            close_upload_session_lock(previous_lock_fd);
-            cwist_query_map_destroy(kv);
-            send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
-            return;
-        }
-        int initial_parallel = 0, max_parallel = 0, pacing_ms = 0;
-        choose_upload_window(score, &initial_parallel, &max_parallel, &pacing_ms);
-        if (suggested_parallel > 0) {
-            int suggested = clamp_int(suggested_parallel, 2, TASFA_UPLOAD_MAX_PARALLEL);
-            if (initial_parallel < suggested) initial_parallel = suggested;
-            if (max_parallel < suggested) max_parallel = suggested;
-        }
-        meta = cJSON_CreateObject();
-        cJSON_AddNumberToObject(meta, "uid", uid);
-        cJSON_AddNumberToObject(meta, "post_id", post_id);
-        cJSON_AddStringToObject(meta, "filename", filename);
-        cJSON_AddStringToObject(meta, "session_id", session_id ? session_id : "");
-        cJSON_AddStringToObject(meta, "upload_token", upload_token);
-        cJSON_AddStringToObject(meta, "upload_secret", upload_secret);
-        cJSON_AddStringToObject(meta, "stream_key_hex", stream_key_hex);
-        cJSON_AddStringToObject(meta, "stream_iv_seed_hex", stream_iv_seed_hex);
-        cJSON_AddStringToObject(meta, "stream_session_signature", stream_session_signature ? stream_session_signature : "");
-        cJSON_AddStringToObject(meta, "temp_path", temp_path);
-        cJSON_AddNumberToObject(meta, "chunk_size", TASFA_CHUNK_SIZE);
-        cJSON_AddNumberToObject(meta, "chunk_count", chunk_count);
-        cJSON_AddNumberToObject(meta, "total_size", (double)total_size);
-        cJSON_AddStringToObject(meta, "received_bitmap", bitmap);
-        cJSON_AddNumberToObject(meta, "received_chunks", bitmap_count_set(bitmap, chunk_count));
-        cJSON_AddNumberToObject(meta, "current_parallel_chunks", initial_parallel);
-        cJSON_AddNumberToObject(meta, "max_parallel_chunks", max_parallel);
-        cJSON_AddNumberToObject(meta, "dispatch_pacing_ms", pacing_ms);
-        if (rolled_over) cJSON_AddStringToObject(meta, "rolled_over_from", previous_upload_id);
-        if (rolled_over) cJSON_AddNumberToObject(meta, "client_confirmed_bytes", (double)client_confirmed_bytes);
-        char expires_at[32];
-        snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_UPLOAD_TTL));
-        cJSON_AddStringToObject(meta, "expires_at", expires_at);
+    int group_count = (chunk_count + 5) / 6;
 
-        tasfa_meta_bin_t mbin = {0};
-        strncpy(mbin.upload_token, upload_token, sizeof(mbin.upload_token)-1);
-        strncpy(mbin.upload_secret, upload_secret, sizeof(mbin.upload_secret)-1);
-        memcpy(mbin.stream_key, stream_key, sizeof(stream_key));
-        memcpy(mbin.stream_iv_seed, stream_iv_seed, sizeof(stream_iv_seed));
-        mbin.chunk_count = chunk_count;
-        mbin.chunk_size = actual_chunk_size;
-        mbin.total_size = total_size;
-        strncpy(mbin.filename, filename, sizeof(mbin.filename)-1);
-        mbin.post_id = post_id;
-        mbin.uid = uid;
-        snprintf(mbin.temp_path, sizeof(mbin.temp_path), "%s", temp_path);
+    cJSON *meta = cJSON_CreateObject();
+    cJSON_AddNumberToObject(meta, "uid", uid);
+    cJSON_AddNumberToObject(meta, "post_id", post_id);
+    cJSON_AddStringToObject(meta, "filename", filename);
+    cJSON_AddStringToObject(meta, "session_id", session_id ? session_id : "");
+    cJSON_AddStringToObject(meta, "upload_token", upload_token);
+    cJSON_AddStringToObject(meta, "upload_secret", upload_secret);
+    cJSON_AddStringToObject(meta, "stream_key_hex", stream_key_hex);
+    cJSON_AddStringToObject(meta, "stream_iv_seed_hex", stream_iv_seed_hex);
+    cJSON_AddStringToObject(meta, "temp_path", temp_path);
+    cJSON_AddNumberToObject(meta, "chunk_size", TASFA_CHUNK_SIZE);
+    cJSON_AddNumberToObject(meta, "chunk_count", chunk_count);
+    cJSON_AddNumberToObject(meta, "total_size", (double)total_size);
+    cJSON_AddStringToObject(meta, "received_bitmap", bitmap);
+    cJSON_AddNumberToObject(meta, "received_chunks", 0);
+    cJSON_AddNumberToObject(meta, "modulus_M", (double)modulus_M);
+    cJSON_AddNumberToObject(meta, "group_count", group_count);
+    cJSON_AddNumberToObject(meta, "current_parallel_chunks", 6);
+    cJSON_AddNumberToObject(meta, "max_parallel_chunks", 6);
+    cJSON_AddNumberToObject(meta, "dispatch_pacing_ms", 0);
+    char expires_at[32];
+    snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_UPLOAD_TTL));
+    cJSON_AddStringToObject(meta, "expires_at", expires_at);
 
-        if (!save_upload_session(upload_id, meta) || !save_upload_session_state(upload_id, meta) ||
-            !save_upload_session_state_bin(upload_id, chunk_count, bitmap) ||
-            !save_upload_session_meta_bin(upload_id, &mbin)) {
-            if (!rolled_over && bitmap) cwist_free(bitmap);
-            cJSON_Delete(meta);
-            cleanup_upload_session(upload_id);
-            if (rolled_over && previous_temp_path[0]) rename(temp_path, previous_temp_path);
-            cwist_free(stream_key_hex);
-            cwist_free(stream_iv_seed_hex);
-            if (stream_session_signature) cwist_free(stream_session_signature);
-            if (previous_meta) cJSON_Delete(previous_meta);
-            close_upload_session_lock(previous_lock_fd);
-            cwist_query_map_destroy(kv);
-            send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
-            return;
-        }
+    /* Per-vertex metadata arrays for HTP */
+    cJSON *hash_tags = cJSON_CreateArray();
+    cJSON *magic_scalars = cJSON_CreateArray();
+    for (int i = 0; i < chunk_count; i++) {
+        cJSON_AddItemToArray(hash_tags, cJSON_CreateString(""));
+        cJSON_AddItemToArray(magic_scalars, cJSON_CreateNumber(0));
+    }
+    cJSON_AddItemToObject(meta, "hash_tags", hash_tags);
+    cJSON_AddItemToObject(meta, "magic_scalars", magic_scalars);
+
+    tasfa_meta_bin_t mbin = {0};
+    strncpy(mbin.upload_token, upload_token, sizeof(mbin.upload_token)-1);
+    strncpy(mbin.upload_secret, upload_secret, sizeof(mbin.upload_secret)-1);
+    memcpy(mbin.stream_key, stream_key, sizeof(stream_key));
+    memcpy(mbin.stream_iv_seed, stream_iv_seed, sizeof(stream_iv_seed));
+    mbin.chunk_count = chunk_count;
+    mbin.chunk_size = TASFA_CHUNK_SIZE;
+    mbin.total_size = total_size;
+    strncpy(mbin.filename, filename, sizeof(mbin.filename)-1);
+    mbin.post_id = post_id;
+    mbin.uid = uid;
+    snprintf(mbin.temp_path, sizeof(mbin.temp_path), "%s", temp_path);
+
+    if (!save_upload_session(upload_id, meta) || !save_upload_session_state(upload_id, meta) ||
+        !save_upload_session_state_bin(upload_id, chunk_count, bitmap) ||
+        !save_upload_session_meta_bin(upload_id, &mbin)) {
         cwist_free(bitmap);
+        cJSON_Delete(meta);
+        cleanup_upload_session(upload_id);
         cwist_free(stream_key_hex);
         cwist_free(stream_iv_seed_hex);
-        if (stream_session_signature) cwist_free(stream_session_signature);
-        if (rolled_over) {
-            cleanup_upload_session(previous_upload_id);
-            if (previous_meta) cJSON_Delete(previous_meta);
-            close_upload_session_lock(previous_lock_fd);
-            previous_meta = NULL;
-            previous_lock_fd = -1;
-        }
-    } else {
-        int initial_parallel = 0, max_parallel = 0, pacing_ms = 0;
-        choose_upload_window(score, &initial_parallel, &max_parallel, &pacing_ms);
-        if (suggested_parallel > 0) {
-            int suggested = clamp_int(suggested_parallel, 2, TASFA_UPLOAD_MAX_PARALLEL);
-            if (initial_parallel < suggested) initial_parallel = suggested;
-            if (max_parallel < suggested) max_parallel = suggested;
-        }
-        int current_parallel = json_int(meta, "current_parallel_chunks", initial_parallel);
-        int current_max = json_int(meta, "max_parallel_chunks", max_parallel);
-        if (initial_parallel < current_parallel) initial_parallel = current_parallel;
-        if (max_parallel < current_max) max_parallel = current_max;
-        cJSON_ReplaceItemInObject(meta, "current_parallel_chunks", cJSON_CreateNumber(initial_parallel));
-        cJSON_ReplaceItemInObject(meta, "max_parallel_chunks", cJSON_CreateNumber(max_parallel));
-        cJSON_ReplaceItemInObject(meta, "dispatch_pacing_ms", cJSON_CreateNumber(pacing_ms));
-        char upload_token[49];
-        if (random_hex(upload_token, 24)) cJSON_ReplaceItemInObject(meta, "upload_token", cJSON_CreateString(upload_token));
-        char upload_secret[49];
-        if (random_hex(upload_secret, 24)) cJSON_ReplaceItemInObject(meta, "upload_secret", cJSON_CreateString(upload_secret));
-        unsigned char stream_key[32], stream_iv_seed[12];
-        if (RAND_bytes(stream_key, sizeof(stream_key)) == 1 && RAND_bytes(stream_iv_seed, sizeof(stream_iv_seed)) == 1) {
-            char *stream_key_hex = hex_encode_alloc(stream_key, sizeof(stream_key));
-            char *stream_iv_seed_hex = hex_encode_alloc(stream_iv_seed, sizeof(stream_iv_seed));
-            char session_sig_message[512];
-            snprintf(session_sig_message, sizeof(session_sig_message), "%s:%s:%s:%s",
-                     upload_id, json_string(meta, "upload_token", ""), stream_key_hex ? stream_key_hex : "", stream_iv_seed_hex ? stream_iv_seed_hex : "");
-            char *stream_session_signature = NULL;
-            fly_crypto_sign((const uint8_t *)session_sig_message, strlen(session_sig_message), &stream_session_signature);
-            if (stream_key_hex && stream_iv_seed_hex) {
-                cJSON_ReplaceItemInObject(meta, "stream_key_hex", cJSON_CreateString(stream_key_hex));
-                cJSON_ReplaceItemInObject(meta, "stream_iv_seed_hex", cJSON_CreateString(stream_iv_seed_hex));
-                cJSON_ReplaceItemInObject(meta, "stream_session_signature", cJSON_CreateString(stream_session_signature ? stream_session_signature : ""));
-            }
-            if (stream_key_hex) cwist_free(stream_key_hex);
-            if (stream_iv_seed_hex) cwist_free(stream_iv_seed_hex);
-            if (stream_session_signature) cwist_free(stream_session_signature);
-        }
-        char expires_at[32];
-        snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_UPLOAD_TTL));
-        cJSON_ReplaceItemInObject(meta, "expires_at", cJSON_CreateString(expires_at));
-
-        tasfa_meta_bin_t mbin = {0};
-        strncpy(mbin.upload_token, json_string(meta, "upload_token", ""), sizeof(mbin.upload_token)-1);
-        strncpy(mbin.upload_secret, json_string(meta, "upload_secret", ""), sizeof(mbin.upload_secret)-1);
-        memcpy(mbin.stream_key, stream_key, sizeof(stream_key));
-        memcpy(mbin.stream_iv_seed, stream_iv_seed, sizeof(stream_iv_seed));
-        mbin.chunk_count = json_int(meta, "chunk_count", 0);
-        mbin.chunk_size = json_int(meta, "chunk_size", TASFA_CHUNK_SIZE);
-        mbin.total_size = json_long_long(meta, "total_size", 0);
-        strncpy(mbin.filename, json_string(meta, "filename", ""), sizeof(mbin.filename)-1);
-        mbin.post_id = json_int(meta, "post_id", 0);
-        mbin.uid = json_int(meta, "uid", 0);
-        strncpy(mbin.temp_path, json_string(meta, "temp_path", ""), sizeof(mbin.temp_path)-1);
-
-        save_upload_session(upload_id, meta);
-        save_upload_session_state(upload_id, meta);
-        save_upload_session_meta_bin(upload_id, &mbin);
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
+        return;
     }
-    if (previous_chunk_bitmap) cwist_free(previous_chunk_bitmap);
-    if (previous_meta) cJSON_Delete(previous_meta);
-    close_upload_session_lock(previous_lock_fd);
+    cwist_free(bitmap);
+    cwist_free(stream_key_hex);
+    cwist_free(stream_iv_seed_hex);
     cwist_query_map_destroy(kv);
     cJSON *obj = build_upload_status_json(meta, upload_id);
     cJSON_Delete(meta);
@@ -1197,6 +999,8 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     const char *upload_token = cwist_http_header_get(req->headers, "X-TASFA-Upload-Token");
     const char *stream_mode = cwist_http_header_get(req->headers, "X-TASFA-Stream-Mode");
     const char *chunk_index_str = cwist_http_header_get(req->headers, "X-TASFA-Chunk-Index");
+    const char *hash_tag_hex = cwist_http_header_get(req->headers, "X-TASFA-Hash-Tag");
+    const char *magic_scalar_str = cwist_http_header_get(req->headers, "X-TASFA-Magic-Scalar");
     if (!upload_id || !upload_token || !chunk_index_str) {
         send_json_response(res, session_error_json("missing headers"), CWIST_HTTP_BAD_REQUEST);
         return;
@@ -1256,6 +1060,25 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
+    /* Persist HTP per-vertex metadata */
+    cJSON *meta = load_upload_session(upload_id);
+    if (meta) {
+        cJSON *hash_tags = cJSON_GetObjectItem(meta, "hash_tags");
+        cJSON *magic_scalars = cJSON_GetObjectItem(meta, "magic_scalars");
+        if (hash_tags && magic_scalars && chunk_index < cJSON_GetArraySize(hash_tags)) {
+            if (hash_tag_hex) {
+                cJSON_ReplaceItemInArray(hash_tags, chunk_index, cJSON_CreateString(hash_tag_hex));
+            }
+            if (magic_scalar_str) {
+                cJSON_ReplaceItemInArray(magic_scalars, chunk_index, cJSON_CreateNumber(atoll(magic_scalar_str)));
+            }
+            const char *bitmap = json_string(meta, "received_bitmap", "");
+            cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(bitmap_count_set(bitmap, mbin.chunk_count)));
+            save_upload_session(upload_id, meta);
+        }
+        cJSON_Delete(meta);
+    }
+
     res->status_code = CWIST_HTTP_NO_CONTENT;
     cwist_http_header_add(&res->headers, "X-TASFA-Accepted", "1");
     cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Complete", "1");
@@ -1304,20 +1127,31 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     int post_id = json_int(meta, "post_id", 0);
     int owner_uid = json_int(meta, "uid", uid);
 
-    /* Final topology check */
-    for (int i = 0; i < chunk_count; i++) {
-        int q = 0, r = 0;
-        upload_vertex_for_index(i, chunk_count, &q, &r);
-        int expected_magic = upload_magic_sum_for_index(i, chunk_count);
-        char vertex_id[64];
-        snprintf(vertex_id, sizeof(vertex_id), "%d:%d", q, r);
-        const char *rule = upload_topology_rule_violation(i, chunk_count, vertex_id, expected_magic);
-        if (rule) {
-            cJSON_Delete(meta);
-            close_upload_session_lock(lock_fd);
-            cwist_query_map_destroy(kv);
-            send_json_response(res, session_error_json("topology check failed"), CWIST_HTTP_BAD_REQUEST);
-            return;
+    /* HTP line-sum validation */
+    uint64_t modulus_M = (uint64_t)json_long_long(meta, "modulus_M", 0);
+    if (modulus_M == 0) modulus_M = 1;
+    cJSON *magic_scalars = cJSON_GetObjectItem(meta, "magic_scalars");
+    if (magic_scalars) {
+        int group_count = (chunk_count + 5) / 6;
+        for (int g = 0; g < group_count; g++) {
+            uint64_t m[6] = {0};
+            for (int v = 0; v < 6; v++) {
+                int ci = g * 6 + v;
+                if (ci < chunk_count && ci < cJSON_GetArraySize(magic_scalars)) {
+                    cJSON *item = cJSON_GetArrayItem(magic_scalars, ci);
+                    m[v] = item ? (uint64_t)item->valuedouble : 0;
+                }
+            }
+            uint64_t L1 = (m[0] + m[1] + m[2]) % modulus_M;
+            uint64_t L2 = (m[2] + m[3] + m[4]) % modulus_M;
+            uint64_t L3 = (m[4] + m[5] + m[0]) % modulus_M;
+            if (L1 != L2 || L2 != L3) {
+                cJSON_Delete(meta);
+                close_upload_session_lock(lock_fd);
+                cwist_query_map_destroy(kv);
+                send_json_response(res, session_error_json("htp line sum mismatch"), CWIST_HTTP_BAD_REQUEST);
+                return;
+            }
         }
     }
 
