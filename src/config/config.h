@@ -14,6 +14,7 @@ typedef struct {
     char boards_img[256];
     char files_img[256];
     bool use_tasfa;
+    bool use_rss;
 } blog_config_t;
 
 extern blog_config_t g_config;

@@ -309,6 +309,29 @@ void rule_layout(cJSON *rules) {
     add_decl(fc, "gap", "8px");
     cJSON_AddItemToArray(rules, fc);
 
+    cJSON *rss_btn = create_rule(".rss-corner-btn");
+    add_decl(rss_btn, "position", "fixed");
+    add_decl(rss_btn, "bottom", "20px");
+    add_decl(rss_btn, "right", "20px");
+    add_decl(rss_btn, "width", "44px");
+    add_decl(rss_btn, "height", "44px");
+    add_decl(rss_btn, "border-radius", "50%");
+    add_decl(rss_btn, "background", "var(--accent)");
+    add_decl(rss_btn, "color", "#fff");
+    add_decl(rss_btn, "display", "flex");
+    add_decl(rss_btn, "align-items", "center");
+    add_decl(rss_btn, "justify-content", "center");
+    add_decl(rss_btn, "box-shadow", "0 4px 14px color-mix(in srgb, var(--shadow) 50%, transparent)");
+    add_decl(rss_btn, "z-index", "1000");
+    add_decl(rss_btn, "transition", "transform 0.18s ease, opacity 0.18s ease");
+    add_decl(rss_btn, "text-decoration", "none");
+    cJSON_AddItemToArray(rules, rss_btn);
+
+    cJSON *rss_btn_hover = create_rule(".rss-corner-btn:hover");
+    add_decl(rss_btn_hover, "transform", "scale(1.12)");
+    add_decl(rss_btn_hover, "opacity", "0.92");
+    cJSON_AddItemToArray(rules, rss_btn_hover);
+
     cJSON *fl = create_rule(".footer-logo");
     add_decl(fl, "height", "16px");
     add_decl(fl, "width", "auto");
