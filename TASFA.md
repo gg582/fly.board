@@ -74,7 +74,7 @@ Current tuned values in this tree:
 - worker pool cap for upload preprocessing: `16`
 - browser-side upload memory budget assumption: `512 MiB`
 - client stripe bucket count for chunk interleaving: `32`
-- upload stall thresholds: first-byte `140 ms`, in-flight progress gap `90 ms`, with RTT-aware floor
+- upload stall thresholds: startup/no-response `2500 ms`, steady-state dispatch gap `700 ms`, in-flight progress gap `1200 ms`, with RTT-aware extension capped at `4000 ms`
 - upload rollover cadence: steady-state `700 ms`, startup `8000 ms`
 - upload rollover limits: steady-state `24`, startup-without-confirmed-bytes `96`
 
@@ -110,6 +110,7 @@ The client treats the server bitmap as authoritative.
 - rollover first refreshes the authoritative bitmap, then resumes with `resume_upload_id` and `resume_upload_token`; the new session must not discard already-written chunk extents.
 - startup sessions that have not yet confirmed any bytes get a larger rollover allowance before the browser gives up.
 - stall detection is driven by real chunk send and response activity, not by UI percentage.
+- startup uses a separate no-response threshold until the first real chunk acknowledgement lands, which avoids pathological early rollover on normal cold-start latency.
 - upload preprocessing now runs in a prepare-ahead cache so compression/HMAC work overlaps active network transfers.
 - upload window refill now ticks at `10 ms`, can prepare up to `48` chunks ahead, and climbs by `+2` while still below half of the server ceiling.
 - upload renegotiation now biases to `max(peak_parallel, current + 50%)` rather than a small incremental raise.

@@ -34,8 +34,9 @@
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
     var UPLOAD_RECOVERY_MAX_DELAY = 8000;
     var UPLOAD_SCHEDULER_TICK_MS = 10;
-    var UPLOAD_STALL_TIMEOUT_MS = 140;
-    var UPLOAD_PROGRESS_STALL_TIMEOUT_MS = 90;
+    var UPLOAD_STARTUP_STALL_TIMEOUT_MS = 2500;
+    var UPLOAD_STALL_TIMEOUT_MS = 700;
+    var UPLOAD_PROGRESS_STALL_TIMEOUT_MS = 1200;
     var UPLOAD_SESSION_FETCH_TIMEOUT_MS = 8000;
     var UPLOAD_CHUNK_RETRY_LIMIT = 7;
     var UPLOAD_WORKER_POOL_LIMIT = 16;
@@ -1147,9 +1148,17 @@
                 var stalled = Object.keys(chunkActivity).some(function(key) {
                     var chunkIndex = Number(key);
                     var sentBytes = Number((asset.chunkProgress && asset.chunkProgress[chunkIndex]) || 0);
-                    var stallLimit = sentBytes > 0 ? UPLOAD_PROGRESS_STALL_TIMEOUT_MS : UPLOAD_STALL_TIMEOUT_MS;
+                    var hasConfirmedTraffic = Number(asset.lastChunkResponseAt || 0) > 0 ||
+                        confirmedUploadBytes(asset) > 0 ||
+                        Number(asset.completedChunks || 0) > 0;
+                    var stallLimit = !hasConfirmedTraffic
+                        ? UPLOAD_STARTUP_STALL_TIMEOUT_MS
+                        : (sentBytes > 0 ? UPLOAD_PROGRESS_STALL_TIMEOUT_MS : UPLOAD_STALL_TIMEOUT_MS);
                     var linkState = ensureLinkState(asset);
-                    var rttFloor = Math.min(240, Math.max(stallLimit, Math.ceil(Number(linkState.ewmaRttMs || 0) * 1.35)));
+                    var rttFloor = Math.max(
+                        stallLimit,
+                        Math.min(4000, Math.ceil(Number(linkState.ewmaRttMs || 0) * 2.5))
+                    );
                     return now - Number(chunkActivity[key] || 0) > rttFloor;
                 });
                 if (stalled) {
