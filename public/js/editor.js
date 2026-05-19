@@ -41,8 +41,10 @@
     var UPLOAD_WORKER_POOL_LIMIT = 16;
     var TASFA_CLIENT_STRIPE_COUNT = 32;
     var uploadWorkerBridge = null;
-    var FAST_RENEGOTIATE_DELAY_MS = 50;
+    var FAST_RENEGOTIATE_DELAY_MS = 1000;
     var MIN_RENEGOTIATE_INTERVAL_MS = 50;
+    var UPLOAD_ROLLOVER_RETRY_LIMIT = 24;
+    var UPLOAD_STARTUP_ROLLOVER_RETRY_LIMIT = 72;
     var LINK_DEGRADE_RETRY_THRESHOLD = 18;
     var LINK_DEGRADE_TIMEOUT_THRESHOLD = 6;
     var LINK_RECENT_DECAY_SUCCESS_STEP = 6;
@@ -1379,6 +1381,14 @@
         return confirmedUploadBytes(asset) < (asset.fileSize || 0);
     }
 
+    function uploadRolloverLimit(asset) {
+        var confirmed = confirmedUploadBytes(asset);
+        if (confirmed > 0 || Number(asset && asset.completedChunks || 0) > 0) {
+            return UPLOAD_ROLLOVER_RETRY_LIMIT;
+        }
+        return UPLOAD_STARTUP_ROLLOVER_RETRY_LIMIT;
+    }
+
     function applyServerSessionState(asset, payload) {
         if (!asset || !payload) return;
         asset.chunkSize = Number(payload.chunk_size || asset.chunkSize || UPLOAD_CHUNK_SIZE);
@@ -1921,9 +1931,14 @@
                 markUploadFailure(asset, 'Upload failed [' + message + ']');
                 return;
             }
-            asset.recoveryAttempts = Math.min(20, Number(asset.recoveryAttempts || 0) + 1);
+            var nextRecoveryAttempts = Number(asset.recoveryAttempts || 0) + 1;
+            asset.recoveryAttempts = nextRecoveryAttempts;
             asset.recovering = true;
             asset.isPaused = true;
+            if (nextRecoveryAttempts > uploadRolloverLimit(asset)) {
+                markUploadFailure(asset, 'Upload failed [rollover limit]');
+                return;
+            }
             asset.ui.status.textContent = navigator.onLine ? 'Rolling over upload session' : 'Waiting for network';
             clearRecoveryTimer(asset);
             asset.recoveryTimer = window.setTimeout(function() {

@@ -75,7 +75,8 @@ Current tuned values in this tree:
 - browser-side upload memory budget assumption: `512 MiB`
 - client stripe bucket count for chunk interleaving: `32`
 - upload stall thresholds: first-byte `140 ms`, in-flight progress gap `90 ms`, with RTT-aware floor
-- upload fast renegotiate cadence: `50 ms`
+- upload rollover cadence: `1000 ms`
+- upload rollover limits: steady-state `24`, startup-without-confirmed-bytes `72`
 
 Server-side negotiated upload window:
 
@@ -104,9 +105,10 @@ The client treats the server bitmap as authoritative.
 - the client rebuilds its pending queue as `damage -> frontier -> remaining`.
 - stale callbacks from a superseded session generation are ignored on the browser side.
 - when chunk validation or transport state goes bad, the browser rolls the upload into a fresh negotiated session using the existing authoritative bitmap instead of trying to limp along inside the old callback chain.
-- rollover retries now stay on a `50 ms` cadence instead of exponential recovery backoff.
+- rollover retries now stay on a fixed `1000 ms` cadence instead of exponential recovery backoff.
 - if the previous session already committed chunks, the next session continues from the remaining bitmap gap only.
 - rollover first refreshes the authoritative bitmap, then resumes with `resume_upload_id` and `resume_upload_token`; the new session must not discard already-written chunk extents.
+- startup sessions that have not yet confirmed any bytes get a much larger rollover allowance before the browser gives up.
 - upload preprocessing now runs in a prepare-ahead cache so compression/HMAC work overlaps active network transfers.
 - upload window refill now ticks at `10 ms`, can prepare up to `48` chunks ahead, and climbs by `+2` while still below half of the server ceiling.
 - upload renegotiation now biases to `max(peak_parallel, current + 50%)` rather than a small incremental raise.
