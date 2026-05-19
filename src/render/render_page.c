@@ -220,6 +220,24 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
     cwist_html_element_t *navlinks = cwist_html_element_create("div");
     cwist_html_element_add_class(navlinks, "nav-links");
+
+    cwist_html_element_t *search_form = cwist_html_element_create("form");
+    cwist_html_element_add_attr(search_form, "action", "/search");
+    cwist_html_element_add_attr(search_form, "method", "get");
+    cwist_html_element_add_class(search_form, "topbar-search");
+    cwist_html_element_t *search_input = cwist_html_element_create("input");
+    cwist_html_element_add_attr(search_input, "type", "text");
+    cwist_html_element_add_attr(search_input, "name", "search");
+    cwist_html_element_add_attr(search_input, "placeholder", "Search...");
+    cwist_html_element_add_attr(search_input, "required", "");
+    cwist_html_element_t *search_btn = cwist_html_element_create("button");
+    cwist_html_element_add_attr(search_btn, "type", "submit");
+    cwist_html_element_add_attr(search_btn, "class", "btn");
+    cwist_html_element_set_text(search_btn, "Search");
+    cwist_html_element_add_child(search_form, search_input);
+    cwist_html_element_add_child(search_form, search_btn);
+    cwist_html_element_add_child(navlinks, search_form);
+
     cwist_html_element_add_child(navlinks, nav_link("/", "Home"));
     cwist_html_element_t *boards_wrap = cwist_html_element_create("div");
     cwist_html_element_add_class(boards_wrap, "nav-board-dropdown");

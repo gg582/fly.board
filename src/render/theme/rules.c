@@ -156,6 +156,18 @@ void rule_layout(cJSON *rules) {
     add_decl(navlinks, "min-width", "0");
     cJSON_AddItemToArray(rules, navlinks);
 
+    cJSON *topbar_search = create_rule(".topbar-search");
+    add_decl(topbar_search, "display", "inline-flex");
+    add_decl(topbar_search, "align-items", "center");
+    add_decl(topbar_search, "gap", "6px");
+    cJSON_AddItemToArray(rules, topbar_search);
+
+    cJSON *topbar_search_input = create_rule(".topbar-search input");
+    add_decl(topbar_search_input, "width", "160px");
+    add_decl(topbar_search_input, "padding", "6px 10px");
+    add_decl(topbar_search_input, "font-size", "14px");
+    cJSON_AddItemToArray(rules, topbar_search_input);
+
     cJSON *navitem = create_rule(".nav-item");
     add_decl(navitem, "padding", "9px 12px");
     add_decl(navitem, "border-radius", "0");
@@ -1442,6 +1454,12 @@ void rule_media(cJSON *rules) {
     add_decl(mq, ".nav-links", "display: none");
     add_decl(mq, ".nav-links.open", "display: flex");
     add_decl(mq, ".nav-links.open", "transform: translateX(0)");
+    add_decl(mq, ".topbar-search", "display: flex");
+    add_decl(mq, ".topbar-search", "width: 100%");
+    add_decl(mq, ".topbar-search", "padding: 14px 24px");
+    add_decl(mq, ".topbar-search", "border-bottom: 1px solid var(--border)");
+    add_decl(mq, ".topbar-search input", "flex: 1");
+    add_decl(mq, ".topbar-search input", "width: auto");
     add_decl(mq, ".nav-item", "padding: 14px 24px");
     add_decl(mq, ".nav-item", "border-bottom: 1px solid var(--border)");
     add_decl(mq, ".nav-item:hover", "border-bottom-color: var(--border)");
