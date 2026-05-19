@@ -315,11 +315,12 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
     }
 
     db_file_replace_for_post(db, post_id, f->filename);
-    if (!db_file_create_volume(db, post_id, uid, f->filename, out->mime_type, f->data, f->file_size)) {
+    int fid = db_file_create_volume_get_id(db, post_id, uid, f->filename, out->mime_type, f->data, f->file_size);
+    if (fid <= 0) {
         snprintf(out->error, sizeof(out->error), "db insert failed");
         return false;
     }
-
+    out->file_id = fid;
     out->ok = true;
     return true;
 }

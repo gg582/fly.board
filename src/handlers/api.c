@@ -48,6 +48,7 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddBoolToObject(obj, "ok", ok);
     if (ok) {
+        cJSON_AddNumberToObject(obj, "file_id", result.file_id);
         cJSON_AddStringToObject(obj, "filename", result.filename);
         cJSON_AddStringToObject(obj, "mime_type", result.mime_type);
         cJSON_AddStringToObject(obj, "url", result.url);
