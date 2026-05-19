@@ -410,9 +410,32 @@
             if (el.tagName === 'IMG') el.src = objectUrl;
             else el.src = objectUrl;
             if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') el.load();
-        }).catch(function() {
+        }).catch(function(err) {
+            console.error('TASFA media load failed:', baseUrl, err);
             el.setAttribute('data-tasfa-error', '1');
+            el.dataset.tasfaLoaded = '';
         });
+    }
+
+    var _mediaObserver = null;
+    function observeMediaLoad(el, baseUrl) {
+        if (!window.IntersectionObserver) {
+            setMediaSource(el, baseUrl);
+            return;
+        }
+        if (!_mediaObserver) {
+            _mediaObserver = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    if (entry.isIntersecting) {
+                        var target = entry.target;
+                        var url = target.getAttribute('data-tasfa-download') || target.getAttribute('src') || '';
+                        if (url) setMediaSource(target, url);
+                        _mediaObserver.unobserve(target);
+                    }
+                });
+            }, { rootMargin: '200px' });
+        }
+        _mediaObserver.observe(el);
     }
 
     function upgradeMediaElement(el) {
@@ -421,7 +444,7 @@
         if (!el.getAttribute('data-tasfa-download')) el.setAttribute('data-tasfa-download', baseUrl);
         if (el.tagName === 'IMG') el.src = SPACER_GIF;
         else el.removeAttribute('src');
-        setMediaSource(el, baseUrl);
+        observeMediaLoad(el, baseUrl);
     }
 
     function upgradeDownloadLink(el) {

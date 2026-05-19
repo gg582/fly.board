@@ -827,7 +827,13 @@
         if (asset.ui.thumbImg) {
             asset.ui.thumbImg.style.filter = 'none';
         }
-        if (isEditorMode) setModeButtons(asset.ui, asset.mode);
+        if (isEditorMode) {
+            setModeButtons(asset.ui, asset.mode);
+            var isMedia = /^image\//.test(asset.mime_type || '') || /^video\//.test(asset.mime_type || '') || /^audio\//.test(asset.mime_type || '');
+            if (isMedia && asset.mode === 'inline' && !editorHasUrl('/file/download/' + asset.fid)) {
+                insertAssetMarkdown(asset);
+            }
+        }
         bindAssetControls(asset);
         syncMediaMeta();
         updateFileRepoUploadButton();
