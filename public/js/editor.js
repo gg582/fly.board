@@ -33,7 +33,7 @@
     var UPLOAD_COMPLETE_ENDPOINT = '/file/upload/complete';
     var UPLOAD_CANCEL_ENDPOINT = '/file/upload/cancel';
     var UPLOAD_WORKER_URL = '/assets/js/tasfa-upload-worker.js';
-    var UPLOAD_CHUNK_SIZE = 16 * 1024 * 1024;
+    var UPLOAD_CHUNK_SIZE = 64 * 1024 * 1024;
     var UPLOAD_DEFAULT_PARALLEL = 6;
     var UPLOAD_MAX_PARALLEL = 12;
     var UPLOAD_RECOVERY_BASE_DELAY = 400;
