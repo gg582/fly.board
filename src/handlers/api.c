@@ -128,6 +128,17 @@ static char *rfc822_time(const char *iso) {
     return buf;
 }
 
+static void append_rss_link(cwist_sstring *rss, const char *root, const char *path) {
+    if (root && root[0]) {
+        cwist_sstring_append(rss, root);
+        size_t len = strlen(root);
+        if (len > 0 && root[len - 1] == '/' && path[0] == '/') {
+            path++;
+        }
+    }
+    cwist_sstring_append(rss, path);
+}
+
 void handler_rss_xml(cwist_http_request *req, cwist_http_response *res) {
     cJSON *posts = db_post_list_search(req->db, 0, NULL, NULL, 20, 0);
     const char *last_modified = "";
@@ -150,7 +161,7 @@ void handler_rss_xml(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring *rss = cwist_sstring_create();
     cwist_sstring_append(rss, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n<channel>\n");
     cwist_sstring_append(rss, "<title>"); cwist_sstring_append_escaped(rss, g_config.title); cwist_sstring_append(rss, "</title>\n");
-    cwist_sstring_append(rss, "<link>/</link>\n");
+    cwist_sstring_append(rss, "<link>"); append_rss_link(rss, g_config.root_url, "/"); cwist_sstring_append(rss, "</link>\n");
     cwist_sstring_append(rss, "<description>"); cwist_sstring_append_escaped(rss, g_config.subtitle); cwist_sstring_append(rss, "</description>\n");
     cwist_sstring_append(rss, "<language>ko</language>\n");
     if (last_modified[0]) {
@@ -167,8 +178,8 @@ void handler_rss_xml(cwist_http_request *req, cwist_http_response *res) {
             cJSON *date = cJSON_GetObjectItem(p, "created_at");
             cwist_sstring_append(rss, "<item>\n");
             cwist_sstring_append(rss, "<title>"); cwist_sstring_append_escaped(rss, title ? title->valuestring : ""); cwist_sstring_append(rss, "</title>\n");
-            cwist_sstring_append(rss, "<link>/post/"); cwist_sstring_append(rss, slug->valuestring); cwist_sstring_append(rss, "</link>\n");
-            cwist_sstring_append(rss, "<guid>/post/"); cwist_sstring_append(rss, slug->valuestring); cwist_sstring_append(rss, "</guid>\n");
+            cwist_sstring_append(rss, "<link>"); append_rss_link(rss, g_config.root_url, "/post/"); cwist_sstring_append(rss, slug->valuestring); cwist_sstring_append(rss, "</link>\n");
+            cwist_sstring_append(rss, "<guid>"); append_rss_link(rss, g_config.root_url, "/post/"); cwist_sstring_append(rss, slug->valuestring); cwist_sstring_append(rss, "</guid>\n");
             cwist_sstring_append(rss, "<description>"); cwist_sstring_append_escaped(rss, summary && summary->valuestring ? summary->valuestring : ""); cwist_sstring_append(rss, "</description>\n");
             if (date && date->valuestring) {
                 cwist_sstring_append(rss, "<pubDate>"); cwist_sstring_append(rss, rfc822_time(date->valuestring)); cwist_sstring_append(rss, "</pubDate>\n");
