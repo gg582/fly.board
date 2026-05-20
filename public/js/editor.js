@@ -2434,6 +2434,45 @@
         });
     }
 
+    document.addEventListener('submit', function(event) {
+        var form = event.target;
+        if (!form || !form.classList.contains('file-delete-form')) return;
+        event.preventDefault();
+        var btn = form.querySelector('button[type="submit"]');
+        if (btn) btn.disabled = true;
+        fetch(form.action || '/file/delete', {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            body: new FormData(form)
+        }).then(function(response) {
+            if (!response.ok) throw new Error('status:' + response.status);
+            var card = form.closest('article');
+            if (card && card.parentNode) {
+                card.remove();
+                var list = document.getElementById('file-repo-list');
+                if (list && !list.children.length) {
+                    var emptyCard = document.createElement('div');
+                    emptyCard.className = 'card';
+                    emptyCard.style.cssText = 'text-align:center;padding:40px 20px;color:var(--muted);';
+                    emptyCard.textContent = 'No files uploaded yet.';
+                    list.parentNode.insertBefore(emptyCard, list.nextSibling);
+                    list.remove();
+                    var h3 = document.querySelector('h3');
+                    if (h3) {
+                        var match = h3.textContent.match(/Files\s*\(/);
+                        if (match) h3.textContent = 'Files';
+                    }
+                }
+            } else {
+                window.location.reload();
+            }
+        }).catch(function(err) {
+            console.error('Delete failed:', err);
+            if (btn) btn.disabled = false;
+            alert('Failed to delete file.');
+        });
+    });
+
     bootstrapExistingAssets();
     updateSubmitButtons();
     if (isEditorMode) {
