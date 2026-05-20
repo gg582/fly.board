@@ -4,6 +4,11 @@
 
 > Uno de los pocos motores de blog sencillos que funciona con **~577 MB RSS** en reposo y **~658 MB** bajo C10k (10 000 conexiones simultáneas).  
 > Motor híbrido de foro y blog ligero construido sobre el framework web CWIST en C, con soporte para HTTPS/3, Argon2id, firmas PQC y mensajería NATS.
+>
+> **Fairly small, greater usability.**  
+> TASFA sacrifica RPS intencionalmente. El cifrado por fragmentos, la validación de lattice HTP, las sesiones con mapa de bits y el pacing adaptativo garantizan que las cargas no se interrumpan incluso en redes degradadas, bloqueando ataques DoS y sustitución de fragmentos para perseguir una transferencia de confiabilidad maximizada.  
+> Las firmas PQC absorben la sobrecarga de ML-DSA-65 para garantizar la detección de alteraciones en el cuerpo de las publicaciones en la era de la computación cuántica.  
+> El soporte simultáneo de HTTP/1.1, HTTP/2 y HTTP/3 abandona el rendimiento máximo de un único protocolo a cambio de un denominador común accesible desde cualquier firewall, proxy y dispositivo heredado.
 
 ## Características
 
