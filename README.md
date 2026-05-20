@@ -135,8 +135,6 @@ MIT License
 
 ## 성능 벤치마크
 
-> 상세한 벤치마크 방법과 전체 결과는 [`benchmarks/README.md`](benchmarks/README.md)를 참조하세요.
-
 ### 호스트 환경
 
 | 항목 | 값 |

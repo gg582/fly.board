@@ -114,8 +114,6 @@ MIT License
 
 ## 效能基準測試
 
-> 詳細的基準測試方法與完整結果請參閱 [`benchmarks/README.md`](benchmarks/README.md)。
-
 ### 主機環境
 
 | 項目 | 數值 |

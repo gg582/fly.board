@@ -114,8 +114,6 @@ MIT License
 
 ## Performance Benchmark
 
-> For detailed benchmark methodology and full results, see [`benchmarks/README.md`](benchmarks/README.md).
-
 ### Host Environment
 
 | Item | Value |

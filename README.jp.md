@@ -114,8 +114,6 @@ MIT License
 
 ## 性能ベンチマーク
 
-> 詳細なベンチマーク手法と完全な結果は [`benchmarks/README.md`](benchmarks/README.md) を参照。
-
 ### ホスト環境
 
 | 項目 | 値 |
