@@ -1066,11 +1066,18 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
         cJSON *hash_tags = cJSON_GetObjectItem(meta, "hash_tags");
         cJSON *magic_scalars = cJSON_GetObjectItem(meta, "magic_scalars");
         if (hash_tags && magic_scalars && chunk_index < cJSON_GetArraySize(hash_tags)) {
+            /* Preserve existing HTP metadata when a fallback chunk arrives for an already-received vertex */
             if (hash_tag_hex) {
-                cJSON_ReplaceItemInArray(hash_tags, chunk_index, cJSON_CreateString(hash_tag_hex));
+                cJSON *existing = cJSON_GetArrayItem(hash_tags, chunk_index);
+                if (!existing || !existing->valuestring || existing->valuestring[0] == '\0') {
+                    cJSON_ReplaceItemInArray(hash_tags, chunk_index, cJSON_CreateString(hash_tag_hex));
+                }
             }
             if (magic_scalar_str) {
-                cJSON_ReplaceItemInArray(magic_scalars, chunk_index, cJSON_CreateNumber(atoll(magic_scalar_str)));
+                cJSON *existing = cJSON_GetArrayItem(magic_scalars, chunk_index);
+                if (!existing || existing->valuedouble == 0) {
+                    cJSON_ReplaceItemInArray(magic_scalars, chunk_index, cJSON_CreateNumber(atoll(magic_scalar_str)));
+                }
             }
             const char *bitmap = json_string(meta, "received_bitmap", "");
             cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(bitmap_count_set(bitmap, mbin.chunk_count)));

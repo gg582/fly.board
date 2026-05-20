@@ -1650,6 +1650,12 @@
                 xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
                 xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
                 xhr.setRequestHeader('X-TASFA-Stream-Mode', 'aes-256-gcm');
+                if (asset.chunkHashes && asset.chunkHashes[chunkIndex]) {
+                    xhr.setRequestHeader('X-TASFA-Hash-Tag', asset.chunkHashes[chunkIndex]);
+                }
+                if (asset.magicScalars && asset.magicScalars[chunkIndex] !== undefined) {
+                    xhr.setRequestHeader('X-TASFA-Magic-Scalar', String(asset.magicScalars[chunkIndex]));
+                }
 
                 xhr.upload.onprogress = function(event) {
                     if (!event.lengthComputable) return;
