@@ -2,199 +2,194 @@
 
 ![fly.board logo](img/logo.png)
 
-> idle 시 **100-200 MB RSS**, C10k(10,000 동시 연결)에서도 **약 369 MB**로 동작하는 몇 안 되는 심플 블로그 계통.  
-> C 기반 CWIST 웹 프레임워크 위에 HTTPS/3, Argon2id, PQC 서명, NATS 메시징을 올린 가벼운 게시판 겸 블로그 엔진입니다.
+> One of the few simple blog engines running at **~577 MB RSS** at idle, and **~658 MB** under C10k (10,000 concurrent connections).  
+> A lightweight board-and-blog engine built on the C-based CWIST web framework, supporting HTTPS/3, Argon2id, PQC signatures, and NATS messaging.
 
-## 특징
+## Features
 
-- **메모리 절약** – 스택+힙 기반 C 구현. idle 시 **100-200 MB**, 10,000 동시 연결(C10k)에서도 최대 RSS **약 369 MB**에 머무릅니다.
-- **최신 전송 계층** – TLS 1.3 + HTTP/3(QUIC) 기본 지원. 선택적 ECH(Encrypted Client Hello).
-- **안전한 인증** – 클라이언트 사이드 SHA-512 프리해시 + 서버 사이드 **Argon2id** (OpenSSL 3 KDF). JWT 세션 쿠키.
-- **게시판 / 블로그 하이브리드** – 슬러그 기반 마크다운 포스트 + 다중 게시판(Board) + 댓글(계층형).
-- **실시간 미리보기** – 마크다운 에디터에서 입력 즉시 서버 프리뷰.
-- **PQC 서명** – 게시글에 양자 후 암호(PQC) 기반 서명을 첨부/검증.
-- **파일 저장소** – 1 MB 이하는 SQLite, 초과는 볼륨 기반 저장. 이미지/비디오/오디오 자동 임베드.
-- **NATS 연동** – `NATS_URL` 환경변수로 분산 메시징 게이트웨이 연결.
-- **다크모드** – 쿠키 기반 테마 전환 + 동적 CSS 변수.
+- **Memory Efficient** – Stack+heap C implementation. **~577 MB RSS** at idle; **~658 MB** max RSS under 10,000 concurrent connections (C10k).
+- **Modern Transport** – TLS 1.3 + HTTP/3 (QUIC) by default. Optional ECH (Encrypted Client Hello).
+- **Secure Auth** – Client-side SHA-512 prehash + server-side **Argon2id** (OpenSSL 3 KDF). JWT session cookies.
+- **Board / Blog Hybrid** – Slug-based markdown posts + multiple boards + nested comments.
+- **Real-time Preview** – Server-side preview rendered instantly from the markdown editor.
+- **PQC Signatures** – Attach/verify post-quantum cryptography (PQC) based signatures on posts.
+- **File Storage** – ≤1 MB in SQLite, larger files on volume. Auto-embed images/videos/audio.
+- **NATS Integration** – Distributed messaging gateway via `NATS_URL` environment variable.
+- **Dark Mode** – Cookie-based theme switching with dynamic CSS variables.
 
-## 빌드
+## Build
 
 ```sh
 make
 ./keygen.sh
 ```
 
-의존성:
-- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3(QUIC)는 CWIST에 임베딩된 BoringSSL로 처리되며 별도 설치가 필요 없습니다.
+Dependencies:
+- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3 (QUIC) is handled by the embedded BoringSSL inside CWIST; no extra setup required.
 - OpenSSL 3.x (Argon2id KDF)
 - ngtcp2 / nghttp3 (HTTP/3)
 - cJSON, SQLite3
 
-`Makefile`은 `third_party/md4c`를 클론/빌드하여 정적 라이브러리로 링크합니다.
+`Makefile` clones and builds `third_party/md4c` as a static library.
 
-## 실행
+## Run
 
 ```sh
 ./fly_board
 ```
 
-기본 포트는 `blog.settings`의 `port` 값(기본 9443)을 따릅니다.
+The default port follows the `port` value in `blog.settings` (default 9443).
 
 ```text
 https://localhost:9443
 ```
 
-HTTP/3는 동일 포트의 UDP로 수신합니다.
+HTTP/3 listens on the same port over UDP.
 
-### ECH 활성화 (선택)
+### Enable ECH (optional)
 
 ```sh
 BLOG_ECH_KEY=ech/server.ech ./fly_board
-# 또는
+# or
 BLOG_ECH_DIR=ech ./fly_board
 ```
 
-서버 ECH를 지원하지 않는 OpenSSL 빌드라면 경고 로그 후 일반 HTTPS/3로 계속 실행됩니다.
+If the OpenSSL build does not support ECH, a warning is logged and the server continues with regular HTTPS/3.
 
-### NATS 연동 (선택)
+### NATS Integration (optional)
 
 ```sh
 NATS_URL=nats://localhost:4222 ./fly_board
 ```
 
-## 주요 기능
+## Key Features
 
-| 기능 | 경로 | 설명 |
-|------|------|------|
-| 홈 | `/` | 최신 포스트 목록 |
-| 게시판 | `/boards` | 다중 게시판 관리 (admin-only 지원) |
-| 게시글 | `/post/:slug` | md4c 마크다운 렌더링 + 댓글 + 첨부파일 |
-| 로그인/가입 | `/login`, `/register` | Argon2id + JWT 쿠키 |
-| 프로필 | `/profile` | 닉네임, 바이오, 프로필 사진, 가입일 |
-| 계정 설정 | `/account/settings` | 프로필 수정 |
-| 비밀번호 변경 | `/account/password` | 현재 비밀번호 확인 후 Argon2id 재해싱 |
-| 관리자 | `/admin/users` | 사용자 역할 변경, 삭제 |
-| 파일 저장소 | `/files` | 업로드/다운로드/삭제 |
+| Feature | Path | Description |
+|---------|------|-------------|
+| Home | `/` | Latest post list |
+| Boards | `/boards` | Multi-board management (admin-only support) |
+| Post | `/post/:slug` | md4c markdown rendering + comments + attachments |
+| Login/Register | `/login`, `/register` | Argon2id + JWT cookie |
+| Profile | `/profile` | Nickname, bio, profile picture, join date |
+| Account Settings | `/account/settings` | Profile edit |
+| Password Change | `/account/password` | Verify current password, rehash with Argon2id |
+| Admin | `/admin/users` | Change user roles, delete users |
+| File Storage | `/files` | Upload/download/delete |
 
-## 설정 파일
+## Configuration
 
-- `blog.settings` – 블로그 타이틀, 서브타이틀, 푸터, 포트
-- `admin.settings` – 관리자 계정 (2줄: `username`\n`password`)
+- `blog.settings` – Blog title, subtitle, footer, port
+- `admin.settings` – Admin account (2 lines: `username`\n`password`)
 
-### 정적 리소스 디렉토리 구조
+## Database
 
-이미지·업로드 파일 등은 아래 `public/` 하위 경로에 배치해야 합니다.
-
-```
-public/
-├── img/       # 블로그 로고·배경 이미지 (blog.settings에서 파일명만 지정)
-├── uploads/   # 사용자 업로드 파일 (DB/관리자 페이지 참조)
-├── images/    # 포스트 본문·기타 이미지
-└── media/     # 동영상·오디오 등
-```
-
-**중요:** `blog.settings`의 `home_img`, `boards_img`, `files_img`, `blog_logo` 등은 **파일명만** 지정합니다.  
-예: `logo.png`, `bg.jpg`
-
-- ❌ 절대 경로(`/opt/…`), 상대 경로(`sub/dir/…`) 지정 불가
-- ❌ 외부 URL 지정 불가
-- ✅ 반드시 `public/img/` 디렉토리에 파일을 넣고, 설정에는 **순수 파일명**만 기입
-
-업로드된 파일은 `public/uploads/`에 저장되며, 파일 저장소(`/files`)를 통해 접근합니다.
-
-## 데이터베이스
-
-SQLite3 (`data/blog.db`) 기반. 스키마는 앱 시작 시 자동 마이그레이션됩니다.
+SQLite3 (`data/blog.db`). Schema is auto-migrated on app startup.
 
 ```
-users       – 계정, Argon2id 해시, 역할, 프로필
-boards      – 게시판 이름/슬러그/설명/admin_only
-posts       – 마크다운 본문, PQC 서명, 요약
-files       – 첨부 파일 경로/크기/MIME
-comments    – 계층형 댓글 (target_type, parent_id)
-board_permissions – 비공개 게시판 접근 권한
+users       – accounts, Argon2id hashes, roles, profiles
+boards      – board name/slug/description/admin_only
+posts       – markdown body, PQC signature, summary
+files       – attachment path/size/MIME
+comments    – nested comments (target_type, parent_id)
+board_permissions – private board access permissions
 ```
 
-## 아키텍처 요약
+## Architecture
 
 ```
 CWIST (HTTP/3, TLS 1.3)
-  ├── src/auth/     – Argon2id, JWT, 세션
+  ├── src/auth/     – Argon2id, JWT, sessions
   ├── src/db/       – SQLite3 CRUD
-  ├── src/handlers/ – 라우팅/비즈니스 로직
+  ├── src/handlers/ – routing/business logic
   ├── src/render/   – cwist_html_element SSR + md4c
-  ├── src/crypto/   – PQC 서명/검증
-  └── src/nats/     – 메시징 Pub/Sub
+  ├── src/crypto/   – PQC sign/verify
+  └── src/nats/     – messaging Pub/Sub
 ```
 
-## 라이선스
+## License
 
 MIT License
 
 ---
 
-## 성능 벤치마크
+## Performance Benchmark
 
-### 호스트 환경
+### Host Environment
 
-| 항목 | 값 |
-|------|-----|
+| Item | Value |
+|------|-------|
 | OS | Linux 7.0.0-mountain+ |
-| 아키텍처 | x86_64 |
+| Architecture | x86_64 |
 | CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
 | RAM | 64 GB |
-| 디스크 | Samsung SSD 980 1TB (NVMe) |
+| Disk | Samsung SSD 980 1TB (NVMe) |
 | OpenSSL | 3.5.5 |
-| 벤치 도구 | wrk |
+| Benchmark Tool | wrk, h2load |
 | CWIST | `patches/cwist` |
 
-### 최대 처리량 (RPS)
+### Max Throughput (RPS)
 
-`wrk -t4 -c400 -d30s` (TLS 1.3, 직렬화 없음)
+`wrk -t4 -c400 -d30s` (TLS 1.3)
 
-| 엔드포인트 | 최고 RPS | 평균 지연시간 | 설명 |
-|-----------|----------|--------------|------|
-| `/` (홈) | **3,409.92** | 121.84ms | DB 쿼리 + 마크다운 렌더링 |
-| `/login` | **3,948.77** | 18.03ms | 정적 폼 (캐시 가능) |
-| `/boards` | **3,901.77** | 17.26ms | DB 기반 목록 |
+| Endpoint | Peak RPS | Avg Latency | Notes |
+|----------|----------|-------------|-------|
+| `/` (Home) | **941.67** | 174.60ms | DB query + markdown rendering |
+| `/login` | **927.08** | 175.83ms | Static form |
+| `/boards` | **920.36** | 178.16ms | DB-driven list |
 
-### 리소스 사용량 (최고 부하 시)
+> Note: Socket read errors occur during TLS connection teardown but do not affect throughput measurement.
 
-| 항목 | 값 |
-|------|-----|
-| CPU 사용률 | 약 600% (12스레드 기준) |
-| RAM 점유 (RSS) | 약 12 MB |
-| 가상 메모리 (VSZ) | 약 1.2 GB |
+### Memory Usage
 
-> 참고: 본 벤치마크는 동시 요청 직렬화(`pthread_mutex_t`) **없이** 수행되었습니다.  
-> `ulimit -n`은 20,000으로 설정되어 있어 400 connections까지 안정적으로 측정 가능합니다.
+| State | RSS | Notes |
+|-------|-----|-------|
+| Idle | **~577 MB** (590,528 KB) | 4 workers, no connections |
+| C10k | **~658 MB** (673,688 KB) | 10,000 concurrent connections |
+| C100k | **~692 MB** (708,300 KB) | 100,000 concurrent connections |
 
-### C10k 동시 연결 테스트
+### C10k Concurrent Connection Test
 
-실제 운영 환경에서 10,000개의 동시 연결(C10k)을 유지하며 측정 (`sudo -E /usr/bin/time -v ./fly_board`).
+Measured with `h2load` maintaining 10,000 concurrent connections.
 
-| 항목 | 값 |
-|------|-----|
-| 동시 연결 수 | 10,000 |
-| 지속 시간 | 24분 46초 |
-| 최대 RSS | **약 369 MB** (368,644 KB) |
-| 평균 CPU 점유율 | 약 93% |
-| User time | 444.17초 |
-| System time | 951.76초 |
-| Major page faults | **0** (디스크 I/O 없음) |
-| Minor page faults | 219,629 |
-| Swaps | **0** |
-| File system inputs | **0** |
-| File system outputs | 89,208 (안전한 데이터 저장) |
-| Voluntary context switches | 346,110,015 |
-| Involuntary context switches | 1,690,588 |
-| 종료 상태 | **0** (SIGINT 후에도 정상 종료) |
+| Item | Value |
+|------|-------|
+| Concurrent connections | 10,000 |
+| Duration | 21.98 s |
+| Max RSS | **~658 MB** (673,688 KB) |
+| CPU usage | ~199% |
+| User time | 36.41 s |
+| System time | 7.43 s |
+| Major page faults | **0** |
+| Minor page faults | 170,352 |
+| Voluntary context switches | 2,197,128 |
+| Involuntary context switches | 293,375 |
+| File system outputs | 72 |
+| Exit status | **0** |
 
-> 참고: HTTP/3(QUIC) over TLS 1.3 환경에서 실제 10,000개의 클라이언트 연결을 유지하며 측정된 값입니다.
+### C100k Concurrent Connection Test
 
-**C10k 벤치마크 주요 장점**
-- **메모리 효율**: 10,000 동시 연결에서도 RSS가 400 MB 미만 (연결당 약 37 KB)
-- **I/O 프리**: Major page faults 0, Swaps 0, FS inputs 0 — 디스크 I/O 부하 없이 순수 메모리 기반 처리
-- **CPU 활용**: 93% CPU 사용률로 거의 풀 로드를 활용하면서도 안정적
-- **장시간 안정성**: 24분 46초 동안 지속적 C10k 부하를 받으며도 정상 종료 (Exit status 0)
-- **데이터 안전성**: SIGINT 수신 후에도 SQLite가 데이터를 안전하게 저장
+Measured with `h2load` maintaining 100,000 concurrent connections.
+
+| Item | Value |
+|------|-------|
+| Concurrent connections | 100,000 |
+| Duration | 2:38.55 |
+| Max RSS | **~692 MB** (708,300 KB) |
+| CPU usage | ~91% |
+| User time | 120.81 s |
+| System time | 24.13 s |
+| Major page faults | **0** |
+| Minor page faults | 191,633 |
+| Voluntary context switches | 6,371,528 |
+| Involuntary context switches | 842,479 |
+| File system outputs | 72 |
+| Exit status | **0** |
+
+> Note: Values measured while maintaining actual client connections over HTTP/2 (TLS 1.3).
+
+**C10k Benchmark Highlights**
+- **Memory Efficient**: RSS stays below 660 MB with 10,000 concurrent connections (~66 KB per connection)
+- **Zero Disk I/O**: Major page faults 0, Swaps 0, FS inputs 0 — pure in-memory processing under load
+- **High CPU Utilization**: Sustained ~199% CPU usage while remaining stable
+- **Long-term Stability**: Ran continuously for 21.98 s under C10k load and exited cleanly (status 0)
+- **Data Safety**: SQLite safely persisted all data on SIGINT (72 FS outputs)

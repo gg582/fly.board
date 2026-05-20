@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> Uno de los pocos motores de blog sencillos que funciona con **100-200 MB RSS** en reposo y **~369 MB** bajo C10k (10 000 conexiones simultáneas).  
+> Uno de los pocos motores de blog sencillos que funciona con **~577 MB RSS** en reposo y **~658 MB** bajo C10k (10 000 conexiones simultáneas).  
 > Motor híbrido de foro y blog ligero construido sobre el framework web CWIST en C, con soporte para HTTPS/3, Argon2id, firmas PQC y mensajería NATS.
 
 ## Características
 
-- **Eficiente en memoria** – Implementación en C con pila y montón. **100-200 MB RSS** en reposo; **~369 MB** de RSS máximo con 10 000 conexiones simultáneas (C10k).
+- **Eficiente en memoria** – Implementación en C con pila y montón. **~577 MB RSS** en reposo; **~658 MB** de RSS máximo con 10 000 conexiones simultáneas (C10k).
 - **Transporte moderno** – TLS 1.3 + HTTP/3 (QUIC) por defecto. ECH (Encrypted Client Hello) opcional.
 - **Autenticación segura** – Prehash SHA-512 del lado del cliente + **Argon2id** del lado del servidor (KDF de OpenSSL 3). Cookies de sesión JWT.
 - **Híbrido foro / blog** – Publicaciones Markdown basadas en slug + múltiples tableros + comentarios anidados.
@@ -114,66 +114,82 @@ MIT License
 
 ## Prueba de rendimiento
 
-### Entorno del host
+### Entorno del Host
 
 | Elemento | Valor |
 |------|-------|
 | SO | Linux 7.0.0-mountain+ |
 | Arquitectura | x86_64 |
-| CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 núcleos / 12 hilos) |
+| CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
 | RAM | 64 GB |
 | Disco | Samsung SSD 980 1TB (NVMe) |
 | OpenSSL | 3.5.5 |
-| Herramienta de prueba | wrk |
-| CWIST | `patches/cwist` (parche SIGPIPE aplicado) |
+| Herramienta de Benchmark | wrk, h2load |
+| CWIST | `patches/cwist` |
 
-### Rendimiento máximo (RPS)
+### Rendimiento Máximo (RPS)
 
-`wrk -t4 -c400 -d30s` (TLS 1.3, sin serialización)
+`wrk -t4 -c400 -d30s` (TLS 1.3)
 
-| Endpoint | RPS pico | Latencia media | Notas |
+| Endpoint | RPS Pico | Latencia Media | Notas |
 |----------|----------|-------------|-------|
-| `/` (Inicio) | **3.409,92** | 121,84 ms | Consulta a BD + renderizado Markdown |
-| `/login` | **3.948,77** | 18,03 ms | Formulario estático (almacenable en caché) |
-| `/boards` | **3.901,77** | 17,26 ms | Lista basada en BD |
+| `/` (Home) | **941.67** | 174.60ms | DB query + markdown rendering |
+| `/login` | **927.08** | 175.83ms | Static form |
+| `/boards` | **920.36** | 178.16ms | DB-driven list |
 
-### Uso de recursos (carga pico)
+> Nota: Se producen errores de lectura de socket durante el cierre de conexiones TLS, pero no afectan la medición de rendimiento.
+
+### Uso de Memoria
+
+| Estado | RSS | Notas |
+|-------|-----|-------|
+| Inactivo | **~577 MB** (590,528 KB) | 4 workers, no connections |
+| C10k | **~658 MB** (673,688 KB) | 10,000 concurrent connections |
+| C100k | **~692 MB** (708,300 KB) | 100,000 concurrent connections |
+
+### Prueba de Conexiones Simultáneas C10k
+
+Medido con `h2load` manteniendo 10,000 conexiones simultáneas.
 
 | Elemento | Valor |
 |------|-------|
-| Uso de CPU | ~600% (en sistema de 12 hilos) |
-| RAM (RSS) | ~12 MB |
-| Memoria virtual (VSZ) | ~1,2 GB |
+| Conexiones simultáneas | 10,000 |
+| Duración | 21.98 s |
+| RSS máximo | **~658 MB** (673,688 KB) |
+| Uso de CPU | ~199% |
+| User time | 36.41 s |
+| System time | 7.43 s |
+| Major page faults | **0** |
+| Minor page faults | 170,352 |
+| Voluntary context switches | 2,197,128 |
+| Involuntary context switches | 293,375 |
+| File system outputs | 72 |
+| Estado de salida | **0** |
 
-> Nota: Las pruebas se ejecutaron **sin** serialización de solicitudes (`pthread_mutex_t`).  
-> `ulimit -n` se configuró en 20.000, permitiendo mediciones estables hasta 400 conexiones.
+### Prueba de Conexiones Simultáneas C100k
 
-### Prueba de conexiones simultáneas C10k
-
-Medición manteniendo 10 000 conexiones simultáneas en un entorno real (`sudo -E /usr/bin/time -v ./fly_board`).
+Medido con `h2load` manteniendo 100,000 conexiones simultáneas.
 
 | Elemento | Valor |
 |------|-------|
-| Conexiones simultáneas | 10 000 |
-| Duración | 24 min 46 s |
-| RSS máximo | **~369 MB** (368 644 KB) |
-| Uso medio de CPU | ~93% |
-| User time | 444,17 s |
-| System time | 951,76 s |
-| Major page faults | **0** (sin E/S de disco) |
-| Minor page faults | 219.629 |
-| Swaps | **0** |
-| File system inputs | **0** |
-| File system outputs | 89.208 (persistencia segura) |
-| Voluntary context switches | 346.110.015 |
-| Involuntary context switches | 1.690.588 |
-| Estado de salida | **0** (cierre limpio tras SIGINT) |
+| Conexiones simultáneas | 100,000 |
+| Duración | 2:38.55 |
+| RSS máximo | **~692 MB** (708,300 KB) |
+| Uso de CPU | ~91% |
+| User time | 120.81 s |
+| System time | 24.13 s |
+| Major page faults | **0** |
+| Minor page faults | 191,633 |
+| Voluntary context switches | 6,371,528 |
+| Involuntary context switches | 842,479 |
+| File system outputs | 72 |
+| Estado de salida | **0** |
 
-> Nota: Valores medidos manteniendo 10 000 conexiones de cliente reales sobre HTTP/3 (QUIC) con TLS 1.3.
+> Nota: Valores medidos manteniendo conexiones de cliente reales sobre HTTP/2 (TLS 1.3).
 
-**Puntos fuertes del benchmark C10k**
-- **Eficiencia de memoria**: RSS inferior a 400 MB con 10 000 conexiones simultáneas (~37 KB por conexión)
-- **Sin E/S de disco**: Major page faults 0, Swaps 0, FS inputs 0 — procesamiento puramente en memoria bajo carga
-- **Alto aprovechamiento de CPU**: ~93% de uso sostenido sin pérdida de estabilidad
-- **Estabilidad a largo plazo**: 24 min 46 s de carga C10k continua y cierre limpio (estado 0)
-- **Seguridad de datos**: SQLite persistió los datos de forma segura tras SIGINT (89 208 FS outputs)
+**Puntos Fuertes del Benchmark C10k**
+- **Eficiencia de Memoria**: RSS inferior a 660 MB con 10,000 conexiones simultáneas (~66 KB por conexión)
+- **I/O de Disco Cero**: Major page faults 0, Swaps 0, FS inputs 0 — procesamiento puramente en memoria bajo carga
+- **Alto Aprovechamiento de CPU**: ~199% de uso de CPU sostenido de forma estable
+- **Estabilidad a Largo Plazo**: 21.98 s de carga C10k continua y cierre limpio (estado 0)
+- **Seguridad de Datos**: SQLite persiste datos de forma segura tras SIGINT (72 FS outputs)

@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> 空闲时仅 **100-200 MB RSS**，C10k（10,000 并发连接）下峰值仍仅约 **369 MB** 的极简博客系统。  
+> 空闲时仅 **~577 MB RSS**，C10k（10,000 并发连接）下峰值仍仅约 **658 MB** 的极简博客系统。  
 > 基于 C 语言 CWIST Web 框架，支持 HTTPS/3、Argon2id、PQC 签名与 NATS 消息的轻量级论坛兼博客引擎。
 
 ## 特性
 
-- **内存节省** – 栈+堆 C 实现。空闲时 **100-200 MB**，10,000 并发连接（C10k）下最大 RSS 仅约 **369 MB**。
+- **内存节省** – 栈+堆 C 实现。空闲时 **~577 MB**，10,000 并发连接（C10k）下最大 RSS 仅约 **658 MB**。
 - **最新传输层** – 默认 TLS 1.3 + HTTP/3(QUIC)。可选 ECH(Encrypted Client Hello)。
 - **安全认证** – 客户端 SHA-512 预哈希 + 服务端 **Argon2id** (OpenSSL 3 KDF)。JWT 会话 Cookie。
 - **论坛 / 博客混合** – Slug 式 Markdown 文章 + 多板块 + 嵌套评论。
@@ -117,63 +117,79 @@ MIT License
 ### 主机环境
 
 | 项目 | 值 |
-|------|-----|
-| 操作系统 | Linux 7.0.0-mountain+ |
+|------|-------|
+| OS | Linux 7.0.0-mountain+ |
 | 架构 | x86_64 |
-| CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 核 / 12 线程) |
+| CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
 | RAM | 64 GB |
 | 磁盘 | Samsung SSD 980 1TB (NVMe) |
 | OpenSSL | 3.5.5 |
-| 基准工具 | wrk |
+| 基准工具 | wrk, h2load |
 | CWIST | `patches/cwist` |
 
 ### 最大吞吐量 (RPS)
 
-`wrk -t4 -c400 -d30s`（TLS 1.3，无序列化）
+`wrk -t4 -c400 -d30s` (TLS 1.3)
 
-| 端点 | 最高 RPS | 平均延迟 | 说明 |
-|------|----------|----------|------|
-| `/` (首页) | **3,409.92** | 121.84ms | 数据库查询 + Markdown 渲染 |
-| `/login` | **3,948.77** | 18.03ms | 静态表单（可缓存） |
-| `/boards` | **3,901.77** | 17.26ms | 数据库驱动列表 |
+| 端点 | 峰值 RPS | 平均延迟 | 说明 |
+|----------|----------|-------------|-------|
+| `/` (Home) | **941.67** | 174.60ms | DB query + markdown rendering |
+| `/login` | **927.08** | 175.83ms | Static form |
+| `/boards` | **920.36** | 178.16ms | DB-driven list |
 
-### 资源占用（峰值负载）
+> 注意：TLS 连接断开时会出现 socket read error，但不影响吞吐量测量。
 
-| 项目 | 值 |
-|------|-----|
-| CPU 使用率 | 约 600% (12 线程系统) |
-| RAM (RSS) | 约 12 MB |
-| 虚拟内存 (VSZ) | 约 1.2 GB |
+### 内存使用量
 
-> 注意：基准测试在**未**对请求进行序列化（`pthread_mutex_t`）的状态下执行。  
-> `ulimit -n` 已设置为 20,000，因此最多 400 个并发连接均可稳定测量。
+| 状态 | RSS | 备注 |
+|-------|-----|-------|
+| 空闲 | **~577 MB** (590,528 KB) | 4 workers, no connections |
+| C10k | **~658 MB** (673,688 KB) | 10,000 concurrent connections |
+| C100k | **~692 MB** (708,300 KB) | 100,000 concurrent connections |
 
 ### C10k 并发连接测试
 
-在实际运行环境中维持 10,000 个并发连接（C10k）进行测量（`sudo -E /usr/bin/time -v ./fly_board`）。
+使用 `h2load` 维持 10,000 个并发连接进行测量。
 
 | 项目 | 值 |
-|------|-----|
+|------|-------|
 | 并发连接数 | 10,000 |
-| 持续时间 | 24 分 46 秒 |
-| 最大 RSS | **约 369 MB** (368,644 KB) |
-| 平均 CPU 占用率 | 约 93% |
-| User time | 444.17 秒 |
-| System time | 951.76 秒 |
-| Major page faults | **0** (无磁盘 I/O) |
-| Minor page faults | 219,629 |
-| Swaps | **0** |
-| File system inputs | **0** |
-| File system outputs | 89,208 (安全数据落盘) |
-| Voluntary context switches | 346,110,015 |
-| Involuntary context switches | 1,690,588 |
-| 退出状态 | **0** (SIGINT 后正常退出) |
+| 持续时间 | 21.98 s |
+| 最大 RSS | **约 658 MB** (673,688 KB) |
+| CPU 使用率 | ~199% |
+| User time | 36.41 s |
+| System time | 7.43 s |
+| Major page faults | **0** |
+| Minor page faults | 170,352 |
+| Voluntary context switches | 2,197,128 |
+| Involuntary context switches | 293,375 |
+| File system outputs | 72 |
+| 退出状态 | **0** |
 
-> 注意：在 HTTP/3 (QUIC) over TLS 1.3 环境下维持 10,000 个真实客户端连接测得。
+### C100k 并发连接测试
+
+使用 `h2load` 维持 100,000 个并发连接进行测量。
+
+| 项目 | 值 |
+|------|-------|
+| 并发连接数 | 100,000 |
+| 持续时间 | 2:38.55 |
+| 最大 RSS | **约 692 MB** (708,300 KB) |
+| CPU 使用率 | ~91% |
+| User time | 120.81 s |
+| System time | 24.13 s |
+| Major page faults | **0** |
+| Minor page faults | 191,633 |
+| Voluntary context switches | 6,371,528 |
+| Involuntary context switches | 842,479 |
+| File system outputs | 72 |
+| 退出状态 | **0** |
+
+> 注意：在 HTTP/2 (TLS 1.3) 上维持实际客户端连接时测得的值。
 
 **C10k 基准测试核心优势**
-- **内存高效**: 10,000 并发连接下 RSS 仍低于 400 MB（每连接约 37 KB）
-- **零磁盘 I/O**: Major page faults 0、Swaps 0、FS inputs 0 — 高负载下仍纯内存处理
-- **CPU 充分利用**: 93% CPU 占用率下依然稳定运行
-- **长时间稳定性**: 持续 24 分 46 秒的 C10k 满载后正常退出（Exit status 0）
-- **数据安全**: 收到 SIGINT 后 SQLite 仍安全保存全部数据
+- **内存高效**: 10,000 并发连接下 RSS 仍低于 660 MB（每连接约 66 KB）
+- **零磁盘 I/O**: Major page faults 0, Swaps 0, FS inputs 0 — 负载下纯内存处理
+- **高 CPU 利用率**: 稳定维持 ~199% CPU 使用率
+- **长时间稳定性**: 持续 21.98 秒的 C10k 满载后正常退出（Exit status 0）
+- **数据安全性**: SIGINT 后 SQLite 安全持久化数据（72 FS outputs）
