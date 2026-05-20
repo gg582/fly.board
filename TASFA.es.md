@@ -58,6 +58,8 @@ TASFA es el **protocolo de carga/descarga de archivos basado en HTTP/XHR** que u
 
 ## ¿Vale la pena sacrificar RPS?
 
+> **Nota**: El compromiso de RPS descrito a continuación aplica **solo a los endpoints de transferencia de archivos** (`/file/upload`, `/file/download`, etc.). El RPS de páginas medido en benchmarks (inicio, lista de tableros, etc.) no se ve afectado por TASFA.
+
 TASFA incurre claramente en una **penalización de RPS (solicitudes por segundo)** en comparación con el servicio simple de archivos estáticos. Sin embargo, esta penalización es un compromiso intencional para obtener los siguientes valores:
 
 | Lo que sacrificas | Lo que ganas |
