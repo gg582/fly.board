@@ -1,59 +1,7 @@
 (function() {
     var cache = new Map();
     var downloadStates = {};
-    var DOWNLOAD_FETCH_TIMEOUT_MS = 6000;
-    var DOWNLOAD_RETRY_LIMIT = 5;
-    var DOWNLOAD_MULTI_SESSION_CAP = 6;
     var SPACER_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-
-    var TasfaDB = {
-        _db: null,
-        open: function() {
-            if (this._db) return Promise.resolve(this._db);
-            return new Promise(function(resolve, reject) {
-                try {
-                    var request = indexedDB.open('tasfa_cache', 1);
-                    request.onupgradeneeded = function(e) {
-                        var db = e.target.result;
-                        if (!db.objectStoreNames.contains('chunks')) {
-                            db.createObjectStore('chunks');
-                        }
-                    };
-                    request.onsuccess = function(e) {
-                        TasfaDB._db = e.target.result;
-                        resolve(TasfaDB._db);
-                    };
-                    request.onerror = function(e) { resolve(null); };
-                } catch (err) { resolve(null); }
-            });
-        },
-        putChunk: function(key, data) {
-            return this.open().then(function(db) {
-                if (!db) return;
-                return new Promise(function(resolve) {
-                    try {
-                        var tx = db.transaction('chunks', 'readwrite');
-                        tx.objectStore('chunks').put(data, key);
-                        tx.oncomplete = function() { resolve(); };
-                        tx.onerror = function() { resolve(); };
-                    } catch (err) { resolve(); }
-                });
-            });
-        },
-        getChunk: function(key) {
-            return this.open().then(function(db) {
-                if (!db) return null;
-                return new Promise(function(resolve) {
-                    try {
-                        var tx = db.transaction('chunks', 'readonly');
-                        var req = tx.objectStore('chunks').get(key);
-                        req.onsuccess = function(e) { resolve(e.target.result); };
-                        req.onerror = function() { resolve(null); };
-                    } catch (err) { resolve(null); }
-                });
-            });
-        }
-    };
 
     function handshakeUrl(baseUrl) {
         if (baseUrl.indexOf('/file/download/') === 0) return baseUrl + '/handshake';
@@ -62,57 +10,17 @@
         return null;
     }
 
-    function chunkUrl(baseUrl, sessionId, sessionToken, chunkIndex) {
+    function chunkUrl(baseUrl, sessionId, sessionToken, chunkIndex, span) {
+        var url = null;
         if (baseUrl.indexOf('/file/download/') === 0) {
-            return baseUrl + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
+            url = baseUrl + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
+        } else if (baseUrl.indexOf('/assets/img/') === 0) {
+            url = '/assets/tasfa/img/' + encodeURIComponent(baseUrl.slice('/assets/img/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
+        } else if (baseUrl.indexOf('/assets/uploads/') === 0) {
+            url = '/assets/tasfa/uploads/' + encodeURIComponent(baseUrl.slice('/assets/uploads/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
         }
-        if (baseUrl.indexOf('/assets/img/') === 0) {
-            return '/assets/tasfa/img/' + encodeURIComponent(baseUrl.slice('/assets/img/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
-        }
-        if (baseUrl.indexOf('/assets/uploads/') === 0) {
-            return '/assets/tasfa/uploads/' + encodeURIComponent(baseUrl.slice('/assets/uploads/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
-        }
-        return null;
-    }
-
-    function buildLinkHintQuery(state) {
-        var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-        var params = new URLSearchParams();
-        params.set('link_stability_score', String(computeLinkStabilityScore(state, conn)));
-        params.set('link_effective_type', conn && conn.effectiveType ? conn.effectiveType : '');
-        params.set('link_downlink_mbps', conn && typeof conn.downlink === 'number' ? String(conn.downlink) : '');
-        params.set('link_rtt_ms', String(Math.round((state && state.ewmaRttMs) || (conn && conn.rtt) || 0)));
-        params.set('link_retry_events', String((state && state.retries) || 0));
-        params.set('link_timeout_events', String((state && state.timeouts) || 0));
-        params.set('link_save_data', conn && conn.saveData ? '1' : '0');
-        return params.toString();
-    }
-
-    function computeLinkStabilityScore(state, conn) {
-        var score = 55;
-        var effectiveType = conn && conn.effectiveType ? conn.effectiveType : '';
-        var downlink = conn && typeof conn.downlink === 'number' ? conn.downlink : 0;
-        var rtt = (state && state.ewmaRttMs) || (conn && typeof conn.rtt === 'number' ? conn.rtt : 0);
-        if (effectiveType === '4g') score += 24;
-        else if (effectiveType === '3g') score += 10;
-        else if (effectiveType === '2g' || effectiveType === 'slow-2g') score -= 10;
-        if (downlink >= 30) score += 18;
-        else if (downlink >= 10) score += 12;
-        else if (downlink >= 3) score += 6;
-        else if (downlink > 0 && downlink < 1.5) score -= 10;
-        if (rtt > 0) {
-            if (rtt <= 60) score += 16;
-            else if (rtt <= 120) score += 8;
-            else if (rtt <= 220) score += 2;
-            else if (rtt <= 450) score -= 10;
-            else score -= 18;
-        }
-        score -= ((state && state.retries) || 0) * 5;
-        score -= ((state && state.timeouts) || 0) * 12;
-        if (conn && conn.saveData) score -= 10;
-        if (score < 10) score = 10;
-        if (score > 100) score = 100;
-        return score;
+        if (url && span > 1) url += '&span=' + String(span);
+        return url;
     }
 
     async function fetchJson(url) {
@@ -126,31 +34,11 @@
         return response.json();
     }
 
-    function nextRetryDelay(attempt) {
-        return Math.min(400, 50 * Math.pow(1.45, Math.max(0, Number(attempt) || 0)));
-    }
-
-    function writeCoalescedBuffer(target, buffer, session, startChunk, span, baseUrl) {
-        var total = new Uint8Array(buffer);
-        var offset = 0;
-        for (var i = 0; i < span; i += 1) {
-            var chunkIndex = startChunk + i;
-            var remaining = (Number(session.total_size) || 0) - (chunkIndex * Number(session.chunk_size));
-            var expected = Math.min(Number(session.chunk_size), remaining);
-            var chunkData = total.subarray(offset, offset + expected);
-            target.set(chunkData, chunkIndex * Number(session.chunk_size));
-            TasfaDB.putChunk(baseUrl + ':' + chunkIndex, chunkData.buffer.slice(chunkData.byteOffset, chunkData.byteOffset + chunkData.byteLength));
-            offset += expected;
-        }
-    }
-
     function normalizeDownloadSession(session) {
         if (!session) return null;
         var chunkCount = Math.max(1, Number(session.chunk_count) || 1);
-        var maxParallel = Math.max(1, Math.min(Number(session.max_parallel_chunks) || 20, Math.max(chunkCount, 1)));
-        var initialParallel = Math.max(1, Math.min(Number(session.initial_parallel_chunks) || maxParallel, maxParallel));
+        var hw = Math.max(1, Number(navigator.hardwareConcurrency) || 4);
         return {
-            raw: session,
             sessionId: session.session_id,
             sessionToken: session.session_token,
             chunkSize: Math.max(1, Number(session.chunk_size) || 1),
@@ -158,182 +46,26 @@
             totalSize: Math.max(0, Number(session.total_size) || 0),
             mimeType: session.mime_type || 'application/octet-stream',
             filename: session.filename || 'download',
-            maxParallel: maxParallel,
-            initialParallel: initialParallel,
-            pacingMs: Math.max(0, Number(session.dispatch_pacing_ms) || 0),
-            coalesceChunks: Math.max(1, Math.min(Number(session.coalesce_chunks) || 1, 64))
+            maxParallel: Math.max(1, Math.min(Number(session.max_parallel_chunks) || hw * 2, chunkCount))
         };
     }
 
-    async function fetchDownloadSession(baseUrl, linkState) {
+    async function fetchDownloadSession(baseUrl) {
         var hsUrl = handshakeUrl(baseUrl);
         if (!hsUrl) throw new Error('unsupported base url');
-        var session = normalizeDownloadSession(await fetchJson(hsUrl + '?' + buildLinkHintQuery(linkState || {})));
+        var session = normalizeDownloadSession(await fetchJson(hsUrl));
         if (!session || !session.sessionId || !session.sessionToken) {
             throw new Error((session && session.error) || 'invalid handshake');
         }
         return session;
     }
 
-    function chooseMultiTasfaSessionCount(session) {
-        var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-        var saveData = !!(conn && conn.saveData);
-        var downlink = conn && typeof conn.downlink === 'number' ? conn.downlink : 0;
-        var cores = Math.max(1, Number(navigator.hardwareConcurrency) || 1);
-        var memory = Math.max(0, Number(navigator.deviceMemory) || 0);
-        var chunkCount = Math.max(1, Number(session && session.chunkCount) || 1);
-        var coalesce = Math.max(1, Number(session && session.coalesceChunks) || 1);
-        if (saveData || chunkCount < 24 || cores < 4) return 1;
-
-        var count = 1;
-        if (downlink >= 12 && cores >= 4 && chunkCount >= 32) count = 2;
-        if (downlink >= 28 && cores >= 8 && memory >= 4 && chunkCount >= 96) count = 3;
-        if (downlink >= 60 && cores >= 10 && memory >= 8 && chunkCount >= 160) count = 4;
-
-        var groupBudget = Math.max(1, Math.floor(chunkCount / Math.max(8, coalesce)));
-        return Math.max(1, Math.min(DOWNLOAD_MULTI_SESSION_CAP, count, groupBudget));
-    }
-
-    async function buildDownloadLanes(baseUrl, primarySession, linkState) {
-        var lanes = [{
-            session: primarySession,
-            windowSize: primarySession.initialParallel,
-            linkState: Object.assign({}, linkState || {})
-        }];
-        var targetCount = chooseMultiTasfaSessionCount(primarySession);
-        if (targetCount <= 1) return lanes;
-
-        var extraRequests = [];
-        for (var i = 1; i < targetCount; i += 1) {
-            extraRequests.push(fetchDownloadSession(baseUrl, linkState));
+    function chunkByteSize(session, chunkIndex) {
+        if (chunkIndex === session.chunkCount - 1) {
+            var rem = session.totalSize - (chunkIndex * session.chunkSize);
+            return Math.max(0, rem);
         }
-        var results = await Promise.allSettled(extraRequests);
-        results.forEach(function(result) {
-            if (result.status !== 'fulfilled') return;
-            var session = result.value;
-            if (!session ||
-                session.chunkCount !== primarySession.chunkCount ||
-                session.chunkSize !== primarySession.chunkSize ||
-                session.totalSize !== primarySession.totalSize) {
-                return;
-            }
-            lanes.push({
-                session: session,
-                windowSize: session.initialParallel,
-                linkState: Object.assign({}, linkState || {})
-            });
-        });
-        return lanes;
-    }
-
-    function reserveDownloadGroup(sharedState, span) {
-        if (!sharedState || sharedState.nextChunk >= sharedState.chunkCount) return null;
-        while (sharedState.nextChunk < sharedState.chunkCount && sharedState.bitmap[sharedState.nextChunk]) {
-            sharedState.nextChunk++;
-        }
-        if (sharedState.nextChunk >= sharedState.chunkCount) return null;
-
-        var startChunk = sharedState.nextChunk;
-        var actualSpan = 0;
-        while (actualSpan < span && (startChunk + actualSpan) < sharedState.chunkCount && !sharedState.bitmap[startChunk + actualSpan]) {
-            actualSpan++;
-        }
-        sharedState.nextChunk += actualSpan;
-        return { startChunk: startChunk, span: actualSpan };
-    }
-
-    async function fetchGroupWithRetry(baseUrl, lane, allBytes, startChunk, span, retries) {
-        var lastErr = null;
-        for (var i = 0; i <= retries; i += 1) {
-            var controller = new AbortController();
-            var timeoutLimit = document.visibilityState === 'hidden' ? 30000 : ((lane.session.pacingMs || 0) > 20 ? 10000 : DOWNLOAD_FETCH_TIMEOUT_MS);
-            var timeoutId = setTimeout(function() { controller.abort(); }, timeoutLimit);
-            var startedAt = Date.now();
-            try {
-                var url = chunkUrl(baseUrl, lane.session.sessionId, lane.session.sessionToken, startChunk) + '&span=' + String(span);
-                var response = await fetch(url, {
-                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
-                    signal: controller.signal
-                });
-                clearTimeout(timeoutId);
-                if (!response.ok) throw new Error('chunk:' + response.status);
-                lane.linkState.ewmaRttMs = lane.linkState.ewmaRttMs > 0
-                    ? ((lane.linkState.ewmaRttMs * 0.7) + ((Date.now() - startedAt) * 0.3))
-                    : (Date.now() - startedAt);
-                writeCoalescedBuffer(allBytes, await response.arrayBuffer(), lane.session.raw, startChunk, span, baseUrl);
-                return;
-            } catch (e) {
-                clearTimeout(timeoutId);
-                lastErr = e;
-                lane.linkState.retries = Number(lane.linkState.retries || 0) + 1;
-                if (e && e.name === 'AbortError') lane.linkState.timeouts = Number(lane.linkState.timeouts || 0) + 1;
-                if (e && e.message === 'timeout:fetch') lane.linkState.timeouts = Number(lane.linkState.timeouts || 0) + 1;
-                if (i < retries) await new Promise(function(r) { setTimeout(r, nextRetryDelay(i)); });
-            }
-        }
-        throw lastErr;
-    }
-
-    function runDownloadLane(baseUrl, lane, sharedState, allBytes) {
-        return new Promise(function(resolve, reject) {
-            function finishIfDone() {
-                if (sharedState.failed) return true;
-                if (sharedState.completedChunks >= sharedState.chunkCount && lane.active === 0) {
-                    resolve();
-                    return true;
-                }
-                return false;
-            }
-
-            function pump() {
-                if (finishIfDone()) return;
-                var reservedAny = false;
-                while (lane.active < lane.windowSize) {
-                    var group = reserveDownloadGroup(sharedState, lane.session.coalesceChunks);
-                    if (!group) break;
-                    reservedAny = true;
-                    lane.active += 1;
-                    fetchGroupWithRetry(baseUrl, lane, allBytes, group.startChunk, group.span, DOWNLOAD_RETRY_LIMIT).then(function(currentGroup) {
-                        return function() {
-                            lane.active -= 1;
-                            for (var i = 0; i < currentGroup.span; i++) {
-                                if (!sharedState.bitmap[currentGroup.startChunk + i]) {
-                                    sharedState.bitmap[currentGroup.startChunk + i] = 1;
-                                    sharedState.completedChunks += 1;
-                                }
-                            }
-                            if (lane.windowSize < lane.session.maxParallel) {
-                                var isPoor = (lane.session.pacingMs || 0) > 20;
-                                var increment = isPoor ? Math.max(4, Math.ceil(lane.windowSize * 0.12)) : Math.max(16, Math.ceil(lane.windowSize * 0.35));
-                                lane.windowSize = Math.min(
-                                    lane.session.maxParallel,
-                                    lane.windowSize + increment
-                                );
-                            }
-                            if (!finishIfDone()) {
-                                if (lane.session.pacingMs > 0) setTimeout(pump, lane.session.pacingMs);
-                                else pump();
-                            }
-                        };
-                    }(group)).catch(function(error) {
-                        sharedState.failed = error || new Error('download failed');
-                        reject(sharedState.failed);
-                    });
-                    if (lane.session.pacingMs > 0) break;
-                }
-
-                if (lane.session.pacingMs > 0 && !sharedState.failed && sharedState.nextChunk < sharedState.chunkCount && lane.active < lane.windowSize) {
-                    setTimeout(pump, lane.session.pacingMs);
-                } else if (!reservedAny && !sharedState.failed && lane.active === 0 && sharedState.completedChunks < sharedState.chunkCount) {
-                    setTimeout(pump, 16);
-                } else {
-                    finishIfDone();
-                }
-            }
-
-            lane.active = 0;
-            pump();
-        });
+        return Math.min(session.chunkSize, session.totalSize - (chunkIndex * session.chunkSize));
     }
 
     function _dlId(baseUrl) {
@@ -346,7 +78,7 @@
         var wrap = document.createElement('div');
         wrap.id = id;
         wrap.className = 'tasfa-download-progress';
-        var safeName = (filename || 'Downloading...').replace(/[<>"']/g, '');
+        var safeName = (filename || 'Downloading...').replace(/[<>'"]/g, '');
         wrap.innerHTML = '<div class="tasfa-download-progress-text"><span class="tasfa-dl-name">' + safeName + '</span><span class="tasfa-dl-pct">0%</span></div><div class="tasfa-download-progress-bar"><div class="tasfa-download-progress-inner" style="width:0%"></div></div>';
         document.body.appendChild(wrap);
     }
@@ -359,12 +91,51 @@
         var nameEl = el.querySelector('.tasfa-dl-name');
         if (pctEl) pctEl.textContent = percent + '%';
         if (barEl) barEl.style.width = percent + '%';
-        if (nameEl && filename) nameEl.textContent = filename.replace(/[<>"']/g, '');
+        if (nameEl && filename) nameEl.textContent = filename.replace(/[<>'"]/g, '');
     }
 
     function removeDownloadProgress(baseUrl) {
         var el = document.getElementById(_dlId(baseUrl));
         if (el) el.remove();
+    }
+
+    function fetchChunk(baseUrl, session, allBytes, chunkIndex, span) {
+        return new Promise(function(resolve, reject) {
+            var url = chunkUrl(baseUrl, session.sessionId, session.sessionToken, chunkIndex, span);
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', url, true);
+            xhr.responseType = 'arraybuffer';
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            xhr.timeout = 20000;
+            xhr.onload = function() {
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    reject(new Error('chunk:' + xhr.status));
+                    return;
+                }
+                var buffer = xhr.response;
+                if (!buffer) { reject(new Error('empty response')); return; }
+                var data = new Uint8Array(buffer);
+                var offset = 0;
+                var totalReceived = 0;
+                for (var i = 0; i < span; i++) {
+                    var idx = chunkIndex + i;
+                    if (idx >= session.chunkCount) break;
+                    var size = chunkByteSize(session, idx);
+                    if (offset + size > data.byteLength) {
+                        size = data.byteLength - offset;
+                    }
+                    if (size > 0) {
+                        allBytes.set(data.subarray(offset, offset + size), idx * session.chunkSize);
+                    }
+                    offset += size;
+                    totalReceived += size;
+                }
+                resolve(totalReceived);
+            };
+            xhr.onerror = function() { reject(new Error('network')); };
+            xhr.ontimeout = function() { reject(new Error('timeout')); };
+            xhr.send();
+        });
     }
 
     async function fetchBlobViaTasfa(baseUrl, options) {
@@ -376,45 +147,58 @@
         var silent = options && options.silent;
 
         var promise = (async function() {
-            var linkState = { ewmaRttMs: 0, retries: 0, timeouts: 0 };
-            var primarySession = await fetchDownloadSession(baseUrl, linkState);
-            var allBytes = new Uint8Array(primarySession.totalSize);
+            var session = await fetchDownloadSession(baseUrl);
+            var allBytes = new Uint8Array(session.totalSize);
             var sharedState = {
-                chunkCount: primarySession.chunkCount,
+                chunkCount: session.chunkCount,
+                totalSize: session.totalSize,
                 nextChunk: 0,
                 completedChunks: 0,
-                failed: null,
-                bitmap: new Array(primarySession.chunkCount).fill(0)
+                downloadedBytes: 0,
+                failed: null
             };
             downloadStates[baseUrl] = {
                 sharedState: sharedState,
-                filename: primarySession.filename
+                filename: session.filename
             };
 
-            var cachePromises = [];
-            for (var i = 0; i < primarySession.chunkCount; i++) {
-                cachePromises.push((function(idx) {
-                    return TasfaDB.getChunk(baseUrl + ':' + idx).then(function(data) {
-                        if (data && !sharedState.bitmap[idx]) {
-                            allBytes.set(new Uint8Array(data), idx * primarySession.chunkSize);
-                            sharedState.bitmap[idx] = 1;
-                            sharedState.completedChunks++;
-                        }
-                    }).catch(function(){});
-                })(i));
-            }
-            await Promise.all(cachePromises);
+            var pending = [];
+            for (var i = 0; i < session.chunkCount; i++) pending.push(i);
+            var bitmap = new Array(session.chunkCount).fill(0);
+            var SPAN = 4;
 
-            if (sharedState.completedChunks < sharedState.chunkCount) {
-                var lanes = await buildDownloadLanes(baseUrl, primarySession, linkState);
-                await Promise.all(lanes.map(function(lane) {
-                    return runDownloadLane(baseUrl, lane, sharedState, allBytes);
-                }));
+            async function worker() {
+                while (pending.length > 0 && !sharedState.failed) {
+                    var idx = pending.pop();
+                    if (bitmap[idx]) continue;
+                    try {
+                        var actualSpan = Math.min(SPAN, session.chunkCount - idx);
+                        var received = await fetchChunk(baseUrl, session, allBytes, idx, actualSpan);
+                        for (var i = 0; i < actualSpan; i++) {
+                            var doneIdx = idx + i;
+                            if (doneIdx < session.chunkCount && !bitmap[doneIdx]) {
+                                bitmap[doneIdx] = 1;
+                                sharedState.completedChunks += 1;
+                                sharedState.downloadedBytes += chunkByteSize(session, doneIdx);
+                            }
+                        }
+                    } catch (e) {
+                        sharedState.failed = e || new Error('download failed');
+                    }
+                }
             }
+
+            var workers = [];
+            for (var i = 0; i < session.maxParallel; i++) {
+                workers.push(worker());
+            }
+            await Promise.all(workers);
+
+            if (sharedState.failed) throw sharedState.failed;
 
             return {
-                blob: new Blob([allBytes.buffer], { type: primarySession.mimeType }),
-                filename: primarySession.filename
+                blob: new Blob([allBytes.buffer], { type: session.mimeType }),
+                filename: session.filename
             };
         })();
 
@@ -427,8 +211,8 @@
                     return;
                 }
                 var ss = state.sharedState;
-                var pct = ss.chunkCount > 0 ? Math.round((ss.completedChunks / ss.chunkCount) * 100) : 0;
-                updateDownloadProgress(baseUrl, pct, state.filename);
+                var pct = ss.totalSize > 0 ? Math.round((ss.downloadedBytes / ss.totalSize) * 100) : 0;
+                updateDownloadProgress(baseUrl, Math.min(100, pct), state.filename);
                 if (ss.completedChunks >= ss.chunkCount || ss.failed) {
                     clearInterval(progressInterval);
                 }
@@ -453,16 +237,7 @@
         }
     }
 
-    function sendToSW(msg) {
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.ready.then(function(reg) {
-                if (reg.active) reg.active.postMessage(msg);
-            }).catch(function() {});
-        }
-    }
-
     function triggerDownload(baseUrl) {
-        sendToSW({ type: 'START_DOWNLOAD', baseUrl: baseUrl });
         return fetchBlobViaTasfa(baseUrl).then(function(result) {
             var objectUrl = URL.createObjectURL(result.blob);
             var a = document.createElement('a');
@@ -580,28 +355,6 @@
                     });
                 });
             }).observe(document.documentElement, { childList: true, subtree: true });
-        }
-
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js').then(function(reg) {
-                console.log('SW registered:', reg.scope);
-            }).catch(function(err) {
-                console.log('SW registration failed:', err);
-            });
-
-            navigator.serviceWorker.addEventListener('message', function(event) {
-                if (event.data && event.data.type === 'DOWNLOAD_PROGRESS') {
-                    var d = event.data;
-                    if (!document.getElementById(_dlId(d.baseUrl))) {
-                        createDownloadProgress(d.baseUrl, d.filename);
-                    }
-                    var pct = d.total > 0 ? Math.round((d.completed / d.total) * 100) : 0;
-                    updateDownloadProgress(d.baseUrl, pct, d.filename);
-                    if (d.done) {
-                        setTimeout(function() { removeDownloadProgress(d.baseUrl); }, d.error ? 0 : 800);
-                    }
-                }
-            });
         }
     }
 
