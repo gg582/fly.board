@@ -16,7 +16,7 @@
 
 #define TASFA_UPLOAD_DIR "data/tasfa/uploads"
 #define TASFA_DOWNLOAD_DIR "data/tasfa/downloads"
-#define TASFA_CHUNK_SIZE (16 * 1024 * 1024)
+#define TASFA_CHUNK_SIZE (64 * 1024 * 1024)
 
 #define TASFA_UPLOAD_TTL 86400
 #define TASFA_DOWNLOAD_TTL 86400
@@ -989,15 +989,17 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_UPLOAD_TTL));
     cJSON_AddStringToObject(meta, "expires_at", expires_at);
 
-    /* Per-vertex metadata arrays for HTP */
-    cJSON *hash_tags = cJSON_CreateArray();
-    cJSON *magic_scalars = cJSON_CreateArray();
-    for (int i = 0; i < chunk_count; i++) {
-        cJSON_AddItemToArray(hash_tags, cJSON_CreateString(""));
-        cJSON_AddItemToArray(magic_scalars, cJSON_CreateNumber(0));
+    /* Per-vertex metadata arrays for HTP (only when we have a full group of 6) */
+    if (chunk_count >= 6) {
+        cJSON *hash_tags = cJSON_CreateArray();
+        cJSON *magic_scalars = cJSON_CreateArray();
+        for (int i = 0; i < chunk_count; i++) {
+            cJSON_AddItemToArray(hash_tags, cJSON_CreateString(""));
+            cJSON_AddItemToArray(magic_scalars, cJSON_CreateNumber(0));
+        }
+        cJSON_AddItemToObject(meta, "hash_tags", hash_tags);
+        cJSON_AddItemToObject(meta, "magic_scalars", magic_scalars);
     }
-    cJSON_AddItemToObject(meta, "hash_tags", hash_tags);
-    cJSON_AddItemToObject(meta, "magic_scalars", magic_scalars);
 
     tasfa_meta_bin_t mbin = {0};
     strncpy(mbin.upload_token, upload_token, sizeof(mbin.upload_token)-1);
