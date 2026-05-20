@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> 閒置時僅 **100-200 MB RSS**，C10k（10,000 併發連線）下峰值仍僅約 **369 MB** 的極簡部落格系統。  
+> 閒置時僅 **~577 MB RSS**，C10k（10,000 併發連線）下峰值仍僅約 **658 MB** 的極簡部落格系統。  
 > 基於 C 語言 CWIST Web 框架，支援 HTTPS/3、Argon2id、PQC 簽章與 NATS 訊息的輕量化論壇兼部落格引擎。
 
 ## 特性
 
-- **記憶體節省** – 堆疊+堆積 C 實作。閒置時 **100-200 MB**，10,000 併發連線（C10k）下最大 RSS 僅約 **369 MB**。
+- **記憶體節省** – 堆疊+堆積 C 實作。閒置時 **~577 MB**，10,000 併發連線（C10k）下最大 RSS 僅約 **658 MB**。
 - **最新傳輸層** – 預設 TLS 1.3 + HTTP/3（QUIC）。可選 ECH（Encrypted Client Hello）。
 - **安全認證** – 用戶端 SHA-512 預雜湊 + 伺服端 **Argon2id**（OpenSSL 3 KDF）。JWT 工作階段 Cookie。
 - **論壇 / 部落格混合** – Slug 式 Markdown 文章 + 多看板 + 巢狀評論。
@@ -116,64 +116,80 @@ MIT License
 
 ### 主機環境
 
-| 項目 | 數值 |
-|------|-----|
-| 作業系統 | Linux 7.0.0-mountain+ |
+| 項目 | 值 |
+|------|-------|
+| OS | Linux 7.0.0-mountain+ |
 | 架構 | x86_64 |
-| CPU | AMD Ryzen 5 5600X @ 3.70GHz（6 核 / 12 執行緒） |
+| CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
 | RAM | 64 GB |
-| 磁碟 | Samsung SSD 980 1TB（NVMe） |
+| 磁碟 | Samsung SSD 980 1TB (NVMe) |
 | OpenSSL | 3.5.5 |
-| 基準工具 | wrk |
-| CWIST | `patches/cwist`（已套用 SIGPIPE 修補程式） |
+| 基準工具 | wrk, h2load |
+| CWIST | `patches/cwist` |
 
 ### 最大吞吐量（RPS）
 
-`wrk -t4 -c400 -d30s`（TLS 1.3，無序列化）
+`wrk -t4 -c400 -d30s` (TLS 1.3)
 
-| 端點 | 最高 RPS | 平均延遲 | 說明 |
-|------|----------|----------|------|
-| `/`（首頁） | **3,409.92** | 121.84ms | 資料庫查詢 + Markdown 渲染 |
-| `/login` | **3,948.77** | 18.03ms | 靜態表單（可快取） |
-| `/boards` | **3,901.77** | 17.26ms | 資料庫驅動列表 |
+| 端點 | 峰值 RPS | 平均延遲 | 說明 |
+|----------|----------|-------------|-------|
+| `/` (Home) | **941.67** | 174.60ms | DB query + markdown rendering |
+| `/login` | **927.08** | 175.83ms | Static form |
+| `/boards` | **920.36** | 178.16ms | DB-driven list |
 
-### 資源佔用（峰值負載）
+> 注意：TLS 連線斷開時會出現 socket read error，但不影響吞吐量測量。
 
-| 項目 | 數值 |
-|------|-----|
-| CPU 使用率 | 約 600%（12 執行緒系統） |
-| RAM（RSS） | 約 12 MB |
-| 虛擬記憶體（VSZ） | 約 1.2 GB |
+### 記憶體使用量
 
-> 注意：基準測試在**未**對請求進行序列化（`pthread_mutex_t`）的狀態下執行。  
-> `ulimit -n` 已設定為 20,000，因此最多 400 個併發連線均可穩定測量。
+| 狀態 | RSS | 備註 |
+|-------|-----|-------|
+| 閒置 | **~577 MB** (590,528 KB) | 4 workers, no connections |
+| C10k | **~658 MB** (673,688 KB) | 10,000 concurrent connections |
+| C100k | **~692 MB** (708,300 KB) | 100,000 concurrent connections |
 
 ### C10k 併發連線測試
 
-在實際執行環境中維持 10,000 個併發連線（C10k）進行測量（`sudo -E /usr/bin/time -v ./fly_board`）。
+使用 `h2load` 維持 10,000 個併發連線進行測量。
 
-| 項目 | 數值 |
-|------|-----|
+| 項目 | 值 |
+|------|-------|
 | 併發連線數 | 10,000 |
-| 持續時間 | 24 分 46 秒 |
-| 最大 RSS | **約 369 MB** (368,644 KB) |
-| 平均 CPU 併用率 | 約 93% |
-| User time | 444.17 秒 |
-| System time | 951.76 秒 |
-| Major page faults | **0** (無磁碟 I/O) |
-| Minor page faults | 219,629 |
-| Swaps | **0** |
-| File system inputs | **0** |
-| File system outputs | 89,208 (安全資料落盤) |
-| Voluntary context switches | 346,110,015 |
-| Involuntary context switches | 1,690,588 |
-| 結束狀態 | **0** (SIGINT 後正常結束) |
+| 持續時間 | 21.98 s |
+| 最大 RSS | **約 658 MB** (673,688 KB) |
+| CPU 使用率 | ~199% |
+| User time | 36.41 s |
+| System time | 7.43 s |
+| Major page faults | **0** |
+| Minor page faults | 170,352 |
+| Voluntary context switches | 2,197,128 |
+| Involuntary context switches | 293,375 |
+| File system outputs | 72 |
+| 結束狀態 | **0** |
 
-> 注意：在 HTTP/3（QUIC）over TLS 1.3 環境下維持 10,000 個真實客戶端連線測得。
+### C100k 併發連線測試
+
+使用 `h2load` 維持 100,000 個併發連線進行測量。
+
+| 項目 | 值 |
+|------|-------|
+| 併發連線數 | 100,000 |
+| 持續時間 | 2:38.55 |
+| 最大 RSS | **約 692 MB** (708,300 KB) |
+| CPU 使用率 | ~91% |
+| User time | 120.81 s |
+| System time | 24.13 s |
+| Major page faults | **0** |
+| Minor page faults | 191,633 |
+| Voluntary context switches | 6,371,528 |
+| Involuntary context switches | 842,479 |
+| File system outputs | 72 |
+| 結束狀態 | **0** |
+
+> 注意：在 HTTP/2 (TLS 1.3) 上維持實際客戶端連線時測得的值。
 
 **C10k 基準測試核心優勢**
-- **記憶體高效**: 10,000 併發連線下 RSS 仍低於 400 MB（每連線約 37 KB）
-- **零磁碟 I/O**: Major page faults 0、Swaps 0、FS inputs 0 — 高負載下仍純記憶體處理
-- **CPU 充分利用**: 93% CPU 佔用率下依然穩定運行
-- **長時間穩定性**: 持續 24 分 46 秒的 C10k 滿載後正常結束（Exit status 0）
-- **資料安全**: 收到 SIGINT 後 SQLite 仍安全保存全部資料
+- **記憶體高效**: 10,000 併發連線下 RSS 仍低於 660 MB（每連線約 66 KB）
+- **零磁碟 I/O**: Major page faults 0, Swaps 0, FS inputs 0 — 負載下純記憶體處理
+- **高 CPU 利用率**: 穩定維持 ~199% CPU 使用率
+- **長時間穩定性**: 持續 21.98 秒的 C10k 滿載後正常結束（Exit status 0）
+- **資料安全性**: SIGINT 後 SQLite 安全持久化資料（72 FS outputs）

@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> idle 시 **100-200 MB RSS**, C10k(10,000 동시 연결)에서도 **약 369 MB**로 동작하는 몇 안 되는 심플 블로그 계통.  
+> idle 시 **~577 MB RSS**, C10k(10,000 동시 연결)에서도 **약 658 MB**로 동작하는 몇 안 되는 심플 블로그 계통.  
 > C 기반 CWIST 웹 프레임워크 위에 HTTPS/3, Argon2id, PQC 서명, NATS 메시징을 올린 가벼운 게시판 겸 블로그 엔진입니다.
 
 ## 특징
 
-- **메모리 절약** – 스택+힙 기반 C 구현. idle 시 **100-200 MB**, 10,000 동시 연결(C10k)에서도 최대 RSS **약 369 MB**에 머무릅니다.
+- **메모리 절약** – 스택+힙 기반 C 구현. idle 시 **~577 MB**, 10,000 동시 연결(C10k)에서도 최대 RSS **약 658 MB**에 머무릅니다.
 - **최신 전송 계층** – TLS 1.3 + HTTP/3(QUIC) 기본 지원. 선택적 ECH(Encrypted Client Hello).
 - **안전한 인증** – 클라이언트 사이드 SHA-512 프리해시 + 서버 사이드 **Argon2id** (OpenSSL 3 KDF). JWT 세션 쿠키.
 - **게시판 / 블로그 하이브리드** – 슬러그 기반 마크다운 포스트 + 다중 게시판(Board) + 댓글(계층형).
@@ -117,63 +117,79 @@ MIT License
 ### 호스트 환경
 
 | 항목 | 값 |
-|------|-----|
+|------|-------|
 | OS | Linux 7.0.0-mountain+ |
 | 아키텍처 | x86_64 |
 | CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
 | RAM | 64 GB |
 | 디스크 | Samsung SSD 980 1TB (NVMe) |
 | OpenSSL | 3.5.5 |
-| 벤치 도구 | wrk |
+| 벤치마크 도구 | wrk, h2load |
 | CWIST | `patches/cwist` |
 
 ### 최대 처리량 (RPS)
 
-`wrk -t4 -c400 -d30s` (TLS 1.3, 직렬화 없음)
+`wrk -t4 -c400 -d30s` (TLS 1.3)
 
 | 엔드포인트 | 최고 RPS | 평균 지연시간 | 설명 |
-|-----------|----------|--------------|------|
-| `/` (홈) | **3,409.92** | 121.84ms | DB 쿼리 + 마크다운 렌더링 |
-| `/login` | **3,948.77** | 18.03ms | 정적 폼 (캐시 가능) |
-| `/boards` | **3,901.77** | 17.26ms | DB 기반 목록 |
+|----------|----------|-------------|-------|
+| `/` (Home) | **941.67** | 174.60ms | DB query + markdown rendering |
+| `/login` | **927.08** | 175.83ms | Static form |
+| `/boards` | **920.36** | 178.16ms | DB-driven list |
 
-### 리소스 사용량 (최고 부하 시)
+> 참고: TLS 연결 종료 시 소켓 read error가 발생하나 처리량 측정에는 영향을 주지 않습니다.
 
-| 항목 | 값 |
-|------|-----|
-| CPU 사용률 | 약 600% (12스레드 기준) |
-| RAM 점유 (RSS) | 약 12 MB |
-| 가상 메모리 (VSZ) | 약 1.2 GB |
+### 메모리 사용량
 
-> 참고: 본 벤치마크는 동시 요청 직렬화(`pthread_mutex_t`) **없이** 수행되었습니다.  
-> `ulimit -n`은 20,000으로 설정되어 있어 400 connections까지 안정적으로 측정 가능합니다.
+| 상태 | RSS | 비고 |
+|-------|-----|-------|
+| Idle | **~577 MB** (590,528 KB) | 4 workers, no connections |
+| C10k | **~658 MB** (673,688 KB) | 10,000 concurrent connections |
+| C100k | **~692 MB** (708,300 KB) | 100,000 concurrent connections |
 
 ### C10k 동시 연결 테스트
 
-실제 운영 환경에서 10,000개의 동시 연결(C10k)을 유지하며 측정 (`sudo -E /usr/bin/time -v ./fly_board`).
+`h2load`로 10,000개 동시 연결을 유지하며 측정.
 
 | 항목 | 값 |
-|------|-----|
+|------|-------|
 | 동시 연결 수 | 10,000 |
-| 지속 시간 | 24분 46초 |
-| 최대 RSS | **약 369 MB** (368,644 KB) |
-| 평균 CPU 점유율 | 약 93% |
-| User time | 444.17초 |
-| System time | 951.76초 |
-| Major page faults | **0** (디스크 I/O 없음) |
-| Minor page faults | 219,629 |
-| Swaps | **0** |
-| File system inputs | **0** |
-| File system outputs | 89,208 (안전한 데이터 저장) |
-| Voluntary context switches | 346,110,015 |
-| Involuntary context switches | 1,690,588 |
-| 종료 상태 | **0** (SIGINT 후에도 정상 종료) |
+| 지속 시간 | 21.98 s |
+| 최대 RSS | **약 658 MB** (673,688 KB) |
+| CPU 사용량 | ~199% |
+| User time | 36.41 s |
+| System time | 7.43 s |
+| Major page faults | **0** |
+| Minor page faults | 170,352 |
+| Voluntary context switches | 2,197,128 |
+| Involuntary context switches | 293,375 |
+| File system outputs | 72 |
+| 종료 상태 | **0** |
 
-> 참고: HTTP/3(QUIC) over TLS 1.3 환경에서 실제 10,000개의 클라이언트 연결을 유지하며 측정된 값입니다.
+### C100k 동시 연결 테스트
+
+`h2load`로 100,000개 동시 연결을 유지하며 측정.
+
+| 항목 | 값 |
+|------|-------|
+| 동시 연결 수 | 100,000 |
+| 지속 시간 | 2:38.55 |
+| 최대 RSS | **약 692 MB** (708,300 KB) |
+| CPU 사용량 | ~91% |
+| User time | 120.81 s |
+| System time | 24.13 s |
+| Major page faults | **0** |
+| Minor page faults | 191,633 |
+| Voluntary context switches | 6,371,528 |
+| Involuntary context switches | 842,479 |
+| File system outputs | 72 |
+| 종료 상태 | **0** |
+
+> 참고: HTTP/2 (TLS 1.3) 상에서 실제 클라이언트 연결을 유지하며 측정한 값입니다.
 
 **C10k 벤치마크 주요 장점**
-- **메모리 효율**: 10,000 동시 연결에서도 RSS가 400 MB 미만 (연결당 약 37 KB)
+- **메모리 효율**: 10,000 동시 연결에서도 RSS가 660 MB 미만 (연결당 약 66 KB)
 - **I/O 프리**: Major page faults 0, Swaps 0, FS inputs 0 — 디스크 I/O 부하 없이 순수 메모리 기반 처리
-- **CPU 활용**: 93% CPU 사용률로 거의 풀 로드를 활용하면서도 안정적
-- **장시간 안정성**: 24분 46초 동안 지속적 C10k 부하를 받으며도 정상 종료 (Exit status 0)
-- **데이터 안전성**: SIGINT 수신 후에도 SQLite가 데이터를 안전하게 저장
+- **CPU 활용**: ~199% CPU 사용률로 안정적
+- **장시간 안정성**: 21.98초 동안 C10k 부하를 지속하며 정상 종료 (Exit status 0)
+- **데이터 안전성**: SIGINT 수신 후에도 SQLite가 데이터를 안전하게 저장 (72 FS outputs)
