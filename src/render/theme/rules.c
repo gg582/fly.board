@@ -558,6 +558,44 @@ void rule_components(cJSON *rules) {
     add_decl(alert, "margin-bottom", "14px");
     cJSON_AddItemToArray(rules, alert);
 
+    cJSON *dp = create_rule(".tasfa-download-progress");
+    add_decl(dp, "position", "fixed");
+    add_decl(dp, "bottom", "20px");
+    add_decl(dp, "right", "20px");
+    add_decl(dp, "width", "320px");
+    add_decl(dp, "padding", "14px 16px");
+    add_decl(dp, "background", "color-mix(in srgb, var(--glass-bg) 96%, transparent)");
+    add_decl(dp, "backdrop-filter", "blur(20px) saturate(180%)");
+    add_decl(dp, "-webkit-backdrop-filter", "blur(20px) saturate(180%)");
+    add_decl(dp, "border", "1px solid var(--glass-border)");
+    add_decl(dp, "border-radius", "0");
+    add_decl(dp, "box-shadow", "0 8px 30px color-mix(in srgb, var(--shadow) 52%, transparent)");
+    add_decl(dp, "z-index", "1000");
+    add_decl(dp, "font-size", "13px");
+    add_decl(dp, "color", "var(--fg)");
+    cJSON_AddItemToArray(rules, dp);
+
+    cJSON *dpt = create_rule(".tasfa-download-progress-text");
+    add_decl(dpt, "display", "flex");
+    add_decl(dpt, "justify-content", "space-between");
+    add_decl(dpt, "margin-bottom", "8px");
+    add_decl(dpt, "font-weight", "600");
+    cJSON_AddItemToArray(rules, dpt);
+
+    cJSON *dpb = create_rule(".tasfa-download-progress-bar");
+    add_decl(dpb, "height", "6px");
+    add_decl(dpb, "background", "var(--border)");
+    add_decl(dpb, "border-radius", "3px");
+    add_decl(dpb, "overflow", "hidden");
+    cJSON_AddItemToArray(rules, dpb);
+
+    cJSON *dpi = create_rule(".tasfa-download-progress-inner");
+    add_decl(dpi, "height", "100%");
+    add_decl(dpi, "background", "var(--accent)");
+    add_decl(dpi, "width", "0%");
+    add_decl(dpi, "transition", "width 0.2s ease");
+    cJSON_AddItemToArray(rules, dpi);
+
     cJSON *tbl_scroll = create_rule(".table-scroll");
     add_decl(tbl_scroll, "width", "100%");
     add_decl(tbl_scroll, "overflow-x", "auto");

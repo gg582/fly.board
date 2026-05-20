@@ -71,6 +71,8 @@ void handler_api_preview(cwist_http_request *req, cwist_http_response *res);
 void handler_api_upload(cwist_http_request *req, cwist_http_response *res);
 void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res);
 
+void handler_sw_js(cwist_http_request *req, cwist_http_response *res);
+
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next);
 
 #endif

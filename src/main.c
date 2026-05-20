@@ -159,6 +159,7 @@ int main(void) {
     cwist_app_get(app, "/assets/tasfa/:scope/:filename/handshake", handler_asset_tasfa_handshake);
     cwist_app_get(app, "/assets/tasfa/:scope/:filename/chunk/:chunk_index", handler_asset_tasfa_chunk);
     cwist_app_static(app, "/assets", "public");
+    cwist_app_get(app, "/sw.js", handler_sw_js);
 
     /* Routes */
     cwist_app_get(app, "/", handler_home);
@@ -224,6 +225,11 @@ int main(void) {
     cwist_app_post(app, "/api/upload", handler_api_upload);
     cwist_app_get(app, "/api/boards", handler_api_boards_json);
     cwist_app_post(app, "/post/vote", handler_post_vote);
+
+    /* Enable io_uring-based async reactor for C10M scale mode.
+     * cwist_reactor will use Linux io_uring direct syscalls on Linux,
+     * falling back to epoll/kqueue on other platforms. */
+    setenv("CWIST_C1M_MODE", "1", 1);
 
     CWIST_LOG_INFO("Starting server on port %d (HTTP/3 on UDP %d)", g_config.port, g_config.port);
     printf("Docker Blog: https://localhost:%d (HTTP/3 on UDP %d)\n", g_config.port, g_config.port);

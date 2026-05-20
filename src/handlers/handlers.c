@@ -120,5 +120,34 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
     next(req, res);
 }
 
+void handler_sw_js(cwist_http_request *req, cwist_http_response *res) {
+    cwist_http_header_add(&res->headers, "Content-Type", "application/javascript; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache");
+
+    FILE *fp = fopen("public/sw.js", "rb");
+    if (!fp) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        return;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long sz = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    char *buf = (char *)cwist_alloc(sz + 1);
+    if (!buf) {
+        fclose(fp);
+        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
+        return;
+    }
+
+    fread(buf, 1, sz, fp);
+    buf[sz] = '\0';
+    fclose(fp);
+
+    cwist_sstring_assign(res->body, buf);
+    cwist_free(buf);
+}
+
 /* render_file_detail declared in render.h */
 
