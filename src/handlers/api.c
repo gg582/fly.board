@@ -52,6 +52,7 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
         cJSON_AddStringToObject(obj, "filename", result.filename);
         cJSON_AddStringToObject(obj, "mime_type", result.mime_type);
         cJSON_AddStringToObject(obj, "url", result.url);
+        cJSON_AddStringToObject(obj, "blob_url", result.url);
         cJSON_AddStringToObject(obj, "html", result.html);
         cJSON_AddNumberToObject(obj, "size", (double)result.file_size);
         CWIST_LOG_INFO("API upload success: uid=%d post_id=%d filename='%s' size=%zu mime=%s", uid, post_id, result.filename, result.file_size, result.mime_type);

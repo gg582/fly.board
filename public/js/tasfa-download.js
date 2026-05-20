@@ -1,5 +1,6 @@
 (function() {
     var cache = new Map();
+    var downloadStates = {};
     var DOWNLOAD_FETCH_TIMEOUT_MS = 6000;
     var DOWNLOAD_RETRY_LIMIT = 5;
     var DOWNLOAD_MULTI_SESSION_CAP = 6;
@@ -335,6 +336,37 @@
         });
     }
 
+    function _dlId(baseUrl) {
+        return 'tasfa-dl-' + baseUrl.replace(/[^a-z0-9]/gi, '_');
+    }
+
+    function createDownloadProgress(baseUrl, filename) {
+        var id = _dlId(baseUrl);
+        if (document.getElementById(id)) return;
+        var wrap = document.createElement('div');
+        wrap.id = id;
+        wrap.className = 'tasfa-download-progress';
+        var safeName = (filename || 'Downloading...').replace(/[<>"']/g, '');
+        wrap.innerHTML = '<div class="tasfa-download-progress-text"><span class="tasfa-dl-name">' + safeName + '</span><span class="tasfa-dl-pct">0%</span></div><div class="tasfa-download-progress-bar"><div class="tasfa-download-progress-inner" style="width:0%"></div></div>';
+        document.body.appendChild(wrap);
+    }
+
+    function updateDownloadProgress(baseUrl, percent, filename) {
+        var el = document.getElementById(_dlId(baseUrl));
+        if (!el) return;
+        var pctEl = el.querySelector('.tasfa-dl-pct');
+        var barEl = el.querySelector('.tasfa-download-progress-inner');
+        var nameEl = el.querySelector('.tasfa-dl-name');
+        if (pctEl) pctEl.textContent = percent + '%';
+        if (barEl) barEl.style.width = percent + '%';
+        if (nameEl && filename) nameEl.textContent = filename.replace(/[<>"']/g, '');
+    }
+
+    function removeDownloadProgress(baseUrl) {
+        var el = document.getElementById(_dlId(baseUrl));
+        if (el) el.remove();
+    }
+
     async function fetchBlobViaTasfa(baseUrl) {
         if (cache.has(baseUrl)) {
             var cached = cache.get(baseUrl);
@@ -351,6 +383,10 @@
                 completedChunks: 0,
                 failed: null,
                 bitmap: new Array(primarySession.chunkCount).fill(0)
+            };
+            downloadStates[baseUrl] = {
+                sharedState: sharedState,
+                filename: primarySession.filename
             };
 
             var cachePromises = [];
@@ -380,16 +416,45 @@
             };
         })();
 
+        createDownloadProgress(baseUrl);
+        var progressInterval = setInterval(function() {
+            var state = downloadStates[baseUrl];
+            if (!state) {
+                clearInterval(progressInterval);
+                return;
+            }
+            var ss = state.sharedState;
+            var pct = ss.chunkCount > 0 ? Math.round((ss.completedChunks / ss.chunkCount) * 100) : 0;
+            updateDownloadProgress(baseUrl, pct, state.filename);
+            if (ss.completedChunks >= ss.chunkCount || ss.failed) {
+                clearInterval(progressInterval);
+            }
+        }, 150);
+
         cache.set(baseUrl, promise);
         try {
-            return await promise;
+            var result = await promise;
+            updateDownloadProgress(baseUrl, 100, result.filename);
+            setTimeout(function() { removeDownloadProgress(baseUrl); delete downloadStates[baseUrl]; }, 800);
+            return result;
         } catch (error) {
+            removeDownloadProgress(baseUrl);
+            delete downloadStates[baseUrl];
             cache.delete(baseUrl);
             throw error;
         }
     }
 
+    function sendToSW(msg) {
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then(function(reg) {
+                if (reg.active) reg.active.postMessage(msg);
+            }).catch(function() {});
+        }
+    }
+
     function triggerDownload(baseUrl) {
+        sendToSW({ type: 'START_DOWNLOAD', baseUrl: baseUrl });
         return fetchBlobViaTasfa(baseUrl).then(function(result) {
             var objectUrl = URL.createObjectURL(result.blob);
             var a = document.createElement('a');
@@ -506,6 +571,28 @@
                     });
                 });
             }).observe(document.documentElement, { childList: true, subtree: true });
+        }
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').then(function(reg) {
+                console.log('SW registered:', reg.scope);
+            }).catch(function(err) {
+                console.log('SW registration failed:', err);
+            });
+
+            navigator.serviceWorker.addEventListener('message', function(event) {
+                if (event.data && event.data.type === 'DOWNLOAD_PROGRESS') {
+                    var d = event.data;
+                    if (!document.getElementById(_dlId(d.baseUrl))) {
+                        createDownloadProgress(d.baseUrl, d.filename);
+                    }
+                    var pct = d.total > 0 ? Math.round((d.completed / d.total) * 100) : 0;
+                    updateDownloadProgress(d.baseUrl, pct, d.filename);
+                    if (d.done) {
+                        setTimeout(function() { removeDownloadProgress(d.baseUrl); }, d.error ? 0 : 800);
+                    }
+                }
+            });
         }
     }
 

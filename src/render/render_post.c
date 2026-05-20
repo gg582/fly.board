@@ -672,8 +672,16 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
             cwist_sstring_append(b, fid_buf);
             cwist_sstring_append(b, "' data-filename='");
             cwist_sstring_append_escaped(b, fname->valuestring);
-            cwist_sstring_append(b, "' data-url='/file/download/");
-            cwist_sstring_append(b, fid_buf);
+            cJSON *fpath = cJSON_GetObjectItem(f, "file_path");
+            const char *url_raw = (fpath && cJSON_IsString(fpath) && fpath->valuestring) ? fpath->valuestring : "";
+            char asset_url[512] = {0};
+            if (strncmp(url_raw, "public/uploads/", 15) == 0) {
+                snprintf(asset_url, sizeof(asset_url), "/assets/uploads/%s", url_raw + 15);
+            } else {
+                snprintf(asset_url, sizeof(asset_url), "/file/download/%s", fid_buf);
+            }
+            cwist_sstring_append(b, "' data-url='");
+            cwist_sstring_append(b, asset_url);
             cwist_sstring_append(b, "' data-mode='attachment'>");
             cwist_sstring_append(b, "<div class='media-thumb'><span style='font-size:22px'>FILE</span></div>");
             cwist_sstring_append(b, "<div class='media-info'><div class='media-name'>");
