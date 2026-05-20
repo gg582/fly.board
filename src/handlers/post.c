@@ -49,17 +49,9 @@ static void rewrite_content_legacy_urls(cwist_db *db, char **content) {
         }
         cJSON *file = db_file_get(db, fid);
         if (file) {
-            cJSON *fp = cJSON_GetObjectItem(file, "file_path");
-            if (fp && cJSON_IsString(fp) && fp->valuestring && strncmp(fp->valuestring, "public/uploads/", 15) == 0) {
-                cwist_sstring_append(out, "/assets/uploads/");
-                cwist_sstring_append(out, fp->valuestring + 15);
-            } else {
-                cwist_sstring_append_len(out, found, num_end - found);
-            }
             cJSON_Delete(file);
-        } else {
-            cwist_sstring_append_len(out, found, num_end - found);
         }
+        cwist_sstring_append_len(out, found, num_end - found);
         p = num_end;
     }
     cwist_free(*content);
