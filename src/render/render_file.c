@@ -179,7 +179,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             cwist_sstring_append(b, fid_buf);
             cwist_sstring_append(b, "' class='btn' style='font-size:12px;padding:4px 10px'>Download</a>");
             if (can_delete) {
-                cwist_sstring_append(b, "<form style='display:inline' action='/file/delete' method='post'>");
+                cwist_sstring_append(b, "<form style='display:inline' action='/file/delete' method='post' class='file-delete-form'>");
                 cwist_sstring_append(b, "<input type='hidden' name='id' value='");
                 cwist_sstring_append(b, fid_buf);
                 cwist_sstring_append(b, "'>");
