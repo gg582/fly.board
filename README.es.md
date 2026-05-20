@@ -114,8 +114,6 @@ MIT License
 
 ## Prueba de rendimiento
 
-> Para conocer la metodología detallada y los resultados completos, consulta [`benchmarks/README.md`](benchmarks/README.md).
-
 ### Entorno del host
 
 | Elemento | Valor |

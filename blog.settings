@@ -1,10 +1,12 @@
 title=Fly Me to The Moon
 subtitle=..And let me play among the stars
 brand_footer=🄯 Lee Yunjin
+root_url=https://example-url.flyme.com
 port=8888
 accent=#56b4e9
 home_img=
 blog_logo=
 boards_img=
 files_img=
-use_tasfa=true
+use_rss=true
+use_tasfa=false

@@ -114,8 +114,6 @@ MIT License
 
 ## 性能基准测试
 
-> 详细的基准测试方法与完整结果请参阅 [`benchmarks/README.md`](benchmarks/README.md)。
-
 ### 主机环境
 
 | 项目 | 值 |
