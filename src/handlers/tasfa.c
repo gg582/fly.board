@@ -403,6 +403,120 @@ static bool is_chunk_already_received(const char *upload_id, int chunk_index) {
     return ok && val == '1';
 }
 
+/* --- Sticky Round-Robin Worker Scheduler --- */
+/* Limits concurrent chunk processing to CPU count while keeping same-upload-id
+   chunks on the same worker for cache locality and ordering. */
+
+#define TASFA_MAX_WORKERS 8
+
+typedef struct tasfa_job {
+    void (*func)(void *);
+    void *arg;
+    volatile bool done;
+    pthread_mutex_t mtx;
+    pthread_cond_t cond;
+    struct tasfa_job *next;
+} tasfa_job_t;
+
+typedef struct {
+    pthread_t tid;
+    pthread_mutex_t queue_lock;
+    pthread_cond_t queue_cond;
+    tasfa_job_t *head;
+    tasfa_job_t *tail;
+    bool shutdown;
+} tasfa_worker_t;
+
+static tasfa_worker_t g_workers[TASFA_MAX_WORKERS];
+static int g_worker_count = 0;
+static pthread_once_t g_scheduler_once = PTHREAD_ONCE_INIT;
+
+static unsigned int hash_upload_id(const char *id) {
+    unsigned int h = 5381;
+    int c;
+    while ((c = *id++)) h = ((h << 5) + h) + c;
+    return h;
+}
+
+static void *tasfa_worker_loop(void *arg) {
+    tasfa_worker_t *w = (tasfa_worker_t *)arg;
+    while (1) {
+        pthread_mutex_lock(&w->queue_lock);
+        while (!w->shutdown && !w->head) {
+            pthread_cond_wait(&w->queue_cond, &w->queue_lock);
+        }
+        if (w->shutdown && !w->head) {
+            pthread_mutex_unlock(&w->queue_lock);
+            break;
+        }
+        tasfa_job_t *job = w->head;
+        w->head = job->next;
+        if (!w->head) w->tail = NULL;
+        pthread_mutex_unlock(&w->queue_lock);
+
+        job->func(job->arg);
+
+        pthread_mutex_lock(&job->mtx);
+        job->done = true;
+        pthread_cond_signal(&job->cond);
+        pthread_mutex_unlock(&job->mtx);
+    }
+    return NULL;
+}
+
+static void tasfa_scheduler_init_impl(void) {
+    int n = (int)sysconf(_SC_NPROCESSORS_ONLN);
+    if (n < 2) n = 2;
+    if (n > TASFA_MAX_WORKERS) n = TASFA_MAX_WORKERS;
+    g_worker_count = n;
+    for (int i = 0; i < n; i++) {
+        pthread_mutex_init(&g_workers[i].queue_lock, NULL);
+        pthread_cond_init(&g_workers[i].queue_cond, NULL);
+        g_workers[i].head = NULL;
+        g_workers[i].tail = NULL;
+        g_workers[i].shutdown = false;
+        pthread_create(&g_workers[i].tid, NULL, tasfa_worker_loop, &g_workers[i]);
+    }
+}
+
+static void tasfa_scheduler_ensure_init(void) {
+    pthread_once(&g_scheduler_once, tasfa_scheduler_init_impl);
+}
+
+static void tasfa_scheduler_submit(const char *upload_id, void (*func)(void *), void *arg, tasfa_job_t *job) {
+    tasfa_scheduler_ensure_init();
+    unsigned int h = hash_upload_id(upload_id);
+    int idx = (int)(h % (unsigned int)g_worker_count);
+    tasfa_worker_t *w = &g_workers[idx];
+
+    job->func = func;
+    job->arg = arg;
+    job->done = false;
+    job->next = NULL;
+    pthread_mutex_init(&job->mtx, NULL);
+    pthread_cond_init(&job->cond, NULL);
+
+    pthread_mutex_lock(&w->queue_lock);
+    if (w->tail) {
+        w->tail->next = job;
+    } else {
+        w->head = job;
+    }
+    w->tail = job;
+    pthread_cond_signal(&w->queue_cond);
+    pthread_mutex_unlock(&w->queue_lock);
+}
+
+static void tasfa_scheduler_wait(tasfa_job_t *job) {
+    pthread_mutex_lock(&job->mtx);
+    while (!job->done) {
+        pthread_cond_wait(&job->cond, &job->mtx);
+    }
+    pthread_mutex_unlock(&job->mtx);
+    pthread_mutex_destroy(&job->mtx);
+    pthread_cond_destroy(&job->cond);
+}
+
 /* --- Session Management --- */
 
 static void cache_invalidate(const char *key);
@@ -1005,6 +1119,76 @@ void handler_file_upload_renegotiate(cwist_http_request *req, cwist_http_respons
     send_json_response(res, obj, CWIST_HTTP_OK);
 }
 
+typedef struct {
+    const char *upload_id;
+    int chunk_index;
+    const char *temp_path;
+    bool encrypted_stream;
+    const unsigned char *stream_key;
+    const unsigned char *stream_iv_seed;
+    const void *body_data;
+    size_t body_size;
+    long long offset;
+    long long expected_size;
+    int chunk_count;
+    const char *hash_tag_hex;
+    const char *magic_scalar_str;
+    /* outputs */
+    bool stored;
+    bool state_ok;
+} upload_work_t;
+
+static void upload_work_func(void *arg) {
+    upload_work_t *w = (upload_work_t *)arg;
+
+    int fd = open(w->temp_path, O_WRONLY);
+    if (fd >= 0) {
+        if (w->encrypted_stream) {
+            unsigned char *plaintext = ensure_decrypt_buf((size_t)w->expected_size);
+            if (plaintext && w->body_size == (size_t)w->expected_size + 16 &&
+                decrypt_stream_block(w->stream_key, w->stream_iv_seed, w->chunk_index, w->upload_id,
+                                     (const unsigned char *)w->body_data, w->body_size,
+                                     plaintext, (size_t)w->expected_size)) {
+                w->stored = pwrite_all(fd, plaintext, (size_t)w->expected_size, (off_t)w->offset);
+            }
+        } else if ((long long)w->body_size == w->expected_size) {
+            w->stored = pwrite_all(fd, w->body_data, w->body_size, (off_t)w->offset);
+        }
+        close(fd);
+    }
+
+    if (!w->stored) return;
+
+    w->state_ok = mark_chunk_received_in_session_state(w->upload_id, w->chunk_index);
+    if (!w->state_ok) return;
+
+    /* Persist HTP per-vertex metadata */
+    cJSON *meta = load_upload_session(w->upload_id);
+    if (meta) {
+        cJSON *hash_tags = cJSON_GetObjectItem(meta, "hash_tags");
+        cJSON *magic_scalars = cJSON_GetObjectItem(meta, "magic_scalars");
+        if (hash_tags && magic_scalars && w->chunk_index < cJSON_GetArraySize(hash_tags)) {
+            /* Preserve existing HTP metadata when a fallback chunk arrives for an already-received vertex */
+            if (w->hash_tag_hex) {
+                cJSON *existing = cJSON_GetArrayItem(hash_tags, w->chunk_index);
+                if (!existing || !existing->valuestring || existing->valuestring[0] == '\0') {
+                    cJSON_ReplaceItemInArray(hash_tags, w->chunk_index, cJSON_CreateString(w->hash_tag_hex));
+                }
+            }
+            if (w->magic_scalar_str) {
+                cJSON *existing = cJSON_GetArrayItem(magic_scalars, w->chunk_index);
+                if (!existing || existing->valuedouble == 0) {
+                    cJSON_ReplaceItemInArray(magic_scalars, w->chunk_index, cJSON_CreateNumber(atoll(w->magic_scalar_str)));
+                }
+            }
+            const char *bitmap = json_string(meta, "received_bitmap", "");
+            cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(bitmap_count_set(bitmap, w->chunk_count)));
+            save_upload_session(w->upload_id, meta);
+        }
+        cJSON_Delete(meta);
+    }
+}
+
 void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     const char *upload_id = cwist_http_header_get(req->headers, "X-TASFA-Upload-ID");
     const char *upload_token = cwist_http_header_get(req->headers, "X-TASFA-Upload-Token");
@@ -1054,56 +1238,33 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     }
 
     bool encrypted_stream = stream_mode && strcmp(stream_mode, "aes-256-gcm") == 0;
-    bool stored = false;
-    int fd = open(mbin.temp_path, O_WRONLY);
-    if (fd >= 0) {
-        if (encrypted_stream) {
-            unsigned char *plaintext = ensure_decrypt_buf((size_t)expected_size);
-            if (plaintext && req->body->size == (size_t)expected_size + 16 &&
-                decrypt_stream_block(mbin.stream_key, mbin.stream_iv_seed, chunk_index, upload_id,
-                                     (const unsigned char *)req->body->data, req->body->size,
-                                     plaintext, (size_t)expected_size)) {
-                stored = pwrite_all(fd, plaintext, (size_t)expected_size, (off_t)offset);
-            }
-        } else if ((long long)req->body->size == expected_size) {
-            stored = pwrite_all(fd, req->body->data, req->body->size, (off_t)offset);
-        }
-        close(fd);
-    }
-    if (!stored) {
+
+    upload_work_t work = {0};
+    work.upload_id = upload_id;
+    work.chunk_index = chunk_index;
+    work.temp_path = mbin.temp_path;
+    work.encrypted_stream = encrypted_stream;
+    work.stream_key = mbin.stream_key;
+    work.stream_iv_seed = mbin.stream_iv_seed;
+    work.body_data = req->body->data;
+    work.body_size = req->body->size;
+    work.offset = offset;
+    work.expected_size = expected_size;
+    work.chunk_count = mbin.chunk_count;
+    work.hash_tag_hex = hash_tag_hex;
+    work.magic_scalar_str = magic_scalar_str;
+
+    tasfa_job_t job;
+    tasfa_scheduler_submit(upload_id, upload_work_func, &work, &job);
+    tasfa_scheduler_wait(&job);
+
+    if (!work.stored) {
         send_json_response(res, session_error_json("chunk store failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
     }
-
-    if (!mark_chunk_received_in_session_state(upload_id, chunk_index)) {
+    if (!work.state_ok) {
         send_json_response(res, session_error_json("chunk state update failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
-    }
-
-    /* Persist HTP per-vertex metadata */
-    cJSON *meta = load_upload_session(upload_id);
-    if (meta) {
-        cJSON *hash_tags = cJSON_GetObjectItem(meta, "hash_tags");
-        cJSON *magic_scalars = cJSON_GetObjectItem(meta, "magic_scalars");
-        if (hash_tags && magic_scalars && chunk_index < cJSON_GetArraySize(hash_tags)) {
-            /* Preserve existing HTP metadata when a fallback chunk arrives for an already-received vertex */
-            if (hash_tag_hex) {
-                cJSON *existing = cJSON_GetArrayItem(hash_tags, chunk_index);
-                if (!existing || !existing->valuestring || existing->valuestring[0] == '\0') {
-                    cJSON_ReplaceItemInArray(hash_tags, chunk_index, cJSON_CreateString(hash_tag_hex));
-                }
-            }
-            if (magic_scalar_str) {
-                cJSON *existing = cJSON_GetArrayItem(magic_scalars, chunk_index);
-                if (!existing || existing->valuedouble == 0) {
-                    cJSON_ReplaceItemInArray(magic_scalars, chunk_index, cJSON_CreateNumber(atoll(magic_scalar_str)));
-                }
-            }
-            const char *bitmap = json_string(meta, "received_bitmap", "");
-            cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(bitmap_count_set(bitmap, mbin.chunk_count)));
-            save_upload_session(upload_id, meta);
-        }
-        cJSON_Delete(meta);
     }
 
     res->status_code = CWIST_HTTP_NO_CONTENT;
