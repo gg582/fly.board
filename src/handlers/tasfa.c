@@ -392,6 +392,17 @@ static bool mark_chunk_received_in_session_state(const char *upload_id, int chun
     return ok;
 }
 
+static bool is_chunk_already_received(const char *upload_id, int chunk_index) {
+    char path[PATH_MAX];
+    upload_session_state_bin_path(path, sizeof(path), upload_id);
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return false;
+    unsigned char val = '0';
+    bool ok = (pread(fd, &val, 1, (off_t)chunk_index) == 1);
+    close(fd);
+    return ok && val == '1';
+}
+
 /* --- Session Management --- */
 
 static void cache_invalidate(const char *key);
@@ -1022,6 +1033,15 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     }
     if (chunk_index >= mbin.chunk_count) {
         send_json_response(res, session_error_json("invalid chunk index"), CWIST_HTTP_BAD_REQUEST);
+        return;
+    }
+
+    /* Defensive: drop duplicate/fallback chunks for already-received vertices to save I/O and prevent attacks */
+    if (is_chunk_already_received(upload_id, chunk_index)) {
+        res->status_code = CWIST_HTTP_NO_CONTENT;
+        cwist_http_header_add(&res->headers, "X-TASFA-Accepted", "1");
+        cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Complete", "1");
+        cwist_sstring_assign(res->body, "");
         return;
     }
 
