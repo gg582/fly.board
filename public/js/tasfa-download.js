@@ -367,11 +367,13 @@
         if (el) el.remove();
     }
 
-    async function fetchBlobViaTasfa(baseUrl) {
+    async function fetchBlobViaTasfa(baseUrl, options) {
         if (cache.has(baseUrl)) {
             var cached = cache.get(baseUrl);
             if (cached && typeof cached.then === 'function') return cached;
         }
+
+        var silent = options && options.silent;
 
         var promise = (async function() {
             var linkState = { ewmaRttMs: 0, retries: 0, timeouts: 0 };
@@ -416,30 +418,36 @@
             };
         })();
 
-        createDownloadProgress(baseUrl);
-        var progressInterval = setInterval(function() {
-            var state = downloadStates[baseUrl];
-            if (!state) {
-                clearInterval(progressInterval);
-                return;
-            }
-            var ss = state.sharedState;
-            var pct = ss.chunkCount > 0 ? Math.round((ss.completedChunks / ss.chunkCount) * 100) : 0;
-            updateDownloadProgress(baseUrl, pct, state.filename);
-            if (ss.completedChunks >= ss.chunkCount || ss.failed) {
-                clearInterval(progressInterval);
-            }
-        }, 150);
+        if (!silent) {
+            createDownloadProgress(baseUrl);
+            var progressInterval = setInterval(function() {
+                var state = downloadStates[baseUrl];
+                if (!state) {
+                    clearInterval(progressInterval);
+                    return;
+                }
+                var ss = state.sharedState;
+                var pct = ss.chunkCount > 0 ? Math.round((ss.completedChunks / ss.chunkCount) * 100) : 0;
+                updateDownloadProgress(baseUrl, pct, state.filename);
+                if (ss.completedChunks >= ss.chunkCount || ss.failed) {
+                    clearInterval(progressInterval);
+                }
+            }, 150);
+        }
 
         cache.set(baseUrl, promise);
         try {
             var result = await promise;
-            updateDownloadProgress(baseUrl, 100, result.filename);
-            setTimeout(function() { removeDownloadProgress(baseUrl); delete downloadStates[baseUrl]; }, 800);
+            if (!silent) {
+                updateDownloadProgress(baseUrl, 100, result.filename);
+                setTimeout(function() { removeDownloadProgress(baseUrl); delete downloadStates[baseUrl]; }, 800);
+            }
             return result;
         } catch (error) {
-            removeDownloadProgress(baseUrl);
-            delete downloadStates[baseUrl];
+            if (!silent) {
+                removeDownloadProgress(baseUrl);
+                delete downloadStates[baseUrl];
+            }
             cache.delete(baseUrl);
             throw error;
         }
@@ -470,7 +478,7 @@
     function setMediaSource(el, baseUrl) {
         if (!baseUrl || el.dataset.tasfaLoaded === '1') return;
         el.dataset.tasfaLoaded = '1';
-        fetchBlobViaTasfa(baseUrl).then(function(result) {
+        fetchBlobViaTasfa(baseUrl, { silent: true }).then(function(result) {
             var objectUrl = URL.createObjectURL(result.blob);
             if (el.tagName === 'IMG') el.src = objectUrl;
             else el.src = objectUrl;
@@ -548,6 +556,7 @@
 
     function upgradeWithin(root) {
         if (!root || !root.querySelectorAll) return;
+        root.querySelectorAll('.markdown-body img[src^="blob:"], .markdown-body video[src^="blob:"], .markdown-body audio[src^="blob:"]').forEach(function(el) { el.remove(); });
         root.querySelectorAll('img[src^="/file/download/"], img[src^="/assets/img/"], img[src^="/assets/uploads/"], img[data-tasfa-download]').forEach(upgradeMediaElement);
         root.querySelectorAll('video[src^="/file/download/"], video[data-tasfa-download], audio[src^="/file/download/"], audio[data-tasfa-download]').forEach(upgradeMediaElement);
         root.querySelectorAll('a[data-tasfa-download-link], a[href^="/file/download/"]').forEach(upgradeDownloadLink);

@@ -250,7 +250,7 @@ static void rewrite_tasfa_bootstrap(cwist_sstring *html) {
                     const char *src = strstr(tag, "src=\"");
                     if (src) {
                         src += 5;
-                        if (strncmp(src, "/assets/uploads/", 16) == 0 || strncmp(src, "/file/download/", 15) == 0) {
+                        if (strncmp(src, "/file/download/", 15) == 0) {
                             char rewritten[3072];
                             snprintf(rewritten, sizeof(rewritten), "%s src=\"%s\" data-tasfa-download=\"", tag_name && strcmp(tag_name, "img") == 0 ? "<img" : (strcmp(tag_name, "video") == 0 ? "<video" : "<audio"), strcmp(tag_name, "img") == 0 ? tasfa_spacer_gif : "");
                             cwist_sstring_append(out, rewritten);

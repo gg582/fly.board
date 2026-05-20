@@ -285,16 +285,18 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
     strncpy(out->file_path, f->data, sizeof(out->file_path) - 1);
     out->file_size = f->file_size;
 
-    const char *url_raw = f->data;
-    if (strncmp(url_raw, "public/uploads/", 15) == 0) url_raw += 15;
-    snprintf(out->url, sizeof(out->url), "/assets/uploads/%s", url_raw);
-
     char detected_mime[127] = {0};
     if (!mime_type_from_data(f->data, detected_mime, sizeof(detected_mime))) {
         const char *fallback = mime_type(f->filename);
         strncpy(detected_mime, fallback, sizeof(detected_mime) - 1);
     }
     strncpy(out->mime_type, detected_mime, sizeof(out->mime_type) - 1);
+
+    db_file_replace_for_post(db, post_id, f->filename);
+    int fid = db_file_create_volume_get_id(db, post_id, uid, f->filename, out->mime_type, f->data, f->file_size);
+    if (fid > 0) {
+        snprintf(out->url, sizeof(out->url), "/file/download/%d", fid);
+    }
 
     if (strncmp(out->mime_type, "image/", 6) == 0) {
         snprintf(out->html, sizeof(out->html),
@@ -313,9 +315,6 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
             "[%s](%s)",
             out->filename, out->url);
     }
-
-    db_file_replace_for_post(db, post_id, f->filename);
-    int fid = db_file_create_volume_get_id(db, post_id, uid, f->filename, out->mime_type, f->data, f->file_size);
     if (fid <= 0) {
         snprintf(out->error, sizeof(out->error), "db insert failed");
         return false;
