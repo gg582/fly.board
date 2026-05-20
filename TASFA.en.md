@@ -58,6 +58,8 @@ TASFA is the **HTTP/XHR-based file upload/download protocol** used by fly.board.
 
 ## Is the RPS Sacrifice Worth It?
 
+> **Note**: The RPS trade-off below applies **only to file transfer endpoints** (`/file/upload`, `/file/download`, etc.). The page-view RPS measured in benchmarks (home, board list, etc.) is unaffected by TASFA.
+
 TASFA clearly incurs an **RPS (Requests Per Second) penalty** compared to simple static-file serving. However, this penalty is an intentional trade-off to obtain the following values:
 
 | What you sacrifice | What you gain |
