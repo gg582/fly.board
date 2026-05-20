@@ -4,6 +4,11 @@
 
 > One of the few simple blog engines running at **~577 MB RSS** at idle, and **~658 MB** under C10k (10,000 concurrent connections).  
 > A lightweight board-and-blog engine built on the C-based CWIST web framework, supporting HTTPS/3, Argon2id, PQC signatures, and NATS messaging.
+>
+> **Fairly small, greater usability.**  
+> TASFA intentionally sacrifices RPS. Per-chunk AES-256-GCM encryption, HTP lattice validation, bitmap sessions, and adaptive pacing guarantee uploads finish without interruption even on degraded networks, while blocking DoS attacks and chunk substitution to pursue maximally reliable transfer.  
+> PQC signatures absorb the ML-DSA-65 overhead to give post body tamper-evidence in a quantum-computing era.  
+> Simultaneous HTTP/1.1, HTTP/2, and HTTP/3 support abandons single-protocol peak performance in exchange for universal reach across firewalls, proxies, and legacy devices.
 
 ## Features
 
