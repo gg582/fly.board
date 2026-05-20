@@ -131,7 +131,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
                         cwist_sstring_append(b, "</span>");
                     }
                     if (pviews) {
-                        cwist_sstring_append(b, "<span class='post-badge'>Views ");
+                        cwist_sstring_append(b, "<span class='post-badge'>");
                         char views_buf[32];
                         snprintf(views_buf, sizeof(views_buf), "%d", json_int(p, "view_count", 0));
                         cwist_sstring_append(b, views_buf);
