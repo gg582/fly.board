@@ -13,6 +13,7 @@ typedef struct {
     char blog_logo[256];
     char boards_img[256];
     char files_img[256];
+    char root_url[256];
     bool use_tasfa;
     bool use_rss;
 } blog_config_t;
