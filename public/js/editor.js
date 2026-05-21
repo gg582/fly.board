@@ -31,15 +31,6 @@
     var UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024;
     var UPLOAD_DEFAULT_PARALLEL = 4;
     var TASFA_MIN_SIZE_BYTES = 4 * 1024 * 1024;
-    var MULTI_PORTS = window.BLOG_MULTI_PORTS || [];
-    function withMultiPort(path) {
-        if (!MULTI_PORTS.length) return path;
-        var idx = Math.floor(Math.random() * MULTI_PORTS.length);
-        var port = MULTI_PORTS[idx];
-        var origin = window.location.protocol + '//' + window.location.hostname;
-        if (port) origin += ':' + port;
-        return origin + path;
-    }
     var FileUploadQueue = [];
     var isFileUploadRunning = false;
 
@@ -627,7 +618,7 @@
                 });
             }
             if (asset.uploadId) {
-                fetch(withMultiPort(UPLOAD_CANCEL_ENDPOINT), {
+                fetch(UPLOAD_CANCEL_ENDPOINT, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: 'upload_ids=' + encodeURIComponent(JSON.stringify([asset.uploadId]))
@@ -1094,7 +1085,7 @@
             retries = retries || 0;
             var controller = new AbortController();
             var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
-            fetch(withMultiPort(UPLOAD_INIT_ENDPOINT), {
+            fetch(UPLOAD_INIT_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 body: body,
@@ -1159,7 +1150,7 @@
             '&upload_token=' + encodeURIComponent(asset.uploadToken);
         var controller = new AbortController();
         var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
-        fetch(withMultiPort(UPLOAD_STATUS_ENDPOINT), {
+        fetch(UPLOAD_STATUS_ENDPOINT, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             body: body,
@@ -1221,7 +1212,7 @@
                 asset.xhrs.push(xhr);
                 asset.inflightBytes[chunkIndex] = 0;
 
-                xhr.open('POST', withMultiPort(UPLOAD_ENDPOINT), true);
+                xhr.open('POST', UPLOAD_ENDPOINT, true);
                 xhr.setRequestHeader('Accept', 'application/json');
                 xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
                 xhr.setRequestHeader('X-TASFA-Upload-ID', asset.uploadId);
@@ -1304,7 +1295,7 @@
                         xhr._tasfaChunkIndex = chunkIndex;
                         asset.xhrs.push(xhr);
                         asset.inflightBytes[chunkIndex] = 0;
-                        xhr.open('POST', withMultiPort(UPLOAD_ENDPOINT), true);
+                        xhr.open('POST', UPLOAD_ENDPOINT, true);
                         xhr.setRequestHeader('Accept', 'application/json');
                         xhr.setRequestHeader('Content-Type', 'application/octet-stream');
                         xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
@@ -1426,7 +1417,7 @@
             '&upload_token=' + encodeURIComponent(asset.uploadToken);
         var controller = new AbortController();
         var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
-        fetch(withMultiPort(UPLOAD_STATUS_ENDPOINT), {
+        fetch(UPLOAD_STATUS_ENDPOINT, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             body: body,

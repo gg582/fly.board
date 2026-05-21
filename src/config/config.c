@@ -29,25 +29,6 @@ static int clamp_int_config(int value, int min_value, int max_value) {
     return value;
 }
 
-static void parse_multi_ports(const char *value) {
-    g_config.multi_port_count = 0;
-    if (!value || !value[0]) return;
-    char buf[512];
-    snprintf(buf, sizeof(buf), "%s", value);
-    char *save = NULL;
-    for (char *tok = strtok_r(buf, ", \t", &save);
-         tok && g_config.multi_port_count < BLOG_MAX_MULTI_PORTS;
-         tok = strtok_r(NULL, ", \t", &save)) {
-        int port = atoi(tok);
-        if (port <= 0 || port > 65535 || port == g_config.port) continue;
-        bool exists = false;
-        for (int i = 0; i < g_config.multi_port_count; i++) {
-            if (g_config.multi_ports[i] == port) { exists = true; break; }
-        }
-        if (!exists) g_config.multi_ports[g_config.multi_port_count++] = port;
-    }
-}
-
 static void set_default(void) {
     snprintf(g_config.title, sizeof(g_config.title), "CWIST Docker Blog");
     snprintf(g_config.subtitle, sizeof(g_config.subtitle), "Explore boards and read stories.");
@@ -59,7 +40,6 @@ static void set_default(void) {
     g_config.max_upload_size = 1024LL * 1024LL * 1024LL;
     g_config.max_total_parallel_uploads = 4;
     g_config.max_upload_parallel_chunks = 4;
-    g_config.multi_port_count = 0;
 }
 
 static void trim_newline(char *s) {
@@ -91,7 +71,6 @@ bool blog_config_load(const char *path) {
             fprintf(f, "max_upload_size=1G\n");
             fprintf(f, "max_total_parallel_uploads=%d\n", g_config.max_total_parallel_uploads);
             fprintf(f, "max_upload_parallel_chunks=%d\n", g_config.max_upload_parallel_chunks);
-            fprintf(f, "multi_ports=\n");
             fclose(f);
         }
         return true;
@@ -135,8 +114,6 @@ bool blog_config_load(const char *path) {
             g_config.max_total_parallel_uploads = atoi(val);
         } else if (strcmp(key, "max_upload_parallel_chunks") == 0) {
             g_config.max_upload_parallel_chunks = atoi(val);
-        } else if (strcmp(key, "multi_ports") == 0) {
-            parse_multi_ports(val);
         }
     }
     fclose(f);
@@ -148,17 +125,5 @@ bool blog_config_load(const char *path) {
     if (g_config.max_upload_size <= 0) g_config.max_upload_size = 1024LL * 1024LL * 1024LL;
     g_config.max_total_parallel_uploads = clamp_int_config(g_config.max_total_parallel_uploads, 1, 64);
     g_config.max_upload_parallel_chunks = clamp_int_config(g_config.max_upload_parallel_chunks, 1, 16);
-    int write_idx = 0;
-    for (int i = 0; i < g_config.multi_port_count; i++) {
-        int port = g_config.multi_ports[i];
-        if (port <= 0 || port > 65535 || port == g_config.port) continue;
-        bool exists = false;
-        for (int j = 0; j < write_idx; j++) {
-            if (g_config.multi_ports[j] == port) { exists = true; break; }
-        }
-        if (!exists) g_config.multi_ports[write_idx++] = port;
-    }
-    for (int i = write_idx; i < BLOG_MAX_MULTI_PORTS; i++) g_config.multi_ports[i] = 0;
-    g_config.multi_port_count = write_idx;
     return true;
 }

@@ -25,7 +25,7 @@
 
     async function notifyDownloadComplete(sessionId, sessionToken) {
         try {
-            await fetch(withMultiPort('/file/download/complete'), {
+            await fetch('/file/download/complete', {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: {
@@ -37,15 +37,6 @@
         } catch (e) {
             // best-effort: ignore completion errors
         }
-    }
-    var MULTI_PORTS = window.BLOG_MULTI_PORTS || [];
-    function withMultiPort(path) {
-        if (!MULTI_PORTS.length) return path;
-        var idx = Math.floor(Math.random() * MULTI_PORTS.length);
-        var port = MULTI_PORTS[idx];
-        var origin = window.location.protocol + '//' + window.location.hostname;
-        if (port) origin += ':' + port;
-        return origin + path;
     }
 
     function handshakeUrl(baseUrl) {
@@ -70,7 +61,7 @@
 
     async function fetchJson(url, retries) {
         retries = retries || 0;
-        var response = await fetch(withMultiPort(url), {
+        var response = await fetch(url, {
             credentials: 'same-origin',
             headers: {
                 'Accept': 'application/json',
@@ -156,7 +147,7 @@
     function fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries) {
         retries = retries || 0;
         return new Promise(function(resolve, reject) {
-            var url = withMultiPort(chunkUrl(baseUrl, session.sessionId, session.sessionToken, chunkIndex, span));
+            var url = chunkUrl(baseUrl, session.sessionId, session.sessionToken, chunkIndex, span);
             var xhr = new XMLHttpRequest();
             xhr.open('GET', url, true);
             xhr.responseType = 'arraybuffer';
