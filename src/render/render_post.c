@@ -207,6 +207,21 @@ cwist_sstring *render_post_list(cJSON *posts, bool dark, const char *user_role, 
     }
     cwist_sstring_append(b, "'>");
 
+    int max_views = -1;
+    int featured_idx = -1;
+    if (posts) {
+        int n_posts = cJSON_GetArraySize(posts);
+        for (int i = 0; i < n_posts; i++) {
+            cJSON *p = cJSON_GetArrayItem(posts, i);
+            cJSON *pv = cJSON_GetObjectItem(p, "view_count");
+            int v = pv ? pv->valueint : 0;
+            if (v > max_views) {
+                max_views = v;
+                featured_idx = i;
+            }
+        }
+    }
+
     if (posts) {
         int n = cJSON_GetArraySize(posts);
         for (int i = 0; i < n; i++) {
@@ -224,6 +239,9 @@ cwist_sstring *render_post_list(cJSON *posts, bool dark, const char *user_role, 
             }
             if (board_slug && board_slug[0]) {
                 cwist_sstring_append(b, " post-row-typography");
+            }
+            if (i == featured_idx) {
+                cwist_sstring_append(b, " featured");
             }
             cwist_sstring_append(b, "'>");
             cwist_sstring_append(b, "<div class='post-row-head'>");
@@ -413,13 +431,13 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
 
     /* Vote buttons */
     cwist_sstring_append(b, "<div style='margin:16px 0;display:flex;gap:10px;align-items:center'>");
-    cwist_sstring_append(b, "<button id='vote-up' class='btn btn-outline' style='padding:6px 12px;font-size:13px");
+    cwist_sstring_append(b, "<button id='vote-up' class='btn btn-outline vote-btn' style='padding:6px 12px;font-size:13px");
     if (user_vote == 1) cwist_sstring_append(b, ";border-color:var(--accent);color:var(--accent)");
     cwist_sstring_append(b, "'>&#9650; ");
     char vup[32]; snprintf(vup, sizeof(vup), "%d", vote_up);
     cwist_sstring_append(b, vup);
     cwist_sstring_append(b, "</button>");
-    cwist_sstring_append(b, "<button id='vote-down' class='btn btn-outline' style='padding:6px 12px;font-size:13px");
+    cwist_sstring_append(b, "<button id='vote-down' class='btn btn-outline vote-btn' style='padding:6px 12px;font-size:13px");
     if (user_vote == -1) cwist_sstring_append(b, ";border-color:var(--accent);color:var(--accent)");
     cwist_sstring_append(b, "'>&#9660; ");
     char vdown[32]; snprintf(vdown, sizeof(vdown), "%d", vote_down);
