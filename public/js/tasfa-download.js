@@ -53,7 +53,8 @@
             totalSize: Math.max(0, Number(session.total_size) || 0),
             mimeType: session.mime_type || 'application/octet-stream',
             filename: session.filename || 'download',
-            maxParallel: Math.max(1, Math.min(Number(session.max_parallel_chunks) || hw * 2, chunkCount))
+            maxParallel: Math.max(1, Math.min(Number(session.max_parallel_chunks) || hw * 2, chunkCount)),
+            coalesceChunks: Math.max(1, Math.min(Number(session.coalesce_chunks) || 4, 64))
         };
     }
 
@@ -114,7 +115,7 @@
             xhr.open('GET', url, true);
             xhr.responseType = 'arraybuffer';
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-            xhr.timeout = 45000;
+            xhr.timeout = 120000;
             xhr.onload = function() {
                 if (xhr.status === 429 && retries < 10) {
                     var delay = 3000;
@@ -206,7 +207,7 @@
             var pending = [];
             for (var i = 0; i < session.chunkCount; i++) pending.push(i);
             var bitmap = new Array(session.chunkCount).fill(0);
-            var SPAN = 4;
+            var SPAN = session.coalesceChunks || 4;
 
             async function worker() {
                 while (pending.length > 0 && !sharedState.failed) {

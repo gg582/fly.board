@@ -13,13 +13,14 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <zlib.h>
 
 #define TASFA_UPLOAD_DIR "data/tasfa/uploads"
 #define TASFA_DOWNLOAD_DIR "data/tasfa/downloads"
-#define TASFA_UPLOAD_CHUNK_SIZE_DEFAULT (16 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE  (8 * 1024 * 1024)
-#define TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT (32 * 1024 * 1024)
-#define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (8 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_DEFAULT (64 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE  (32 * 1024 * 1024)
+#define TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT (128 * 1024 * 1024)
+#define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (32 * 1024 * 1024)
 
 #define TASFA_UPLOAD_TTL 86400
 #define TASFA_DOWNLOAD_TTL 86400
@@ -327,8 +328,8 @@ static void choose_upload_window(int score, int *initial_parallel, int *max_para
     int initial_value = 6;
     int max_value = TASFA_UPLOAD_MAX_PARALLEL;
     int pace = 0;
-    if (score >= 85) { initial_value = 8; max_value = 12; }
-    else if (score >= 65) { initial_value = 6; max_value = 10; }
+    if (score >= 85) { initial_value = 12; max_value = 16; }
+    else if (score >= 65) { initial_value = 8; max_value = 12; }
     else if (score >= 45) { initial_value = 6; max_value = 8; pace = 15; }
     else { initial_value = 4; max_value = 6; pace = 35; }
     if (initial_parallel) *initial_parallel = initial_value;
@@ -337,10 +338,10 @@ static void choose_upload_window(int score, int *initial_parallel, int *max_para
 }
 
 static void choose_download_profile(int score, int *initial_parallel, int *max_parallel, int *pacing_ms, int *coalesce_chunks) {
-    int initial_value = 112, max_value = 256, pace = 0, coalesce = 64;
-    if (score < 45) { initial_value = 48; max_value = 96; coalesce = 16; pace = 30; }
-    else if (score < 65) { initial_value = 64; max_value = 160; coalesce = 32; pace = 10; }
-    else if (score < 85) { initial_value = 96; max_value = 224; coalesce = 48; pace = 0; }
+    int initial_value = 32, max_value = 64, pace = 0, coalesce = 8;
+    if (score < 45) { initial_value = 8; max_value = 16; coalesce = 2; pace = 30; }
+    else if (score < 65) { initial_value = 16; max_value = 32; coalesce = 4; pace = 10; }
+    else if (score < 85) { initial_value = 24; max_value = 48; coalesce = 6; pace = 0; }
     if (initial_parallel) *initial_parallel = initial_value;
     if (max_parallel) *max_parallel = max_value;
     if (pacing_ms) *pacing_ms = pace;
@@ -900,7 +901,42 @@ static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
     return obj;
 }
 
-static bool send_file_slice_response(cwist_http_response *res, const char *path, const char *mime, long long offset, size_t amount,
+static bool maybe_gzip_response(cwist_http_request *req, cwist_http_response *res, char *data, size_t data_len) {
+    if (data_len < 1024) return false;
+    const char *accept_enc = cwist_http_header_get(req->headers, "Accept-Encoding");
+    if (!accept_enc || !strstr(accept_enc, "gzip")) return false;
+
+    z_stream zs = {0};
+    if (deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) return false;
+
+    size_t bound = deflateBound(&zs, data_len);
+    char *out = (char *)malloc(bound);
+    if (!out) { deflateEnd(&zs); return false; }
+
+    zs.next_in = (Bytef *)data;
+    zs.avail_in = (uInt)data_len;
+    zs.next_out = (Bytef *)out;
+    zs.avail_out = (uInt)bound;
+
+    int rc = deflate(&zs, Z_FINISH);
+    if (rc != Z_STREAM_END) { free(out); deflateEnd(&zs); return false; }
+
+    size_t compressed = zs.total_out;
+    deflateEnd(&zs);
+
+    if (compressed >= data_len) { free(out); return false; }
+
+    cwist_sstring_assign_len(res->body, out, compressed);
+    cwist_http_header_add(&res->headers, "Content-Encoding", "gzip");
+    free(out);
+
+    char len_buf[32];
+    snprintf(len_buf, sizeof(len_buf), "%zu", compressed);
+    cwist_http_header_add(&res->headers, "Content-Length", len_buf);
+    return true;
+}
+
+static bool send_file_slice_response(cwist_http_request *req, cwist_http_response *res, const char *path, const char *mime, long long offset, size_t amount,
                                        int chunk_index, int chunk_count) {
     int fd = open(path, O_RDONLY);
     if (fd < 0) return false;
@@ -914,10 +950,7 @@ static bool send_file_slice_response(cwist_http_response *res, const char *path,
     }
     close(fd);
     if (total != amount) return false;
-    char len_buf[32];
-    snprintf(len_buf, sizeof(len_buf), "%zu", amount);
     cwist_http_header_add(&res->headers, "Content-Type", mime ? mime : "application/octet-stream");
-    cwist_http_header_add(&res->headers, "Content-Length", len_buf);
     cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
     add_keepalive_headers(res);
     if (chunk_index >= 0) {
@@ -928,7 +961,12 @@ static bool send_file_slice_response(cwist_http_response *res, const char *path,
         cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Count", cnt_buf);
     }
     cwist_sstring_assign(res->body, "");
-    cwist_sstring_append_len(res->body, buf, amount);
+    if (!maybe_gzip_response(req, res, buf, total)) {
+        char len_buf[32];
+        snprintf(len_buf, sizeof(len_buf), "%zu", total);
+        cwist_http_header_add(&res->headers, "Content-Length", len_buf);
+        cwist_sstring_append_len(res->body, buf, total);
+    }
     return true;
 }
 
@@ -1641,7 +1679,7 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
     long long total_size = json_long_long(meta, "total_size", 0);
     if (end > total_size) end = total_size;
     size_t amount = (size_t)(end - offset);
-    bool ok = send_file_slice_response(res, json_string(meta, "storage_path", ""),
+    bool ok = send_file_slice_response(req, res, json_string(meta, "storage_path", ""),
                                        json_string(meta, "mime_type", "application/octet-stream"), offset, amount,
                                        chunk_index, chunk_count);
     cJSON_Delete(meta);
