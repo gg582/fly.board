@@ -1850,8 +1850,8 @@
         if (btn) btn.disabled = true;
         fetch(form.action || '/file/delete', {
             method: 'POST',
-            headers: { 'X-Requested-With': 'XMLHttpRequest' },
-            body: new FormData(form)
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+            body: new URLSearchParams(new FormData(form))
         }).then(function(response) {
             if (!response.ok) throw new Error('status:' + response.status);
             var card = form.closest('article');

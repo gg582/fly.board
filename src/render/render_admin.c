@@ -43,6 +43,9 @@ cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pi
         }
     }
     cwist_sstring_append(b, "</tbody></table></div></div>");
+    cwist_sstring_append(b, "<div class='card' style='margin-top:20px'><h3 style='margin-top:0'>File Admin</h3>");
+    cwist_sstring_append(b, "<form action='/admin/files/drop' method='post' onsubmit='return confirm(&quot;Drop ALL files? This cannot be undone.&quot;)'>");
+    cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Drop All Files</button></form></div>");
     cwist_sstring *page = render_page("User Admin", b->data, dark, "admin", profile_pic);
     cwist_sstring_destroy(b);
     return page;
