@@ -25,6 +25,7 @@ bool db_board_create(cwist_db *db, const char *name, const char *slug, const cha
 bool db_board_delete(cwist_db *db, int id);
 bool db_board_update(cwist_db *db, int id, const char *name, const char *slug, const char *description, bool admin_only, int read_perm, int write_perm, int comment_perm);
 cJSON *db_board_list(cwist_db *db);
+cJSON *cwist_orm_board_list_popular(cwist_db *db);
 cJSON *db_board_get_by_slug(cwist_db *db, const char *slug);
 cJSON *db_board_get_by_id(cwist_db *db, int id);
 bool db_board_can_user_access(cwist_db *db, int board_id, int user_id, bool is_admin);

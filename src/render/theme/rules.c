@@ -763,7 +763,7 @@ void rule_components(cJSON *rules) {
 
 void rule_home(cJSON *rules) {
     cJSON *hero = create_rule(".hero");
-    add_decl(hero, "padding", "48px 0 36px");
+    add_decl(hero, "padding", "28px 0 20px");
     add_decl(hero, "text-align", "center");
     cJSON_AddItemToArray(rules, hero);
 
@@ -778,9 +778,9 @@ void rule_home(cJSON *rules) {
     cJSON_AddItemToArray(rules, hero_h1);
 
     cJSON *hero_logo = create_rule(".hero-logo");
-    add_decl(hero_logo, "height", "120px");
+    add_decl(hero_logo, "height", "80px");
     add_decl(hero_logo, "width", "auto");
-    add_decl(hero_logo, "margin-bottom", "12px");
+    add_decl(hero_logo, "margin-bottom", "10px");
     cJSON_AddItemToArray(rules, hero_logo);
 
     cJSON *hero_p = create_rule(".hero p");
@@ -877,6 +877,16 @@ void rule_boards(cJSON *rules) {
     add_decl(blineh, "border-color", "color-mix(in srgb, var(--glass-border) 60%, var(--accent) 40%)");
     add_decl(blineh, "opacity", "1");
     cJSON_AddItemToArray(rules, blineh);
+
+    cJSON *bline_hot = create_rule(".board-line-hot");
+    add_decl(bline_hot, "padding", "32px");
+    add_decl(bline_hot, "border-left", "4px solid var(--accent)");
+    add_decl(bline_hot, "box-shadow", "0 8px 30px color-mix(in srgb, var(--shadow) 40%, transparent)");
+    cJSON_AddItemToArray(rules, bline_hot);
+
+    cJSON *bline_hot_title = create_rule(".board-line-hot .board-line-title");
+    add_decl(bline_hot_title, "font-size", "clamp(2rem, 3.2vw, 2.8rem)");
+    cJSON_AddItemToArray(rules, bline_hot_title);
 
     cJSON *bline_head = create_rule(".board-line-head");
     add_decl(bline_head, "display", "flex");
@@ -975,11 +985,13 @@ void rule_boards(cJSON *rules) {
 
     cJSON *prow_feat = create_rule(".post-row.featured");
     add_decl(prow_feat, "border-left-width", "4px");
-    add_decl(prow_feat, "padding", "13px 21px");
+    add_decl(prow_feat, "border-left-color", "var(--accent)");
+    add_decl(prow_feat, "padding", "16px 24px");
+    add_decl(prow_feat, "box-shadow", "0 6px 20px color-mix(in srgb, var(--shadow) 35%, transparent)");
     cJSON_AddItemToArray(rules, prow_feat);
 
     cJSON *prow_feat_title = create_rule(".post-row.featured .post-row-title");
-    add_decl(prow_feat_title, "font-size", "1.2em");
+    add_decl(prow_feat_title, "font-size", "1.25em");
     add_decl(prow_feat_title, "font-weight", "900");
     cJSON_AddItemToArray(rules, prow_feat_title);
 
