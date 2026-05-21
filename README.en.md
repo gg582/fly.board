@@ -83,7 +83,7 @@ NATS_URL=nats://localhost:4222 ./fly_board
 
 ## Configuration
 
-- `blog.settings` – Blog title, subtitle, footer, port
+- `blog.settings` – Blog title, subtitle, footer, port, optional `multi_ports`, and upload limits
 - `admin.settings` – Admin account (2 lines: `username`\n`password`)
 
 ## Database

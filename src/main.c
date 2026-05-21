@@ -233,7 +233,20 @@ int main(void) {
 
     CWIST_LOG_INFO("Starting server on port %d (HTTP/3 on UDP %d)", g_config.port, g_config.port);
     printf("Docker Blog: https://localhost:%d (HTTP/3 on UDP %d)\n", g_config.port, g_config.port);
-    int rc = cwist_app_listen(app, g_config.port);
+    int rc = 0;
+    if (g_config.multi_port_count > 0) {
+        unsigned short extra_ports[BLOG_MAX_MULTI_PORTS] = {0};
+        printf("Additional ports:");
+        for (int i = 0; i < g_config.multi_port_count; i++) {
+            extra_ports[i] = (unsigned short)g_config.multi_ports[i];
+            printf(" %hu", extra_ports[i]);
+        }
+        printf("\n");
+        cwist_multiport_t ports = cwist_create_multiport_from_array(extra_ports, (size_t)g_config.multi_port_count);
+        rc = cwist_app_multiport(&app, (unsigned short)g_config.port, ports);
+    } else {
+        rc = cwist_app_listen(app, g_config.port);
+    }
     g_nats_running = false;
     fly_nats_close();
     db_comment_close();

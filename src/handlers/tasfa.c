@@ -17,21 +17,21 @@
 
 #define TASFA_UPLOAD_DIR "data/tasfa/uploads"
 #define TASFA_DOWNLOAD_DIR "data/tasfa/downloads"
-#define TASFA_UPLOAD_CHUNK_SIZE_DEFAULT (64 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE  (32 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_DEFAULT (8 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE  (4 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT (128 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (32 * 1024 * 1024)
 
 #define TASFA_UPLOAD_TTL 86400
 #define TASFA_DOWNLOAD_TTL 86400
-#define TASFA_UPLOAD_DEFAULT_PARALLEL 6
-#define TASFA_UPLOAD_MAX_PARALLEL 12
+#define TASFA_UPLOAD_DEFAULT_PARALLEL 4
+#define TASFA_UPLOAD_MAX_PARALLEL 16
 #define TASFA_DOWNLOAD_DEFAULT_PARALLEL 6
 #define TASFA_DOWNLOAD_MAX_PARALLEL 24
 #define TASFA_CLIENT_STRIPES 32
 #define TASFA_CACHE_SLOTS 512
 
-#define TASFA_MAX_CONCURRENT_UPLOADS 4
+#define TASFA_MAX_CONCURRENT_UPLOADS 64
 #define TASFA_MAX_CONCURRENT_DOWNLOADS 8
 
 /* Binary Metadata Structure for Fast Path */
@@ -93,6 +93,20 @@ static int choose_chunk_size_upload(bool mobile) {
     return mobile ? TASFA_UPLOAD_CHUNK_SIZE_MOBILE : TASFA_UPLOAD_CHUNK_SIZE_DEFAULT;
 }
 
+static int tasfa_upload_session_limit(void) {
+    int limit = g_config.max_total_parallel_uploads;
+    if (limit < 1) limit = 1;
+    if (limit > TASFA_MAX_CONCURRENT_UPLOADS) limit = TASFA_MAX_CONCURRENT_UPLOADS;
+    return limit;
+}
+
+static int tasfa_upload_parallel_limit(void) {
+    int limit = g_config.max_upload_parallel_chunks;
+    if (limit < 1) limit = 1;
+    if (limit > TASFA_UPLOAD_MAX_PARALLEL) limit = TASFA_UPLOAD_MAX_PARALLEL;
+    return limit;
+}
+
 static int choose_chunk_size_download(bool mobile) {
     return mobile ? TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE : TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT;
 }
@@ -148,7 +162,9 @@ static void send_queued_json(cwist_http_response *res, const char *msg, int retr
     cJSON_AddNumberToObject(obj, "retry_after", retry_after > 0 ? retry_after : 3);
     res->status_code = (cwist_http_status_t)429;
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
-    cwist_http_header_add(&res->headers, "Retry-After", retry_after > 0 ? "3" : "3");
+    char retry_buf[16];
+    snprintf(retry_buf, sizeof(retry_buf), "%d", retry_after > 0 ? retry_after : 3);
+    cwist_http_header_add(&res->headers, "Retry-After", retry_buf);
     add_keepalive_headers(res);
     char *json = cJSON_PrintUnformatted(obj);
     cwist_sstring_assign(res->body, json ? json : "{}");
@@ -332,6 +348,9 @@ static void choose_upload_window(int score, int *initial_parallel, int *max_para
     else if (score >= 65) { initial_value = 8; max_value = 12; }
     else if (score >= 45) { initial_value = 6; max_value = 8; pace = 15; }
     else { initial_value = 4; max_value = 6; pace = 35; }
+    int configured_max = tasfa_upload_parallel_limit();
+    if (max_value > configured_max) max_value = configured_max;
+    if (initial_value > max_value) initial_value = max_value;
     if (initial_parallel) *initial_parallel = initial_value;
     if (max_parallel) *max_parallel = max_value;
     if (pacing_ms) *pacing_ms = pace;
@@ -391,12 +410,7 @@ static bool ensure_tasfa_roots(void) {
 static bool ensure_preallocated_file(const char *path, long long total_size) {
     int fd = open(path, O_CREAT | O_RDWR, 0644);
     if (fd < 0) return false;
-    bool ok = true;
-    if (total_size > 0) {
-        if (posix_fallocate(fd, 0, (off_t)total_size) != 0) {
-            if (ftruncate(fd, (off_t)total_size) != 0) ok = false;
-        }
-    }
+    bool ok = total_size <= 0 || ftruncate(fd, (off_t)total_size) == 0;
     close(fd);
     return ok;
 }
@@ -1086,16 +1100,21 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     const char *session_id = cwist_query_map_get(kv, "session_id");
     int chunk_count = atoi(cwist_query_map_get(kv, "chunk_count") ? cwist_query_map_get(kv, "chunk_count") : "0");
     long long total_size = atoll(cwist_query_map_get(kv, "total_size") ? cwist_query_map_get(kv, "total_size") : "0");
-    if (chunk_count <= 0 && total_size > 0) chunk_count = (int)((total_size + TASFA_UPLOAD_CHUNK_SIZE_DEFAULT - 1) / TASFA_UPLOAD_CHUNK_SIZE_DEFAULT);
-    if (chunk_count < 1) chunk_count = 1;
     int post_id = atoi(cwist_query_map_get(kv, "post_id") ? cwist_query_map_get(kv, "post_id") : "0");
-    if (!filename || !is_safe_filename_simple(filename) || chunk_count <= 0 || total_size <= 0 || !ensure_tasfa_roots()) {
+    if (!filename || !is_safe_filename_simple(filename) || total_size <= 0 || !ensure_tasfa_roots()) {
         cwist_query_map_destroy(kv);
         send_json_response(res, session_error_json("invalid upload init payload"), CWIST_HTTP_BAD_REQUEST);
         return;
     }
+    if (g_config.max_upload_size > 0 && total_size > g_config.max_upload_size) {
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("upload too large"), CWIST_HTTP_BAD_REQUEST);
+        return;
+    }
     bool mobile = is_mobile_request(req);
     int chunk_size = choose_chunk_size_upload(mobile);
+    chunk_count = (int)((total_size + chunk_size - 1) / chunk_size);
+    if (chunk_count < 1) chunk_count = 1;
     tasfa_queue_sweep(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, 3600);
     char upload_id[33];
     if (!random_hex(upload_id, 16)) {
@@ -1103,15 +1122,17 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
     }
-    if (!tasfa_queue_try_enter(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id)) {
+    if (!tasfa_queue_try_enter(g_q_uploads, tasfa_upload_session_limit(), upload_id)) {
         cwist_query_map_destroy(kv);
-        send_queued_json(res, "too many concurrent uploads", 5);
+        send_queued_json(res, "Wait a second...", 5);
         return;
     }
     char dir_path[PATH_MAX], temp_path[PATH_MAX];
     upload_session_dir(dir_path, sizeof(dir_path), upload_id);
     upload_session_temp_path(temp_path, sizeof(temp_path), upload_id);
     if (!dir_ensure(dir_path) || !ensure_preallocated_file(temp_path, total_size)) {
+        cleanup_upload_session(upload_id);
+        tasfa_queue_leave(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
         cwist_query_map_destroy(kv);
         send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
@@ -1122,6 +1143,8 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     if (!bitmap || RAND_bytes(stream_key, sizeof(stream_key)) != 1 || RAND_bytes(stream_iv_seed, sizeof(stream_iv_seed)) != 1 ||
         !random_hex(upload_token, 24) || !random_hex(upload_secret, 24)) {
         if (bitmap) cwist_free(bitmap);
+        cleanup_upload_session(upload_id);
+        tasfa_queue_leave(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
         cwist_query_map_destroy(kv);
         send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
@@ -1132,6 +1155,8 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         if (stream_key_hex) cwist_free(stream_key_hex);
         if (stream_iv_seed_hex) cwist_free(stream_iv_seed_hex);
         if (bitmap) cwist_free(bitmap);
+        cleanup_upload_session(upload_id);
+        tasfa_queue_leave(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
         cwist_query_map_destroy(kv);
         send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
@@ -1142,8 +1167,9 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     while (modulus_M == 0) {
         if (RAND_bytes((unsigned char *)&modulus_M, sizeof(modulus_M)) != 1) {
             modulus_M = ((uint64_t)time(NULL) << 32) ^ (uint64_t)getpid();
-            if (modulus_M == 0) modulus_M = 1;
         }
+        modulus_M &= ((1ULL << 53) - 1ULL);
+        if (modulus_M == 0) modulus_M = 1;
     }
     int group_count = (chunk_count + 5) / 6;
 
@@ -1164,8 +1190,9 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     cJSON_AddNumberToObject(meta, "received_chunks", 0);
     cJSON_AddNumberToObject(meta, "modulus_M", (double)modulus_M);
     cJSON_AddNumberToObject(meta, "group_count", group_count);
-    cJSON_AddNumberToObject(meta, "current_parallel_chunks", 6);
-    cJSON_AddNumberToObject(meta, "max_parallel_chunks", 6);
+    int configured_parallel = tasfa_upload_parallel_limit();
+    cJSON_AddNumberToObject(meta, "current_parallel_chunks", configured_parallel);
+    cJSON_AddNumberToObject(meta, "max_parallel_chunks", configured_parallel);
     cJSON_AddNumberToObject(meta, "dispatch_pacing_ms", 0);
     char expires_at[32];
     snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_UPLOAD_TTL));
@@ -1202,6 +1229,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         cwist_free(bitmap);
         cJSON_Delete(meta);
         cleanup_upload_session(upload_id);
+        tasfa_queue_leave(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
         cwist_free(stream_key_hex);
         cwist_free(stream_iv_seed_hex);
         cwist_query_map_destroy(kv);
@@ -1288,9 +1316,12 @@ void handler_file_upload_renegotiate(cwist_http_request *req, cwist_http_respons
     choose_upload_window(score, &initial_parallel, &max_parallel, &pacing_ms);
     int current_parallel = json_int(meta, "current_parallel_chunks", initial_parallel);
     int current_max = json_int(meta, "max_parallel_chunks", max_parallel);
-    if (max_parallel < current_max) max_parallel = current_max;
-    if (suggested > 0) initial_parallel = clamp_int(suggested, 2, max_parallel);
+    int configured_max = tasfa_upload_parallel_limit();
+    if (current_max < configured_max && max_parallel < current_max) max_parallel = current_max;
+    if (max_parallel > configured_max) max_parallel = configured_max;
+    if (suggested > 0) initial_parallel = clamp_int(suggested, 1, max_parallel);
     if (initial_parallel < current_parallel) initial_parallel = current_parallel;
+    if (initial_parallel > max_parallel) initial_parallel = max_parallel;
     cJSON_ReplaceItemInObject(meta, "current_parallel_chunks", cJSON_CreateNumber(initial_parallel));
     cJSON_ReplaceItemInObject(meta, "max_parallel_chunks", cJSON_CreateNumber(max_parallel));
     cJSON_ReplaceItemInObject(meta, "dispatch_pacing_ms", cJSON_CreateNumber(pacing_ms));
@@ -1322,7 +1353,7 @@ typedef struct {
     bool state_ok;
 } upload_work_t;
 
-#define HTP_TAG_LEN 65
+#define HTP_TAG_LEN 129
 #define HTP_RECORD_SIZE (HTP_TAG_LEN + 8)
 
 static bool save_htp_scalar(const char *upload_id, int chunk_index, const char *hash_tag_hex, uint64_t scalar) {
@@ -1464,7 +1495,7 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     }
 
     if (hash_tag_hex && hash_tag_hex[0]) {
-        uint64_t scalar = magic_scalar_str ? (uint64_t)atoll(magic_scalar_str) : 0;
+        uint64_t scalar = magic_scalar_str ? (uint64_t)strtoull(magic_scalar_str, NULL, 10) : 0;
         save_htp_scalar(upload_id, chunk_index, hash_tag_hex, scalar);
     }
 
@@ -1524,30 +1555,30 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     uint64_t *htp_scalars = NULL;
     bool htp_ok = load_htp_scalars(upload_id, chunk_count, &htp_tags, &htp_scalars);
     if (htp_ok) {
-        bool has_any_scalar = false;
-        for (int i = 0; i < chunk_count; i++) {
-            if (htp_scalars[i] != 0) { has_any_scalar = true; break; }
-        }
-        if (has_any_scalar) {
-            int group_count = (chunk_count + 5) / 6;
-            for (int g = 0; g < group_count; g++) {
-                uint64_t m[6] = {0};
-                for (int v = 0; v < 6; v++) {
-                    int ci = g * 6 + v;
-                    if (ci < chunk_count) m[v] = htp_scalars[ci];
-                }
-                uint64_t L1 = (m[0] + m[1] + m[2]) % modulus_M;
-                uint64_t L2 = (m[2] + m[3] + m[4]) % modulus_M;
-                uint64_t L3 = (m[4] + m[5] + m[0]) % modulus_M;
-                if (L1 != L2 || L2 != L3) {
-                    cwist_free(htp_tags);
-                    cwist_free(htp_scalars);
-                    cJSON_Delete(meta);
-                    close_upload_session_lock(lock_fd);
-                    cwist_query_map_destroy(kv);
-                    send_json_response(res, session_error_json("htp line sum mismatch"), CWIST_HTTP_BAD_REQUEST);
-                    return;
-                }
+        int group_count = chunk_count / 6;
+        for (int g = 0; g < group_count; g++) {
+            uint64_t m[6] = {0};
+            bool group_has_any = false;
+            bool group_complete = true;
+            for (int v = 0; v < 6; v++) {
+                int ci = g * 6 + v;
+                char *tag = htp_tags + (ci * HTP_TAG_LEN);
+                if (tag[0]) group_has_any = true;
+                else group_complete = false;
+                m[v] = htp_scalars[ci];
+            }
+            if (!group_has_any || !group_complete) continue;
+            uint64_t L1 = (m[0] + m[1] + m[2]) % modulus_M;
+            uint64_t L2 = (m[2] + m[3] + m[4]) % modulus_M;
+            uint64_t L3 = (m[4] + m[5] + m[0]) % modulus_M;
+            if (L1 != L2 || L2 != L3) {
+                cwist_free(htp_tags);
+                cwist_free(htp_scalars);
+                cJSON_Delete(meta);
+                close_upload_session_lock(lock_fd);
+                cwist_query_map_destroy(kv);
+                send_json_response(res, session_error_json("htp line sum mismatch"), CWIST_HTTP_BAD_REQUEST);
+                return;
             }
         }
         cwist_free(htp_tags);

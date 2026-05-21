@@ -10,3 +10,7 @@ boards_img=
 files_img=
 use_rss=true
 use_tasfa=false
+max_upload_size=1G
+max_total_parallel_uploads=4
+max_upload_parallel_chunks=4
+multi_ports=

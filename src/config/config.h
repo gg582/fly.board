@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 
+#define BLOG_MAX_MULTI_PORTS 64
+
 typedef struct {
     char title[128];
     char subtitle[256];
@@ -16,6 +18,11 @@ typedef struct {
     char root_url[256];
     bool use_tasfa;
     bool use_rss;
+    long long max_upload_size;
+    int max_total_parallel_uploads;
+    int max_upload_parallel_chunks;
+    int multi_ports[BLOG_MAX_MULTI_PORTS];
+    int multi_port_count;
 } blog_config_t;
 
 extern blog_config_t g_config;

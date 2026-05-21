@@ -425,8 +425,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     }
 
     cwist_html_element_t *config_script = cwist_html_element_create("script");
-    char config_js[128];
-    snprintf(config_js, sizeof(config_js), "window.BLOG_USE_TASFA=%s;", g_config.use_tasfa ? "true" : "false");
+    char config_js[256];
+    snprintf(config_js, sizeof(config_js),
+             "window.BLOG_USE_TASFA=%s;window.BLOG_MAX_UPLOAD_SIZE=%lld;",
+             g_config.use_tasfa ? "true" : "false",
+             g_config.max_upload_size);
     cwist_html_element_set_text(config_script, config_js);
     cwist_html_element_add_child(body, config_script);
 
