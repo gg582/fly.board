@@ -31,6 +31,15 @@
     var UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024;
     var UPLOAD_DEFAULT_PARALLEL = 4;
     var TASFA_MIN_SIZE_BYTES = 4 * 1024 * 1024;
+    var MULTI_PORTS = window.BLOG_MULTI_PORTS || [];
+    function withMultiPort(path) {
+        if (!MULTI_PORTS.length) return path;
+        var idx = Math.floor(Math.random() * MULTI_PORTS.length);
+        var port = MULTI_PORTS[idx];
+        var origin = window.location.protocol + '//' + window.location.hostname;
+        if (port) origin += ':' + port;
+        return origin + path;
+    }
     var FileUploadQueue = [];
     var isFileUploadRunning = false;
 
@@ -552,7 +561,7 @@
         hide(ui.btnRetry);
 
         if (isFailed) {
-            show(ui.btnRetry);
+            if (!asset.tooLarge) show(ui.btnRetry);
             show(ui.btnRemove);
         } else if (isUploading) {
             show(ui.btnCancel);
@@ -618,7 +627,7 @@
                 });
             }
             if (asset.uploadId) {
-                fetch(UPLOAD_CANCEL_ENDPOINT, {
+                fetch(withMultiPort(UPLOAD_CANCEL_ENDPOINT), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: 'upload_ids=' + encodeURIComponent(JSON.stringify([asset.uploadId]))
@@ -657,8 +666,6 @@
             asset.failed = false;
             asset.isUploading = false;
             asset.isCancelling = false;
-            asset.uploadId = null;
-            asset.uploadToken = null;
             asset.xhrs = [];
             if (asset.ui && asset.ui.progressInner) {
                 asset.ui.progressInner.style.width = '0%';
@@ -666,6 +673,13 @@
             if (asset.ui && asset.ui.progress) {
                 asset.ui.progress.style.display = '';
             }
+            if (asset.uploadId && asset.uploadToken && asset.isSessionExpired) {
+                asset.isSessionExpired = false;
+                verifyAllChunksBeforeComplete(asset, asset.file);
+                return;
+            }
+            asset.uploadId = null;
+            asset.uploadToken = null;
             if (isEditorMode) {
                 startTasfaUpload(asset, asset.file);
             } else {
@@ -1080,7 +1094,7 @@
             retries = retries || 0;
             var controller = new AbortController();
             var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
-            fetch(UPLOAD_INIT_ENDPOINT, {
+            fetch(withMultiPort(UPLOAD_INIT_ENDPOINT), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 body: body,
@@ -1145,7 +1159,7 @@
             '&upload_token=' + encodeURIComponent(asset.uploadToken);
         var controller = new AbortController();
         var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
-        fetch(UPLOAD_STATUS_ENDPOINT, {
+        fetch(withMultiPort(UPLOAD_STATUS_ENDPOINT), {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             body: body,
@@ -1207,7 +1221,7 @@
                 asset.xhrs.push(xhr);
                 asset.inflightBytes[chunkIndex] = 0;
 
-                xhr.open('POST', UPLOAD_ENDPOINT, true);
+                xhr.open('POST', withMultiPort(UPLOAD_ENDPOINT), true);
                 xhr.setRequestHeader('Accept', 'application/json');
                 xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
                 xhr.setRequestHeader('X-TASFA-Upload-ID', asset.uploadId);
@@ -1290,7 +1304,7 @@
                         xhr._tasfaChunkIndex = chunkIndex;
                         asset.xhrs.push(xhr);
                         asset.inflightBytes[chunkIndex] = 0;
-                        xhr.open('POST', UPLOAD_ENDPOINT, true);
+                        xhr.open('POST', withMultiPort(UPLOAD_ENDPOINT), true);
                         xhr.setRequestHeader('Accept', 'application/json');
                         xhr.setRequestHeader('Content-Type', 'application/octet-stream');
                         xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
@@ -1397,16 +1411,77 @@
         }
         Promise.all(workers).then(function() {
             if (asset.isCancelling) return;
-            if (poolFailed) {
-                markUploadFailure(asset, 'Upload failed [chunk]');
-            } else if (asset.completedChunks >= asset.totalChunks) {
+            verifyAllChunksBeforeComplete(asset, asset.file);
+        });
+    }
+
+    function verifyAllChunksBeforeComplete(asset, file) {
+        asset.serverVerifyRounds = (asset.serverVerifyRounds || 0) + 1;
+        if (asset.serverVerifyRounds > 10) {
+            markUploadFailure(asset, 'Upload failed [too many verify rounds]');
+            return;
+        }
+        asset.ui.status.textContent = 'Verifying chunks on server (round ' + asset.serverVerifyRounds + ')...';
+        var body = 'upload_id=' + encodeURIComponent(asset.uploadId) +
+            '&upload_token=' + encodeURIComponent(asset.uploadToken);
+        var controller = new AbortController();
+        var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
+        fetch(withMultiPort(UPLOAD_STATUS_ENDPOINT), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: body,
+            signal: controller.signal
+        }).then(function(response) {
+            clearTimeout(timeoutId);
+            if (!response.ok) throw new Error('status:' + response.status);
+            return response.json();
+        }).then(function(payload) {
+            if (!payload || payload.ok === false) throw new Error((payload && payload.error) || 'verify failed');
+            var bitmap = payload.received_bitmap || '';
+            var pending = [];
+            asset.confirmedBytes = 0;
+            asset.completedChunks = 0;
+            for (var i = 0; i < asset.totalChunks; i++) {
+                if (i < bitmap.length && bitmap[i] === '1') {
+                    asset.completedChunks += 1;
+                    asset.confirmedBytes += Math.min(asset.chunkSize, file.size - (i * asset.chunkSize));
+                } else {
+                    pending.push(i);
+                }
+            }
+            if (pending.length > 0) {
+                asset.ui.status.textContent = 'Filling ' + pending.length + ' missing chunk(s)...';
+                asset.pendingChunks = pending;
+                asset.retryCounts = new Array(asset.totalChunks).fill(0);
+                runSimpleChunkUpload(asset, file);
+            } else {
+                updateAssetProgress(asset);
                 completeTasfaUpload(asset);
+            }
+        }).catch(function(error) {
+            clearTimeout(timeoutId);
+            var msg = error && error.message ? error.message : 'verify failed';
+            if (msg.indexOf('status:401') !== -1) {
+                asset.ui.status.textContent = 'Session expired. Please log in again, then retry.';
+                asset.isUploading = false;
+                asset.failed = false;
+                asset.isSessionExpired = true;
+                updateFileRepoUploadButton();
+                updateSubmitButtons();
+                updateMediaCardUI(asset);
+                return;
+            }
+            if (msg.indexOf('status:') === 0) {
+                markUploadFailure(asset, 'Upload failed [' + msg.split(':')[1] + ']');
+            } else {
+                markUploadFailure(asset, 'Upload failed [' + msg + ']');
             }
         });
     }
 
-    function completeTasfaUpload(asset) {
-        asset.ui.status.textContent = 'Finalizing upload on server';
+    function completeTasfaUpload(asset, attempt) {
+        attempt = attempt || 1;
+        asset.ui.status.textContent = 'Finalizing upload on server (attempt ' + attempt + ')';
         var xhr = new XMLHttpRequest();
         asset.xhrs.push(xhr);
         xhr.open('POST', UPLOAD_COMPLETE_ENDPOINT, true);
@@ -1423,10 +1498,54 @@
                     return;
                 }
             }
+            if (xhr.status === 401) {
+                asset.ui.status.textContent = 'Session expired. Please log in again, then retry.';
+                asset.isUploading = false;
+                asset.failed = false;
+                asset.isSessionExpired = true;
+                updateFileRepoUploadButton();
+                updateSubmitButtons();
+                updateMediaCardUI(asset);
+                return;
+            }
+            if (xhr.status === 409) {
+                var payload = null;
+                try { payload = JSON.parse(xhr.responseText); } catch (e) {}
+                if (payload && payload.received_bitmap) {
+                    asset.ui.status.textContent = 'Server missing chunks, verifying...';
+                    var bitmap = payload.received_bitmap;
+                    var pending = [];
+                    asset.confirmedBytes = 0;
+                    asset.completedChunks = 0;
+                    for (var i = 0; i < asset.totalChunks; i++) {
+                        if (i < bitmap.length && bitmap[i] === '1') {
+                            asset.completedChunks += 1;
+                            asset.confirmedBytes += Math.min(asset.chunkSize, asset.file.size - (i * asset.chunkSize));
+                        } else {
+                            pending.push(i);
+                        }
+                    }
+                    asset.pendingChunks = pending;
+                    runSimpleChunkUpload(asset, asset.file);
+                    return;
+                }
+            }
+            if (attempt < 5 && (xhr.status >= 500 || xhr.status === 0)) {
+                var delay = Math.min(30000, Math.pow(2, attempt) * 1000);
+                asset.ui.status.textContent = 'Finalize error ' + xhr.status + ', retrying in ' + (delay / 1000) + 's...';
+                setTimeout(function() { completeTasfaUpload(asset, attempt + 1); }, delay);
+                return;
+            }
             markUploadFailure(asset, 'Upload failed [' + xhr.status + ']');
         };
         xhr.onerror = xhr.ontimeout = function() {
             asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
+            if (attempt < 5) {
+                var delay = Math.min(30000, Math.pow(2, attempt) * 1000);
+                asset.ui.status.textContent = 'Finalize network error, retrying in ' + (delay / 1000) + 's...';
+                setTimeout(function() { completeTasfaUpload(asset, attempt + 1); }, delay);
+                return;
+            }
             markUploadFailure(asset, 'Upload failed [network]');
         };
         xhr.send(encodeFormBody({ upload_id: asset.uploadId, upload_token: asset.uploadToken }));
@@ -1495,7 +1614,13 @@
         updateSubmitButtons();
         var maxUploadSize = Number(window.BLOG_MAX_UPLOAD_SIZE || 0);
         if (maxUploadSize > 0 && file.size > maxUploadSize) {
-            markUploadFailure(asset, 'Upload too large');
+            asset.tooLarge = true;
+            asset.failed = true;
+            asset.ui.status.textContent = 'Upload too large';
+            asset.xhrs = [];
+            updateFileRepoUploadButton();
+            updateSubmitButtons();
+            updateMediaCardUI(asset);
             return;
         }
         if (isEditorMode) {

@@ -2,6 +2,15 @@
     var cache = new Map();
     var downloadStates = {};
     var SPACER_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    var MULTI_PORTS = window.BLOG_MULTI_PORTS || [];
+    function withMultiPort(path) {
+        if (!MULTI_PORTS.length) return path;
+        var idx = Math.floor(Math.random() * MULTI_PORTS.length);
+        var port = MULTI_PORTS[idx];
+        var origin = window.location.protocol + '//' + window.location.hostname;
+        if (port) origin += ':' + port;
+        return origin + path;
+    }
 
     function handshakeUrl(baseUrl) {
         if (baseUrl.indexOf('/file/download/') === 0) return baseUrl + '/handshake';
@@ -25,7 +34,7 @@
 
     async function fetchJson(url, retries) {
         retries = retries || 0;
-        var response = await fetch(url, {
+        var response = await fetch(withMultiPort(url), {
             headers: {
                 'Accept': 'application/json',
                 'X-Requested-With': 'XMLHttpRequest'
@@ -110,7 +119,7 @@
     function fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries) {
         retries = retries || 0;
         return new Promise(function(resolve, reject) {
-            var url = chunkUrl(baseUrl, session.sessionId, session.sessionToken, chunkIndex, span);
+            var url = withMultiPort(chunkUrl(baseUrl, session.sessionId, session.sessionToken, chunkIndex, span));
             var xhr = new XMLHttpRequest();
             xhr.open('GET', url, true);
             xhr.responseType = 'arraybuffer';

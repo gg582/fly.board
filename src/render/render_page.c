@@ -425,11 +425,24 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     }
 
     cwist_html_element_t *config_script = cwist_html_element_create("script");
-    char config_js[256];
+    char config_js[1024];
+    char ports_str[512] = {0};
+    if (g_config.multi_port_count > 0) {
+        strncat(ports_str, "[", sizeof(ports_str) - strlen(ports_str) - 1);
+        for (int i = 0; i < g_config.multi_port_count; i++) {
+            char port_buf[32];
+            snprintf(port_buf, sizeof(port_buf), "%d%s", g_config.multi_ports[i], (i + 1 < g_config.multi_port_count) ? "," : "");
+            strncat(ports_str, port_buf, sizeof(ports_str) - strlen(ports_str) - 1);
+        }
+        strncat(ports_str, "]", sizeof(ports_str) - strlen(ports_str) - 1);
+    } else {
+        strncat(ports_str, "[]", sizeof(ports_str) - strlen(ports_str) - 1);
+    }
     snprintf(config_js, sizeof(config_js),
-             "window.BLOG_USE_TASFA=%s;window.BLOG_MAX_UPLOAD_SIZE=%lld;",
+             "window.BLOG_USE_TASFA=%s;window.BLOG_MAX_UPLOAD_SIZE=%lld;window.BLOG_MULTI_PORTS=%s;",
              g_config.use_tasfa ? "true" : "false",
-             g_config.max_upload_size);
+             g_config.max_upload_size,
+             ports_str);
     cwist_html_element_set_text(config_script, config_js);
     cwist_html_element_add_child(body, config_script);
 

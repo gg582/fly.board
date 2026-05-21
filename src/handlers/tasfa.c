@@ -1536,11 +1536,15 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     }
     int chunk_count = json_int(meta, "chunk_count", 0);
     const char *bitmap = json_string(meta, "received_bitmap", "");
-    if (bitmap_count_set(bitmap, chunk_count) != chunk_count) {
+    int received = bitmap_count_set(bitmap, chunk_count);
+    if (received != chunk_count) {
+        cJSON *obj = build_upload_status_json(meta, upload_id);
+        cJSON_AddBoolToObject(obj, "ok", false);
+        cJSON_AddStringToObject(obj, "error", "missing upload chunks");
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
         cwist_query_map_destroy(kv);
-        send_json_response(res, session_error_json("missing upload chunks"), CWIST_HTTP_BAD_REQUEST);
+        send_json_response(res, obj, (cwist_http_status_t)409);
         return;
     }
     const char *temp_path = json_string(meta, "temp_path", "");
