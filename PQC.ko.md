@@ -14,7 +14,7 @@ fly.board는 게시글에 "양자 내성" 서명을 표기한다. 이 문서는 
 
 ### 2. 구현 경로: CWIST 프레임워크 → BoringSSL
 
-- `fly_crypto.c`는 `<cwist/security/pqc/pqc_sig.h>`를 조걶 include한다.
+- `fly_crypto.c`는 `<cwist/security/pqc/pqc_sig.h>`를 조건부 include한다.
 - CWIST 프레임워크 내부에 BoringSSL이 내장되어 있으며, BoringSSL은 `crypto/mldsa/`에 ML-DSA 구현체를 포함한다.
 - 따라서 fly.board 자체가 독자적인 PQC 알고리즘을 구현한 것이 아니라, **CWIST/BoringSSL이 제공하는 표준 ML-DSA API를 호출**하는 형태다.
 
