@@ -2,6 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "utils.h"
 #include "db/db.h"
+#include "config/config.h"
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/log.h>
 #include <ctype.h>
@@ -284,6 +285,11 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
     strncpy(out->filename, f->filename, sizeof(out->filename) - 1);
     strncpy(out->file_path, f->data, sizeof(out->file_path) - 1);
     out->file_size = f->file_size;
+    if (g_config.max_upload_size > 0 && (long long)out->file_size > g_config.max_upload_size) {
+        if (out->file_path[0]) unlink(out->file_path);
+        snprintf(out->error, sizeof(out->error), "upload too large");
+        return false;
+    }
 
     char detected_mime[127] = {0};
     if (!mime_type_from_data(f->data, detected_mime, sizeof(detected_mime))) {
@@ -323,4 +329,3 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
     out->ok = true;
     return true;
 }
-

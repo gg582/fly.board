@@ -23,13 +23,17 @@ Download:
 
 ## Upload Protocol
 
-The browser negotiates an upload session first, then sends **chunks** (up to `64 MiB`) with TASFA headers:
+The browser negotiates an upload session first, then sends **chunks** (default `8 MiB`, mobile `4 MiB`) with TASFA headers:
 
 - `X-TASFA-Upload-ID`
 - `X-TASFA-Upload-Token`
 - `X-TASFA-Chunk-Index`
+- `X-TASFA-Hash-Tag`
+- `X-TASFA-Magic-Scalar`
 
 The server writes each chunk directly to the preallocated temp file at `chunk_index * chunk_size`. There are no transport blocks anymore.
+
+If a normal chunk repeatedly fails, the browser serializes that failed chunk through an AES-256-GCM fallback request with `X-TASFA-Stream-Mode: aes-256-gcm`. The fallback still carries the same HTP hash tag and balanced scalar headers.
 
 ### Remainder (last partial chunk)
 
@@ -108,9 +112,11 @@ This prevents browser connection pool exhaustion and keeps stall detection relia
 
 ## Runtime Settings
 
-- upload chunk size: `64 MiB`
-- default browser upload parallelism: `6`
-- max browser upload parallelism: server-defined
+- upload chunk size: `8 MiB` desktop, `4 MiB` mobile
+- default browser upload parallelism: `4`
+- max browser upload parallelism: `max_upload_parallel_chunks` in `blog.settings`
+- max concurrent upload sessions: `max_total_parallel_uploads` in `blog.settings`
+- max upload size: `max_upload_size` in `blog.settings`
 - max browser download sessions: server-defined
 - upload xhr timeout: `30 s`
 - upload session fetch timeout: `12 s`
