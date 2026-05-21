@@ -66,7 +66,11 @@ void handler_asset_img(cwist_http_request *req, cwist_http_response *res) {
     }
 
     cwist_http_header_add(&res->headers, "Content-Type", mime_type(decoded));
-    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
+    if (strcmp(decoded, "logo.png") == 0 || (g_config.blog_logo[0] && strcmp(decoded, g_config.blog_logo) == 0)) {
+        cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=31536000, immutable");
+    } else {
+        cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
+    }
     char slen[32];
     snprintf(slen, sizeof(slen), "%zu", sz);
     cwist_http_header_add(&res->headers, "Content-Length", slen);
