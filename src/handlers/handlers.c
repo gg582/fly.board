@@ -114,6 +114,24 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
     // Advertise HTTP/3 and HTTP/2 fallback. h3 is prioritized.
     snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"; ma=86400, h2=\":%d\"; ma=86400", g_config.port, g_config.port);
     cwist_http_header_add(&res->headers, "Alt-Svc", altsvc);
+
+    const char *origin = cwist_http_header_get(req->headers, "Origin");
+    if (origin && origin[0]) {
+        cwist_http_header_add(&res->headers, "Access-Control-Allow-Origin", origin);
+        cwist_http_header_add(&res->headers, "Vary", "Origin");
+    } else {
+        cwist_http_header_add(&res->headers, "Access-Control-Allow-Origin", "*");
+    }
+    cwist_http_header_add(&res->headers, "Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    cwist_http_header_add(&res->headers, "Access-Control-Allow-Headers", "Content-Type, X-Requested-With, Authorization");
+    cwist_http_header_add(&res->headers, "Access-Control-Max-Age", "86400");
+
+    if (req->method == CWIST_HTTP_OPTIONS) {
+        res->status_code = CWIST_HTTP_NO_CONTENT;
+        cwist_sstring_assign(res->body, "");
+        return;
+    }
+
     const char *m = cwist_http_method_to_string(req->method);
     const char *p = (req->path && req->path->data) ? req->path->data : "?";
     CWIST_LOG_DEBUG("%s %s", m ? m : "?", p ? p : "?");
