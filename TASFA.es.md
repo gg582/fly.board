@@ -34,23 +34,8 @@ TASFA es el **protocolo de carga/descarga de archivos basado en HTTP/XHR** que u
 - El progreso de la carga se almacena en `state.bin` como un **mapa de bits binario denso** (1 byte por fragmento, `'0'` / `'1'`).
 - El servidor rechaza cualquier fragmento cuyo índice ya esté marcado como `'1'`. Esto bloquea ataques DoS que reenvían el mismo fragmento para consumir I/O de disco.
 - Las actualizaciones usan `pwrite(..., 1, chunk_index)` — una escritura atómica en O(1) **sin análisis JSON en la ruta crítica**.
-- En el lado de descarga, también se mantiene un mapa de bits: los fragmentos ya obtenidos se omiten y se almacenan en caché en `IndexedDB` con clave `baseUrl + ':' + chunk_index`. Esto evita volver a solicitar los mismos datos durante una tormenta de reintentos.
 
-### 5. Pacing adaptativo
-
-- En lugar de simplemente reducir el paralelismo en redes deficientes, TASFA **regula la velocidad** de envío de fragmentos inyectando retrasos `setTimeout` según la calidad del enlace.
-
-| Puntuación de enlace | Pacing de carga | Pacing de descarga | Coalesce |
-|-----------|---------------|-----------------|----------|
-| >= 85     | 0 ms          | 0 ms            | 64       |
-| 65 – 84   | 15 ms         | 0 ms            | 48       |
-| 45 – 64   | 15 ms         | 10 ms           | 32       |
-| < 45      | 35 ms         | 30 ms           | 16       |
-
-- Esto evita el colapso de la ventana TCP en enlaces con alta pérdida, previene bloqueos por inflación de búferes y preserva suficientes fragmentos en vuelo para que un solo paquete lento no congele toda la transferencia.
-- Cuando la puntuación del enlace cae por debajo de 45, los tiempos de espera se alargan (hasta 12 s) y el retroceso exponencial se aplana (factor 1,3 en lugar de 1,6).
-
-### 6. Endurecimiento de sesiones
+### 5. Endurecimiento de sesiones
 
 - Los ID de carga y los tokens son cadenas hexadecimales aleatorias de 16 y 24 bytes.
 - `flock` previene condiciones de carrera en las actualizaciones del mapa de bits desde solicitudes concurrentes.
@@ -68,14 +53,13 @@ TASFA incurre claramente en una **penalización de RPS (solicitudes por segundo)
 | CPU dedicada al cálculo de escalares HTP y validación de grupos | **Detección temprana de corrupción**: errores que un hash de archivo completo solo revelaría al final se capturan a nivel de grupo |
 | I/O de archivo del mapa de bits y bloqueos `flock` | **Mitigación de DoS**: bloquea el abuso de reenvío de fragmentos repetidos y ataques de archivos truncados |
 | Imposibilidad de cargar varios archivos simultáneamente por la cola secuencial | **Estabilidad de conexiones del navegador**: transferencias estables sin interbloqueos dentro del límite de 6 conexiones por origen |
-| Menor tasa de envío de fragmentos debido al pacing | **Resiliencia en enlaces inestables**: transmisión sostenida sin colapso de la ventana TCP en enlaces con alta pérdida/latencia |
-| Uso de memoria y disco para el caché de IndexedDB y estado de sesión | **Eficiencia de reintentos**: tras una interrupción de red, los fragmentos ya recibidos no se vuelven a solicitar |
+| Uso de memoria y disco para el estado de sesión | **Eficiencia de reintentos**: tras una interrupción de red, el servidor sabe exactamente qué fragmentos faltan |
 
 ### Conclusión
 
 TASFA no persigue "la transferencia de archivos más rápida posible". En cambio, está diseñado para que **los archivos lleguen al destino completos e intactos incluso en redes inestables y con clientes maliciosos**.
 
 - **Perspectiva de carga**: flujo de fragmentos cifrados con aislamiento de sesiones + pistas HTP + defensa DoS mediante mapa de bits + cola secuencial = cargas estables e intactas.
-- **Perspectiva de descarga**: sesión basada en handshake + seguimiento de mapa de bits + caché de IndexedDB + pacing adaptativo = descargas ininterrumpidas.
+- **Perspectiva de descarga**: sesión basada en handshake + seguimiento de mapa de bits + coalescing adaptativo = descargas ininterrumpidas.
 
 Para un blog simple TASFA puede ser excesivo, pero tiene un mérito técnico claro para un **foro comunitario con muchos archivos adjuntos**, donde la penalización de RPS es un compromiso justificado.
