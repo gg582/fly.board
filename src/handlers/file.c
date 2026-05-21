@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 #include <ctype.h>
+#include <sys/stat.h>
 
 static void send_upload_not_found(cwist_http_response *res) {
     res->status_code = CWIST_HTTP_NOT_FOUND;
@@ -120,9 +121,55 @@ void handler_file_detail_get(cwist_http_request *req, cwist_http_response *res) 
 }
 
 void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
-    (void)req;
-    res->status_code = CWIST_HTTP_FORBIDDEN;
-    cwist_sstring_assign(res->body, "Direct download disabled; use the reliable transfer path.");
+    if (g_config.use_tasfa) {
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Direct download disabled; use the reliable transfer path.");
+        return;
+    }
+
+    const char *id_str = cwist_query_map_get(req->path_params, "id");
+    if (!id_str) { send_upload_not_found(res); return; }
+
+    cJSON *file = db_file_get(req->db, atoi(id_str));
+    if (!file) { send_upload_not_found(res); return; }
+
+    cJSON *jpath = cJSON_GetObjectItem(file, "file_path");
+    cJSON *jfilename = cJSON_GetObjectItem(file, "filename");
+    cJSON *jmime = cJSON_GetObjectItem(file, "mime_type");
+    const char *path = (jpath && jpath->type == cJSON_String && jpath->valuestring) ? jpath->valuestring : "";
+    const char *filename = (jfilename && jfilename->type == cJSON_String && jfilename->valuestring) ? jfilename->valuestring : "download";
+    const char *mime = (jmime && jmime->type == cJSON_String && jmime->valuestring) ? jmime->valuestring : "application/octet-stream";
+
+    struct stat st;
+    if (stat(path, &st) != 0 || st.st_size <= 0) {
+        cJSON_Delete(file);
+        send_upload_not_found(res);
+        return;
+    }
+
+    size_t sz = 0;
+    char *data = file_read(path, &sz);
+    if (!data) {
+        cJSON_Delete(file);
+        send_upload_not_found(res);
+        return;
+    }
+
+    char disp[512];
+    snprintf(disp, sizeof(disp), "attachment; filename=\"%s\"", filename);
+    cwist_http_header_add(&res->headers, "Content-Type", mime);
+    cwist_http_header_add(&res->headers, "Content-Disposition", disp);
+    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
+    char slen[32];
+    snprintf(slen, sizeof(slen), "%zu", sz);
+    cwist_http_header_add(&res->headers, "Content-Length", slen);
+    cwist_sstring_assign(res->body, "");
+    cwist_sstring_append_len(res->body, data, sz);
+
+    db_file_increment_download(req->db, atoi(id_str));
+
+    cwist_free(data);
+    cJSON_Delete(file);
 }
 
 void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {

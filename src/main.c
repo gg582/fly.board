@@ -206,6 +206,7 @@ int main(void) {
     cwist_app_get(app, "/file/download/:id", handler_file_download);
     cwist_app_get(app, "/file/download/:id/handshake", handler_file_download_handshake);
     cwist_app_get(app, "/file/download/:id/chunk/:chunk_index", handler_file_download_chunk);
+    cwist_app_post(app, "/file/download/complete", handler_file_download_complete);
     cwist_app_post(app, "/file/upload/init", handler_file_upload_init);
     cwist_app_post(app, "/file/upload/status", handler_file_upload_status);
     cwist_app_post(app, "/file/upload/renegotiate", handler_file_upload_renegotiate);
