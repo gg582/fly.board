@@ -340,7 +340,6 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(theme_btn, theme_label);
     cwist_html_element_add_child(theme_wrapper, theme_btn);
     cwist_html_element_add_child(navlinks, theme_wrapper);
-    cwist_html_element_add_child(nav, navlinks);
 
     cwist_html_element_t *shell = cwist_html_element_create("div");
     cwist_html_element_add_class(shell, "shell fade-in");
@@ -377,6 +376,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(footer, footer_content);
 
     cwist_html_element_add_child(body, nav);
+    cwist_html_element_add_child(body, navlinks);
 
     cwist_html_element_t *overlay = cwist_html_element_create("div");
     cwist_html_element_add_class(overlay, "mobile-overlay");
