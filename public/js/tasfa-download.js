@@ -23,13 +23,20 @@
         return url;
     }
 
-    async function fetchJson(url) {
+    async function fetchJson(url, retries) {
+        retries = retries || 0;
         var response = await fetch(url, {
             headers: {
                 'Accept': 'application/json',
                 'X-Requested-With': 'XMLHttpRequest'
             }
         });
+        if (response.status === 429 && retries < 10) {
+            var data = await response.json().catch(function() { return {}; });
+            var delay = (data.retry_after || 3) * 1000;
+            await new Promise(function(r) { setTimeout(r, delay); });
+            return fetchJson(url, retries + 1);
+        }
         if (!response.ok) throw new Error('handshake:' + response.status);
         return response.json();
     }
@@ -99,16 +106,34 @@
         if (el) el.remove();
     }
 
-    function fetchChunk(baseUrl, session, allBytes, chunkIndex, span) {
+    function fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries) {
+        retries = retries || 0;
         return new Promise(function(resolve, reject) {
             var url = chunkUrl(baseUrl, session.sessionId, session.sessionToken, chunkIndex, span);
             var xhr = new XMLHttpRequest();
             xhr.open('GET', url, true);
             xhr.responseType = 'arraybuffer';
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-            xhr.timeout = 20000;
+            xhr.timeout = 45000;
             xhr.onload = function() {
+                if (xhr.status === 429 && retries < 10) {
+                    var delay = 3000;
+                    try {
+                        var resp = JSON.parse(xhr.responseText);
+                        if (resp.retry_after) delay = resp.retry_after * 1000;
+                    } catch(e) {}
+                    setTimeout(function() {
+                        fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries + 1).then(resolve).catch(reject);
+                    }, delay);
+                    return;
+                }
                 if (xhr.status < 200 || xhr.status >= 300) {
+                    if (retries < 3) {
+                        setTimeout(function() {
+                            fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries + 1).then(resolve).catch(reject);
+                        }, 2000 * (retries + 1));
+                        return;
+                    }
                     reject(new Error('chunk:' + xhr.status));
                     return;
                 }
@@ -132,8 +157,24 @@
                 }
                 resolve(totalReceived);
             };
-            xhr.onerror = function() { reject(new Error('network')); };
-            xhr.ontimeout = function() { reject(new Error('timeout')); };
+            xhr.onerror = function() {
+                if (retries < 3) {
+                    setTimeout(function() {
+                        fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries + 1).then(resolve).catch(reject);
+                    }, 2000 * (retries + 1));
+                    return;
+                }
+                reject(new Error('network'));
+            };
+            xhr.ontimeout = function() {
+                if (retries < 3) {
+                    setTimeout(function() {
+                        fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries + 1).then(resolve).catch(reject);
+                    }, 2000 * (retries + 1));
+                    return;
+                }
+                reject(new Error('timeout'));
+            };
             xhr.send();
         });
     }

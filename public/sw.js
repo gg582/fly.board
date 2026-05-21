@@ -5,3 +5,17 @@ self.addEventListener('install', function(e) {
 self.addEventListener('activate', function(e) {
     e.waitUntil(self.clients.claim());
 });
+
+self.addEventListener('fetch', function(event) {
+    var url = event.request.url;
+    var isTasfa = url.includes('/tasfa/') || url.includes('/file/upload') || url.includes('/file/download');
+    if (!isTasfa) return;
+    var promise = fetch(event.request).catch(function(err) {
+        return new Response(JSON.stringify({ok:false, error:'network', retry:true}), {
+            status: 503,
+            headers: {'Content-Type':'application/json'}
+        });
+    });
+    event.respondWith(promise);
+    event.waitUntil(promise.catch(function(){}));
+});

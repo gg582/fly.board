@@ -958,37 +958,52 @@
             '&post_id=' + encodeURIComponent(window.POST_ID || 0) +
             '&session_id=' + encodeURIComponent(asset.client_uuid || '');
 
-        fetch(UPLOAD_INIT_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            body: body
-        }).then(function(response) {
-            if (!response.ok) throw new Error('init:' + response.status);
-            return response.json();
-        }).then(function(payload) {
-            if (payload && payload.already_done) {
-                asset.fid = payload.file_id;
-                asset.url = payload.url || ('/file/download/' + String(payload.file_id || ''));
-                finalizeUploadSuccess(asset, payload);
-                return;
-            }
-            if (!payload || payload.ok === false || !payload.upload_id || !payload.upload_token) {
-                throw new Error((payload && payload.error) || 'upload init failed');
-            }
-            asset.uploadId = payload.upload_id;
-            asset.uploadToken = payload.upload_token;
-            asset.chunkSize = Number(payload.chunk_size || asset.chunkSize || UPLOAD_CHUNK_SIZE);
-            asset.totalChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
-            asset.maxParallel = Math.max(1, Math.min(Number(payload.max_parallel_chunks) || UPLOAD_DEFAULT_PARALLEL, asset.totalChunks));
-            asset.inflightBytes = new Array(asset.totalChunks).fill(0);
-            asset.retryCounts = new Array(asset.totalChunks).fill(0);
-            asset.completedChunks = 0;
-            asset.ui.status.textContent = 'Uploading...';
-            runSimpleChunkUpload(asset, file);
-        }).catch(function(error) {
-            var message = error && error.message ? error.message : 'Upload failed';
-            markUploadFailure(asset, message);
-        });
+        function doInit(retries) {
+            retries = retries || 0;
+            fetch(UPLOAD_INIT_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: body
+            }).then(function(response) {
+                if (response.status === 429 && retries < 10) {
+                    return response.json().then(function(payload) {
+                        asset.ui.status.textContent = 'Queued';
+                        var delay = (payload.retry_after || 5) * 1000;
+                        setTimeout(function() { doInit(retries + 1); }, delay);
+                    }).catch(function() {
+                        setTimeout(function() { doInit(retries + 1); }, 5000);
+                    });
+                }
+                if (!response.ok) throw new Error('init:' + response.status);
+                return response.json();
+            }).then(function(payload) {
+                if (!payload || payload.queued) return;
+                if (payload && payload.already_done) {
+                    asset.fid = payload.file_id;
+                    asset.url = payload.url || ('/file/download/' + String(payload.file_id || ''));
+                    finalizeUploadSuccess(asset, payload);
+                    return;
+                }
+                if (!payload || payload.ok === false || !payload.upload_id || !payload.upload_token) {
+                    throw new Error((payload && payload.error) || 'upload init failed');
+                }
+                asset.uploadId = payload.upload_id;
+                asset.uploadToken = payload.upload_token;
+                asset.chunkSize = Number(payload.chunk_size || asset.chunkSize || UPLOAD_CHUNK_SIZE);
+                asset.totalChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
+                asset.maxParallel = Math.max(1, Math.min(Number(payload.max_parallel_chunks) || UPLOAD_DEFAULT_PARALLEL, asset.totalChunks));
+                asset.inflightBytes = new Array(asset.totalChunks).fill(0);
+                asset.retryCounts = new Array(asset.totalChunks).fill(0);
+                asset.completedChunks = 0;
+                asset.ui.status.textContent = 'Uploading...';
+                runSimpleChunkUpload(asset, file);
+            }).catch(function(error) {
+                if (error && error.message && error.message.indexOf('init:429') !== -1) return;
+                var message = error && error.message ? error.message : 'Upload failed';
+                markUploadFailure(asset, message);
+            });
+        }
+        doInit();
     }
 
     function runSimpleChunkUpload(asset, file) {
@@ -1026,6 +1041,14 @@
                     if (xhr.status === 200 || xhr.status === 204) {
                         asset.confirmedBytes += size;
                         resolve({ ok: true, chunkIndex: chunkIndex });
+                    } else if (xhr.status === 429) {
+                        var delay = 3000;
+                        try {
+                            var resp = JSON.parse(xhr.responseText);
+                            if (resp.retry_after) delay = resp.retry_after * 1000;
+                        } catch(e) {}
+                        asset.ui.status.textContent = 'Queued';
+                        resolve({ retry: true, chunkIndex: chunkIndex, delay: delay });
                     } else {
                         reject(new Error('status:' + xhr.status));
                     }
@@ -1055,7 +1078,17 @@
                         return;
                     }
                     var chunkIndex = pending.pop();
-                    postChunk(chunkIndex).then(function() {
+                    postChunk(chunkIndex).then(function(result) {
+                        if (result && result.retry) {
+                            asset.retryCounts[chunkIndex] = (asset.retryCounts[chunkIndex] || 0) + 1;
+                            if (asset.retryCounts[chunkIndex] < 10) {
+                                setTimeout(function() {
+                                    pending.push(chunkIndex);
+                                    next();
+                                }, result.delay || 3000);
+                                return;
+                            }
+                        }
                         asset.completedChunks += 1;
                         updateAssetProgress(asset);
                         next();
