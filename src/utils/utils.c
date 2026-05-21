@@ -302,6 +302,21 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
     int fid = db_file_create_volume_get_id(db, post_id, uid, f->filename, out->mime_type, f->data, f->file_size);
     if (fid > 0) {
         snprintf(out->url, sizeof(out->url), "/file/download/%d", fid);
+        char thumb_path[512] = {0};
+        char preview_path[512] = {0};
+        if (strncmp(out->mime_type, "image/", 6) == 0) {
+            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.jpg", fid);
+            if (!generate_image_thumb(f->data, thumb_path, 320, 240)) thumb_path[0] = '\0';
+        } else if (strncmp(out->mime_type, "video/", 6) == 0) {
+            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.jpg", fid);
+            if (!generate_video_thumb(f->data, thumb_path, 320, 240)) thumb_path[0] = '\0';
+        } else if (strncmp(out->mime_type, "audio/", 6) == 0) {
+            snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp3", fid);
+            if (!generate_audio_preview(f->data, preview_path, 192)) preview_path[0] = '\0';
+        }
+        if (thumb_path[0] || preview_path[0]) {
+            db_file_set_preview_paths(db, fid, thumb_path, preview_path);
+        }
     }
 
     if (strncmp(out->mime_type, "image/", 6) == 0) {

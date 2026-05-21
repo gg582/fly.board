@@ -2,6 +2,42 @@
     var cache = new Map();
     var downloadStates = {};
     var SPACER_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    var CACHE_NAME = 'tasfa-small-files-v1';
+    var SMALL_FILE_THRESHOLD = 5 * 1024 * 1024; // 5MB
+
+    async function getCachedBlob(baseUrl) {
+        try {
+            var c = await caches.open(CACHE_NAME);
+            var resp = await c.match(baseUrl);
+            if (resp) return resp.blob();
+        } catch (e) {}
+        return null;
+    }
+
+    async function putCachedBlob(baseUrl, blob, mimeType) {
+        try {
+            var c = await caches.open(CACHE_NAME);
+            await c.put(baseUrl, new Response(blob, {
+                headers: {'Content-Type': mimeType || 'application/octet-stream'}
+            }));
+        } catch (e) {}
+    }
+
+    async function notifyDownloadComplete(sessionId, sessionToken) {
+        try {
+            await fetch(withMultiPort('/file/download/complete'), {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: 'session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken)
+            });
+        } catch (e) {
+            // best-effort: ignore completion errors
+        }
+    }
     var MULTI_PORTS = window.BLOG_MULTI_PORTS || [];
     function withMultiPort(path) {
         if (!MULTI_PORTS.length) return path;
@@ -200,6 +236,15 @@
 
         var promise = (async function() {
             var session = await fetchDownloadSession(baseUrl);
+
+            if (session.totalSize <= SMALL_FILE_THRESHOLD) {
+                var cachedBlob = await getCachedBlob(baseUrl);
+                if (cachedBlob) {
+                    await notifyDownloadComplete(session.sessionId, session.sessionToken);
+                    return {blob: cachedBlob, filename: session.filename};
+                }
+            }
+
             var allBytes = new Uint8Array(session.totalSize);
             var sharedState = {
                 chunkCount: session.chunkCount,
@@ -248,10 +293,18 @@
 
             if (sharedState.failed) throw sharedState.failed;
 
-            return {
+            var result = {
                 blob: new Blob([allBytes.buffer], { type: session.mimeType }),
                 filename: session.filename
             };
+
+            if (session.totalSize <= SMALL_FILE_THRESHOLD) {
+                await putCachedBlob(baseUrl, result.blob, session.mimeType);
+            }
+
+            await notifyDownloadComplete(session.sessionId, session.sessionToken);
+
+            return result;
         })();
 
         if (!silent) {

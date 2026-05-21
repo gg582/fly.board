@@ -2,10 +2,14 @@
 #include "db.h"
 #include "db_internal.h"
 #include <cwist/core/mem/alloc.h>
+#include <cwist/core/log.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
+#include <sys/stat.h>
+#include <dirent.h>
 
 bool db_file_create_volume(cwist_db *db, int post_id, int user_id, const char *filename, const char *mime_type, const char *file_path, size_t len) {
     const char *sql = "INSERT INTO files (post_id, user_id, filename, mime_type, file_path, size) VALUES (?,?,?,?,?,?)";
@@ -112,6 +116,18 @@ bool db_file_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_ha
     return rc == SQLITE_DONE;
 }
 
+bool db_file_set_preview_paths(cwist_db *db, int id, const char *thumb_path, const char *preview_path) {
+    const char *sql = "UPDATE files SET thumb_path=?, preview_path=? WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, thumb_path ? thumb_path : "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, preview_path ? preview_path : "", -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 3, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
 bool db_file_attach_to_post(cwist_db *db, int id, int post_id, int is_inline) {
     const char *sql = "UPDATE files SET post_id=?, is_inline=? WHERE id=?";
     sqlite3_stmt *stmt = NULL;
@@ -160,4 +176,45 @@ void db_file_cleanup_duplicates(cwist_db *db) {
         if (path && path[0]) unlink(path);
         db_file_delete(db, id);
     }
+}
+
+#include <dirent.h>
+
+static bool path_in_db(cwist_db *db, const char *path) {
+    if (!path || !path[0]) return false;
+    const char *sql = "SELECT 1 FROM files WHERE file_path=? OR thumb_path=? OR preview_path=? LIMIT 1";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, path, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, path, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, path, -1, SQLITE_STATIC);
+    bool found = (sqlite3_step(stmt) == SQLITE_ROW);
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+static void cleanup_upload_dir(cwist_db *db, const char *dir_path, bool skip_hidden) {
+    DIR *dir = opendir(dir_path);
+    if (!dir) return;
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
+        if (skip_hidden && ent->d_name[0] == '.') continue;
+        char full_path[PATH_MAX];
+        snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, ent->d_name);
+        struct stat st;
+        if (stat(full_path, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) continue;
+        if (!path_in_db(db, full_path)) {
+            CWIST_LOG_INFO("Removing orphaned file: %s", full_path);
+            unlink(full_path);
+        }
+    }
+    closedir(dir);
+}
+
+void db_cleanup_orphaned_files(cwist_db *db) {
+    cleanup_upload_dir(db, "public/uploads", true);
+    cleanup_upload_dir(db, "public/uploads/.thumbs", false);
+    cleanup_upload_dir(db, "public/uploads/.previews", false);
 }

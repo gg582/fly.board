@@ -1701,6 +1701,24 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
         send_json_response(res, session_error_json("db insert failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
     }
+
+    /* Generate thumbnails/previews via ffmpeg */
+    char thumb_path[PATH_MAX] = {0};
+    char preview_path[PATH_MAX] = {0};
+    if (strncmp(mime_buf, "image/", 6) == 0) {
+        snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.jpg", fid);
+        if (!generate_image_thumb(final_path, thumb_path, 320, 240)) thumb_path[0] = '\0';
+    } else if (strncmp(mime_buf, "video/", 6) == 0) {
+        snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.jpg", fid);
+        if (!generate_video_thumb(final_path, thumb_path, 320, 240)) thumb_path[0] = '\0';
+    } else if (strncmp(mime_buf, "audio/", 6) == 0) {
+        snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp3", fid);
+        if (!generate_audio_preview(final_path, preview_path, 192)) preview_path[0] = '\0';
+    }
+    if (thumb_path[0] || preview_path[0]) {
+        db_file_set_preview_paths(req->db, fid, thumb_path[0] ? thumb_path : "", preview_path[0] ? preview_path : "");
+    }
+
     char delete_pin[13], delete_pin_hash[512];
     delete_pin[0] = '\0';
     if (random_hex(delete_pin, 6) && auth_hash_password(delete_pin, delete_pin_hash, sizeof(delete_pin_hash))) {
