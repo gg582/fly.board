@@ -108,7 +108,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
     cwist_sstring_append(b, "<div id='upload-dropzone' style='margin-top:10px;padding:18px;border:1px dashed var(--border);background:var(--panel)'>");
     cwist_sstring_append(b, "<div style='font-weight:600'>Drop files here or browse manually</div>");
     cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>Transfers resume automatically and open through the streamed transfer path.</small>");
-    cwist_sstring_append(b, "<input id='file-input' type='file' multiple style='margin-top:12px'>");
+    cwist_sstring_append(b, "<input id='file-input' type='file' multiple style='display:none'><label for='file-input' class='btn' style='margin-top:12px;display:inline-block;cursor:pointer'>Select Files...</label>");
     cwist_sstring_append(b, "</div>");
     cwist_sstring_append(b, "<div id='upload-preview' style='margin-top:14px;display:grid;gap:10px'></div>");
     cwist_sstring_append(b, "<div class='file-repo-upload-actions' style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px'>");

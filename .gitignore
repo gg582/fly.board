@@ -1,7 +1,9 @@
 *.o
 fly_board
 data/blog.db
-public/uploads/*.log
+data/comments.db
+data/tasfa/
+public/uploads/*
 admin.settings
 server.crt
 server.key
@@ -11,4 +13,32 @@ tests/test_mp_raw
 tests/test_mp_real
 tests/test_multipart
 tests/test_multipart_debug
+tests/test_update_fix
+tests/reproduce_update_bug.c
 third_party/md4c/
+
+# Generated artifacts
+chunks/
+chunk_*.bin
+logs/
+*.log
+benchmark_*.results
+h2load_*.log
+
+# Temp / backup files
+src/handlers/*.bak
+*.part
+
+# Test binaries and scripts
+test_css
+test_css.c
+test_large_file.bin
+debug_upload.sh
+reproduce_hang.sh
+tune_system.sh
+
+# Misc
+.codex
+*.JPG
+lib/libmagic.so
+tests/lib/libmagic.so

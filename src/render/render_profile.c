@@ -45,7 +45,7 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
         cwist_sstring_append(b, display_pic);
         cwist_sstring_append(b, "' class='profile-pic' style='margin:20px 0'><br>");
     } else {
-        cwist_sstring_append(b, "<div style='width:100px;height:100px;background:#eee;border-radius:50%;margin:20px auto;display:flex;align-items:center;justify-content:center;color:#999'>No Pic</div>");
+        cwist_sstring_append(b, "<div style='width:100px;height:100px;background:#eee;border-radius:0;margin:20px auto;display:flex;align-items:center;justify-content:center;color:#999'>No Pic</div>");
     }
 
     if (nickname && nickname[0]) {
@@ -72,7 +72,7 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
     cwist_sstring_append(b, "</p>");
 
     if (bio && bio[0]) {
-        cwist_sstring_append(b, "<div style='margin:16px 0;padding:12px;background:var(--bg-alt);border-radius:8px;text-align:left'>");
+        cwist_sstring_append(b, "<div style='margin:16px 0;padding:12px;background:var(--bg-alt);border-radius:0;text-align:left'>");
         cwist_sstring_append(b, "<p style='margin:0;color:var(--fg)'>");
         cwist_sstring_append_escaped(b, bio);
      
@@ -153,7 +153,7 @@ cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewe
     cwist_sstring_append_escaped(b, bio);
     cwist_sstring_append(b, "</textarea>");
 
-    cwist_sstring_append(b, "<label>Profile Picture</label><input type='file' name='profile_pic' accept='image/*'>");
+    cwist_sstring_append(b, "<label>Profile Picture</label><input id='profile-pic-input' type='file' name='profile_pic' accept='image/*' style='display:none'><label for='profile-pic-input' class='btn' style='display:inline-block;cursor:pointer;margin-top:8px'>Select File...</label>");
     cwist_sstring_append(b, "<small style='color:var(--muted)'>Leave empty to keep current picture.</small>");
 
     cwist_sstring_append(b, "<div style='margin-top:16px;display:flex;gap:10px'>");

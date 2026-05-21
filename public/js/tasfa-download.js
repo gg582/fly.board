@@ -159,7 +159,7 @@
                 resolve(totalReceived);
             };
             xhr.onerror = function() {
-                if (retries < 3) {
+                if (retries < 5) {
                     setTimeout(function() {
                         fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries + 1).then(resolve).catch(reject);
                     }, 2000 * (retries + 1));
@@ -168,7 +168,7 @@
                 reject(new Error('network'));
             };
             xhr.ontimeout = function() {
-                if (retries < 3) {
+                if (retries < 5) {
                     setTimeout(function() {
                         fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries + 1).then(resolve).catch(reject);
                     }, 2000 * (retries + 1));

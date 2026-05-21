@@ -341,7 +341,7 @@ void rule_layout(cJSON *rules) {
     cJSON *pp = create_rule(".profile-pic");
     add_decl(pp, "width", "40px");
     add_decl(pp, "height", "40px");
-    add_decl(pp, "border-radius", "50%");
+    add_decl(pp, "border-radius", "0");
     add_decl(pp, "object-fit", "cover");
     add_decl(pp, "border", "1px solid var(--border)");
     cJSON_AddItemToArray(rules, pp);
@@ -349,7 +349,7 @@ void rule_layout(cJSON *rules) {
     cJSON *pp_s = create_rule(".profile-pic-small");
     add_decl(pp_s, "width", "24px");
     add_decl(pp_s, "height", "24px");
-    add_decl(pp_s, "border-radius", "50%");
+    add_decl(pp_s, "border-radius", "0");
     add_decl(pp_s, "object-fit", "cover");
     cJSON_AddItemToArray(rules, pp_s);
 
@@ -585,7 +585,7 @@ void rule_components(cJSON *rules) {
     cJSON *dpb = create_rule(".tasfa-download-progress-bar");
     add_decl(dpb, "height", "6px");
     add_decl(dpb, "background", "var(--border)");
-    add_decl(dpb, "border-radius", "3px");
+    add_decl(dpb, "border-radius", "0");
     add_decl(dpb, "overflow", "hidden");
     cJSON_AddItemToArray(rules, dpb);
 
@@ -639,7 +639,7 @@ void rule_components(cJSON *rules) {
     add_decl(code_copy, "padding", "4px 10px");
     add_decl(code_copy, "font-size", "12px");
     add_decl(code_copy, "font-weight", "600");
-    add_decl(code_copy, "border-radius", "6px");
+    add_decl(code_copy, "border-radius", "0");
     add_decl(code_copy, "border", "1px solid var(--border)");
     add_decl(code_copy, "background", "var(--panel)");
     add_decl(code_copy, "color", "var(--muted)");
@@ -672,7 +672,7 @@ void rule_components(cJSON *rules) {
     add_decl(media_btn, "padding", "4px 10px");
     add_decl(media_btn, "font-size", "12px");
     add_decl(media_btn, "font-weight", "600");
-    add_decl(media_btn, "border-radius", "6px");
+    add_decl(media_btn, "border-radius", "0");
     add_decl(media_btn, "border", "1px solid var(--border)");
     add_decl(media_btn, "background", "var(--panel)");
     add_decl(media_btn, "color", "var(--muted)");
@@ -710,7 +710,7 @@ void rule_components(cJSON *rules) {
     cJSON *cavatar = create_rule(".comment-avatar");
     add_decl(cavatar, "width", "28px");
     add_decl(cavatar, "height", "28px");
-    add_decl(cavatar, "border-radius", "50%");
+    add_decl(cavatar, "border-radius", "0");
     add_decl(cavatar, "background", "var(--accent)");
     add_decl(cavatar, "color", "#fff");
     add_decl(cavatar, "display", "flex");
@@ -783,7 +783,7 @@ void rule_home(cJSON *rules) {
     cJSON *tag = create_rule(".tag");
     add_decl(tag, "display", "inline-block");
     add_decl(tag, "padding", "6px 14px");
-    add_decl(tag, "border-radius", "999px");
+    add_decl(tag, "border-radius", "0");
     add_decl(tag, "background", "var(--hover)");
     add_decl(tag, "border", "1px solid var(--border)");
     add_decl(tag, "font-size", "12px");
@@ -989,7 +989,7 @@ void rule_boards(cJSON *rules) {
     add_decl(dot, "width", "4px");
     add_decl(dot, "height", "4px");
     add_decl(dot, "background", "var(--muted)");
-    add_decl(dot, "border-radius", "50%");
+    add_decl(dot, "border-radius", "0");
     add_decl(dot, "display", "inline-block");
     cJSON_AddItemToArray(rules, dot);
 
@@ -1062,7 +1062,7 @@ void rule_boards(cJSON *rules) {
     add_decl(badge, "align-items", "center");
     add_decl(badge, "gap", "4px");
     add_decl(badge, "padding", "3px 10px");
-    add_decl(badge, "border-radius", "2px");
+    add_decl(badge, "border-radius", "0");
     add_decl(badge, "background", "var(--hover)");
     add_decl(badge, "border", "1px solid var(--border)");
     add_decl(badge, "font-size", "12px");
@@ -1201,7 +1201,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_img, "max-width", "100%");
     add_decl(md_img, "width", "auto");
     add_decl(md_img, "height", "auto");
-    add_decl(md_img, "border-radius", "12px");
+    add_decl(md_img, "border-radius", "0");
     add_decl(md_img, "box-shadow", "0 2px 12px var(--shadow)");
     add_decl(md_img, "display", "block");
     add_decl(md_img, "margin", "24px auto");
@@ -1215,14 +1215,14 @@ void rule_markdown(cJSON *rules) {
 
     cJSON *md_fig = create_rule(".markdown-body figure");
     add_decl(md_fig, "margin", "24px 0");
-    add_decl(md_fig, "border-radius", "12px");
+    add_decl(md_fig, "border-radius", "0");
     add_decl(md_fig, "overflow", "hidden");
     cJSON_AddItemToArray(rules, md_fig);
 
     cJSON *md_pre = create_rule(".markdown-body pre");
     add_decl(md_pre, "background", "var(--code-bg)");
     add_decl(md_pre, "padding", "16px");
-    add_decl(md_pre, "border-radius", "10px");
+    add_decl(md_pre, "border-radius", "0");
     add_decl(md_pre, "max-width", "100%");
     add_decl(md_pre, "overflow-x", "auto");
     add_decl(md_pre, "overflow-y", "hidden");
@@ -1250,7 +1250,7 @@ void rule_markdown(cJSON *rules) {
     cJSON *md_code = create_rule(".markdown-body code:not(pre code)");
     add_decl(md_code, "background", "var(--code-bg)");
     add_decl(md_code, "padding", "2px 6px");
-    add_decl(md_code, "border-radius", "4px");
+    add_decl(md_code, "border-radius", "0");
     add_decl(md_code, "font-size", "0.92em");
     add_decl(md_code, "overflow-wrap", "anywhere");
     add_decl(md_code, "word-break", "break-word");
@@ -1264,7 +1264,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_blockquote, "background", "var(--hover)");
     add_decl(md_blockquote, "padding", "12px 16px");
     add_decl(md_blockquote, "margin", "18px 0");
-    add_decl(md_blockquote, "border-radius", "0 8px 8px 0");
+    add_decl(md_blockquote, "border-radius", "0");
     add_decl(md_blockquote, "font-style", "italic");
     add_decl(md_blockquote, "transition", "background 0.5s ease, border-color 0.5s ease");
     cJSON_AddItemToArray(rules, md_blockquote);
@@ -1302,7 +1302,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(slider, "appearance", "none");
     add_decl(slider, "height", "4px");
     add_decl(slider, "background", "var(--border)");
-    add_decl(slider, "border-radius", "2px");
+    add_decl(slider, "border-radius", "0");
     add_decl(slider, "outline", "none");
     add_decl(slider, "margin", "0");
     cJSON_AddItemToArray(rules, slider);
@@ -1312,7 +1312,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(slider_thumb, "appearance", "none");
     add_decl(slider_thumb, "width", "12px");
     add_decl(slider_thumb, "height", "12px");
-    add_decl(slider_thumb, "border-radius", "50%");
+    add_decl(slider_thumb, "border-radius", "0");
     add_decl(slider_thumb, "background", "var(--accent)");
     add_decl(slider_thumb, "cursor", "pointer");
     cJSON_AddItemToArray(rules, slider_thumb);
@@ -1320,7 +1320,7 @@ void rule_markdown(cJSON *rules) {
     cJSON *slider_thumb_moz = create_rule("#theme-slider::-moz-range-thumb");
     add_decl(slider_thumb_moz, "width", "12px");
     add_decl(slider_thumb_moz, "height", "12px");
-    add_decl(slider_thumb_moz, "border-radius", "50%");
+    add_decl(slider_thumb_moz, "border-radius", "0");
     add_decl(slider_thumb_moz, "background", "var(--accent)");
     add_decl(slider_thumb_moz, "cursor", "pointer");
     add_decl(slider_thumb_moz, "border", "none");
@@ -1329,6 +1329,7 @@ void rule_markdown(cJSON *rules) {
     cJSON *theme_switch = create_rule(".theme-switch");
     add_decl(theme_switch, "display", "inline-flex");
     add_decl(theme_switch, "align-items", "center");
+    add_decl(theme_switch, "margin-left", "auto");
     cJSON_AddItemToArray(rules, theme_switch);
 
     cJSON *theme_btn = create_rule(".theme-toggle-btn");

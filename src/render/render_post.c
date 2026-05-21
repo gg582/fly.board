@@ -185,7 +185,7 @@ cwist_sstring *render_post_list(cJSON *posts, bool dark, const char *user_role, 
     }
     cwist_sstring_append(b, "</div>");
     cwist_sstring_append(b, "<div id='adv-search' class='dropdown-panel' style='display:none;margin-top:8px'>");
-    cwist_sstring_append(b, "<select name='search_type' style='padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);font-family:inherit'>");
+    cwist_sstring_append(b, "<select name='search_type' style='padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--fg);font-family:inherit'>");
     cwist_sstring_append(b, "<option value=''");
     if (!search_type || !search_type[0]) cwist_sstring_append(b, " selected");
     cwist_sstring_append(b, ">All (Title + Body)</option>");
@@ -621,7 +621,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<button type='button' class='btn' data-editor-tab='write'>Write</button>");
     cwist_sstring_append(b, "<button type='button' class='btn btn-outline' data-editor-tab='preview'>Preview</button>");
     cwist_sstring_append(b, "</div>");
-    cwist_sstring_append(b, "<div style='border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:10px'>");
+    cwist_sstring_append(b, "<div style='border:1px solid var(--border);border-radius:0;overflow:hidden;margin-top:10px'>");
     cwist_sstring_append(b, "<div data-editor-pane='write' class='is-active' style='display:block'>");
     cwist_sstring_append(b, "<textarea id='md-editor' name='content' rows='18' style='width:100%;min-height:500px;height:60vh;font-family:monospace;font-size:15px;border:none;border-radius:0;padding:16px;background:transparent;resize:vertical;outline:none;' required>");
     if (post) {
@@ -647,7 +647,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "</div></div></div>");
 
     cwist_sstring_append(b, "<details style='margin-top:16px'><summary style='cursor:pointer;font-weight:600;font-size:14px;color:var(--accent);user-select:none;'>Markdown Guide</summary>");
-    cwist_sstring_append(b, "<pre style='font-size:12px;background:var(--code-bg);padding:12px;border-radius:6px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin-top:8px;'>");
+    cwist_sstring_append(b, "<pre style='font-size:12px;background:var(--code-bg);padding:12px;border-radius:0;overflow:auto;white-space:pre-wrap;word-break:break-word;margin-top:8px;'>");
     cwist_sstring_append(b, "# Heading\n");
     cwist_sstring_append(b, "## Subheading\n");
     cwist_sstring_append(b, "**bold**  *italic*\n");
@@ -691,10 +691,10 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     } else {
         cwist_sstring_append(b, "<div id='upload-preview' style='margin-top:18px;display:grid;gap:10px'></div>");
     }
-    cwist_sstring_append(b, "<div id='upload-dropzone' style='margin-top:18px;padding:18px;border:1px dashed var(--border);border-radius:12px;background:var(--panel)'>");
+    cwist_sstring_append(b, "<div id='upload-dropzone' style='margin-top:18px;padding:18px;border:1px dashed var(--border);border-radius:0;background:var(--panel)'>");
     cwist_sstring_append(b, "<div style='font-weight:600'>Attach files through the streamed transfer path</div>");
     cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>Files upload immediately, resume automatically, and are attached explicitly on save.</small>");
-    cwist_sstring_append(b, "<input id='file-input' type='file' multiple style='margin-top:12px'>");
+    cwist_sstring_append(b, "<input id='file-input' type='file' multiple style='display:none'><label for='file-input' class='btn' style='margin-top:12px;display:inline-block;cursor:pointer'>Select Files...</label>");
     cwist_sstring_append(b, "</div>");
 
     cwist_sstring_append(b, "<div style='margin-top:12px;display:flex;gap:10px'><button type='submit' class='btn'>Save</button>");
