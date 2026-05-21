@@ -241,7 +241,7 @@ void rule_layout(cJSON *rules) {
     add_decl(board_menu, "top", "calc(100% + 10px)");
     add_decl(board_menu, "left", "0");
     add_decl(board_menu, "min-width", "240px");
-    add_decl(board_menu, "max-height", "360px");
+    add_decl(board_menu, "max-height", "324px");
     add_decl(board_menu, "overflow-y", "auto");
     add_decl(board_menu, "background", "color-mix(in srgb, var(--glass-bg) 96%, transparent)");
     add_decl(board_menu, "backdrop-filter", "blur(22px) saturate(180%)");
