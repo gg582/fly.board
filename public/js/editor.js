@@ -1095,6 +1095,8 @@
                 xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
                 xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
 
+                xhr.timeout = 120000;
+
                 xhr.upload.onprogress = function(event) {
                     if (!event.lengthComputable) return;
                     asset.inflightBytes[chunkIndex] = event.loaded;
@@ -1164,7 +1166,7 @@
                         next();
                     }).catch(function(err) {
                         asset.retryCounts[chunkIndex] = (asset.retryCounts[chunkIndex] || 0) + 1;
-                        if (asset.retryCounts[chunkIndex] < 3) {
+                        if (asset.retryCounts[chunkIndex] < 5) {
                             pending.push(chunkIndex);
                             next();
                         } else {
