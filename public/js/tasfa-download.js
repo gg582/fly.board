@@ -35,6 +35,7 @@
     async function fetchJson(url, retries) {
         retries = retries || 0;
         var response = await fetch(withMultiPort(url), {
+            credentials: 'same-origin',
             headers: {
                 'Accept': 'application/json',
                 'X-Requested-With': 'XMLHttpRequest'
