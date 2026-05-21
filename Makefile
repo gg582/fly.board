@@ -18,6 +18,7 @@ SRCS := src/main.c \
         src/utils/utils.c \
         src/utils/image_contrast.c \
         src/utils/image_size.c \
+        src/utils/media_preview.c \
         src/nats/fly_nats.c \
         src/core/log.c \
         src/config/config.c \

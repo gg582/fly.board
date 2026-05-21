@@ -21,6 +21,7 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/timerfd.h>
 #include <limits.h>
 
 #define BLOG_CERT "server.crt"
@@ -65,6 +66,49 @@ static void *nats_worker(void *arg) {
     while (g_nats_running) {
         fly_nats_dispatch();
     }
+    return NULL;
+}
+
+static int create_daily_3am_timer(void) {
+    int fd = timerfd_create(CLOCK_REALTIME, 0);
+    if (fd < 0) return -1;
+
+    time_t now = time(NULL);
+    struct tm *tm_now = localtime(&now);
+    struct tm target = *tm_now;
+    target.tm_hour = 3;
+    target.tm_min = 0;
+    target.tm_sec = 0;
+    time_t target_time = mktime(&target);
+    if (target_time <= now) target_time += 24 * 3600;
+
+    struct itimerspec its;
+    its.it_value.tv_sec = target_time - now;
+    its.it_value.tv_nsec = 0;
+    its.it_interval.tv_sec = 24 * 3600;
+    its.it_interval.tv_nsec = 0;
+
+    if (timerfd_settime(fd, 0, &its, NULL) < 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+static void *cleanup_worker(void *arg) {
+    cwist_db *db = (cwist_db *)arg;
+    int tfd = create_daily_3am_timer();
+    if (tfd < 0) {
+        CWIST_LOG_ERROR("Failed to create cleanup timerfd");
+        return NULL;
+    }
+    uint64_t exp;
+    while (1) {
+        ssize_t s = read(tfd, &exp, sizeof(exp));
+        if (s != sizeof(exp)) break;
+        db_cleanup_orphaned_files(db);
+    }
+    close(tfd);
     return NULL;
 }
 
@@ -131,6 +175,11 @@ int main(void) {
     CWIST_LOG_INFO("Comments database initialized");
 
     db_file_cleanup_duplicates(db);
+    db_cleanup_orphaned_files(db);
+    CWIST_LOG_INFO("Orphaned files cleanup completed");
+
+    pthread_t cleanup_tid;
+    pthread_create(&cleanup_tid, NULL, cleanup_worker, db);
 
     cwist_app_set_max_memspace(app, CWIST_MIB(512));
     cwist_app_configure_bdr(app, CWIST_MIB(256), 600, 250000);

@@ -16,6 +16,7 @@ sudo apt install -y \
   libsqlite3-dev \
   libcjson-dev \
   libmagic-dev \
+  ffmpeg \
   zlib1g-dev \
   libnghttp2-dev \
   libnghttp3-dev \

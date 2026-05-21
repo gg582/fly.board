@@ -82,7 +82,50 @@ void handler_asset_img(cwist_http_request *req, cwist_http_response *res) {
 }
 
 void handler_asset_upload(cwist_http_request *req, cwist_http_response *res) {
-    (void)req;
+    const char *encoded = cwist_query_map_get(req->path_params, "filename");
+    if (!encoded || !encoded[0]) { send_upload_not_found(res); return; }
+
+    char *decoded = decode_upload_path_segment(encoded);
+    if (!decoded) {
+        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
+        cwist_sstring_assign(res->body, "decode error");
+        return;
+    }
+    if (!is_safe_upload_name(decoded)) {
+        cwist_free(decoded);
+        send_upload_not_found(res);
+        return;
+    }
+
+    /* Allow direct access to thumbnails and audio previews */
+    if (strncmp(decoded, ".thumbs/", 8) == 0 || strncmp(decoded, ".previews/", 10) == 0) {
+        char path[PATH_MAX];
+        int written = snprintf(path, sizeof(path), "public/uploads/%s", decoded);
+        if (written < 0 || written >= (int)sizeof(path)) {
+            cwist_free(decoded);
+            send_upload_not_found(res);
+            return;
+        }
+        size_t sz = 0;
+        char *data = file_read(path, &sz);
+        if (!data) {
+            cwist_free(decoded);
+            send_upload_not_found(res);
+            return;
+        }
+        cwist_http_header_add(&res->headers, "Content-Type", mime_type(decoded));
+        cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
+        char slen[32];
+        snprintf(slen, sizeof(slen), "%zu", sz);
+        cwist_http_header_add(&res->headers, "Content-Length", slen);
+        cwist_sstring_assign(res->body, "");
+        cwist_sstring_append_len(res->body, data, sz);
+        cwist_free(data);
+        cwist_free(decoded);
+        return;
+    }
+
+    cwist_free(decoded);
     res->status_code = CWIST_HTTP_FORBIDDEN;
     cwist_sstring_assign(res->body, "Direct asset fetch disabled; use the reliable transfer path.");
 }
@@ -193,8 +236,18 @@ void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
             bool can_delete = (role[0] && strcmp(role, "admin") == 0) || (file_uid > 0 && file_uid == uid) || pin_ok;
             if (can_delete) {
                 cJSON *fpath = cJSON_GetObjectItem(f, "file_path");
+                cJSON *thumb_path = cJSON_GetObjectItem(f, "thumb_path");
+                cJSON *preview_path = cJSON_GetObjectItem(f, "preview_path");
                 if (fpath && fpath->valuestring && fpath->valuestring[0]) {
                     unlink(fpath->valuestring);
+                }
+                if (thumb_path && thumb_path->valuestring && thumb_path->valuestring[0]) {
+                    unlink(thumb_path->valuestring);
+                }
+                if (preview_path && preview_path->valuestring && preview_path->valuestring[0]) {
+                    if (!fpath || !fpath->valuestring || strcmp(preview_path->valuestring, fpath->valuestring) != 0) {
+                        unlink(preview_path->valuestring);
+                    }
                 }
                 int fid = atoi(id_str);
                 if (db_file_delete(req->db, fid)) {

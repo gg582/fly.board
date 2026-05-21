@@ -135,6 +135,10 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             cJSON *stype = cJSON_GetObjectItem(f, "mime_type");
             cJSON *sz = cJSON_GetObjectItem(f, "size");
             cJSON *fuid = cJSON_GetObjectItem(f, "user_id");
+            cJSON *jthumb = cJSON_GetObjectItem(f, "thumb_path");
+            cJSON *jpreview = cJSON_GetObjectItem(f, "preview_path");
+            const char *thumb_path = (jthumb && jthumb->valuestring && jthumb->valuestring[0]) ? jthumb->valuestring : "";
+            const char *preview_path = (jpreview && jpreview->valuestring && jpreview->valuestring[0]) ? jpreview->valuestring : "";
             int id_val = 0;
             if (fid && fid->type == cJSON_String) id_val = atoi(fid->valuestring);
             else if (fid && fid->type == cJSON_Number) id_val = fid->valueint;
@@ -153,17 +157,35 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             cwist_sstring_append(b, "<div class='file-repo-card-inner'>");
             cwist_sstring_append(b, "<div class='file-repo-thumb'>");
             if (is_image) {
-                cwist_sstring_append(b, "<img data-tasfa-download='/file/download/");
-                cwist_sstring_append(b, fid_buf);
-                cwist_sstring_append(b, "' class='file-thumb-media' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'>");
+                if (thumb_path[0]) {
+                    cwist_sstring_append(b, "<img src='/assets/uploads/");
+                    cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
+                    cwist_sstring_append(b, "' class='file-thumb-media' onerror=\"this.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'\">");
+                } else {
+                    cwist_sstring_append(b, "<img data-tasfa-download='/file/download/");
+                    cwist_sstring_append(b, fid_buf);
+                    cwist_sstring_append(b, "' class='file-thumb-media' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'>");
+                }
             } else if (is_video) {
-                cwist_sstring_append(b, "<video data-tasfa-download='/file/download/");
-                cwist_sstring_append(b, fid_buf);
-                cwist_sstring_append(b, "' class='file-thumb-media' muted playsinline preload='metadata'></video>");
+                if (thumb_path[0]) {
+                    cwist_sstring_append(b, "<img src='/assets/uploads/");
+                    cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
+                    cwist_sstring_append(b, "' class='file-thumb-media' onerror=\"this.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'\">");
+                } else {
+                    cwist_sstring_append(b, "<video data-tasfa-download='/file/download/");
+                    cwist_sstring_append(b, fid_buf);
+                    cwist_sstring_append(b, "' class='file-thumb-media' muted playsinline preload='metadata'></video>");
+                }
+            } else if (strncmp(mime, "audio/", 6) == 0) {
+                if (preview_path[0]) {
+                    cwist_sstring_append(b, "<audio controls class='file-thumb-media' src='/assets/uploads/");
+                    cwist_sstring_append(b, preview_path + strlen("public/uploads/"));
+                    cwist_sstring_append(b, "' style='width:100%'></audio>");
+                } else {
+                    cwist_sstring_append(b, "<span class='file-thumb-icon'>AUD</span>");
+                }
             } else {
-                cwist_sstring_append(b, "<span class='file-thumb-icon'>");
-                cwist_sstring_append(b, strncmp(mime, "audio/", 6) == 0 ? "AUD" : "FILE");
-                cwist_sstring_append(b, "</span>");
+                cwist_sstring_append(b, "<span class='file-thumb-icon'>FILE</span>");
             }
             cwist_sstring_append(b, "</div>");
             cwist_sstring_append(b, "<div class='file-repo-card-info'>");

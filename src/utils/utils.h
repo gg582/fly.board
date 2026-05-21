@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include <cwist/core/db/sql.h>
 
+#include "media_preview.h"
+
 char *url_decode(const char *src);
 char *file_read(const char *path, size_t *out_len);
 bool file_write(const char *path, const void *data, size_t len);
