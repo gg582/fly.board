@@ -34,23 +34,8 @@ TASFA is the **HTTP/XHR-based file upload/download protocol** used by fly.board.
 - Upload progress is tracked in `state.bin` as a **dense binary bitmap** (one byte per chunk, `'0'` / `'1'`).
 - The server rejects any chunk whose index is already marked `'1'`. This blocks DoS attacks that replay the same chunk to burn disk I/O.
 - Updates use `pwrite(..., 1, chunk_index)` — an O(1) atomic write with **no JSON parsing on the hot path**.
-- On the download side, a bitmap tracks fetched chunks and stores them in an `IndexedDB` cache keyed by `baseUrl + ':' + chunk_index`. This prevents re-requesting the same data during a retry storm.
 
-### 5. Adaptive Pacing
-
-- Instead of simply reducing parallelism on bad networks, TASFA **paces** chunk dispatches by injecting `setTimeout` delays based on link quality.
-
-| Link score | Upload pacing | Download pacing | Coalesce |
-|-----------|---------------|-----------------|----------|
-| >= 85     | 0 ms          | 0 ms            | 64       |
-| 65 – 84   | 15 ms         | 0 ms            | 48       |
-| 45 – 64   | 15 ms         | 10 ms           | 32       |
-| < 45      | 35 ms         | 30 ms           | 16       |
-
-- This keeps the TCP window from collapsing on high-loss links, prevents buffer-bloat stalls, and preserves enough in-flight chunks that a single slow packet does not freeze the whole transfer.
-- When the link score drops below 45, stall timeouts are lengthened (up to 12 s) and retry back-off is flattened (factor 1.3 instead of 1.6).
-
-### 6. Session Hardening
+### 5. Session Hardening
 
 - Upload IDs and tokens are 16-byte / 24-byte random hex strings.
 - `flock` prevents racing bitmap updates from concurrent requests.
@@ -68,14 +53,13 @@ TASFA clearly incurs an **RPS (Requests Per Second) penalty** compared to simple
 | CPU spent on HTP scalar computation and group validation | **Early corruption detection**: errors that a whole-file hash would reveal only at the end are caught at the group level |
 | Bitmap file I/O and `flock` session locks | **DoS mitigation**: blocks replay-chunk abuse and truncated-file attacks |
 | Inability to upload multiple files simultaneously due to sequential queue | **Browser connection stability**: deadlock-free stable transfers within the per-origin 6-connection limit |
-| Lower chunk dispatch rate due to pacing | **Unstable-link resilience**: sustained transmission without TCP window collapse on high-loss / high-latency links |
-| Memory and disk usage for IndexedDB caching and session state | **Retry efficiency**: after network disruption, already-received chunks are not re-requested |
+| Memory and disk usage for session state | **Retry efficiency**: after network disruption, the server knows exactly which chunks are still missing |
 
 ### Conclusion
 
 TASFA does not pursue "the fastest possible file transfer." Instead, it is designed so that **files reach the destination completely and intact even under unstable networks and malicious clients**.
 
 - **Upload perspective**: session-scoped encrypted chunk stream + HTP hints + bitmap DoS defense + sequential queue = stable and intact uploads.
-- **Download perspective**: handshake-based session + bitmap tracking + IndexedDB caching + adaptive pacing = uninterrupted downloads.
+- **Download perspective**: handshake-based session + bitmap tracking + adaptive coalescing = uninterrupted downloads.
 
 While TASFA may be overkill for a plain blog, it has clear technical merit for a **file-heavy community board** where the RPS penalty is a justified trade-off.
