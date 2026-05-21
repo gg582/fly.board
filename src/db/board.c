@@ -50,10 +50,7 @@ bool db_board_update(cwist_db *db, int id, const char *name, const char *slug, c
 }
 
 cJSON *db_board_list(cwist_db *db) {
-    const char *sql = "SELECT * FROM boards ORDER BY created_at DESC";
-    cJSON *res = NULL;
-    cwist_db_query(db, sql, &res);
-    return res;
+    return cwist_orm_board_list_popular(db);
 }
 
 cJSON *db_board_get_by_slug(cwist_db *db, const char *slug) {

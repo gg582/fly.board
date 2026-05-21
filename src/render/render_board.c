@@ -62,7 +62,11 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
             cJSON *desc = cJSON_GetObjectItem(bo, "description");
             char delay_buf[32];
             snprintf(delay_buf, sizeof(delay_buf), "%.2fs", i * 0.05);
-            cwist_sstring_append(b, "<section class='board-line fade-in' style='animation-delay:");
+            cJSON *score = cJSON_GetObjectItem(bo, "score");
+            bool is_hot = (score && score->valuedouble > 0.0 && i < 3);
+            cwist_sstring_append(b, "<section class='board-line ");
+            if (is_hot) cwist_sstring_append(b, "board-line-hot ");
+            cwist_sstring_append(b, "fade-in' style='animation-delay:");
             cwist_sstring_append(b, delay_buf);
             cwist_sstring_append(b, "'>");
             cwist_sstring_append(b, "<div class='board-line-head'>");
