@@ -9,7 +9,7 @@ self.addEventListener('activate', function(e) {
 self.addEventListener('fetch', function(event) {
     var url = event.request.url;
     var isTasfa = url.includes('/tasfa/') || url.includes('/file/upload') || url.includes('/file/download');
-    if (!isTasfa) return;
+    if (!isTasfa || event.request.method !== 'GET') return;
     var promise = fetch(event.request).catch(function(err) {
         return new Response(JSON.stringify({ok:false, error:'network', retry:true}), {
             status: 503,
@@ -17,5 +17,4 @@ self.addEventListener('fetch', function(event) {
         });
     });
     event.respondWith(promise);
-    event.waitUntil(promise.catch(function(){}));
 });

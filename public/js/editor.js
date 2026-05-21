@@ -26,6 +26,7 @@
     var UPLOAD_INIT_ENDPOINT = '/file/upload/init';
     var UPLOAD_COMPLETE_ENDPOINT = '/file/upload/complete';
     var UPLOAD_CANCEL_ENDPOINT = '/file/upload/cancel';
+    var UPLOAD_STATUS_ENDPOINT = '/file/upload/status';
     var UPLOAD_ENDPOINT = '/file/upload';
     var UPLOAD_CHUNK_SIZE = 64 * 1024 * 1024;
     var UPLOAD_DEFAULT_PARALLEL = 6;
@@ -944,11 +945,16 @@
         asset.isUploading = true;
         asset.failed = false;
         asset.isCancelling = false;
-        asset.xhrs = [];
+        asset.xhrs = asset.xhrs || [];
         asset.confirmedBytes = 0;
         asset.ui.status.textContent = 'Preparing upload session';
         updateFileRepoUploadButton();
         updateSubmitButtons();
+
+        if (asset.uploadId && asset.uploadToken) {
+            resumeTasfaUpload(asset, file);
+            return;
+        }
 
         var chunkCount = Math.max(1, Math.ceil(file.size / asset.chunkSize));
         var body = 'filename=' + encodeURIComponent(file.name) +
@@ -960,11 +966,15 @@
 
         function doInit(retries) {
             retries = retries || 0;
+            var controller = new AbortController();
+            var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
             fetch(UPLOAD_INIT_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                body: body
+                body: body,
+                signal: controller.signal
             }).then(function(response) {
+                clearTimeout(timeoutId);
                 if (response.status === 429 && retries < 10) {
                     return response.json().then(function(payload) {
                         asset.ui.status.textContent = 'Queued';
@@ -998,7 +1008,15 @@
                 asset.ui.status.textContent = 'Uploading...';
                 runSimpleChunkUpload(asset, file);
             }).catch(function(error) {
+                clearTimeout(timeoutId);
                 if (error && error.message && error.message.indexOf('init:429') !== -1) return;
+                if (error && error.name === 'AbortError') {
+                    if (retries < 3) {
+                        asset.ui.status.textContent = 'Retrying session...';
+                        setTimeout(function() { doInit(retries + 1); }, 2000);
+                        return;
+                    }
+                }
                 var message = error && error.message ? error.message : 'Upload failed';
                 markUploadFailure(asset, message);
             });
@@ -1006,9 +1024,57 @@
         doInit();
     }
 
+    function resumeTasfaUpload(asset, file) {
+        asset.ui.status.textContent = 'Resuming upload...';
+        var body = 'upload_id=' + encodeURIComponent(asset.uploadId) +
+            '&upload_token=' + encodeURIComponent(asset.uploadToken);
+        var controller = new AbortController();
+        var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
+        fetch(UPLOAD_STATUS_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: body,
+            signal: controller.signal
+        }).then(function(response) {
+            clearTimeout(timeoutId);
+            if (!response.ok) throw new Error('status:' + response.status);
+            return response.json();
+        }).then(function(payload) {
+            if (!payload || payload.ok === false) throw new Error((payload && payload.error) || 'resume failed');
+            var bitmap = payload.received_bitmap || '';
+            asset.totalChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
+            asset.chunkSize = Number(payload.chunk_size || asset.chunkSize || UPLOAD_CHUNK_SIZE);
+            asset.maxParallel = Math.max(1, Math.min(Number(payload.max_parallel_chunks) || UPLOAD_DEFAULT_PARALLEL, asset.totalChunks));
+            asset.inflightBytes = new Array(asset.totalChunks).fill(0);
+            asset.retryCounts = new Array(asset.totalChunks).fill(0);
+            asset.completedChunks = 0;
+            asset.confirmedBytes = 0;
+            var pending = [];
+            for (var i = 0; i < asset.totalChunks; i++) {
+                if (i < bitmap.length && bitmap[i] === '1') {
+                    asset.completedChunks += 1;
+                    asset.confirmedBytes += Math.min(asset.chunkSize, file.size - (i * asset.chunkSize));
+                } else {
+                    pending.push(i);
+                }
+            }
+            asset.pendingChunks = pending;
+            asset.ui.status.textContent = 'Uploading...';
+            runSimpleChunkUpload(asset, file);
+        }).catch(function(error) {
+            clearTimeout(timeoutId);
+            var message = error && error.message ? error.message : 'Resume failed';
+            markUploadFailure(asset, message);
+        });
+    }
+
     function runSimpleChunkUpload(asset, file) {
-        var pending = [];
-        for (var i = 0; i < asset.totalChunks; i++) pending.push(i);
+        var pending = asset.pendingChunks;
+        if (!pending || !pending.length) {
+            pending = [];
+            for (var i = 0; i < asset.totalChunks; i++) pending.push(i);
+        }
+        asset.pendingChunks = null;
         var poolFailed = false;
 
         function postChunk(chunkIndex) {
@@ -1075,6 +1141,10 @@
                 function next() {
                     if (poolFailed || asset.isCancelling || pending.length === 0) {
                         resolve();
+                        return;
+                    }
+                    if (asset.isBackgroundPaused) {
+                        setTimeout(next, 1000);
                         return;
                     }
                     var chunkIndex = pending.pop();
@@ -1357,6 +1427,25 @@
                 startTasfaUpload(asset, asset.file);
             }
         });
+    });
+
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'hidden') {
+            AssetRegistry.forEach(function(asset) {
+                if (!asset || asset.isExisting || asset.fid !== null || !asset.isUploading || asset.failed || asset.isCancelling) return;
+                asset.isBackgroundPaused = true;
+            });
+        } else {
+            AssetRegistry.forEach(function(asset) {
+                if (!asset || asset.isExisting || asset.fid !== null || !asset.uploadId || asset.failed) return;
+                asset.isBackgroundPaused = false;
+                if (asset.uploadMethod === 'tasfa') {
+                    asset.failed = false;
+                    asset.isUploading = false;
+                    startTasfaUpload(asset, asset.file);
+                }
+            });
+        }
     });
 
     window.addEventListener('beforeunload', function() {
