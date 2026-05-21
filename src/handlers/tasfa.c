@@ -1029,7 +1029,7 @@ static bool resolve_asset_scope_path(const char *scope, const char *encoded, cha
 }
 
 static bool init_download_session(const char *filename, const char *mime, const char *storage_path, long long total_size,
-                                  int score, int chunk_size, cJSON **out) {
+                                  int score, int chunk_size, int file_id, cJSON **out) {
     if (!ensure_tasfa_roots()) return false;
     if (chunk_size <= 0) chunk_size = TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT;
     char session_id[33], session_token[49];
@@ -1054,6 +1054,7 @@ static bool init_download_session(const char *filename, const char *mime, const 
     cJSON_AddNumberToObject(meta, "max_parallel_chunks", max_parallel);
     cJSON_AddNumberToObject(meta, "dispatch_pacing_ms", pacing_ms);
     cJSON_AddNumberToObject(meta, "coalesce_chunks", coalesce);
+    cJSON_AddNumberToObject(meta, "file_id", file_id);
     char expires_at[32];
     snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_DOWNLOAD_TTL));
     cJSON_AddStringToObject(meta, "expires_at", expires_at);
@@ -1784,7 +1785,7 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
         cwist_query_map_get(req->query_params, "link_save_data")
     );
     cJSON *obj = NULL;
-    if (!init_download_session(filename, mime, path, (long long)st.st_size, score, chunk_size, &obj)) {
+    if (!init_download_session(filename, mime, path, (long long)st.st_size, score, chunk_size, atoi(id_str), &obj)) {
         cJSON_Delete(file);
         send_json_response(res, session_error_json("download handshake failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
@@ -1872,7 +1873,7 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
         cwist_query_map_get(req->query_params, "link_save_data")
     );
     cJSON *obj = NULL;
-    if (!init_download_session(filename, mime, path, (long long)st.st_size, score, chunk_size, &obj)) {
+    if (!init_download_session(filename, mime, path, (long long)st.st_size, score, chunk_size, 0, &obj)) {
         send_json_response(res, session_error_json("download handshake failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
     }
@@ -1888,4 +1889,39 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
 
 void handler_asset_tasfa_chunk(cwist_http_request *req, cwist_http_response *res) {
     handler_file_download_chunk(req, res);
+}
+
+void handler_file_download_complete(cwist_http_request *req, cwist_http_response *res) {
+    cwist_query_map *kv = cwist_query_map_create();
+    cwist_query_map_parse(kv, req->body->data);
+    const char *session_id = cwist_query_map_get(kv, "session_id");
+    const char *session_token = cwist_query_map_get(kv, "session_token");
+    if (!is_safe_segment(session_id) || !session_token) {
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("invalid download complete payload"), CWIST_HTTP_BAD_REQUEST);
+        return;
+    }
+    cJSON *meta = load_download_session_cached(session_id);
+    if (!meta) {
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("download session not found"), CWIST_HTTP_NOT_FOUND);
+        return;
+    }
+    if (!secure_str_eq(session_token, json_string(meta, "session_token", ""))) {
+        cJSON_Delete(meta);
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("download completion rejected"), CWIST_HTTP_FORBIDDEN);
+        return;
+    }
+    int file_id = json_int(meta, "file_id", 0);
+    if (file_id > 0) {
+        db_file_increment_download(req->db, file_id);
+    }
+    tasfa_queue_leave(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, session_id);
+    cleanup_download_session(session_id);
+    cJSON_Delete(meta);
+    cwist_query_map_destroy(kv);
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddBoolToObject(obj, "ok", true);
+    send_json_response(res, obj, CWIST_HTTP_OK);
 }

@@ -122,8 +122,10 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
     } else {
         cwist_http_header_add(&res->headers, "Access-Control-Allow-Origin", "*");
     }
-    cwist_http_header_add(&res->headers, "Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    cwist_http_header_add(&res->headers, "Access-Control-Allow-Headers", "Content-Type, X-Requested-With, Authorization");
+    cwist_http_header_add(&res->headers, "Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD");
+    cwist_http_header_add(&res->headers, "Access-Control-Allow-Headers", "*");
+    cwist_http_header_add(&res->headers, "Access-Control-Allow-Credentials", "true");
+    cwist_http_header_add(&res->headers, "Access-Control-Expose-Headers", "Content-Length, Content-Type, X-Request-Id");
     cwist_http_header_add(&res->headers, "Access-Control-Max-Age", "86400");
 
     if (req->method == CWIST_HTTP_OPTIONS) {
