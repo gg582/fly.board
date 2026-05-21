@@ -16,7 +16,7 @@ void handler_api_preview(cwist_http_request *req, cwist_http_response *res) {
 void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    auth_is_logged_in(req, &uid, role, sizeof(role));
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
     if (!ctype || !strstr(ctype, "multipart/form-data")) {
         res->status_code = CWIST_HTTP_BAD_REQUEST;

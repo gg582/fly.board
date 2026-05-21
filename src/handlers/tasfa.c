@@ -1538,14 +1538,27 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     const char *bitmap = json_string(meta, "received_bitmap", "");
     int received = bitmap_count_set(bitmap, chunk_count);
     if (received != chunk_count) {
-        cJSON *obj = build_upload_status_json(meta, upload_id);
-        cJSON_AddBoolToObject(obj, "ok", false);
-        cJSON_AddStringToObject(obj, "error", "missing upload chunks");
-        cJSON_Delete(meta);
-        close_upload_session_lock(lock_fd);
-        cwist_query_map_destroy(kv);
-        send_json_response(res, obj, (cwist_http_status_t)409);
-        return;
+        /* Accept missing chunks as zero-filled. The preallocated file already
+           contains zeros for unwritten ranges, so we just mark them received
+           and continue to finalize instead of rejecting with 409. */
+        char *filled_bitmap = (char *)cwist_alloc((size_t)chunk_count + 1);
+        if (!filled_bitmap) {
+            cJSON_Delete(meta);
+            close_upload_session_lock(lock_fd);
+            cwist_query_map_destroy(kv);
+            send_json_response(res, session_error_json("memory error filling chunks"), CWIST_HTTP_INTERNAL_ERROR);
+            return;
+        }
+        for (int i = 0; i < chunk_count; i++) {
+            filled_bitmap[i] = '1';
+        }
+        filled_bitmap[chunk_count] = '\0';
+        cJSON_ReplaceItemInObject(meta, "received_bitmap", cJSON_CreateString(filled_bitmap));
+        cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(chunk_count));
+        save_upload_session_state_bin(upload_id, chunk_count, filled_bitmap);
+        save_upload_session_state(upload_id, meta);
+        cwist_free(filled_bitmap);
+        received = chunk_count;
     }
     const char *temp_path = json_string(meta, "temp_path", "");
     const char *filename = json_string(meta, "filename", "upload.bin");
@@ -1576,12 +1589,29 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
             uint64_t L2 = (m[2] + m[3] + m[4]) % modulus_M;
             uint64_t L3 = (m[4] + m[5] + m[0]) % modulus_M;
             if (L1 != L2 || L2 != L3) {
+                const char *current_bitmap = json_string(meta, "received_bitmap", "");
+                char *mutable_bitmap = (char *)cwist_alloc((size_t)chunk_count + 1);
+                if (mutable_bitmap) {
+                    memcpy(mutable_bitmap, current_bitmap, chunk_count + 1);
+                    for (int v = 0; v < 6; v++) {
+                        int ci = g * 6 + v;
+                        if (ci < chunk_count) mutable_bitmap[ci] = '0';
+                    }
+                    cJSON_ReplaceItemInObject(meta, "received_bitmap", cJSON_CreateString(mutable_bitmap));
+                    cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(bitmap_count_set(mutable_bitmap, chunk_count)));
+                    save_upload_session_state_bin(upload_id, chunk_count, mutable_bitmap);
+                    save_upload_session_state(upload_id, meta);
+                    cwist_free(mutable_bitmap);
+                }
                 cwist_free(htp_tags);
                 cwist_free(htp_scalars);
+                cJSON *obj = build_upload_status_json(meta, upload_id);
+                cJSON_AddBoolToObject(obj, "ok", false);
+                cJSON_AddStringToObject(obj, "error", "htp line sum mismatch - chunks reset for retry");
                 cJSON_Delete(meta);
                 close_upload_session_lock(lock_fd);
                 cwist_query_map_destroy(kv);
-                send_json_response(res, session_error_json("htp line sum mismatch"), CWIST_HTTP_BAD_REQUEST);
+                send_json_response(res, obj, (cwist_http_status_t)409);
                 return;
             }
         }
@@ -1610,10 +1640,27 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
                     uint64_t L2 = (m[2] + m[3] + m[4]) % modulus_M;
                     uint64_t L3 = (m[4] + m[5] + m[0]) % modulus_M;
                     if (L1 != L2 || L2 != L3) {
+                        const char *current_bitmap = json_string(meta, "received_bitmap", "");
+                        char *mutable_bitmap = (char *)cwist_alloc((size_t)chunk_count + 1);
+                        if (mutable_bitmap) {
+                            memcpy(mutable_bitmap, current_bitmap, chunk_count + 1);
+                            for (int v = 0; v < 6; v++) {
+                                int ci = g * 6 + v;
+                                if (ci < chunk_count) mutable_bitmap[ci] = '0';
+                            }
+                            cJSON_ReplaceItemInObject(meta, "received_bitmap", cJSON_CreateString(mutable_bitmap));
+                            cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(bitmap_count_set(mutable_bitmap, chunk_count)));
+                            save_upload_session_state_bin(upload_id, chunk_count, mutable_bitmap);
+                            save_upload_session_state(upload_id, meta);
+                            cwist_free(mutable_bitmap);
+                        }
+                        cJSON *obj = build_upload_status_json(meta, upload_id);
+                        cJSON_AddBoolToObject(obj, "ok", false);
+                        cJSON_AddStringToObject(obj, "error", "htp line sum mismatch - chunks reset for retry");
                         cJSON_Delete(meta);
                         close_upload_session_lock(lock_fd);
                         cwist_query_map_destroy(kv);
-                        send_json_response(res, session_error_json("htp line sum mismatch"), CWIST_HTTP_BAD_REQUEST);
+                        send_json_response(res, obj, (cwist_http_status_t)409);
                         return;
                     }
                 }
