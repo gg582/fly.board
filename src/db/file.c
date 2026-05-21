@@ -69,6 +69,28 @@ bool db_file_delete(cwist_db *db, int id) {
     return rc == SQLITE_DONE;
 }
 
+int db_file_drop_all(cwist_db *db) {
+    const char *sql_select = "SELECT file_path FROM files";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql_select, -1, &stmt, NULL) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *path = (const char *)sqlite3_column_text(stmt, 0);
+            if (path && path[0]) unlink(path);
+        }
+        sqlite3_finalize(stmt);
+    }
+    const char *sql_count = "SELECT COUNT(*) FROM files";
+    int count = 0;
+    if (sqlite3_prepare_v2(db->conn, sql_count, -1, &stmt, NULL) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            count = sqlite3_column_int(stmt, 0);
+        }
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_exec(db->conn, "DELETE FROM files", NULL, NULL, NULL);
+    return count;
+}
+
 bool db_file_increment_download(cwist_db *db, int id) {
     const char *sql = "UPDATE files SET download_count = download_count + 1 WHERE id=?";
     sqlite3_stmt *stmt = NULL;

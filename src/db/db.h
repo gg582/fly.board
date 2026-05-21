@@ -70,6 +70,7 @@ int db_file_create_volume_get_id(cwist_db *db, int post_id, int user_id, const c
 cJSON *db_file_get(cwist_db *db, int id);
 cJSON *db_file_list_by_post(cwist_db *db, int post_id);
 bool db_file_delete(cwist_db *db, int id);
+int db_file_drop_all(cwist_db *db);
 bool db_file_increment_download(cwist_db *db, int id);
 bool db_file_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_hash);
 bool db_file_attach_to_post(cwist_db *db, int id, int post_id, int is_inline);
