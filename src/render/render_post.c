@@ -142,7 +142,7 @@ cwist_sstring *render_post_list(cJSON *posts, bool dark, const char *user_role, 
             cwist_sstring_append(b, logo_filter);
         }
         cwist_sstring_append(b, "' fetchpriority='high'>");
-        if (!board_slug) {
+        if (!board_slug || !board_slug[0]) {
             cwist_sstring_append(b, "<h1>");
             cwist_sstring_append_escaped(b, g_config.title);
             cwist_sstring_append(b, "</h1><p");

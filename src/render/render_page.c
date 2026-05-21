@@ -235,6 +235,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *brand = cwist_html_element_create("a");
     cwist_html_element_add_attr(brand, "href", "/");
     cwist_html_element_add_class(brand, "topbar-brand");
+    cwist_html_element_add_class(brand, "mobile-only");
     cwist_html_element_t *brand_title = cwist_html_element_create("span");
     cwist_html_element_add_class(brand_title, "topbar-title");
     cwist_html_element_set_text(brand_title, g_config.title);

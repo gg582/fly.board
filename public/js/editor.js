@@ -1462,13 +1462,8 @@
             clearTimeout(timeoutId);
             var msg = error && error.message ? error.message : 'verify failed';
             if (msg.indexOf('status:401') !== -1) {
-                asset.ui.status.textContent = 'Session expired. Please log in again, then retry.';
-                asset.isUploading = false;
-                asset.failed = false;
-                asset.isSessionExpired = true;
-                updateFileRepoUploadButton();
-                updateSubmitButtons();
-                updateMediaCardUI(asset);
+                asset.ui.status.textContent = 'Auth check during verify, retrying...';
+                setTimeout(function() { verifyAllChunksBeforeComplete(asset, file); }, 2000);
                 return;
             }
             if (msg.indexOf('status:') === 0) {
@@ -1499,20 +1494,23 @@
                 }
             }
             if (xhr.status === 401) {
-                asset.ui.status.textContent = 'Session expired. Please log in again, then retry.';
-                asset.isUploading = false;
-                asset.failed = false;
-                asset.isSessionExpired = true;
-                updateFileRepoUploadButton();
-                updateSubmitButtons();
-                updateMediaCardUI(asset);
-                return;
+                if (attempt < 5) {
+                    var delay = Math.min(30000, Math.pow(2, attempt) * 1000);
+                    asset.ui.status.textContent = 'Finalize auth error, retrying in ' + (delay / 1000) + 's...';
+                    setTimeout(function() { completeTasfaUpload(asset, attempt + 1); }, delay);
+                    return;
+                }
             }
             if (xhr.status === 409) {
                 var payload = null;
                 try { payload = JSON.parse(xhr.responseText); } catch (e) {}
                 if (payload && payload.received_bitmap) {
-                    asset.ui.status.textContent = 'Server missing chunks, verifying...';
+                    asset.htpRetryCount = (asset.htpRetryCount || 0) + 1;
+                    if (asset.htpRetryCount > 5) {
+                        markUploadFailure(asset, 'Upload failed [integrity retry limit]');
+                        return;
+                    }
+                    asset.ui.status.textContent = 'Server integrity check failed, re-uploading affected chunks...';
                     var bitmap = payload.received_bitmap;
                     var pending = [];
                     asset.confirmedBytes = 0;
