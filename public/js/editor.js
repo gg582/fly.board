@@ -918,6 +918,22 @@
                     }
                     return;
                 }
+                if (payload && payload.error) {
+                    markUploadFailure(asset, 'Upload failed [' + payload.error + ']');
+                    if (isFileRepoMode) {
+                        isFileUploadRunning = false;
+                        processFileUploadQueue();
+                        updateFileRepoUploadButton();
+                    }
+                    return;
+                }
+                markUploadFailure(asset, 'Upload failed [invalid upload response]');
+                if (isFileRepoMode) {
+                    isFileUploadRunning = false;
+                    processFileUploadQueue();
+                    updateFileRepoUploadButton();
+                }
+                return;
             }
             markUploadFailure(asset, 'Upload failed [' + xhr.status + ']');
             if (isFileRepoMode) {
