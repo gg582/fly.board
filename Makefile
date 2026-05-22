@@ -108,6 +108,9 @@ src/crypto/fly_crypto.o: src/crypto/fly_crypto.c
 $(TARGET): $(OBJS) $(MD4C_LIB)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(MD4C_LIB) $(LDFLAGS) $(CWIST_LIB) $(LIBS)
 
+setup:
+	mkdir data
+
 clean:
 	rm -f $(OBJS) $(TARGET)
 
