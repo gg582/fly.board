@@ -918,6 +918,22 @@
                     }
                     return;
                 }
+                if (payload && payload.error) {
+                    markUploadFailure(asset, 'Upload failed [' + payload.error + ']');
+                    if (isFileRepoMode) {
+                        isFileUploadRunning = false;
+                        processFileUploadQueue();
+                        updateFileRepoUploadButton();
+                    }
+                    return;
+                }
+                markUploadFailure(asset, 'Upload failed [invalid upload response]');
+                if (isFileRepoMode) {
+                    isFileUploadRunning = false;
+                    processFileUploadQueue();
+                    updateFileRepoUploadButton();
+                }
+                return;
             }
             markUploadFailure(asset, 'Upload failed [' + xhr.status + ']');
             if (isFileRepoMode) {
@@ -1428,8 +1444,27 @@
             return response.json();
         }).then(function(payload) {
             if (!payload || payload.ok === false) throw new Error((payload && payload.error) || 'verify failed');
+            if (payload.chunk_size && Number(payload.chunk_size) > 0) {
+                asset.chunkSize = Number(payload.chunk_size);
+                asset.totalChunks = Number(payload.chunk_count || asset.totalChunks || 0);
+            }
             var bitmap = payload.received_bitmap || '';
             var pending = [];
+            var pendingByStatus = [];
+            if (payload.missing_vertices && Array.isArray(payload.missing_vertices)) {
+                pendingByStatus = payload.missing_vertices
+                    .map(function(v) {
+                        if (!v) return null;
+                        var ci = Number(v.chunk_index);
+                        if (!Number.isFinite(ci) || ci < 0) return null;
+                        return {
+                            chunkIndex: ci,
+                            groupIndex: Number(v.group_index),
+                            vertexIndex: Number(v.vertex_index)
+                        };
+                    })
+                    .filter(function(v) { return v && v.chunkIndex < asset.totalChunks; });
+            }
             asset.confirmedBytes = 0;
             asset.completedChunks = 0;
             for (var i = 0; i < asset.totalChunks; i++) {
@@ -1440,9 +1475,16 @@
                     pending.push(i);
                 }
             }
+            if (pendingByStatus.length > 0) {
+                var pendingSet = Object.create(null);
+                pendingByStatus.forEach(function(v) { pendingSet[String(v.chunkIndex)] = true; });
+                pending = pending.filter(function(ci) { return !!pendingSet[String(ci)]; });
+                pending.sort(function(a, b) { return a - b; });
+            }
             if (pending.length > 0) {
-                asset.ui.status.textContent = 'Filling ' + pending.length + ' missing chunk(s)...';
-                asset.pendingChunks = pending;
+                var nextMissing = pending[0];
+                asset.ui.status.textContent = 'Resending missing chunk ' + (nextMissing + 1) + '/' + asset.totalChunks + '...';
+                asset.pendingChunks = [nextMissing];
                 asset.retryCounts = new Array(asset.totalChunks).fill(0);
                 runSimpleChunkUpload(asset, file);
             } else {
