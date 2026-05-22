@@ -91,6 +91,8 @@ void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res) 
             if (!item) continue;
             cJSON_AddStringToObject(item, "slug", slug->valuestring);
             cJSON_AddStringToObject(item, "name", name->valuestring);
+            cJSON *post_count = cJSON_GetObjectItem(bo, "post_count");
+            cJSON_AddNumberToObject(item, "post_count", post_count ? post_count->valuedouble : 0);
             cJSON_AddItemToArray(out, item);
         }
     }
