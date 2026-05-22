@@ -786,9 +786,17 @@
                 replaceAllInEditor(asset.placeholderUrl, asset.url);
                 asset.placeholderUrl = null;
             }
+            var finalUrl = asset.url;
+            var isValidUrl = finalUrl && (
+                finalUrl.indexOf('/file/') === 0 ||
+                /^https?:\/\//.test(finalUrl)
+            );
+            if (isValidUrl && !editorHasUrl(finalUrl) && !editorHasUrl('/file/download/' + asset.fid)) {
+                insertAssetMarkdown(asset);
+            }
             asset.ui.status.textContent = response.delete_pin
-                ? ('Uploaded. Choose insert mode/place, save delete PIN: ' + response.delete_pin)
-                : 'Uploaded. Choose where to place it in markdown';
+                ? ('Uploaded and inserted. Save delete PIN: ' + response.delete_pin)
+                : 'Uploaded and inserted into markdown';
         }
         bindAssetControls(asset);
         syncMediaMeta();
