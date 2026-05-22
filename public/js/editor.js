@@ -752,7 +752,7 @@
         asset.failed = false;
         asset.isCancelling = false;
         asset.xhrs = [];
-        asset.mode = isEditorMode ? 'inline' : 'attachment';
+        asset.mode = 'attachment';
         asset.ui.status.textContent = response.delete_pin
             ? ((isEditorMode ? 'Uploaded. Save delete PIN: ' : 'Uploaded. Save delete PIN: ') + response.delete_pin)
             : (isEditorMode ? 'Uploaded and available for inline placement' : 'Uploaded to file repository');
@@ -786,14 +786,9 @@
                 replaceAllInEditor(asset.placeholderUrl, asset.url);
                 asset.placeholderUrl = null;
             }
-            var finalUrl = asset.url;
-            var isValidUrl = finalUrl && (
-                finalUrl.indexOf('/file/') === 0 ||
-                /^https?:\/\//.test(finalUrl)
-            );
-            if (isValidUrl && !editorHasUrl(finalUrl) && !editorHasUrl('/file/download/' + asset.fid)) {
-                insertAssetMarkdown(asset);
-            }
+            asset.ui.status.textContent = response.delete_pin
+                ? ('Uploaded. Choose insert mode/place, save delete PIN: ' + response.delete_pin)
+                : 'Uploaded. Choose where to place it in markdown';
         }
         bindAssetControls(asset);
         syncMediaMeta();
@@ -874,7 +869,7 @@
             }
         }
         var percent = asset.fileSize ? Math.min(100, Math.round((totalTransferred / asset.fileSize) * 100)) : 0;
-        asset.ui.status.textContent = percent >= 100 ? 'Uploaded [100%]' : ('Uploading [' + percent + '%]');
+        asset.ui.status.textContent = percent >= 100 ? 'Upload complete, processing...' : ('Uploading [' + percent + '%]');
         asset.ui.progressInner.style.width = percent + '%';
     }
 
