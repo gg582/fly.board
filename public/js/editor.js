@@ -266,13 +266,14 @@
     }
 
     function insertAssetMarkdown(asset) {
-        if (!asset.url) return;
-        var url = asset.url;
+        var url = asset.url || (asset.fid !== null ? ('/file/download/' + asset.fid) : '');
+        if (!url) return;
+        var name = asset.filename || 'file';
         var isMedia = /^image\//.test(asset.mime_type || '') || /^video\//.test(asset.mime_type || '') || /^audio\//.test(asset.mime_type || '');
         if (isMedia) {
-            insertAtCursor('![' + asset.filename + '](' + url + ')\n');
+            insertAtCursor('![' + name + '](' + url + ')\n');
         } else {
-            insertAtCursor('[' + asset.filename + '](' + url + ')\n');
+            insertAtCursor('[' + name + '](' + url + ')\n');
         }
     }
 
@@ -786,12 +787,8 @@
                 replaceAllInEditor(asset.placeholderUrl, asset.url);
                 asset.placeholderUrl = null;
             }
-            var finalUrl = asset.url;
-            var isValidUrl = finalUrl && (
-                finalUrl.indexOf('/file/') === 0 ||
-                /^https?:\/\//.test(finalUrl)
-            );
-            if (isValidUrl && !editorHasUrl(finalUrl) && !editorHasUrl('/file/download/' + asset.fid)) {
+            var finalUrl = asset.url || (asset.fid !== null ? ('/file/download/' + asset.fid) : '');
+            if (finalUrl && !editorHasUrl(finalUrl) && !editorHasUrl('/file/download/' + asset.fid)) {
                 insertAssetMarkdown(asset);
             }
             asset.ui.status.textContent = response.delete_pin
