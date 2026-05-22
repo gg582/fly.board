@@ -185,7 +185,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "if(label)label.textContent=(name==='light'?'Dark':'Light');"
         "if(btn)btn.setAttribute('aria-label',name==='light'?'Switch to dark mode':'Switch to light mode');}"
         "function rotateToggle(){var icon=document.getElementById('theme-spin');if(!icon)return;"
-        "icon.classList.remove('spin');void icon.offsetWidth;icon.classList.add('spin');}"
+        "icon.classList.toggle('spin');}"
         "function renderBoardsDropdown(arr){var list=document.getElementById('boards-dropdown-list');if(!list)return;"
         "list.innerHTML='';for(var i=0;i<arr.length;i++){var b=arr[i];"
         "if(!b||!b.slug||!b.name)continue;var a=document.createElement('a');"
