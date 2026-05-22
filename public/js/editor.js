@@ -752,7 +752,7 @@
         asset.failed = false;
         asset.isCancelling = false;
         asset.xhrs = [];
-        asset.mode = isEditorMode ? 'inline' : 'attachment';
+        asset.mode = 'attachment';
         asset.ui.status.textContent = response.delete_pin
             ? ((isEditorMode ? 'Uploaded. Save delete PIN: ' : 'Uploaded. Save delete PIN: ') + response.delete_pin)
             : (isEditorMode ? 'Uploaded and available for inline placement' : 'Uploaded to file repository');
