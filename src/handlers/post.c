@@ -135,7 +135,7 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     }
 
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page_html = render_post_list(posts, dark, role, page, total_pages, slug, search, search_type, pp, uid);
+    cwist_sstring *page_html = render_post_list(posts, NULL, dark, role, page, total_pages, slug, search, search_type, pp, uid);
     if (posts) cJSON_Delete(posts);
     send_html_res(res, page_html);
     free(pp);

@@ -186,7 +186,7 @@ int main(void) {
 
     cwist_app_use_https2(app, true);
     cwist_app_use_https3(app, true);
-    cwist_app_use_pqc_layer(app, true);
+    /* cwist_app_use_pqc_layer(app, true); */
     cwist_error_t tls = cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
     if (tls.errtype != CWIST_ERR_INT16 || tls.error.err_i16 != 0) {
         FLY_LOG_ERROR("HTTPS init failed; run ./keygen.sh first");

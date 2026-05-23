@@ -1585,6 +1585,26 @@
             if (xhr.status === 409) {
                 var payload = null;
                 try { payload = JSON.parse(xhr.responseText); } catch (e) {}
+                if (payload && payload.retry_targets && payload.retry_targets.length > 0) {
+                    asset.htpRetryCount = (asset.htpRetryCount || 0) + 1;
+                    if (asset.htpRetryCount > 5) {
+                        markUploadFailure(asset, 'Upload failed [integrity retry limit]');
+                        return;
+                    }
+                    asset.ui.status.textContent = 'Server integrity check failed, re-uploading affected chunks...';
+                    asset.pendingChunks = payload.retry_targets.slice();
+                    asset.confirmedBytes = 0;
+                    asset.completedChunks = 0;
+                    var bitmap2 = payload.received_bitmap || '';
+                    for (var i = 0; i < asset.totalChunks; i++) {
+                        if (i < bitmap2.length && bitmap2[i] === '1') {
+                            asset.confirmedBytes += Math.min(asset.chunkSize, asset.file.size - (i * asset.chunkSize));
+                            asset.completedChunks += 1;
+                        }
+                    }
+                    runSimpleChunkUpload(asset, asset.file);
+                    return;
+                }
                 if (payload && payload.received_bitmap) {
                     asset.htpRetryCount = (asset.htpRetryCount || 0) + 1;
                     if (asset.htpRetryCount > 5) {

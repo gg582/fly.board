@@ -110,7 +110,7 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
     }
 }
 
-cwist_sstring *render_post_list(cJSON *posts, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id) {
+cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id) {
     cwist_sstring *b = cwist_sstring_create();
     int has_home_bg = g_config.home_img[0];
     char bg_style[768] = {0};
@@ -164,6 +164,39 @@ cwist_sstring *render_post_list(cJSON *posts, bool dark, const char *user_role, 
     cwist_sstring_append(b, "<div style='margin-bottom:18px;text-align:center'><a href='/post/new' class='btn'>New Post</a></div>");
 
     /* Search */
+    const char *search_label = "Global search";
+    const char *search_placeholder = "Search all posts...";
+    const char *board_name = NULL;
+
+    if (board_slug && board_slug[0]) {
+        search_label = "Board search";
+        search_placeholder = "Search in this board...";
+        if (boards) {
+            int bn = cJSON_GetArraySize(boards);
+            for (int i = 0; i < bn; i++) {
+                cJSON *bo = cJSON_GetArrayItem(boards, i);
+                cJSON *bs = cJSON_GetObjectItem(bo, "slug");
+                if (bs && bs->valuestring && strcmp(bs->valuestring, board_slug) == 0) {
+                    cJSON *bnm = cJSON_GetObjectItem(bo, "name");
+                    if (bnm && bnm->valuestring) board_name = bnm->valuestring;
+                    break;
+                }
+            }
+        }
+    }
+
+    cwist_sstring_append(b, "<div style='max-width:720px;margin:0 auto 18px'>");
+    cwist_sstring_append(b, "<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>");
+    cwist_sstring_append(b, "<span style='font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em'>");
+    cwist_sstring_append(b, search_label);
+    cwist_sstring_append(b, "</span>");
+    if (board_name) {
+        cwist_sstring_append(b, "<span class='tag' style='margin:0;font-size:11px;padding:3px 8px'>");
+        cwist_sstring_append_escaped(b, board_name);
+        cwist_sstring_append(b, "</span>");
+    }
+    cwist_sstring_append(b, "</div>");
+
     cwist_sstring_append(b, "<form action='");
     if (board_slug && board_slug[0]) {
         cwist_sstring_append(b, "/board/");
@@ -171,9 +204,11 @@ cwist_sstring *render_post_list(cJSON *posts, bool dark, const char *user_role, 
     } else {
         cwist_sstring_append(b, "/search");
     }
-    cwist_sstring_append(b, "' method='get' style='margin:0 auto 18px;max-width:720px'>");
+    cwist_sstring_append(b, "' method='get'>");
     cwist_sstring_append(b, "<div style='display:flex;gap:8px'>");
-    cwist_sstring_append(b, "<input type='text' name='search' placeholder='Search posts...' value='");
+    cwist_sstring_append(b, "<input type='text' name='search' placeholder='");
+    cwist_sstring_append(b, search_placeholder);
+    cwist_sstring_append(b, "' value='");
     if (search && search[0]) cwist_sstring_append_escaped(b, search);
     cwist_sstring_append(b, "' style='flex:1'>");
     cwist_sstring_append(b, "<button type='submit' class='btn'>Search</button>");
@@ -185,7 +220,7 @@ cwist_sstring *render_post_list(cJSON *posts, bool dark, const char *user_role, 
     }
     cwist_sstring_append(b, "</div>");
     cwist_sstring_append(b, "<div id='adv-search' class='dropdown-panel' style='display:none;margin-top:8px'>");
-    cwist_sstring_append(b, "<select name='search_type' style='padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--card);color:var(--fg);font-family:inherit'>");
+    cwist_sstring_append(b, "<select name='search_type' style='padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--panel);color:var(--fg);font-family:inherit'>");
     cwist_sstring_append(b, "<option value=''");
     if (!search_type || !search_type[0]) cwist_sstring_append(b, " selected");
     cwist_sstring_append(b, ">All (Title + Body)</option>");
@@ -759,6 +794,8 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<div style='margin-top:12px;display:flex;gap:10px'><button type='submit' class='btn'>Save</button>");
     cwist_sstring_append(b, "<a href='/' class='btn btn-outline'>Cancel</a></div>");
     cwist_sstring_append(b, "</form></div>");
+    cwist_sstring_append(b, "<script>window.BLOG_USE_TASFA=true;</script>");
+    cwist_sstring_append(b, "<script src='/js/editor.js'></script>");
 
     cwist_sstring *page = render_page(post ? "Edit Post" : "New Post", b->data, dark, user_role, profile_pic);
     cwist_sstring_destroy(b);

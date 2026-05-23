@@ -912,6 +912,16 @@ static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
         }
     }
     cJSON_AddItemToObject(obj, "missing_vertices", missing);
+    cJSON *retry_targets = cJSON_GetObjectItem(meta, "htp_retry_targets");
+    if (retry_targets) {
+        cJSON_AddItemToObject(obj, "retry_targets", cJSON_Duplicate(retry_targets, 1));
+    }
+    cJSON *suspicion_scores = cJSON_GetObjectItem(meta, "htp_suspicion_scores");
+    if (suspicion_scores) {
+        cJSON_AddItemToObject(obj, "suspicion_scores", cJSON_Duplicate(suspicion_scores, 1));
+    }
+    cJSON_AddNumberToObject(obj, "contraction_level", json_int(meta, "htp_contraction_level", 0));
+    cJSON_AddStringToObject(obj, "htp_status", (retry_targets && cJSON_GetArraySize(retry_targets) > 0) ? "needs_retry" : "ok");
     return obj;
 }
 
@@ -1398,6 +1408,118 @@ static bool load_htp_scalars(const char *upload_id, int chunk_count, char **hash
     return true;
 }
 
+/* --- Server-Authoritative HTP Recovery --- */
+
+typedef struct {
+    int chunk_index;
+    double suspicion_score;
+} htp_suspect_t;
+
+static int compare_suspect_desc(const void *a, const void *b) {
+    const htp_suspect_t *sa = (const htp_suspect_t *)a;
+    const htp_suspect_t *sb = (const htp_suspect_t *)b;
+    if (sa->suspicion_score > sb->suspicion_score) return -1;
+    if (sa->suspicion_score < sb->suspicion_score) return 1;
+    return sa->chunk_index - sb->chunk_index;
+}
+
+static void htp_analyze_group(uint64_t v[6], uint64_t modulus_M, int group_start,
+                              htp_suspect_t *out, int *out_count) {
+    uint64_t L1 = (v[0] + v[1] + v[2]) % modulus_M;
+    uint64_t L2 = (v[2] + v[3] + v[4]) % modulus_M;
+    uint64_t L3 = (v[4] + v[5] + v[0]) % modulus_M;
+
+    bool all_equal = (L1 == L2 && L2 == L3);
+    if (all_equal) {
+        *out_count = 0;
+        return;
+    }
+
+    bool e1_fail = false, e2_fail = false, e3_fail = false;
+    if (L1 != L2) { e1_fail = true; e2_fail = true; }
+    if (L2 != L3) { e2_fail = true; e3_fail = true; }
+    if (L1 != L3) { e1_fail = true; e3_fail = true; }
+
+    int total_fail = (e1_fail ? 1 : 0) + (e2_fail ? 1 : 0) + (e3_fail ? 1 : 0);
+
+    /* Determine if any two equations agree (consensus) */
+    bool has_consensus = (L1 == L2) || (L2 == L3) || (L1 == L3);
+
+    for (int i = 0; i < 6; i++) {
+        int in_fail = 0, in_pass = 0;
+        if (i == 0) { if (e1_fail) in_fail++; else in_pass++; if (e3_fail) in_fail++; else in_pass++; }
+        if (i == 1) { if (e1_fail) in_fail++; else in_pass++; }
+        if (i == 2) { if (e1_fail) in_fail++; else in_pass++; if (e2_fail) in_fail++; else in_pass++; }
+        if (i == 3) { if (e2_fail) in_fail++; else in_pass++; }
+        if (i == 4) { if (e2_fail) in_fail++; else in_pass++; if (e3_fail) in_fail++; else in_pass++; }
+        if (i == 5) { if (e3_fail) in_fail++; else in_pass++; }
+
+        if (in_fail == 0) continue;
+
+        double score = (double)in_fail / total_fail;
+        if (in_fail == total_fail && total_fail >= 2) {
+            score = 0.95;
+        } else if (in_fail >= 2) {
+            score = 0.85;
+        }
+        if (in_pass > 0 && has_consensus) {
+            score *= 0.5;
+        }
+        if (in_pass == 0 && in_fail >= 2) {
+            score = 0.95;
+        }
+
+        out[*out_count].chunk_index = group_start + i;
+        out[*out_count].suspicion_score = score;
+        (*out_count)++;
+    }
+}
+
+static bool htp_repair_worthwhile(int suspect_count, int total_chunks) {
+    if (suspect_count <= 2) return false;
+    if (suspect_count > total_chunks / 3) return false;
+    return true;
+}
+
+/* Server-side contraction: regroup suspect chunks into fresh 6-slot HTP groups */
+static int htp_contract_suspects(const uint64_t *scalars, int chunk_count, uint64_t modulus_M,
+                                  const int *suspects, int suspect_count,
+                                  int *next_suspects, int next_cap) {
+    int next_count = 0;
+    int sg = (suspect_count + 5) / 6;
+    for (int g = 0; g < sg; g++) {
+        uint64_t m[6] = {0};
+        int gs = 0;
+        int idx[6];
+        for (int v = 0; v < 6; v++) {
+            int si = g * 6 + v;
+            if (si < suspect_count) {
+                int ci = suspects[si];
+                if (ci >= 0 && ci < chunk_count) {
+                    m[v] = scalars[ci];
+                    idx[v] = ci;
+                    gs++;
+                }
+            }
+        }
+        if (gs < 3) continue;
+        uint64_t L1 = (m[0] + m[1] + m[2]) % modulus_M;
+        uint64_t L2 = (gs > 3) ? ((m[2] + m[3] + m[4]) % modulus_M) : L1;
+        uint64_t L3 = (gs > 5) ? ((m[4] + m[5] + m[0]) % modulus_M) : L1;
+        if (L1 != L2 || L2 != L3) {
+            for (int v = 0; v < gs && next_count < next_cap; v++) {
+                int ci = idx[v];
+                bool already = false;
+                for (int s = 0; s < next_count; s++) {
+                    if (next_suspects[s] == ci) { already = true; break; }
+                }
+                if (!already) next_suspects[next_count++] = ci;
+            }
+        }
+    }
+    return next_count;
+}
+
 static void upload_work_func(void *arg) {
     upload_work_t *w = (upload_work_t *)arg;
 
@@ -1453,12 +1575,31 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
+    bool is_retry_target = false;
     if (is_chunk_already_received(upload_id, chunk_index)) {
-        res->status_code = CWIST_HTTP_NO_CONTENT;
-        cwist_http_header_add(&res->headers, "X-TASFA-Accepted", "1");
-        cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Complete", "1");
-        cwist_sstring_assign(res->body, "");
-        return;
+        /* Allow retransmission if this chunk is in the server's retry target list */
+        cJSON *session_meta = load_upload_session(upload_id);
+        if (session_meta) {
+            cJSON *retry_arr = cJSON_GetObjectItem(session_meta, "htp_retry_targets");
+            if (retry_arr && cJSON_IsArray(retry_arr)) {
+                int n = cJSON_GetArraySize(retry_arr);
+                for (int i = 0; i < n; i++) {
+                    cJSON *item = cJSON_GetArrayItem(retry_arr, i);
+                    if (item && cJSON_IsNumber(item) && (int)item->valuedouble == chunk_index) {
+                        is_retry_target = true;
+                        break;
+                    }
+                }
+            }
+            cJSON_Delete(session_meta);
+        }
+        if (!is_retry_target) {
+            res->status_code = CWIST_HTTP_NO_CONTENT;
+            cwist_http_header_add(&res->headers, "X-TASFA-Accepted", "1");
+            cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Complete", "1");
+            cwist_sstring_assign(res->body, "");
+            return;
+        }
     }
 
     long long offset = (long long)chunk_index * (long long)mbin.chunk_size;
@@ -1493,6 +1634,25 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     if (!work.state_ok) {
         send_json_response(res, session_error_json("chunk state update failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
+    }
+
+    if (is_retry_target) {
+        cJSON *session_meta = load_upload_session(upload_id);
+        if (session_meta) {
+            cJSON *retry_arr = cJSON_GetObjectItem(session_meta, "htp_retry_targets");
+            if (retry_arr && cJSON_IsArray(retry_arr)) {
+                int n = cJSON_GetArraySize(retry_arr);
+                for (int i = n - 1; i >= 0; i--) {
+                    cJSON *item = cJSON_GetArrayItem(retry_arr, i);
+                    if (item && cJSON_IsNumber(item) && (int)item->valuedouble == chunk_index) {
+                        cJSON_DeleteItemFromArray(retry_arr, i);
+                        break;
+                    }
+                }
+                save_upload_session(upload_id, session_meta);
+            }
+            cJSON_Delete(session_meta);
+        }
     }
 
     if (hash_tag_hex && hash_tag_hex[0]) {
@@ -1539,39 +1699,31 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     const char *bitmap = json_string(meta, "received_bitmap", "");
     int received = bitmap_count_set(bitmap, chunk_count);
     if (received != chunk_count) {
-        /* Accept missing chunks as zero-filled. The preallocated file already
-           contains zeros for unwritten ranges, so we just mark them received
-           and continue to finalize instead of rejecting with 409. */
-        char *filled_bitmap = (char *)cwist_alloc((size_t)chunk_count + 1);
-        if (!filled_bitmap) {
-            cJSON_Delete(meta);
-            close_upload_session_lock(lock_fd);
-            cwist_query_map_destroy(kv);
-            send_json_response(res, session_error_json("memory error filling chunks"), CWIST_HTTP_INTERNAL_ERROR);
-            return;
-        }
-        for (int i = 0; i < chunk_count; i++) {
-            filled_bitmap[i] = '1';
-        }
-        filled_bitmap[chunk_count] = '\0';
-        cJSON_ReplaceItemInObject(meta, "received_bitmap", cJSON_CreateString(filled_bitmap));
-        cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(chunk_count));
-        save_upload_session_state_bin(upload_id, chunk_count, filled_bitmap);
-        save_upload_session_state(upload_id, meta);
-        cwist_free(filled_bitmap);
-        received = chunk_count;
+        cJSON *obj = build_upload_status_json(meta, upload_id);
+        cJSON_AddBoolToObject(obj, "ok", false);
+        cJSON_AddStringToObject(obj, "error", "incomplete upload: missing chunks");
+        cJSON_Delete(meta);
+        close_upload_session_lock(lock_fd);
+        cwist_query_map_destroy(kv);
+        send_json_response(res, obj, (cwist_http_status_t)409);
+        return;
     }
     const char *temp_path = json_string(meta, "temp_path", "");
     const char *filename = json_string(meta, "filename", "upload.bin");
     int post_id = json_int(meta, "post_id", 0);
     int owner_uid = json_int(meta, "uid", uid);
 
-    /* HTP line-sum validation via binary htp.bin (fast path) with JSON fallback */
+    /* === Server-Authoritative HTP Recovery === */
     uint64_t modulus_M = (uint64_t)json_long_long(meta, "modulus_M", 0);
     if (modulus_M == 0) modulus_M = 1;
+
     char *htp_tags = NULL;
     uint64_t *htp_scalars = NULL;
     bool htp_ok = load_htp_scalars(upload_id, chunk_count, &htp_tags, &htp_scalars);
+    htp_suspect_t *suspects = (htp_suspect_t *)cwist_alloc((size_t)chunk_count * sizeof(htp_suspect_t));
+    int suspect_count = 0;
+    int contraction_level = json_int(meta, "htp_contraction_level", 0);
+
     if (htp_ok) {
         int group_count = chunk_count / 6;
         for (int g = 0; g < group_count; g++) {
@@ -1586,88 +1738,91 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
                 m[v] = htp_scalars[ci];
             }
             if (!group_has_any || !group_complete) continue;
-            uint64_t L1 = (m[0] + m[1] + m[2]) % modulus_M;
-            uint64_t L2 = (m[2] + m[3] + m[4]) % modulus_M;
-            uint64_t L3 = (m[4] + m[5] + m[0]) % modulus_M;
-            if (L1 != L2 || L2 != L3) {
-                const char *current_bitmap = json_string(meta, "received_bitmap", "");
-                char *mutable_bitmap = (char *)cwist_alloc((size_t)chunk_count + 1);
-                if (mutable_bitmap) {
-                    memcpy(mutable_bitmap, current_bitmap, chunk_count + 1);
-                    for (int v = 0; v < 6; v++) {
-                        int ci = g * 6 + v;
-                        if (ci < chunk_count) mutable_bitmap[ci] = '0';
+            htp_suspect_t group_suspects[6];
+            int gs_count = 0;
+            htp_analyze_group(m, modulus_M, g * 6, group_suspects, &gs_count);
+            for (int s = 0; s < gs_count && suspect_count < chunk_count; s++) {
+                bool already = false;
+                for (int i = 0; i < suspect_count; i++) {
+                    if (suspects[i].chunk_index == group_suspects[s].chunk_index) {
+                        if (group_suspects[s].suspicion_score > suspects[i].suspicion_score)
+                            suspects[i].suspicion_score = group_suspects[s].suspicion_score;
+                        already = true;
+                        break;
                     }
-                    cJSON_ReplaceItemInObject(meta, "received_bitmap", cJSON_CreateString(mutable_bitmap));
-                    cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(bitmap_count_set(mutable_bitmap, chunk_count)));
-                    save_upload_session_state_bin(upload_id, chunk_count, mutable_bitmap);
-                    save_upload_session_state(upload_id, meta);
-                    cwist_free(mutable_bitmap);
                 }
-                cwist_free(htp_tags);
-                cwist_free(htp_scalars);
-                cJSON *obj = build_upload_status_json(meta, upload_id);
-                cJSON_AddBoolToObject(obj, "ok", false);
-                cJSON_AddStringToObject(obj, "error", "htp line sum mismatch - chunks reset for retry");
-                cJSON_Delete(meta);
-                close_upload_session_lock(lock_fd);
-                cwist_query_map_destroy(kv);
-                send_json_response(res, obj, (cwist_http_status_t)409);
-                return;
+                if (!already) {
+                    suspects[suspect_count].chunk_index = group_suspects[s].chunk_index;
+                    suspects[suspect_count].suspicion_score = group_suspects[s].suspicion_score;
+                    suspect_count++;
+                }
             }
         }
+
+        /* Server-side recursive contraction */
+        if (suspect_count > 0 && htp_repair_worthwhile(suspect_count, chunk_count)) {
+            int *suspect_indices = (int *)cwist_alloc((size_t)suspect_count * sizeof(int));
+            for (int i = 0; i < suspect_count; i++) suspect_indices[i] = suspects[i].chunk_index;
+
+            int *next = (int *)cwist_alloc((size_t)chunk_count * sizeof(int));
+            int next_count = htp_contract_suspects(htp_scalars, chunk_count, modulus_M,
+                                                    suspect_indices, suspect_count,
+                                                    next, chunk_count);
+            if (next_count > 0 && next_count < suspect_count) {
+                /* Contraction succeeded; replace suspects with contracted set */
+                suspect_count = 0;
+                for (int i = 0; i < next_count && suspect_count < chunk_count; i++) {
+                    suspects[suspect_count].chunk_index = next[i];
+                    suspects[suspect_count].suspicion_score = 0.85;
+                    suspect_count++;
+                }
+                contraction_level++;
+            }
+            cwist_free(next);
+            cwist_free(suspect_indices);
+        }
+
         cwist_free(htp_tags);
         cwist_free(htp_scalars);
-    } else {
-        cJSON *magic_scalars = cJSON_GetObjectItem(meta, "magic_scalars");
-        if (magic_scalars) {
-            int group_count = (chunk_count + 5) / 6;
-            bool has_any_scalar = false;
-            for (int i = 0; i < chunk_count && i < cJSON_GetArraySize(magic_scalars); i++) {
-                cJSON *item = cJSON_GetArrayItem(magic_scalars, i);
-                if (item && item->valuedouble != 0) { has_any_scalar = true; break; }
-            }
-            if (has_any_scalar) {
-                for (int g = 0; g < group_count; g++) {
-                    uint64_t m[6] = {0};
-                    for (int v = 0; v < 6; v++) {
-                        int ci = g * 6 + v;
-                        if (ci < chunk_count && ci < cJSON_GetArraySize(magic_scalars)) {
-                            cJSON *item = cJSON_GetArrayItem(magic_scalars, ci);
-                            m[v] = item ? (uint64_t)item->valuedouble : 0;
-                        }
-                    }
-                    uint64_t L1 = (m[0] + m[1] + m[2]) % modulus_M;
-                    uint64_t L2 = (m[2] + m[3] + m[4]) % modulus_M;
-                    uint64_t L3 = (m[4] + m[5] + m[0]) % modulus_M;
-                    if (L1 != L2 || L2 != L3) {
-                        const char *current_bitmap = json_string(meta, "received_bitmap", "");
-                        char *mutable_bitmap = (char *)cwist_alloc((size_t)chunk_count + 1);
-                        if (mutable_bitmap) {
-                            memcpy(mutable_bitmap, current_bitmap, chunk_count + 1);
-                            for (int v = 0; v < 6; v++) {
-                                int ci = g * 6 + v;
-                                if (ci < chunk_count) mutable_bitmap[ci] = '0';
-                            }
-                            cJSON_ReplaceItemInObject(meta, "received_bitmap", cJSON_CreateString(mutable_bitmap));
-                            cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(bitmap_count_set(mutable_bitmap, chunk_count)));
-                            save_upload_session_state_bin(upload_id, chunk_count, mutable_bitmap);
-                            save_upload_session_state(upload_id, meta);
-                            cwist_free(mutable_bitmap);
-                        }
-                        cJSON *obj = build_upload_status_json(meta, upload_id);
-                        cJSON_AddBoolToObject(obj, "ok", false);
-                        cJSON_AddStringToObject(obj, "error", "htp line sum mismatch - chunks reset for retry");
-                        cJSON_Delete(meta);
-                        close_upload_session_lock(lock_fd);
-                        cwist_query_map_destroy(kv);
-                        send_json_response(res, obj, (cwist_http_status_t)409);
-                        return;
-                    }
-                }
-            }
-        }
     }
+
+    if (suspect_count > 0) {
+        qsort(suspects, suspect_count, sizeof(htp_suspect_t), compare_suspect_desc);
+
+        cJSON *retry_arr = cJSON_CreateArray();
+        cJSON *score_arr = cJSON_CreateArray();
+        for (int i = 0; i < suspect_count; i++) {
+            cJSON *item = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item, "chunk_index", suspects[i].chunk_index);
+            cJSON_AddNumberToObject(item, "score", suspects[i].suspicion_score);
+            cJSON_AddItemToArray(score_arr, item);
+            cJSON_AddItemToArray(retry_arr, cJSON_CreateNumber(suspects[i].chunk_index));
+        }
+
+        cJSON_DeleteItemFromObject(meta, "htp_retry_targets");
+        cJSON_DeleteItemFromObject(meta, "htp_suspicion_scores");
+        cJSON_DeleteItemFromObject(meta, "htp_contraction_level");
+        cJSON_AddItemToObject(meta, "htp_retry_targets", retry_arr);
+        cJSON_AddItemToObject(meta, "htp_suspicion_scores", score_arr);
+        cJSON_AddNumberToObject(meta, "htp_contraction_level", contraction_level);
+        save_upload_session(upload_id, meta);
+
+        cJSON *obj = build_upload_status_json(meta, upload_id);
+        cJSON_AddBoolToObject(obj, "ok", false);
+        cJSON_AddStringToObject(obj, "htp_status", "needs_retry");
+        cJSON_AddItemToObject(obj, "retry_targets", cJSON_Duplicate(retry_arr, 1));
+        cJSON_AddItemToObject(obj, "suspicion_scores", cJSON_Duplicate(score_arr, 1));
+        cJSON_AddNumberToObject(obj, "contraction_level", contraction_level);
+        cJSON_AddStringToObject(obj, "retry_reason", "htp group inconsistency detected");
+
+        cwist_free(suspects);
+        cJSON_Delete(meta);
+        close_upload_session_lock(lock_fd);
+        cwist_query_map_destroy(kv);
+        send_json_response(res, obj, (cwist_http_status_t)409);
+        return;
+    }
+    cwist_free(suspects);
 
     /* Post-quantum checksum (SHA-256 of final file) */
     unsigned char checksum[32];
