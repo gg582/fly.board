@@ -108,14 +108,14 @@ static bool is_safe_upload_preview_name(const char *name) {
 
 static bool is_profile_pic_asset(cwist_db *db, const char *name) {
     if (!db || !name || !name[0]) return false;
-    char url[512];
-    int written = snprintf(url, sizeof(url), "/assets/uploads/%s", name);
-    if (written < 0 || written >= (int)sizeof(url)) return false;
+    char profile_url[512];
+    int written_profile = snprintf(profile_url, sizeof(profile_url), "/assets/profile/%s", name);
+    if (written_profile < 0 || written_profile >= (int)sizeof(profile_url)) return false;
 
     sqlite3_stmt *stmt = NULL;
     const char *sql = "SELECT 1 FROM users WHERE profile_pic=? LIMIT 1";
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, url, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 1, profile_url, -1, SQLITE_STATIC);
     bool found = sqlite3_step(stmt) == SQLITE_ROW;
     sqlite3_finalize(stmt);
     return found;
@@ -191,6 +191,53 @@ void handler_asset_upload(cwist_http_request *req, cwist_http_response *res) {
         res->status_code = CWIST_HTTP_FORBIDDEN;
         cwist_sstring_assign(res->body, "Direct asset fetch disabled; use the reliable transfer path.");
         return;
+    }
+
+    if (!send_cached_file_response(req, res, path, response_mime, IMAGE_CACHE_CONTROL, NULL)) {
+        cwist_free(decoded);
+        send_upload_not_found(res);
+        return;
+    }
+    cwist_free(decoded);
+}
+
+
+void handler_asset_profile_upload(cwist_http_request *req, cwist_http_response *res) {
+    const char *encoded = cwist_query_map_get(req->path_params, "filename");
+    if (!encoded || !encoded[0]) { send_upload_not_found(res); return; }
+
+    char *decoded = decode_upload_path_segment(encoded);
+    if (!decoded) {
+        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
+        cwist_sstring_assign(res->body, "decode error");
+        return;
+    }
+    if (!is_safe_upload_name(decoded)) {
+        cwist_free(decoded);
+        send_upload_not_found(res);
+        return;
+    }
+
+    if (!is_profile_pic_asset(req->db, decoded)) {
+        cwist_free(decoded);
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Not a profile picture asset.");
+        return;
+    }
+
+    char path[PATH_MAX];
+    int written = snprintf(path, sizeof(path), "public/uploads/%s", decoded);
+    if (written < 0 || written >= (int)sizeof(path)) {
+        cwist_free(decoded);
+        send_upload_not_found(res);
+        return;
+    }
+
+    char detected_mime[128] = {0};
+    const char *response_mime = mime_type(decoded);
+    if (mime_type_from_data(path, detected_mime, sizeof(detected_mime)) &&
+        strncmp(detected_mime, "image/", 6) == 0) {
+        response_mime = detected_mime;
     }
 
     if (!send_cached_file_response(req, res, path, response_mime, IMAGE_CACHE_CONTROL, NULL)) {
