@@ -145,18 +145,18 @@ Before requesting any repair, the server evaluates whether contraction is cheape
 ```
 repair_worthwhile(suspect_count, total_chunks, chunk_size, rtt_ms):
     if suspect_count < 3                → false  (too few for topology)
-    retry_cost  = suspect_count * chunk_size * (rtt_ms / 100)
-    repair_cost = suspect_count * 2048   + (total_chunks / 6) * 512
+    retry_cost  = suspect_count * chunk_size * rtt_factor(rtt_ms)
+    repair_cost = metadata_bytes + server_cpu_cost + extra_rtt_cost
     return retry_cost > repair_cost
 ```
 
-The threshold now considers RTT and chunk size: large chunks or high latency make contraction more attractive, while many small suspects make direct retry cheaper.
+The abstract cost model compares the bytes the client would retransmit against the server-side analysis overhead. Large chunks or high latency make contraction more attractive, while many small suspects make direct retry cheaper. Concrete numbers are server-side implementation details, not protocol constants.
 
 If the threshold rejects repair, the server returns `needs_retry` with **all** suspect chunks as retry targets. The client retransmits them through the normal upload endpoint.
 
 ### Server-side recursive contraction
 
-If repair is worthwhile, the server performs **group-level contraction**: each original complete 6-slot group is collapsed to a single scalar (the sum of its balanced scalars modulo `M`). These group aggregates become the vertices of a higher-level HTP lattice. Consecutive groups of 6 such aggregates form level-1 super-groups, and the same line invariants are re-evaluated:
+If repair is worthwhile, the server performs **group-level contraction**: each original complete 6-slot group is collapsed to a single scalar encoding its **invariant signature**. The server computes the three line values `L1, L2, L3` for the group, derives the residuals `r12 = (L1-L2) mod M` and `r23 = (L2-L3) mod M`, and sets the group aggregate to `(r12 * r23) mod M`. A passing group has `r12 = r23 = 0`, so its aggregate is `0`; a failing group receives a non-zero deterministic signature that preserves the topology of the line inconsistencies. These group aggregates become the vertices of a higher-level HTP lattice. Consecutive groups of 6 such aggregates form level-1 super-groups, and the same line invariants are re-evaluated:
 
 - If a level-1 super-group passes, suspects from its underlying level-0 groups are cleared (the failure pattern is consistent at the group level).
 - If a level-1 super-group fails, suspects from its underlying level-0 groups are kept.
@@ -264,7 +264,7 @@ Both upload and download state are tracked with a **dense binary bitmap** (one b
 | Question | Answer |
 |----------|--------|
 | Q1: Does the client compute any repair algebra? | **No.** The client is a dumb retransmission agent. All suspect derivation, confidence scoring, cost thresholds, and contraction logic are server-side only. |
-| Q2: Is repair cost threshold explicitly evaluated before contraction? | **Yes.** `htp_repair_worthwhile` rejects repair when `suspect_count <= 2` or `suspect_count > total_chunks / 3`, falling back to direct retry. |
+| Q2: Is repair cost threshold explicitly evaluated before contraction? | **Yes.** `htp_repair_worthwhile` compares `retry_cost_estimate` (bytes × RTT) against `repair_cost_estimate` (server analysis overhead). It rejects repair when `suspect_count < 3` or retry is cheaper, falling back to direct retry. |
 | Q3: Are partial groups ever zero-padded? | **No.** Only complete 6-slot groups (`chunk_count / 6`) are validated. Incomplete final groups are excluded entirely. |
 | Q4: Does the response contain suspicion scores, not just binary flags? | **Yes.** Every `needs_retry` response includes `suspicion_scores` as `{chunk_index, score}` objects. |
 | Q5: Does contraction preserve original group topology? | **Yes.** `htp_contract_groups` treats each original complete group as a single higher-level vertex; suspects are never reshuffled across groups. |

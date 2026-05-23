@@ -141,18 +141,18 @@ Antes de solicitar cualquier reparación, el servidor evalúa si la contracción
 ```
 repair_worthwhile(sospechosos, total, tamaño_chunk, rtt_ms):
     if sospechosos < 3                → false  (muy pocos para topología)
-    retry_cost  = sospechosos * tamaño_chunk * (rtt_ms / 100)
-    repair_cost = sospechosos * 2048   + (total / 6) * 512
+    retry_cost  = sospechosos * tamaño_chunk * rtt_factor(rtt_ms)
+    repair_cost = bytes_metadata + cpu_servidor + costo_rtt_extra
     return retry_cost > repair_cost
 ```
 
-El umbral ahora considera RTT y tamaño de chunk: chunks grandes o alta latencia hacen la contracción más atractiva, mientras que muchos sospechosos pequeños hacen el reintento directo más barato.
+El modelo de costo abstracto compara los bytes que el cliente retransmitiría contra la sobrecarga de análisis del servidor. Chunks grandes o alta latencia hacen la contracción más atractiva, mientras que muchos sospechosos pequeños hacen el reintento directo más barato. Los números concretos son detalles de implementación del servidor, no constantes del protocolo.
 
 Si el umbral rechaza la reparación, el servidor devuelve `needs_retry` con **todos** los fragmentos sospechosos como objetivos de reintento. El cliente los retransmite a través del endpoint de carga normal.
 
 ### Contracción recursiva del lado del servidor
 
-Si la reparación es viable, el servidor ejecuta una **contracción a nivel de grupo**: cada grupo original completo de 6 ranuras se colapsa a un único escalar (la suma de sus escalares balanceados módulo `M`). Estos agregados de grupo se convierten en los vértices de un lattice HTP de nivel superior. Grupos consecutivos de 6 de estos agregados forman super-grupos de nivel 1, y se reevalúan los mismos invariantes de línea:
+Si la reparación es viable, el servidor ejecuta una **contracción a nivel de grupo**: cada grupo original completo de 6 ranuras se colapsa a un único escalar que codifica su **signature invariante**. El servidor calcula los tres valores de línea `L1, L2, L3` del grupo, deriva los residuales `r12 = (L1-L2) mod M` y `r23 = (L2-L3) mod M`, y fija el agregado del grupo a `(r12 * r23) mod M`. Un grupo que pasa tiene `r12 = r23 = 0`, por lo que su agregado es `0`; un grupo fallido recibe una signature determinística no nula que preserva la topología de las inconsistencias de línea. Estos agregados de grupo se convierten en los vértices de un lattice HTP de nivel superior. Grupos consecutivos de 6 de estos agregados forman super-grupos de nivel 1, y se reevalúan los mismos invariantes de línea:
 
 - Si un super-grupo de nivel 1 pasa, se eliminan los sospechosos de sus grupos de nivel 0 subyacentes (el patrón de fallo es consistente a nivel de grupo).
 - Si un super-grupo de nivel 1 falla, se conservan los sospechosos de sus grupos de nivel 0 subyacentes.

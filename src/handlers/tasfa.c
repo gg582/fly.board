@@ -1481,12 +1481,22 @@ static void htp_analyze_group(uint64_t v[6], uint64_t modulus_M, int group_start
     }
 }
 
+/* Implementation-specific tuning parameters for the abstract cost model.
+ * The protocol spec defines the threshold conceptually as:
+ *   retry_cost  ≈ suspect_bytes × RTT_factor
+ *   repair_cost ≈ metadata_bytes + server_cpu_cost + extra_rtt_cost
+ * Concrete numbers below are server-side implementation details, not protocol constants.
+ */
+#define HTP_REPAIR_CPU_PER_SUSPECT  2048.0
+#define HTP_REPAIR_CPU_PER_L0_GROUP 512.0
+
 static bool htp_repair_worthwhile(int suspect_count, int total_chunks, int chunk_size, double rtt_ms) {
     if (suspect_count < 3) return false;
     long long retry_bytes = (long long)suspect_count * chunk_size;
     double rtt_factor = (rtt_ms <= 0.0) ? 1.0 : (rtt_ms / 100.0);
     double retry_cost = (double)retry_bytes * rtt_factor;
-    double repair_cost = (double)suspect_count * 2048.0 + (double)(total_chunks / 6) * 512.0;
+    double repair_cost = (double)suspect_count * HTP_REPAIR_CPU_PER_SUSPECT
+                       + (double)(total_chunks / 6) * HTP_REPAIR_CPU_PER_L0_GROUP;
     return retry_cost > repair_cost;
 }
 
@@ -1506,11 +1516,23 @@ static int htp_contract_groups(const uint64_t *balanced_scalars, int chunk_count
     memset(group_suspect_mask, 0, (size_t)group_count * sizeof(int));
 
     for (int g = 0; g < group_count; g++) {
-        uint64_t sum = 0;
-        for (int v = 0; v < 6; v++) {
-            sum = (sum + balanced_scalars[g * 6 + v]) % modulus_M;
-        }
-        group_agg[g] = sum;
+        uint64_t v0 = balanced_scalars[g * 6 + 0];
+        uint64_t v1 = balanced_scalars[g * 6 + 1];
+        uint64_t v2 = balanced_scalars[g * 6 + 2];
+        uint64_t v3 = balanced_scalars[g * 6 + 3];
+        uint64_t v4 = balanced_scalars[g * 6 + 4];
+        uint64_t v5 = balanced_scalars[g * 6 + 5];
+        uint64_t L1 = (v0 + v1 + v2) % modulus_M;
+        uint64_t L2 = (v2 + v3 + v4) % modulus_M;
+        uint64_t L3 = (v4 + v5 + v0) % modulus_M;
+        /* Topology-preserving invariant signature:
+         * encode the failure residuals (L1-L2, L2-L3) into a single scalar.
+         * Multiplication in mod M is deterministic and sensitive to both
+         * residuals without arbitrary constants. A passing group has
+         * r12=r23=0, so its aggregate is 0. */
+        uint64_t r12 = (L1 + modulus_M - L2) % modulus_M;
+        uint64_t r23 = (L2 + modulus_M - L3) % modulus_M;
+        group_agg[g] = (r12 * r23) % modulus_M;
     }
 
     for (int s = 0; s < suspect_count; s++) {
