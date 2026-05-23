@@ -235,13 +235,9 @@ void handler_asset_profile_upload(cwist_http_request *req, cwist_http_response *
 
     char detected_mime[128] = {0};
     const char *response_mime = mime_type(decoded);
-    if (mime_type_from_data(path, detected_mime, sizeof(detected_mime))) response_mime = detected_mime;
-
-    if (strncmp(response_mime, "image/", 6) != 0) {
-        cwist_free(decoded);
-        res->status_code = CWIST_HTTP_FORBIDDEN;
-        cwist_sstring_assign(res->body, "Profile picture asset is not an image.");
-        return;
+    if (mime_type_from_data(path, detected_mime, sizeof(detected_mime)) &&
+        strncmp(detected_mime, "image/", 6) == 0) {
+        response_mime = detected_mime;
     }
 
     if (!send_cached_file_response(req, res, path, response_mime, IMAGE_CACHE_CONTROL, NULL)) {
