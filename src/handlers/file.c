@@ -108,14 +108,14 @@ static bool is_safe_upload_preview_name(const char *name) {
 
 static bool is_profile_pic_asset(cwist_db *db, const char *name) {
     if (!db || !name || !name[0]) return false;
-    char url[512];
-    int written = snprintf(url, sizeof(url), "/assets/uploads/%s", name);
-    if (written < 0 || written >= (int)sizeof(url)) return false;
+    char profile_url[512];
+    int written_profile = snprintf(profile_url, sizeof(profile_url), "/assets/profile/%s", name);
+    if (written_profile < 0 || written_profile >= (int)sizeof(profile_url)) return false;
 
     sqlite3_stmt *stmt = NULL;
     const char *sql = "SELECT 1 FROM users WHERE profile_pic=? LIMIT 1";
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, url, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 1, profile_url, -1, SQLITE_STATIC);
     bool found = sqlite3_step(stmt) == SQLITE_ROW;
     sqlite3_finalize(stmt);
     return found;
