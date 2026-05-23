@@ -13,14 +13,13 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <zlib.h>
 
 #define TASFA_UPLOAD_DIR "data/tasfa/uploads"
 #define TASFA_DOWNLOAD_DIR "data/tasfa/downloads"
 #define TASFA_UPLOAD_CHUNK_SIZE_DEFAULT (8 * 1024 * 1024)
 #define TASFA_UPLOAD_CHUNK_SIZE_MOBILE  (4 * 1024 * 1024)
-#define TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT (128 * 1024 * 1024)
-#define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (32 * 1024 * 1024)
+#define TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT (64 * 1024)
+#define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (64 * 1024)
 
 #define TASFA_UPLOAD_TTL 86400
 #define TASFA_DOWNLOAD_TTL 86400
@@ -365,10 +364,12 @@ static void choose_upload_window(int score, int *initial_parallel, int *max_para
 }
 
 static void choose_download_profile(int score, int *initial_parallel, int *max_parallel, int *pacing_ms, int *coalesce_chunks) {
-    int initial_value = 32, max_value = 64, pace = 0, coalesce = 8;
-    if (score < 45) { initial_value = 8; max_value = 16; coalesce = 2; pace = 30; }
-    else if (score < 65) { initial_value = 16; max_value = 32; coalesce = 4; pace = 10; }
-    else if (score < 85) { initial_value = 24; max_value = 48; coalesce = 6; pace = 0; }
+    int initial_value = 8, max_value = 16, pace = 0, coalesce = 1;
+    if (score < 45) { initial_value = 3; max_value = 6; pace = 30; }
+    else if (score < 65) { initial_value = 5; max_value = 10; pace = 10; }
+    else if (score < 85) { initial_value = 6; max_value = 12; pace = 0; }
+    if (max_value > TASFA_DOWNLOAD_MAX_PARALLEL) max_value = TASFA_DOWNLOAD_MAX_PARALLEL;
+    if (initial_value > max_value) initial_value = max_value;
     if (initial_parallel) *initial_parallel = initial_value;
     if (max_parallel) *max_parallel = max_value;
     if (pacing_ms) *pacing_ms = pace;
@@ -933,100 +934,42 @@ static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
     return obj;
 }
 
-static bool maybe_gzip_response(cwist_http_request *req, cwist_http_response *res, char *data, size_t data_len) {
-    if (data_len < 1024) return false;
-    const char *accept_enc = cwist_http_header_get(req->headers, "Accept-Encoding");
-    if (!accept_enc || !strstr(accept_enc, "gzip")) return false;
-
-    z_stream zs = {0};
-    if (deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) return false;
-
-    size_t bound = deflateBound(&zs, data_len);
-    char *out = (char *)malloc(bound);
-    if (!out) { deflateEnd(&zs); return false; }
-
-    zs.next_in = (Bytef *)data;
-    zs.avail_in = (uInt)data_len;
-    zs.next_out = (Bytef *)out;
-    zs.avail_out = (uInt)bound;
-
-    int rc = deflate(&zs, Z_FINISH);
-    if (rc != Z_STREAM_END) { free(out); deflateEnd(&zs); return false; }
-
-    size_t compressed = zs.total_out;
-    deflateEnd(&zs);
-
-    if (compressed >= data_len) { free(out); return false; }
-
-    cwist_sstring_assign_len(res->body, out, compressed);
-    cwist_http_header_add(&res->headers, "Content-Encoding", "gzip");
-    free(out);
-
-    char len_buf[32];
-    snprintf(len_buf, sizeof(len_buf), "%zu", compressed);
-    cwist_http_header_add(&res->headers, "Content-Length", len_buf);
-    return true;
-}
-
 static bool send_file_slice_response(cwist_http_request *req, cwist_http_response *res, const char *path, const char *mime, long long offset, size_t amount,
                                        int chunk_index, int chunk_count) {
+    (void)req;
     int fd = open(path, O_RDONLY);
     if (fd < 0) return false;
 
-    if (amount > 0 && amount <= 65536) {
-        char *buf = ensure_read_buf(amount);
-        if (!buf) { close(fd); return false; }
-        size_t total = 0;
-        while (total < amount) {
-            ssize_t rc = pread(fd, buf + total, amount - total, (off_t)(offset + (long long)total));
-            if (rc <= 0) break;
-            total += (size_t)rc;
-        }
+    char *buf = amount > 0 ? ensure_read_buf(amount) : NULL;
+    if (amount > 0 && !buf) {
         close(fd);
-        if (total != amount) return false;
-        cwist_http_header_add(&res->headers, "Content-Type", mime ? mime : "application/octet-stream");
-        cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
-        add_keepalive_headers(res);
-        if (chunk_index >= 0) {
-            char idx_buf[32], cnt_buf[32];
-            snprintf(idx_buf, sizeof(idx_buf), "%d", chunk_index);
-            snprintf(cnt_buf, sizeof(cnt_buf), "%d", chunk_count);
-            cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Index", idx_buf);
-            cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Count", cnt_buf);
-        }
-        cwist_sstring_assign(res->body, "");
-        if (!maybe_gzip_response(req, res, buf, total)) {
-            char len_buf[32];
-            snprintf(len_buf, sizeof(len_buf), "%zu", total);
-            cwist_http_header_add(&res->headers, "Content-Length", len_buf);
-            cwist_sstring_append_len(res->body, buf, total);
-        }
-        return true;
+        return false;
     }
-
+    size_t total = 0;
+    while (total < amount) {
+        ssize_t rc = pread(fd, buf + total, amount - total, (off_t)(offset + (long long)total));
+        if (rc <= 0) break;
+        total += (size_t)rc;
+    }
+    close(fd);
+    if (total != amount) return false;
     cwist_http_header_add(&res->headers, "Content-Type", mime ? mime : "application/octet-stream");
     cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
     add_keepalive_headers(res);
-    if (chunk_index >= 0) {
-        char idx_buf[32], cnt_buf[32];
-        snprintf(idx_buf, sizeof(idx_buf), "%d", chunk_index);
-        snprintf(cnt_buf, sizeof(cnt_buf), "%d", chunk_count);
-        cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Index", idx_buf);
-        cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Count", cnt_buf);
-    }
+    char idx_buf[32], cnt_buf[32];
+    snprintf(idx_buf, sizeof(idx_buf), "%d", chunk_index);
+    snprintf(cnt_buf, sizeof(cnt_buf), "%d", chunk_count);
+    cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Index", idx_buf);
+    cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Count", cnt_buf);
     char len_buf[32];
-    snprintf(len_buf, sizeof(len_buf), "%zu", amount);
+    snprintf(len_buf, sizeof(len_buf), "%zu", total);
     cwist_http_header_add(&res->headers, "Content-Length", len_buf);
-
-    res->use_file_stream = true;
-    res->file_stream_fd = fd;
-    res->file_stream_offset = offset;
-    res->file_stream_len = amount;
-    res->file_stream_auto_close = true;
+    cwist_sstring_assign(res->body, "");
+    if (total > 0) cwist_sstring_append_len(res->body, buf, total);
     return true;
 }
 
-static bool resolve_asset_scope_path(const char *scope, const char *encoded, char *storage_path, size_t storage_len,
+static bool resolve_asset_scope_path(cwist_db *db, const char *scope, const char *encoded, char *storage_path, size_t storage_len,
                                      char *filename, size_t filename_len, const char **mime_out) {
     char *decoded = decode_segment(encoded ? encoded : "");
     bool ok = false;
@@ -1041,6 +984,23 @@ static bool resolve_asset_scope_path(const char *scope, const char *encoded, cha
         snprintf(filename, filename_len, "%s", decoded);
         if (mime_out) *mime_out = mime_type(decoded);
         ok = true;
+    } else if (!strcmp(scope ? scope : "", "profile") && is_safe_filename_simple(decoded)) {
+        char profile_url[512];
+        int written = snprintf(profile_url, sizeof(profile_url), "/assets/profile/%s", decoded);
+        if (written > 0 && written < (int)sizeof(profile_url)) {
+            sqlite3_stmt *stmt = NULL;
+            const char *sql = "SELECT 1 FROM users WHERE profile_pic=? LIMIT 1";
+            if (db && sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) == SQLITE_OK) {
+                sqlite3_bind_text(stmt, 1, profile_url, -1, SQLITE_STATIC);
+                ok = sqlite3_step(stmt) == SQLITE_ROW;
+                sqlite3_finalize(stmt);
+            }
+        }
+        if (ok) {
+            snprintf(storage_path, storage_len, "public/uploads/%s", decoded);
+            snprintf(filename, filename_len, "%s", decoded);
+            if (mime_out) *mime_out = mime_type(decoded);
+        }
     }
     cwist_free(decoded);
     return ok;
@@ -1783,8 +1743,8 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     int received = bitmap_count_set(bitmap, chunk_count);
     if (received != chunk_count) {
         cJSON *obj = build_upload_status_json(meta, upload_id);
-        cJSON_AddBoolToObject(obj, "ok", false);
-        cJSON_AddStringToObject(obj, "error", "incomplete upload: missing chunks");
+        cJSON_ReplaceItemInObject(obj, "ok", cJSON_CreateBool(false));
+        cJSON_AddStringToObject(obj, "error", "missing upload chunks");
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
         cwist_query_map_destroy(kv);
@@ -1858,6 +1818,56 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
         cwist_free(htp_tags);
         cwist_free(htp_raw_scalars);
         cwist_free(htp_balanced_scalars);
+    } else {
+        cJSON *magic_scalars = cJSON_GetObjectItem(meta, "magic_scalars");
+        if (magic_scalars) {
+            int group_count = chunk_count / 6;
+            bool has_any_scalar = false;
+            for (int i = 0; i < chunk_count && i < cJSON_GetArraySize(magic_scalars); i++) {
+                cJSON *item = cJSON_GetArrayItem(magic_scalars, i);
+                if (item && item->valuedouble != 0) { has_any_scalar = true; break; }
+            }
+            if (has_any_scalar) {
+                for (int g = 0; g < group_count; g++) {
+                    uint64_t m[6] = {0};
+                    for (int v = 0; v < 6; v++) {
+                        int ci = g * 6 + v;
+                        if (ci < chunk_count && ci < cJSON_GetArraySize(magic_scalars)) {
+                            cJSON *item = cJSON_GetArrayItem(magic_scalars, ci);
+                            m[v] = item ? (uint64_t)item->valuedouble : 0;
+                        }
+                    }
+                    uint64_t L1 = (m[0] + m[1] + m[2]) % modulus_M;
+                    uint64_t L2 = (m[2] + m[3] + m[4]) % modulus_M;
+                    uint64_t L3 = (m[4] + m[5] + m[0]) % modulus_M;
+                    if (L1 != L2 || L2 != L3) {
+                        const char *current_bitmap = json_string(meta, "received_bitmap", "");
+                        char *mutable_bitmap = (char *)cwist_alloc((size_t)chunk_count + 1);
+                        if (mutable_bitmap) {
+                            memcpy(mutable_bitmap, current_bitmap, chunk_count + 1);
+                            for (int v = 0; v < 6; v++) {
+                                int ci = g * 6 + v;
+                                if (ci < chunk_count) mutable_bitmap[ci] = '0';
+                            }
+                            cJSON_ReplaceItemInObject(meta, "received_bitmap", cJSON_CreateString(mutable_bitmap));
+                            cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(bitmap_count_set(mutable_bitmap, chunk_count)));
+                            save_upload_session_state_bin(upload_id, chunk_count, mutable_bitmap);
+                            save_upload_session_state(upload_id, meta);
+                            cwist_free(mutable_bitmap);
+                        }
+                        cJSON *obj = build_upload_status_json(meta, upload_id);
+                        cJSON_ReplaceItemInObject(obj, "ok", cJSON_CreateBool(false));
+                        cJSON_AddStringToObject(obj, "error", "htp line sum mismatch - chunks reset for retry");
+                        cJSON_Delete(meta);
+                        close_upload_session_lock(lock_fd);
+                        cwist_query_map_destroy(kv);
+                        cwist_free(suspects);
+                        send_json_response(res, obj, (cwist_http_status_t)409);
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     if (suspect_count > 0) {
@@ -1882,7 +1892,7 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
         save_upload_session(upload_id, meta);
 
         cJSON *obj = build_upload_status_json(meta, upload_id);
-        cJSON_AddBoolToObject(obj, "ok", false);
+        cJSON_ReplaceItemInObject(obj, "ok", cJSON_CreateBool(false));
         cJSON_AddStringToObject(obj, "htp_status", "needs_retry");
         cJSON_AddItemToObject(obj, "retry_targets", cJSON_Duplicate(retry_arr, 1));
         cJSON_AddItemToObject(obj, "suspicion_scores", cJSON_Duplicate(score_arr, 1));
@@ -2096,7 +2106,7 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
 void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response *res) {
     char path[PATH_MAX], filename[512];
     const char *mime = NULL;
-    if (!resolve_asset_scope_path(cwist_query_map_get(req->path_params, "scope"),
+    if (!resolve_asset_scope_path(req->db, cwist_query_map_get(req->path_params, "scope"),
                                   cwist_query_map_get(req->path_params, "filename"),
                                   path, sizeof(path), filename, sizeof(filename), &mime)) {
         send_json_response(res, session_error_json("asset not found"), CWIST_HTTP_NOT_FOUND);

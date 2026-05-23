@@ -86,6 +86,23 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
             cwist_sstring_append(b, "<p class='board-card-desc'>");
             cwist_sstring_append_escaped(b, desc && desc->valuestring && desc->valuestring[0] ? desc->valuestring : "");
             cwist_sstring_append(b, "</p>");
+            cwist_sstring_append(b, "<div class='board-point-row'>");
+            cwist_sstring_append(b, "<span class='board-point board-point-primary'><span>POINT</span>");
+            char score_buf[32];
+            snprintf(score_buf, sizeof(score_buf), "%.0f", score ? score->valuedouble : 0.0);
+            cwist_sstring_append(b, score_buf);
+            cwist_sstring_append(b, "</span>");
+            cwist_sstring_append(b, "<span class='board-point'><span>POSTS</span>");
+            char posts_buf[32];
+            snprintf(posts_buf, sizeof(posts_buf), "%d", json_int(bo, "post_count", 0));
+            cwist_sstring_append(b, posts_buf);
+            cwist_sstring_append(b, "</span>");
+            if (json_int(bo, "admin_only", 0)) {
+                cwist_sstring_append(b, "<span class='board-point'><span>ACCESS</span>ADMIN</span>");
+            } else {
+                cwist_sstring_append(b, "<span class='board-point'><span>ACCESS</span>PUBLIC</span>");
+            }
+            cwist_sstring_append(b, "</div>");
 
             cJSON *posts = cJSON_GetObjectItem(bo, "posts");
             if (posts && cJSON_GetArraySize(posts) > 0) {

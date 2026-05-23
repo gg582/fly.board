@@ -1536,8 +1536,8 @@
             }
             if (pending.length > 0) {
                 var nextMissing = pending[0];
-                asset.ui.status.textContent = 'Resending missing chunk ' + (nextMissing + 1) + '/' + asset.totalChunks + '...';
-                asset.pendingChunks = [nextMissing];
+                asset.ui.status.textContent = 'Resending ' + pending.length + ' missing chunk(s) from ' + (nextMissing + 1) + '/' + asset.totalChunks + '...';
+                asset.pendingChunks = pending;
                 asset.retryCounts = new Array(asset.totalChunks).fill(0);
                 runSimpleChunkUpload(asset, file);
             } else {
