@@ -228,7 +228,7 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
                     const char *data_path = f->data;
                     profile_pic_url = (char *)cwist_alloc(512);
                     if (strncmp(data_path, "public/uploads/", 15) == 0) {
-                        snprintf(profile_pic_url, 512, "/assets/uploads/%s", data_path + 15);
+                        snprintf(profile_pic_url, 512, "/assets/profile/%s", data_path + 15);
                     } else if (strncmp(data_path, "public/", 7) == 0) {
                         snprintf(profile_pic_url, 512, "/assets/%s", data_path + 7);
                     } else {

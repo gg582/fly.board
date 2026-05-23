@@ -201,6 +201,57 @@ void handler_asset_upload(cwist_http_request *req, cwist_http_response *res) {
     cwist_free(decoded);
 }
 
+
+void handler_asset_profile_upload(cwist_http_request *req, cwist_http_response *res) {
+    const char *encoded = cwist_query_map_get(req->path_params, "filename");
+    if (!encoded || !encoded[0]) { send_upload_not_found(res); return; }
+
+    char *decoded = decode_upload_path_segment(encoded);
+    if (!decoded) {
+        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
+        cwist_sstring_assign(res->body, "decode error");
+        return;
+    }
+    if (!is_safe_upload_name(decoded)) {
+        cwist_free(decoded);
+        send_upload_not_found(res);
+        return;
+    }
+
+    if (!is_profile_pic_asset(req->db, decoded)) {
+        cwist_free(decoded);
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Not a profile picture asset.");
+        return;
+    }
+
+    char path[PATH_MAX];
+    int written = snprintf(path, sizeof(path), "public/uploads/%s", decoded);
+    if (written < 0 || written >= (int)sizeof(path)) {
+        cwist_free(decoded);
+        send_upload_not_found(res);
+        return;
+    }
+
+    char detected_mime[128] = {0};
+    const char *response_mime = mime_type(decoded);
+    if (mime_type_from_data(path, detected_mime, sizeof(detected_mime))) response_mime = detected_mime;
+
+    if (strncmp(response_mime, "image/", 6) != 0) {
+        cwist_free(decoded);
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Profile picture asset is not an image.");
+        return;
+    }
+
+    if (!send_cached_file_response(req, res, path, response_mime, IMAGE_CACHE_CONTROL, NULL)) {
+        cwist_free(decoded);
+        send_upload_not_found(res);
+        return;
+    }
+    cwist_free(decoded);
+}
+
 void handler_file_repo(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
