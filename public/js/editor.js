@@ -22,6 +22,7 @@
     var isSubmitting = false;
     var AssetRegistry = [];
     var USE_TASFA = window.BLOG_USE_TASFA !== false;
+    var USE_FORMATTER = window.use_formatter === true || window.BLOG_USE_FORMATTER === true;
     var PLAIN_UPLOAD_ENDPOINT = '/api/upload';
     var UPLOAD_INIT_ENDPOINT = '/file/upload/init';
     var UPLOAD_COMPLETE_ENDPOINT = '/file/upload/complete';
@@ -125,6 +126,53 @@
             if (/^@@CODEBLOCK\d+@@$/.test(trimmed)) {
                 html.push(trimmed);
                 i += 1;
+                continue;
+            }
+
+            if (/^( {4}|\t)/.test(line)) {
+                var indented = [];
+                while (i < lines.length) {
+                    var codeLine = lines[i];
+                    if (/^( {4}|\t)/.test(codeLine)) {
+                        indented.push(codeLine);
+                        i += 1;
+                        continue;
+                    }
+                    if (!codeLine.trim()) {
+                        indented.push('');
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+
+                if (USE_FORMATTER) {
+                    var minIndent = Infinity;
+                    indented.forEach(function(codeLine) {
+                        if (!codeLine.trim()) return;
+                        var m = codeLine.match(/^[ \t]*/);
+                        var width = m ? m[0].replace(/\t/g, '    ').length : 0;
+                        if (width < minIndent) minIndent = width;
+                    });
+
+                    if (!isFinite(minIndent)) minIndent = 0;
+
+                    indented = indented.map(function(codeLine) {
+                        if (!codeLine.trim() || minIndent <= 0) return codeLine;
+                        var col = 0;
+                        var cut = 0;
+                        while (cut < codeLine.length && col < minIndent) {
+                            var ch = codeLine.charAt(cut);
+                            if (ch === ' ') col += 1;
+                            else if (ch === '\t') col += 4;
+                            else break;
+                            cut += 1;
+                        }
+                        return codeLine.slice(cut);
+                    });
+                }
+
+                html.push('<pre><code>' + escapeHtml(indented.join('\n')) + '</code></pre>');
                 continue;
             }
 
