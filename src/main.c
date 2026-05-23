@@ -206,6 +206,7 @@ int main(void) {
 
     cwist_app_get(app, "/assets/img/:filename", handler_asset_img);
     cwist_app_get(app, "/assets/uploads/:filename", handler_asset_upload);
+    cwist_app_get(app, "/assets/profile/:filename", handler_asset_profile_upload);
     cwist_app_get(app, "/assets/tasfa/:scope/:filename/handshake", handler_asset_tasfa_handshake);
     cwist_app_get(app, "/assets/tasfa/:scope/:filename/chunk/:chunk_index", handler_asset_tasfa_chunk);
     cwist_app_static(app, "/assets/images", "public/images");
