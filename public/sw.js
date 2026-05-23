@@ -10,6 +10,7 @@ self.addEventListener('fetch', function(event) {
     var url = event.request.url;
     // Don't intercept cross-origin requests (multi-port)
     if (new URL(url).origin !== self.location.origin) return;
+    if (event.request.destination === 'image') return;
     var isTasfa = url.includes('/tasfa/') || url.includes('/file/upload') || url.includes('/file/download');
     if (!isTasfa || event.request.method !== 'GET') return;
     var promise = fetch(event.request).catch(function(err) {

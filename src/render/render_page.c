@@ -9,6 +9,28 @@
 #include <string.h>
 #include <stdio.h>
 
+static __thread char g_nav_profile_name[128];
+static __thread char g_nav_profile_account[128];
+
+void render_set_nav_profile(const char *display_name, const char *account_name) {
+    if (display_name && display_name[0]) {
+        snprintf(g_nav_profile_name, sizeof(g_nav_profile_name), "%s", display_name);
+    } else {
+        g_nav_profile_name[0] = '\0';
+    }
+
+    if (account_name && account_name[0]) {
+        snprintf(g_nav_profile_account, sizeof(g_nav_profile_account), "%s", account_name);
+    } else {
+        g_nav_profile_account[0] = '\0';
+    }
+}
+
+static void render_clear_nav_profile(void) {
+    g_nav_profile_name[0] = '\0';
+    g_nav_profile_account[0] = '\0';
+}
+
 cwist_sstring *render_page(const char *title, const char *body_html, bool dark, const char *user_role, const char *profile_pic) {
     cwist_html_element_t *html = cwist_html_element_create("html");
     cwist_html_element_add_attr(html, "lang", "ko");
@@ -249,6 +271,49 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *navlinks = cwist_html_element_create("div");
     cwist_html_element_add_class(navlinks, "nav-links");
 
+    if (user_role && user_role[0]) {
+        const char *mobile_name = g_nav_profile_name[0] ? g_nav_profile_name : (strcmp(user_role, "admin") == 0 ? "Admin" : "Profile");
+        const char *mobile_account = g_nav_profile_account[0] ? g_nav_profile_account : (strcmp(user_role, "admin") == 0 ? "@admin" : "@account");
+
+        cwist_html_element_t *mobile_profile = cwist_html_element_create("a");
+        cwist_html_element_add_attr(mobile_profile, "href", "/profile");
+        cwist_html_element_add_class(mobile_profile, "mobile-nav-profile");
+        cwist_html_element_add_class(mobile_profile, "mobile-only");
+
+        if (profile_pic && profile_pic[0]) {
+            cwist_html_element_t *profile_img = cwist_html_element_create("img");
+            cwist_html_element_add_attr(profile_img, "src", profile_pic);
+            cwist_html_element_add_attr(profile_img, "alt", "");
+            cwist_html_element_add_attr(profile_img, "loading", "lazy");
+            cwist_html_element_add_attr(profile_img, "decoding", "async");
+            cwist_html_element_add_class(profile_img, "mobile-nav-profile-avatar");
+            cwist_html_element_add_child(mobile_profile, profile_img);
+        } else {
+            cwist_html_element_t *profile_fallback = cwist_html_element_create("span");
+            cwist_html_element_add_attr(profile_fallback, "aria-hidden", "true");
+            cwist_html_element_add_class(profile_fallback, "mobile-nav-profile-avatar");
+            cwist_html_element_add_class(profile_fallback, "mobile-nav-profile-fallback");
+            cwist_html_element_set_text(profile_fallback, "◇");
+            cwist_html_element_add_child(mobile_profile, profile_fallback);
+        }
+
+        cwist_html_element_t *profile_text = cwist_html_element_create("span");
+        cwist_html_element_add_class(profile_text, "mobile-nav-profile-text");
+
+        cwist_html_element_t *profile_name = cwist_html_element_create("span");
+        cwist_html_element_add_class(profile_name, "mobile-nav-profile-name");
+        cwist_html_element_set_text(profile_name, mobile_name);
+        cwist_html_element_add_child(profile_text, profile_name);
+
+        cwist_html_element_t *profile_account = cwist_html_element_create("span");
+        cwist_html_element_add_class(profile_account, "mobile-nav-profile-account");
+        cwist_html_element_set_text(profile_account, mobile_account);
+        cwist_html_element_add_child(profile_text, profile_account);
+
+        cwist_html_element_add_child(mobile_profile, profile_text);
+        cwist_html_element_add_child(navlinks, mobile_profile);
+    }
+
     cwist_html_element_t *search_form = cwist_html_element_create("form");
     cwist_html_element_add_attr(search_form, "action", "/search");
     cwist_html_element_add_attr(search_form, "method", "get");
@@ -302,20 +367,24 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         if (display_pp && display_pp[0]) {
             cwist_html_element_t *p_link = cwist_html_element_create("a");
             cwist_html_element_add_attr(p_link, "href", "/profile");
+            cwist_html_element_add_attr(p_link, "aria-label", "Profile");
+            cwist_html_element_add_class(p_link, "nav-profile-entry");
+            cwist_html_element_add_class(p_link, "nav-profile-icon-link");
+            cwist_html_element_add_class(p_link, "desktop-only");
             cwist_html_element_t *img = cwist_html_element_create("img");
-            if (strncmp(display_pp, "/assets/uploads/", 16) == 0 || strncmp(display_pp, "/file/download/", 15) == 0) {
-                cwist_html_element_add_attr(img, "src", "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
-                cwist_html_element_add_attr(img, "data-tasfa-download", display_pp);
-            } else {
-                cwist_html_element_add_attr(img, "src", display_pp);
-            }
+            cwist_html_element_add_attr(img, "src", display_pp);
+            cwist_html_element_add_attr(img, "loading", "lazy");
+            cwist_html_element_add_attr(img, "decoding", "async");
             cwist_html_element_add_attr(img, "width", "24");
             cwist_html_element_add_attr(img, "height", "24");
             cwist_html_element_add_class(img, "profile-pic-small");
             cwist_html_element_add_child(p_link, img);
             cwist_html_element_add_child(navlinks, p_link);
         } else {
-            cwist_html_element_add_child(navlinks, nav_link("/profile", "Profile"));
+            cwist_html_element_t *profile_link = nav_link("/profile", "Profile");
+            cwist_html_element_add_class(profile_link, "nav-profile-entry");
+            cwist_html_element_add_class(profile_link, "desktop-only");
+            cwist_html_element_add_child(navlinks, profile_link);
         }
         cwist_html_element_add_child(navlinks, nav_link("/logout", "Logout"));
     } else {
@@ -422,7 +491,9 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         cwist_sstring_assign(doc, "<!doctype html>");
         cwist_sstring_append_sstring(doc, out);
         cwist_sstring_destroy(out);
+        render_clear_nav_profile();
         return doc;
     }
+    render_clear_nav_profile();
     return NULL;
 }

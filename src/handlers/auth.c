@@ -288,7 +288,7 @@ void handler_password_change_get(cwist_http_request *req, cwist_http_response *r
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     char *pp = get_profile_pic(req->db, uid, role);
-    send_html_res(res, render_password_change(is_dark(req), NULL));
+    send_html_res(res, render_password_change(is_dark(req), role, pp, NULL));
     free(pp);
 }
 
@@ -297,6 +297,7 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     bool dark = is_dark(req);
+    char *pp = get_profile_pic(req->db, uid, role);
 
     cwist_query_map *kv = cwist_query_map_create();
     cwist_query_map_parse(kv, req->body->data);
@@ -306,20 +307,23 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
 
     if (!current || !new_pw || !confirm || strlen(new_pw) < 6) {
         CWIST_LOG_WARN("Password change failed: invalid input uid=%d", uid);
-        send_html_res(res, render_password_change(dark, "Invalid input (password min 6 chars)"));
+        send_html_res(res, render_password_change(dark, role, pp, "Invalid input (password min 6 chars)"));
+        free(pp);
         cwist_query_map_destroy(kv);
         return;
     }
     if (strcmp(new_pw, confirm) != 0) {
         CWIST_LOG_WARN("Password change failed: new passwords do not match uid=%d", uid);
-        send_html_res(res, render_password_change(dark, "New passwords do not match"));
+        send_html_res(res, render_password_change(dark, role, pp, "New passwords do not match"));
+        free(pp);
         cwist_query_map_destroy(kv);
         return;
     }
 
     cJSON *user = db_user_get_by_id(req->db, uid);
     if (!user) {
-        send_html_res(res, render_password_change(dark, "User not found"));
+        send_html_res(res, render_password_change(dark, role, pp, "User not found"));
+        free(pp);
         cwist_query_map_destroy(kv);
         return;
     }
@@ -328,7 +332,8 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
     if (!hash || !hash->valuestring || !auth_verify_password(current, hash->valuestring)) {
         CWIST_LOG_WARN("Password change failed: current password incorrect uid=%d", uid);
         cJSON_Delete(user);
-        send_html_res(res, render_password_change(dark, "Current password is incorrect"));
+        send_html_res(res, render_password_change(dark, role, pp, "Current password is incorrect"));
+        free(pp);
         cwist_query_map_destroy(kv);
         return;
     }
@@ -336,7 +341,8 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
     char new_hash[256];
     if (!auth_hash_password(new_pw, new_hash, sizeof(new_hash))) {
         cJSON_Delete(user);
-        send_html_res(res, render_password_change(dark, "Server error"));
+        send_html_res(res, render_password_change(dark, role, pp, "Server error"));
+        free(pp);
         cwist_query_map_destroy(kv);
         return;
     }
@@ -345,6 +351,7 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
     CWIST_LOG_INFO("Password changed: uid=%d", uid);
     cJSON_Delete(user);
     cwist_query_map_destroy(kv);
+    free(pp);
 
     redirect(res, "/profile");
 }
@@ -373,4 +380,3 @@ void handler_user_profile_get(cwist_http_request *req, cwist_http_response *res)
     cJSON_Delete(user);
     free(pp);
 }
-

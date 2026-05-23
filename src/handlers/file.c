@@ -2,10 +2,76 @@
 #include "handlers_internal.h"
 #include <ctype.h>
 #include <sys/stat.h>
+#include <time.h>
+
+#define IMAGE_CACHE_CONTROL "public, max-age=31536000, immutable"
+#define FILE_CACHE_CONTROL "public, max-age=86400"
 
 static void send_upload_not_found(cwist_http_response *res) {
     res->status_code = CWIST_HTTP_NOT_FOUND;
     cwist_sstring_assign(res->body, "Not found");
+}
+
+static void http_date(time_t t, char *out, size_t out_len) {
+    struct tm tm_buf;
+    if (!gmtime_r(&t, &tm_buf)) {
+        out[0] = '\0';
+        return;
+    }
+    strftime(out, out_len, "%a, %d %b %Y %H:%M:%S GMT", &tm_buf);
+}
+
+static void file_etag(const struct stat *st, char *out, size_t out_len) {
+    snprintf(out, out_len, "\"%llx-%llx\"",
+             (unsigned long long)st->st_size,
+             (unsigned long long)st->st_mtime);
+}
+
+static bool request_cache_fresh(cwist_http_request *req, const char *etag, const char *last_modified) {
+    const char *if_none = cwist_http_header_get(req->headers, "If-None-Match");
+    if (if_none && etag && strstr(if_none, etag)) return true;
+
+    const char *if_mod = cwist_http_header_get(req->headers, "If-Modified-Since");
+    if (if_mod && last_modified && strcmp(if_mod, last_modified) == 0) return true;
+
+    return false;
+}
+
+static bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res,
+                                      const char *path, const char *mime,
+                                      const char *cache_control, bool *not_modified) {
+    struct stat st;
+    if (not_modified) *not_modified = false;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0) return false;
+
+    char etag[64];
+    char last_modified[64];
+    file_etag(&st, etag, sizeof(etag));
+    http_date(st.st_mtime, last_modified, sizeof(last_modified));
+
+    cwist_http_header_add(&res->headers, "Content-Type", mime ? mime : "application/octet-stream");
+    cwist_http_header_add(&res->headers, "Cache-Control", cache_control ? cache_control : FILE_CACHE_CONTROL);
+    cwist_http_header_add(&res->headers, "ETag", etag);
+    if (last_modified[0]) cwist_http_header_add(&res->headers, "Last-Modified", last_modified);
+
+    if (request_cache_fresh(req, etag, last_modified)) {
+        res->status_code = (cwist_http_status_t)304;
+        cwist_sstring_assign(res->body, "");
+        if (not_modified) *not_modified = true;
+        return true;
+    }
+
+    size_t sz = 0;
+    char *data = file_read(path, &sz);
+    if (!data) return false;
+
+    char slen[32];
+    snprintf(slen, sizeof(slen), "%zu", sz);
+    cwist_http_header_add(&res->headers, "Content-Length", slen);
+    cwist_sstring_assign(res->body, "");
+    cwist_sstring_append_len(res->body, data, sz);
+    cwist_free(data);
+    return true;
 }
 
 static char *decode_upload_path_segment(const char *src) {
@@ -33,6 +99,28 @@ static bool is_safe_upload_name(const char *name) {
     return strchr(name, '/') == NULL && strchr(name, '\\') == NULL;
 }
 
+static bool is_safe_upload_preview_name(const char *name) {
+    if (!name) return false;
+    if (strncmp(name, ".thumbs/", 8) == 0) return is_safe_upload_name(name + 8);
+    if (strncmp(name, ".previews/", 10) == 0) return is_safe_upload_name(name + 10);
+    return false;
+}
+
+static bool is_profile_pic_asset(cwist_db *db, const char *name) {
+    if (!db || !name || !name[0]) return false;
+    char url[512];
+    int written = snprintf(url, sizeof(url), "/assets/uploads/%s", name);
+    if (written < 0 || written >= (int)sizeof(url)) return false;
+
+    sqlite3_stmt *stmt = NULL;
+    const char *sql = "SELECT 1 FROM users WHERE profile_pic=? LIMIT 1";
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, url, -1, SQLITE_STATIC);
+    bool found = sqlite3_step(stmt) == SQLITE_ROW;
+    sqlite3_finalize(stmt);
+    return found;
+}
+
 void handler_asset_img(cwist_http_request *req, cwist_http_response *res) {
     const char *encoded = cwist_query_map_get(req->path_params, "filename");
     if (!encoded || !encoded[0]) { send_upload_not_found(res); return; }
@@ -57,27 +145,12 @@ void handler_asset_img(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    size_t sz = 0;
-    char *data = file_read(path, &sz);
-    if (!data) {
+    if (!send_cached_file_response(req, res, path, mime_type(decoded), IMAGE_CACHE_CONTROL, NULL)) {
         cwist_free(decoded);
         send_upload_not_found(res);
         return;
     }
 
-    cwist_http_header_add(&res->headers, "Content-Type", mime_type(decoded));
-    if (strcmp(decoded, "logo.png") == 0 || (g_config.blog_logo[0] && strcmp(decoded, g_config.blog_logo) == 0)) {
-        cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=31536000, immutable");
-    } else {
-        cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
-    }
-    char slen[32];
-    snprintf(slen, sizeof(slen), "%zu", sz);
-    cwist_http_header_add(&res->headers, "Content-Length", slen);
-    cwist_sstring_assign(res->body, "");
-    cwist_sstring_append_len(res->body, data, sz);
-
-    cwist_free(data);
     cwist_free(decoded);
 }
 
@@ -91,43 +164,41 @@ void handler_asset_upload(cwist_http_request *req, cwist_http_response *res) {
         cwist_sstring_assign(res->body, "decode error");
         return;
     }
-    if (!is_safe_upload_name(decoded)) {
+    bool top_level_upload = is_safe_upload_name(decoded);
+    bool derived_upload = is_safe_upload_preview_name(decoded);
+    if (!top_level_upload && !derived_upload) {
         cwist_free(decoded);
         send_upload_not_found(res);
         return;
     }
 
-    /* Allow direct access to thumbnails and audio previews */
-    if (strncmp(decoded, ".thumbs/", 8) == 0 || strncmp(decoded, ".previews/", 10) == 0) {
-        char path[PATH_MAX];
-        int written = snprintf(path, sizeof(path), "public/uploads/%s", decoded);
-        if (written < 0 || written >= (int)sizeof(path)) {
-            cwist_free(decoded);
-            send_upload_not_found(res);
-            return;
-        }
-        size_t sz = 0;
-        char *data = file_read(path, &sz);
-        if (!data) {
-            cwist_free(decoded);
-            send_upload_not_found(res);
-            return;
-        }
-        cwist_http_header_add(&res->headers, "Content-Type", mime_type(decoded));
-        cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
-        char slen[32];
-        snprintf(slen, sizeof(slen), "%zu", sz);
-        cwist_http_header_add(&res->headers, "Content-Length", slen);
-        cwist_sstring_assign(res->body, "");
-        cwist_sstring_append_len(res->body, data, sz);
-        cwist_free(data);
+    char path[PATH_MAX];
+    int written = snprintf(path, sizeof(path), "public/uploads/%s", decoded);
+    if (written < 0 || written >= (int)sizeof(path)) {
         cwist_free(decoded);
+        send_upload_not_found(res);
         return;
     }
 
+    char detected_mime[128] = {0};
+    const char *response_mime = mime_type(decoded);
+    if (mime_type_from_data(path, detected_mime, sizeof(detected_mime))) {
+        response_mime = detected_mime;
+    }
+
+    if (top_level_upload && (!is_profile_pic_asset(req->db, decoded) || strncmp(response_mime, "image/", 6) != 0)) {
+        cwist_free(decoded);
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Direct asset fetch disabled; use the reliable transfer path.");
+        return;
+    }
+
+    if (!send_cached_file_response(req, res, path, response_mime, IMAGE_CACHE_CONTROL, NULL)) {
+        cwist_free(decoded);
+        send_upload_not_found(res);
+        return;
+    }
     cwist_free(decoded);
-    res->status_code = CWIST_HTTP_FORBIDDEN;
-    cwist_sstring_assign(res->body, "Direct asset fetch disabled; use the reliable transfer path.");
 }
 
 void handler_file_repo(cwist_http_request *req, cwist_http_response *res) {
@@ -186,6 +257,7 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     const char *path = (jpath && jpath->type == cJSON_String && jpath->valuestring) ? jpath->valuestring : "";
     const char *filename = (jfilename && jfilename->type == cJSON_String && jfilename->valuestring) ? jfilename->valuestring : "download";
     const char *mime = (jmime && jmime->type == cJSON_String && jmime->valuestring) ? jmime->valuestring : "application/octet-stream";
+    bool is_image = strncmp(mime, "image/", 6) == 0;
 
     struct stat st;
     if (stat(path, &st) != 0 || st.st_size <= 0) {
@@ -194,28 +266,18 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    size_t sz = 0;
-    char *data = file_read(path, &sz);
-    if (!data) {
+    char disp[512];
+    snprintf(disp, sizeof(disp), "%s; filename=\"%s\"", is_image ? "inline" : "attachment", filename);
+    cwist_http_header_add(&res->headers, "Content-Disposition", disp);
+
+    bool not_modified = false;
+    if (!send_cached_file_response(req, res, path, mime, is_image ? IMAGE_CACHE_CONTROL : FILE_CACHE_CONTROL, &not_modified)) {
         cJSON_Delete(file);
         send_upload_not_found(res);
         return;
     }
 
-    char disp[512];
-    snprintf(disp, sizeof(disp), "attachment; filename=\"%s\"", filename);
-    cwist_http_header_add(&res->headers, "Content-Type", mime);
-    cwist_http_header_add(&res->headers, "Content-Disposition", disp);
-    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
-    char slen[32];
-    snprintf(slen, sizeof(slen), "%zu", sz);
-    cwist_http_header_add(&res->headers, "Content-Length", slen);
-    cwist_sstring_assign(res->body, "");
-    cwist_sstring_append_len(res->body, data, sz);
-
-    db_file_increment_download(req->db, atoi(id_str));
-
-    cwist_free(data);
+    if (!not_modified) db_file_increment_download(req->db, atoi(id_str));
     cJSON_Delete(file);
 }
 

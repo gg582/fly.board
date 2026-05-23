@@ -52,7 +52,7 @@ cJSON *db_file_get(cwist_db *db, int id) {
 
 cJSON *db_file_list_by_post(cwist_db *db, int post_id) {
     const char *sql =
-        "SELECT a.id, a.filename, a.mime_type, a.file_path, a.size, a.created_at "
+        "SELECT a.id, a.filename, a.mime_type, a.file_path, a.size, a.created_at, a.thumb_path, a.preview_path "
         "FROM files a "
         "LEFT JOIN files b ON a.post_id = b.post_id AND a.filename = b.filename AND a.id < b.id "
         "WHERE a.post_id = ? AND b.id IS NULL "

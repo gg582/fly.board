@@ -495,6 +495,8 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 if (!fname || !fname->valuestring || fname->valuestring[0] == '\0') continue;
                 cJSON *fid = cJSON_GetObjectItem(f, "id");
                 cJSON *stype = cJSON_GetObjectItem(f, "mime_type");
+                cJSON *jthumb = cJSON_GetObjectItem(f, "thumb_path");
+                const char *thumb_path = (jthumb && jthumb->valuestring && jthumb->valuestring[0]) ? jthumb->valuestring : "";
                 char fid_buf2[32];
                 snprintf(fid_buf2, sizeof(fid_buf2), "%d", fid->valueint);
                 const char *mime = stype && stype->valuestring ? stype->valuestring : "";
@@ -505,9 +507,15 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 cwist_sstring_append(b, "<div class='post-attachment-item' style='border:1px solid var(--glass-border);background:color-mix(in srgb,var(--glass-bg) 90%,transparent);padding:10px'>");
 
                 if (is_image) {
-                    cwist_sstring_append(b, "<img data-tasfa-download='/file/download/");
-                    cwist_sstring_append(b, fid_buf2);
-                    cwist_sstring_append(b, "' style='max-width:100%;height:auto;display:block' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'>");
+                    if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
+                        cwist_sstring_append(b, "<img src='/assets/uploads/");
+                        cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
+                        cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block'>");
+                    } else {
+                        cwist_sstring_append(b, "<img data-tasfa-download='/file/download/");
+                        cwist_sstring_append(b, fid_buf2);
+                        cwist_sstring_append(b, "' style='max-width:100%;height:auto;display:block' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'>");
+                    }
                     cwist_sstring_append(b, "<div style='margin-top:8px;font-size:13px;word-break:break-all'>");
                     cwist_sstring_append_escaped(b, fname->valuestring);
                     cwist_sstring_append(b, "</div>");

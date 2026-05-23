@@ -5,10 +5,11 @@
 #include <cwist/core/sstring/sstring.h>
 #include <cjson/cJSON.h>
 
+void render_set_nav_profile(const char *display_name, const char *account_name);
 cwist_sstring *render_page(const char *title, const char *body_html, bool dark, const char *user_role, const char *profile_pic);
 cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, const char *profile_pic, bool is_own_profile);
 cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewer_role, const char *profile_pic, const char *error);
-cwist_sstring *render_password_change(bool dark, const char *error);
+cwist_sstring *render_password_change(bool dark, const char *user_role, const char *profile_pic, const char *error);
 cwist_sstring *render_login(bool dark, const char *error);
 cwist_sstring *render_register(bool dark, const char *error);
 cwist_sstring *render_post_list(cJSON *posts, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id);
