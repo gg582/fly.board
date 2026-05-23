@@ -428,7 +428,7 @@
     function upgradeWithin(root) {
         if (!root || !root.querySelectorAll) return;
         root.querySelectorAll('.markdown-body img[src^="blob:"], .markdown-body video[src^="blob:"], .markdown-body audio[src^="blob:"]').forEach(function(el) { el.remove(); });
-        root.querySelectorAll('img[src^="/file/download/"], img[src^="/assets/img/"], img[src^="/assets/uploads/"], img[data-tasfa-download]').forEach(upgradeMediaElement);
+        root.querySelectorAll('img[data-tasfa-download]').forEach(upgradeMediaElement);
         root.querySelectorAll('video[src^="/file/download/"], video[data-tasfa-download], audio[src^="/file/download/"], audio[data-tasfa-download]').forEach(upgradeMediaElement);
         root.querySelectorAll('a[data-tasfa-download-link], a[href^="/file/download/"]').forEach(upgradeDownloadLink);
         root.querySelectorAll('.markdown-body img, .markdown-body video, .markdown-body audio').forEach(wrapMediaForDownload);

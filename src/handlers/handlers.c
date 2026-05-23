@@ -35,6 +35,7 @@ void redirect(cwist_http_response *res, const char *url) {
 char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     if (uid <= 0) {
         if (role && strcmp(role, "admin") == 0) {
+            render_set_nav_profile("Admin", "@admin");
             if (g_config.blog_logo[0]) {
                 char *buf = (char *)malloc(512);
                 snprintf(buf, 512, "/assets/img/%s", g_config.blog_logo);
@@ -42,11 +43,13 @@ char *get_profile_pic(cwist_db *db, int uid, const char *role) {
             }
             return strdup("/assets/img/logo.png");
         }
+        render_set_nav_profile(NULL, NULL);
         return NULL;
     }
     cJSON *user = db_user_get_by_id(db, uid);
     if (!user) {
         if (role && strcmp(role, "admin") == 0) {
+            render_set_nav_profile("Admin", "@admin");
             if (g_config.blog_logo[0]) {
                 char *buf = (char *)malloc(512);
                 snprintf(buf, 512, "/assets/img/%s", g_config.blog_logo);
@@ -54,8 +57,18 @@ char *get_profile_pic(cwist_db *db, int uid, const char *role) {
             }
             return strdup("/assets/img/logo.png");
         }
+        render_set_nav_profile(NULL, NULL);
         return NULL;
     }
+    cJSON *username = cJSON_GetObjectItem(user, "username");
+    cJSON *nickname = cJSON_GetObjectItem(user, "nickname");
+    const char *uname = (username && username->type == cJSON_String && username->valuestring) ? username->valuestring : "";
+    const char *nname = (nickname && nickname->type == cJSON_String && nickname->valuestring) ? nickname->valuestring : "";
+    char account[140];
+    if (uname[0]) snprintf(account, sizeof(account), "@%s", uname);
+    else snprintf(account, sizeof(account), "%s", role && role[0] ? role : "@account");
+    render_set_nav_profile(nname[0] ? nname : (uname[0] ? uname : "Profile"), account);
+
     cJSON *pp = cJSON_GetObjectItem(user, "profile_pic");
     char *res = NULL;
     if (pp && pp->type == cJSON_String && pp->valuestring[0]) {
@@ -170,4 +183,3 @@ void handler_sw_js(cwist_http_request *req, cwist_http_response *res) {
 }
 
 /* render_file_detail declared in render.h */
-

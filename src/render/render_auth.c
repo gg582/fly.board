@@ -28,7 +28,7 @@ cwist_sstring *render_register(bool dark, const char *error) {
     return page;
 }
 
-cwist_sstring *render_password_change(bool dark, const char *error) {
+cwist_sstring *render_password_change(bool dark, const char *user_role, const char *profile_pic, const char *error) {
     const char *fields =
         "<label>Current Password</label><input name='current_password' type='password' placeholder='Current password' required>"
         "<label>New Password</label><input name='new_password' type='password' placeholder='min 6 chars' required>"
@@ -36,7 +36,7 @@ cwist_sstring *render_password_change(bool dark, const char *error) {
     cwist_sstring *body = build_form("Change Password", "/account/password", "post", fields, "Update Password", error, dark);
     cwist_sstring_append(body, "<p style='text-align:center'><a href='/account/settings'>Back to settings</a></p>");
     cwist_sstring_append(body, login_register_script);
-    cwist_sstring *page = render_page("Change Password", body->data, dark, "user", NULL);
+    cwist_sstring *page = render_page("Change Password", body->data, dark, user_role, profile_pic);
     cwist_sstring_destroy(body);
     return page;
 }
