@@ -90,7 +90,7 @@ v3_balanced = (v3_raw + delta2) mod M
 v5_balanced = (v5_raw + delta3) mod M
 ```
 
-Todos los demás vértices mantienen su escalar en bruto. Los valores equilibrados se envían como `X-TASFA-Magic-Scalar`.
+Todos los demás vértices mantienen su escalar en bruto. El cliente envía ambos:\n\n- `X-TASFA-Raw-Scalar` — el `raw_scalar` sin modificar\n- `X-TASFA-Magic-Scalar` — el valor equilibrado (`v3_balanced` o `v5_balanced`; en otros casos, igual que raw)\n\nEl servidor almacena ambos escalares por separado en `htp.bin`, de modo que el análisis puede referenciar la topología original independientemente de las restricciones de equilibrio artificiales.
 
 ### ¿Por qué solo v3 y v5?
 
@@ -104,7 +104,7 @@ La retícula hexagonal tiene dos grados de libertad. Fijando `v0,v1,v2,v4` y aju
 
 Durante `POST /file/upload/complete`, el servidor:
 
-1. Carga todos los `magic_scalars` por fragmento desde `htp.bin`.
+1. Carga todos los `raw_scalars` y `magic_scalars` por fragmento desde `htp.bin`.
 2. Valida solo **grupos completos de 6 ranuras** (los grupos parciales se omiten).
 3. Para cada grupo fallido, computa **puntajes de sospecha** por ranura analizando en qué ecuaciones de línea participa cada ranura.
 
@@ -121,11 +121,14 @@ Para un grupo fallido, el servidor evalúa cada ranura contra las tres ecuacione
 | v4     | L2, L3    |
 | v5     | L3        |
 
-Una ranura recibe un puntaje de sospecha más alto cuando:
-- Aparece en **todas las ecuaciones fallidas** (puntaje `0.95`).
-- Aparece en **múltiples ecuaciones fallidas** pero ninguna aprobada (puntaje `0.95`).
-- Aparece en **múltiples ecuaciones fallidas** con algunas aprobadas (puntaje `0.85`, reducido si existe consenso).
-- Aparece en una **única ecuación fallida** (puntaje base `in_fail / total_fail`).
+La puntuación de sospecha de cada ranura es determinista y se deriva únicamente de la topología:
+
+```
+score = in_fail / total_fail
+```
+
+donde `in_fail` es el número de ecuaciones de línea fallidas en las que participa la ranura, y `total_fail` es el número total de ecuaciones fallidas en ese grupo. No se utilizan constantes de confianza arbitrarias.
+
 
 Si una ranura solo aparece en ecuaciones aprobadas, se **elimina** de la lista de sospechosos.
 
@@ -136,18 +139,23 @@ Los puntajes se agregan entre todos los grupos fallidos; si un fragmento aparece
 Antes de solicitar cualquier reparación, el servidor evalúa si la contracción es más barata que el reintento directo:
 
 ```
-repair_worthwhile(sospechosos, total):
-    if sospechosos <= 2       → false  (muy pocos para topología)
-    if sospechosos > total/3  → false  (más barato reintentar todo)
-    otherwise                 → true
+repair_worthwhile(sospechosos, total, tamaño_chunk, rtt_ms):
+    if sospechosos < 3                → false  (muy pocos para topología)
+    retry_cost  = sospechosos * tamaño_chunk * (rtt_ms / 100)
+    repair_cost = sospechosos * 2048   + (total / 6) * 512
+    return retry_cost > repair_cost
 ```
+
+El umbral ahora considera RTT y tamaño de chunk: chunks grandes o alta latencia hacen la contracción más atractiva, mientras que muchos sospechosos pequeños hacen el reintento directo más barato.
 
 Si el umbral rechaza la reparación, el servidor devuelve `needs_retry` con **todos** los fragmentos sospechosos como objetivos de reintento. El cliente los retransmite a través del endpoint de carga normal.
 
 ### Contracción recursiva del lado del servidor
 
-Si la reparación es viable, el servidor **internamente** reagrupa los fragmentos sospechosos en grupos HTP frescos de 6 ranuras (topología diferente a la original) y reevalúa los invariantes de línea sobre los datos escalares existentes:
+Si la reparación es viable, el servidor ejecuta una **contracción a nivel de grupo**: cada grupo original completo de 6 ranuras se colapsa a un único escalar (la suma de sus escalares balanceados módulo `M`). Estos agregados de grupo se convierten en los vértices de un lattice HTP de nivel superior. Grupos consecutivos de 6 de estos agregados forman super-grupos de nivel 1, y se reevalúan los mismos invariantes de línea:
 
+- Si un super-grupo de nivel 1 pasa, se eliminan los sospechosos de sus grupos de nivel 0 subyacentes (el patrón de fallo es consistente a nivel de grupo).
+- Si un super-grupo de nivel 1 falla, se conservan los sospechosos de sus grupos de nivel 0 subyacentes.
 - Si la contracción reduce el conjunto sospechoso (menos fragmentos), el servidor almacena los objetivos reducidos y devuelve `needs_retry` con la lista reducida.
 - Si la contracción no reduce el conjunto, el servidor recae al reintento directo de los sospechosos originales.
 - El nivel de contracción se incrementa en los metadatos de sesión para que el cliente pueda reportar diagnósticos.
@@ -213,7 +221,7 @@ El servidor ya no mantiene `blocks.bin` ni `chunk_counts.bin`. La finalización 
 Los metadatos de sesión también almacenan arrays por vértice:
 
 - `hash_tags` — array de cadenas hexadecimales SHA-512, uno por fragmento
-- `magic_scalars` — array de escalares equilibrados, uno por fragmento
+- `raw_scalars` — array de escalares raw (digest SHA-512 sin modificar mod M), uno por fragmento\n- `magic_scalars` — array de escalares equilibrados, uno por fragmento
 - `htp_retry_targets` — lista de objetivos de reintento emitida actualmente por el servidor
 - `htp_suspicion_scores` — clasificación de sospecha actual
 - `htp_contraction_level` — número de pasadas de contracción del lado del servidor aplicadas
@@ -254,5 +262,5 @@ Tanto el estado de carga como el de descarga se rastrean con un **bitmap binario
 | Q2: ¿Se evalúa explícitamente el umbral de costo de reparación antes de la contracción? | **Sí.** `htp_repair_worthwhile` rechaza la reparación cuando `sospechosos <= 2` o `sospechosos > total / 3`, volviendo al reintento directo. |
 | Q3: ¿Los grupos parciales se rellenan con ceros? | **No.** Solo los grupos completos de 6 ranuras (`chunk_count / 6`) se validan. El grupo final incompleto se excluye por completo. |
 | Q4: ¿La respuesta contiene puntajes de sospecha, no solo banderas binarias? | **Sí.** Cada respuesta `needs_retry` incluye `suspicion_scores` como objetos `{chunk_index, score}`. |
-| Q5: ¿La contracción usa una agrupación diferente a la original? | **Sí.** `htp_contract_suspects` reagrupa los fragmentos sospechosos en grupos frescos de 6 ranuras independientes de las posiciones originales. |
+| Q5: ¿La contracción preserva la topología de grupo original? | **Sí.** `htp_contract_groups` trata cada grupo original completo como un único vértice de nivel superior; los sospechosos nunca se reordenan entre grupos. |
 | Q6: ¿Se borran los objetivos de reintento al retransmitir exitosamente? | **Sí.** `handler_file_upload` elimina el fragmento de `htp_retry_targets` después de aceptar una retransmisión de reintento. |

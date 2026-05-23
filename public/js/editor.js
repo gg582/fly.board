@@ -1069,6 +1069,7 @@
             var modulus = uploadModulus(asset);
             var groupStart = groupIndex * 6;
             var groupEnd = Math.min(groupStart + 6, asset.totalChunks);
+            var rawScalars = [0n, 0n, 0n, 0n, 0n, 0n];
             var scalars = [0n, 0n, 0n, 0n, 0n, 0n];
             var tags = ['', '', '', '', '', ''];
             for (var ci = groupStart; ci < groupEnd; ci++) {
@@ -1077,7 +1078,8 @@
                 var data = await file.slice(start, end).arrayBuffer();
                 var digest = new Uint8Array(await crypto.subtle.digest('SHA-512', data));
                 tags[ci - groupStart] = bytesToHex(digest);
-                scalars[ci - groupStart] = positiveMod(firstEightBytesToBigInt(digest), modulus);
+                rawScalars[ci - groupStart] = positiveMod(firstEightBytesToBigInt(digest), modulus);
+                scalars[ci - groupStart] = rawScalars[ci - groupStart];
             }
 
             var l1 = positiveMod(scalars[0] + scalars[1] + scalars[2], modulus);
@@ -1095,6 +1097,7 @@
                 var slot = cj - groupStart;
                 result[cj] = {
                     hashTag: tags[slot],
+                    rawScalar: rawScalars[slot].toString(10),
                     magicScalar: scalars[slot].toString(10)
                 };
             }
@@ -1283,6 +1286,7 @@
                 xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
                 xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
                 if (htp && htp.hashTag) xhr.setRequestHeader('X-TASFA-Hash-Tag', htp.hashTag);
+                if (htp && htp.rawScalar) xhr.setRequestHeader('X-TASFA-Raw-Scalar', htp.rawScalar);
                 if (htp && htp.magicScalar) xhr.setRequestHeader('X-TASFA-Magic-Scalar', htp.magicScalar);
 
                 xhr.timeout = 120000;
@@ -1368,6 +1372,7 @@
                         xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
                         xhr.setRequestHeader('X-TASFA-Stream-Mode', 'aes-256-gcm');
                         if (htp && htp.hashTag) xhr.setRequestHeader('X-TASFA-Hash-Tag', htp.hashTag);
+                        if (htp && htp.rawScalar) xhr.setRequestHeader('X-TASFA-Raw-Scalar', htp.rawScalar);
                         if (htp && htp.magicScalar) xhr.setRequestHeader('X-TASFA-Magic-Scalar', htp.magicScalar);
                         xhr.timeout = 120000;
                         xhr.onload = function() {

@@ -11,7 +11,7 @@ Server --> Client: upload_id, token, chunk_size, modulus_M
 
 loop Parallel chunk upload
     Client -> Server: POST /file/upload
-    note right: X-TASFA-Chunk-Index, Hash-Tag, Magic-Scalar
+    note right: X-TASFA-Chunk-Index, Hash-Tag, Raw-Scalar, Magic-Scalar
     Server -> Server: pwrite(chunk_data) + save_htp_scalar()
     Server --> Client: 204 Accepted
 end
@@ -108,19 +108,19 @@ rectangle "Level 0: Full File" as L0 {
 rectangle "Server: Group G2 fails" as SV1 #FFFFCC {
     note right
       L1 ≠ L2 ≠ L3
-      v2 in L1+L2 fail → score 0.95
-      v3 in L2 fail only → score 0.50
-      v4 in L2+L3 fail → score 0.95
+      v2 in L1+L2 fail → score 1.0
+      v3 in L2 fail only → score 0.5
+      v4 in L2+L3 fail → score 1.0
     end note
 }
 
 rectangle "Suspect Set S0" as S0 #FFCCCC {
     card "c12: score 0.50"
-    card "c13: score 0.85"
-    card "c14: score 0.95"
-    card "c15: score 0.95"
+    card "c13: score 0.50"
+    card "c14: score 1.00"
+    card "c15: score 1.00"
     card "c16: score 0.50"
-    card "c17: score 0.85"
+    card "c17: score 0.50"
 }
 
 rectangle "Server: Cost threshold OK" as TH #CCFFCC {
@@ -131,9 +131,10 @@ rectangle "Server: Cost threshold OK" as TH #CCFFCC {
 }
 
 rectangle "Server: Contraction L1" as L1 #CCFFCC {
-    rectangle "R0: [c12,c13,c14,c15,c16,c17]" as R0
+    rectangle "G0..G3: group aggregates" as R0
     note right
-      Fresh grouping, independent of G2
+      Level-1: consecutive groups as vertices
+      topology preserved, suspects not reshuffled
     end note
 }
 
@@ -152,7 +153,7 @@ rectangle "Retry Targets" as RES #CCCCFF {
 L0 --> SV1 : server validates G2
 SV1 --> S0 : server derives scores
 S0 --> TH : server checks threshold
-TH --> L1 : server regroups internally
+TH --> L1 : server contracts groups
 L1 --> SV2 : server validates contraction
 SV2 --> RES : server returns retry_targets
 RES --> Client : client retransmits as dumb agent

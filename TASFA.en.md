@@ -90,7 +90,12 @@ v3_balanced = (v3_raw + delta2) mod M
 v5_balanced = (v5_raw + delta3) mod M
 ```
 
-All other vertices keep their raw scalar. The balanced values are sent as `X-TASFA-Magic-Scalar`.
+All other vertices keep their raw scalar. The client sends both:
+
+- `X-TASFA-Raw-Scalar` — the unmodified `raw_scalar`
+- `X-TASFA-Magic-Scalar` — the balanced value (`v3_balanced` or `v5_balanced`, otherwise same as raw)
+
+The server stores both scalars separately in `htp.bin` so that analysis can reference the original topology independently of the artificial balancing constraints.
 
 ### Why only v3 and v5?
 
@@ -121,11 +126,13 @@ For a failing group the server evaluates each slot against the three line equati
 | v4   | L2, L3    |
 | v5   | L3        |
 
-A slot receives a higher suspicion score when:
-- It appears in **all failing equations** (score `0.95`).
-- It appears in **multiple failing equations** but no passing equations (score `0.95`).
-- It appears in **multiple failing equations** with some passing equations (score `0.85`, reduced if a passing equation exists and a consensus value is present).
-- It appears in a **single failing equation** (base score `in_fail / total_fail`).
+The suspicion score for each slot is deterministic and derived only from topology:
+
+```
+score = in_fail / total_fail
+```
+
+where `in_fail` is the number of failing line equations the slot participates in, and `total_fail` is the total number of failing equations in that group. No arbitrary confidence constants are used.
 
 If a slot only appears in passing equations, it is **cleared** from the suspect list.
 
@@ -136,18 +143,23 @@ Scores are aggregated across all failed groups; if a chunk appears in multiple g
 Before requesting any repair, the server evaluates whether contraction is cheaper than direct retry:
 
 ```
-repair_worthwhile(suspect_count, total_chunks):
-    if suspect_count <= 2          → false  (too few for topology)
-    if suspect_count > total / 3   → false  (cheaper to retry all)
-    otherwise                      → true
+repair_worthwhile(suspect_count, total_chunks, chunk_size, rtt_ms):
+    if suspect_count < 3                → false  (too few for topology)
+    retry_cost  = suspect_count * chunk_size * (rtt_ms / 100)
+    repair_cost = suspect_count * 2048   + (total_chunks / 6) * 512
+    return retry_cost > repair_cost
 ```
+
+The threshold now considers RTT and chunk size: large chunks or high latency make contraction more attractive, while many small suspects make direct retry cheaper.
 
 If the threshold rejects repair, the server returns `needs_retry` with **all** suspect chunks as retry targets. The client retransmits them through the normal upload endpoint.
 
 ### Server-side recursive contraction
 
-If repair is worthwhile, the server **internally** regroups the suspect chunks into fresh 6-slot HTP groups (a different topology from the original) and re-evaluates the line invariants on the existing scalar data:
+If repair is worthwhile, the server performs **group-level contraction**: each original complete 6-slot group is collapsed to a single scalar (the sum of its balanced scalars modulo `M`). These group aggregates become the vertices of a higher-level HTP lattice. Consecutive groups of 6 such aggregates form level-1 super-groups, and the same line invariants are re-evaluated:
 
+- If a level-1 super-group passes, suspects from its underlying level-0 groups are cleared (the failure pattern is consistent at the group level).
+- If a level-1 super-group fails, suspects from its underlying level-0 groups are kept.
 - If contraction narrows the suspect set (fewer chunks), the server stores the narrowed targets and returns `needs_retry` with the reduced list.
 - If contraction does not narrow the set, the server falls back to direct retry of the original suspects.
 - Contraction level is incremented in session metadata so the client can report diagnostics.
@@ -213,6 +225,7 @@ The server no longer maintains `blocks.bin` or `chunk_counts.bin`. Chunk complet
 Session metadata also stores per-vertex arrays:
 
 - `hash_tags` — array of SHA-512 hex strings, one per chunk
+- `raw_scalars` — array of raw scalars (unmodified SHA-512 digest mod M), one per chunk
 - `magic_scalars` — array of balanced scalars, one per chunk
 - `htp_retry_targets` — current server-issued retry target list
 - `htp_suspicion_scores` — current suspicion ranking
@@ -254,5 +267,5 @@ Both upload and download state are tracked with a **dense binary bitmap** (one b
 | Q2: Is repair cost threshold explicitly evaluated before contraction? | **Yes.** `htp_repair_worthwhile` rejects repair when `suspect_count <= 2` or `suspect_count > total_chunks / 3`, falling back to direct retry. |
 | Q3: Are partial groups ever zero-padded? | **No.** Only complete 6-slot groups (`chunk_count / 6`) are validated. Incomplete final groups are excluded entirely. |
 | Q4: Does the response contain suspicion scores, not just binary flags? | **Yes.** Every `needs_retry` response includes `suspicion_scores` as `{chunk_index, score}` objects. |
-| Q5: Does contraction use a different grouping from the original? | **Yes.** `htp_contract_suspects` regroups suspect chunks into fresh 6-slot groups independent of original positions. |
+| Q5: Does contraction preserve original group topology? | **Yes.** `htp_contract_groups` treats each original complete group as a single higher-level vertex; suspects are never reshuffled across groups. |
 | Q6: Are retry targets cleared on successful retransmission? | **Yes.** `handler_file_upload` removes the chunk from `htp_retry_targets` after accepting a retry retransmission. |

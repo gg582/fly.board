@@ -236,6 +236,14 @@ static long long json_long_long(cJSON *obj, const char *key, long long def) {
     return def;
 }
 
+static double json_double(cJSON *obj, const char *key, double def) {
+    cJSON *item = cJSON_GetObjectItem(obj, key);
+    if (!item) return def;
+    if (cJSON_IsNumber(item)) return item->valuedouble;
+    if (cJSON_IsString(item) && item->valuestring) return atof(item->valuestring);
+    return def;
+}
+
 static bool random_hex(char *out, size_t bytes_len) {
     unsigned char buf[64];
     if (!out || bytes_len == 0 || bytes_len > sizeof(buf)) return false;
@@ -1333,6 +1341,9 @@ void handler_file_upload_renegotiate(cwist_http_request *req, cwist_http_respons
     if (suggested > 0) initial_parallel = clamp_int(suggested, 1, max_parallel);
     if (initial_parallel < current_parallel) initial_parallel = current_parallel;
     if (initial_parallel > max_parallel) initial_parallel = max_parallel;
+    double rtt_ms = atof(cwist_query_map_get(kv, "link_rtt_ms") ? cwist_query_map_get(kv, "link_rtt_ms") : "0");
+    cJSON_DeleteItemFromObject(meta, "link_rtt_ms");
+    cJSON_AddNumberToObject(meta, "link_rtt_ms", rtt_ms);
     cJSON_ReplaceItemInObject(meta, "current_parallel_chunks", cJSON_CreateNumber(initial_parallel));
     cJSON_ReplaceItemInObject(meta, "max_parallel_chunks", cJSON_CreateNumber(max_parallel));
     cJSON_ReplaceItemInObject(meta, "dispatch_pacing_ms", cJSON_CreateNumber(pacing_ms));
@@ -1365,9 +1376,9 @@ typedef struct {
 } upload_work_t;
 
 #define HTP_TAG_LEN 129
-#define HTP_RECORD_SIZE (HTP_TAG_LEN + 8)
+#define HTP_RECORD_SIZE (HTP_TAG_LEN + 8 + 8)
 
-static bool save_htp_scalar(const char *upload_id, int chunk_index, const char *hash_tag_hex, uint64_t scalar) {
+static bool save_htp_scalar(const char *upload_id, int chunk_index, const char *hash_tag_hex, uint64_t raw_scalar, uint64_t balanced_scalar) {
     char path[PATH_MAX];
     upload_session_dir(path, sizeof(path), upload_id);
     strncat(path, "/htp.bin", sizeof(path) - strlen(path) - 1);
@@ -1377,34 +1388,40 @@ static bool save_htp_scalar(const char *upload_id, int chunk_index, const char *
     if (hash_tag_hex) strncpy(tag, hash_tag_hex, HTP_TAG_LEN - 1);
     off_t offset = (off_t)chunk_index * HTP_RECORD_SIZE;
     pwrite(fd, tag, HTP_TAG_LEN, offset);
-    pwrite(fd, &scalar, 8, offset + HTP_TAG_LEN);
+    pwrite(fd, &raw_scalar, 8, offset + HTP_TAG_LEN);
+    pwrite(fd, &balanced_scalar, 8, offset + HTP_TAG_LEN + 8);
     close(fd);
     return true;
 }
 
-static bool load_htp_scalars(const char *upload_id, int chunk_count, char **hash_tags_out, uint64_t **scalars_out) {
+static bool load_htp_scalars(const char *upload_id, int chunk_count, char **hash_tags_out, uint64_t **raw_scalars_out, uint64_t **balanced_scalars_out) {
     char path[PATH_MAX];
     upload_session_dir(path, sizeof(path), upload_id);
     strncat(path, "/htp.bin", sizeof(path) - strlen(path) - 1);
     int fd = open(path, O_RDONLY);
     if (fd < 0) return false;
     char *tags = (char *)cwist_alloc((size_t)chunk_count * HTP_TAG_LEN);
-    uint64_t *scalars = (uint64_t *)cwist_alloc((size_t)chunk_count * sizeof(uint64_t));
-    if (!tags || !scalars) {
-        cwist_free(tags); cwist_free(scalars); close(fd); return false;
+    uint64_t *raw_scalars = (uint64_t *)cwist_alloc((size_t)chunk_count * sizeof(uint64_t));
+    uint64_t *balanced_scalars = (uint64_t *)cwist_alloc((size_t)chunk_count * sizeof(uint64_t));
+    if (!tags || !raw_scalars || !balanced_scalars) {
+        cwist_free(tags); cwist_free(raw_scalars); cwist_free(balanced_scalars); close(fd); return false;
     }
     for (int i = 0; i < chunk_count; i++) {
         off_t offset = (off_t)i * HTP_RECORD_SIZE;
         if (pread(fd, tags + (i * HTP_TAG_LEN), HTP_TAG_LEN, offset) != HTP_TAG_LEN) {
             tags[i * HTP_TAG_LEN] = '\0';
         }
-        if (pread(fd, &scalars[i], 8, offset + HTP_TAG_LEN) != 8) {
-            scalars[i] = 0;
+        if (pread(fd, &raw_scalars[i], 8, offset + HTP_TAG_LEN) != 8) {
+            raw_scalars[i] = 0;
+        }
+        if (pread(fd, &balanced_scalars[i], 8, offset + HTP_TAG_LEN + 8) != 8) {
+            balanced_scalars[i] = 0;
         }
     }
     close(fd);
     *hash_tags_out = tags;
-    *scalars_out = scalars;
+    *raw_scalars_out = raw_scalars;
+    *balanced_scalars_out = balanced_scalars;
     return true;
 }
 
@@ -1441,33 +1458,22 @@ static void htp_analyze_group(uint64_t v[6], uint64_t modulus_M, int group_start
     if (L1 != L3) { e1_fail = true; e3_fail = true; }
 
     int total_fail = (e1_fail ? 1 : 0) + (e2_fail ? 1 : 0) + (e3_fail ? 1 : 0);
-
-    /* Determine if any two equations agree (consensus) */
-    bool has_consensus = (L1 == L2) || (L2 == L3) || (L1 == L3);
+    if (total_fail == 0) total_fail = 1;
 
     for (int i = 0; i < 6; i++) {
-        int in_fail = 0, in_pass = 0;
-        if (i == 0) { if (e1_fail) in_fail++; else in_pass++; if (e3_fail) in_fail++; else in_pass++; }
-        if (i == 1) { if (e1_fail) in_fail++; else in_pass++; }
-        if (i == 2) { if (e1_fail) in_fail++; else in_pass++; if (e2_fail) in_fail++; else in_pass++; }
-        if (i == 3) { if (e2_fail) in_fail++; else in_pass++; }
-        if (i == 4) { if (e2_fail) in_fail++; else in_pass++; if (e3_fail) in_fail++; else in_pass++; }
-        if (i == 5) { if (e3_fail) in_fail++; else in_pass++; }
+        int in_fail = 0;
+        if (i == 0) { if (e1_fail) in_fail++; if (e3_fail) in_fail++; }
+        if (i == 1) { if (e1_fail) in_fail++; }
+        if (i == 2) { if (e1_fail) in_fail++; if (e2_fail) in_fail++; }
+        if (i == 3) { if (e2_fail) in_fail++; }
+        if (i == 4) { if (e2_fail) in_fail++; if (e3_fail) in_fail++; }
+        if (i == 5) { if (e3_fail) in_fail++; }
 
         if (in_fail == 0) continue;
 
-        double score = (double)in_fail / total_fail;
-        if (in_fail == total_fail && total_fail >= 2) {
-            score = 0.95;
-        } else if (in_fail >= 2) {
-            score = 0.85;
-        }
-        if (in_pass > 0 && has_consensus) {
-            score *= 0.5;
-        }
-        if (in_pass == 0 && in_fail >= 2) {
-            score = 0.95;
-        }
+        /* Deterministic score derived directly from topology:
+         * fraction of failed equations this slot participates in. */
+        double score = (double)in_fail / (double)total_fail;
 
         out[*out_count].chunk_index = group_start + i;
         out[*out_count].suspicion_score = score;
@@ -1475,48 +1481,101 @@ static void htp_analyze_group(uint64_t v[6], uint64_t modulus_M, int group_start
     }
 }
 
-static bool htp_repair_worthwhile(int suspect_count, int total_chunks) {
-    if (suspect_count <= 2) return false;
-    if (suspect_count > total_chunks / 3) return false;
-    return true;
+static bool htp_repair_worthwhile(int suspect_count, int total_chunks, int chunk_size, double rtt_ms) {
+    if (suspect_count < 3) return false;
+    long long retry_bytes = (long long)suspect_count * chunk_size;
+    double rtt_factor = (rtt_ms <= 0.0) ? 1.0 : (rtt_ms / 100.0);
+    double retry_cost = (double)retry_bytes * rtt_factor;
+    double repair_cost = (double)suspect_count * 2048.0 + (double)(total_chunks / 6) * 512.0;
+    return retry_cost > repair_cost;
 }
 
-/* Server-side contraction: regroup suspect chunks into fresh 6-slot HTP groups */
-static int htp_contract_suspects(const uint64_t *scalars, int chunk_count, uint64_t modulus_M,
-                                  const int *suspects, int suspect_count,
-                                  int *next_suspects, int next_cap) {
-    int next_count = 0;
-    int sg = (suspect_count + 5) / 6;
-    for (int g = 0; g < sg; g++) {
-        uint64_t m[6] = {0};
-        int gs = 0;
-        int idx[6];
+/* Contraction: failed groups become higher-level vertices.
+ * Each complete level-0 group is collapsed to a single scalar (sum of its
+ * balanced scalars). Level-1 groups are consecutive 6-slot groups of these
+ * aggregates. Suspects from level-0 groups in failing level-1 groups are kept.
+ */
+static int htp_contract_groups(const uint64_t *balanced_scalars, int chunk_count, uint64_t modulus_M,
+                                htp_suspect_t *suspects, int suspect_count) {
+    int group_count = chunk_count / 6;
+    if (group_count < 1 || suspect_count < 1) return suspect_count;
+
+    uint64_t *group_agg = (uint64_t *)cwist_alloc((size_t)group_count * sizeof(uint64_t));
+    int *group_suspect_mask = (int *)cwist_alloc((size_t)group_count * sizeof(int));
+    memset(group_agg, 0, (size_t)group_count * sizeof(uint64_t));
+    memset(group_suspect_mask, 0, (size_t)group_count * sizeof(int));
+
+    for (int g = 0; g < group_count; g++) {
+        uint64_t sum = 0;
         for (int v = 0; v < 6; v++) {
-            int si = g * 6 + v;
-            if (si < suspect_count) {
-                int ci = suspects[si];
-                if (ci >= 0 && ci < chunk_count) {
-                    m[v] = scalars[ci];
-                    idx[v] = ci;
-                    gs++;
-                }
+            sum = (sum + balanced_scalars[g * 6 + v]) % modulus_M;
+        }
+        group_agg[g] = sum;
+    }
+
+    for (int s = 0; s < suspect_count; s++) {
+        int g = suspects[s].chunk_index / 6;
+        if (g >= 0 && g < group_count) {
+            group_suspect_mask[g] |= (1 << (suspects[s].chunk_index % 6));
+        }
+    }
+
+    htp_suspect_t *orig = (htp_suspect_t *)cwist_alloc((size_t)suspect_count * sizeof(htp_suspect_t));
+    memcpy(orig, suspects, (size_t)suspect_count * sizeof(htp_suspect_t));
+
+    int next_count = 0;
+    int l1_group_count = (group_count + 5) / 6;
+    for (int lg = 0; lg < l1_group_count; lg++) {
+        uint64_t lv[6] = {0};
+        int lidx[6];
+        int lgs = 0;
+        for (int v = 0; v < 6; v++) {
+            int g = lg * 6 + v;
+            if (g < group_count) {
+                lv[v] = group_agg[g];
+                lidx[v] = g;
+                lgs++;
             }
         }
-        if (gs < 3) continue;
-        uint64_t L1 = (m[0] + m[1] + m[2]) % modulus_M;
-        uint64_t L2 = (gs > 3) ? ((m[2] + m[3] + m[4]) % modulus_M) : L1;
-        uint64_t L3 = (gs > 5) ? ((m[4] + m[5] + m[0]) % modulus_M) : L1;
-        if (L1 != L2 || L2 != L3) {
-            for (int v = 0; v < gs && next_count < next_cap; v++) {
-                int ci = idx[v];
-                bool already = false;
-                for (int s = 0; s < next_count; s++) {
-                    if (next_suspects[s] == ci) { already = true; break; }
+        if (lgs < 3) continue;
+
+        uint64_t LL1 = (lv[0] + lv[1] + lv[2]) % modulus_M;
+        uint64_t LL2 = (lgs > 3) ? ((lv[2] + lv[3] + lv[4]) % modulus_M) : LL1;
+        uint64_t LL3 = (lgs > 5) ? ((lv[4] + lv[5] + lv[0]) % modulus_M) : LL1;
+
+        if (LL1 == LL2 && LL2 == LL3) continue;
+
+        /* Keep suspects from failing level-1 super-group */
+        for (int v = 0; v < lgs; v++) {
+            int g = lidx[v];
+            for (int s = 0; s < 6; s++) {
+                if (group_suspect_mask[g] & (1 << s)) {
+                    int ci = g * 6 + s;
+                    bool already = false;
+                    for (int k = 0; k < next_count; k++) {
+                        if (suspects[k].chunk_index == ci) { already = true; break; }
+                    }
+                    if (!already) {
+                        /* Preserve original score */
+                        double preserved_score = 0.0;
+                        for (int j = 0; j < suspect_count; j++) {
+                            if (orig[j].chunk_index == ci) {
+                                preserved_score = orig[j].suspicion_score;
+                                break;
+                            }
+                        }
+                        suspects[next_count].chunk_index = ci;
+                        suspects[next_count].suspicion_score = preserved_score;
+                        next_count++;
+                    }
                 }
-                if (!already) next_suspects[next_count++] = ci;
             }
         }
     }
+
+    cwist_free(group_agg);
+    cwist_free(group_suspect_mask);
+    cwist_free(orig);
     return next_count;
 }
 
@@ -1551,6 +1610,7 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     const char *chunk_index_str = cwist_http_header_get(req->headers, "X-TASFA-Chunk-Index");
     const char *hash_tag_hex = cwist_http_header_get(req->headers, "X-TASFA-Hash-Tag");
     const char *magic_scalar_str = cwist_http_header_get(req->headers, "X-TASFA-Magic-Scalar");
+    const char *raw_scalar_str = cwist_http_header_get(req->headers, "X-TASFA-Raw-Scalar");
     if (!upload_id || !upload_token || !chunk_index_str) {
         send_json_response(res, session_error_json("missing headers"), CWIST_HTTP_BAD_REQUEST);
         return;
@@ -1656,8 +1716,9 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     }
 
     if (hash_tag_hex && hash_tag_hex[0]) {
-        uint64_t scalar = magic_scalar_str ? (uint64_t)strtoull(magic_scalar_str, NULL, 10) : 0;
-        save_htp_scalar(upload_id, chunk_index, hash_tag_hex, scalar);
+        uint64_t balanced_scalar = magic_scalar_str ? (uint64_t)strtoull(magic_scalar_str, NULL, 10) : 0;
+        uint64_t raw_scalar = raw_scalar_str ? (uint64_t)strtoull(raw_scalar_str, NULL, 10) : 0;
+        save_htp_scalar(upload_id, chunk_index, hash_tag_hex, raw_scalar, balanced_scalar);
     }
 
     res->status_code = CWIST_HTTP_NO_CONTENT;
@@ -1718,8 +1779,9 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     if (modulus_M == 0) modulus_M = 1;
 
     char *htp_tags = NULL;
-    uint64_t *htp_scalars = NULL;
-    bool htp_ok = load_htp_scalars(upload_id, chunk_count, &htp_tags, &htp_scalars);
+    uint64_t *htp_raw_scalars = NULL;
+    uint64_t *htp_balanced_scalars = NULL;
+    bool htp_ok = load_htp_scalars(upload_id, chunk_count, &htp_tags, &htp_raw_scalars, &htp_balanced_scalars);
     htp_suspect_t *suspects = (htp_suspect_t *)cwist_alloc((size_t)chunk_count * sizeof(htp_suspect_t));
     int suspect_count = 0;
     int contraction_level = json_int(meta, "htp_contraction_level", 0);
@@ -1735,7 +1797,7 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
                 char *tag = htp_tags + (ci * HTP_TAG_LEN);
                 if (tag[0]) group_has_any = true;
                 else group_complete = false;
-                m[v] = htp_scalars[ci];
+                m[v] = htp_balanced_scalars[ci];
             }
             if (!group_has_any || !group_complete) continue;
             htp_suspect_t group_suspects[6];
@@ -1760,30 +1822,20 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
         }
 
         /* Server-side recursive contraction */
-        if (suspect_count > 0 && htp_repair_worthwhile(suspect_count, chunk_count)) {
-            int *suspect_indices = (int *)cwist_alloc((size_t)suspect_count * sizeof(int));
-            for (int i = 0; i < suspect_count; i++) suspect_indices[i] = suspects[i].chunk_index;
-
-            int *next = (int *)cwist_alloc((size_t)chunk_count * sizeof(int));
-            int next_count = htp_contract_suspects(htp_scalars, chunk_count, modulus_M,
-                                                    suspect_indices, suspect_count,
-                                                    next, chunk_count);
+        int chunk_size = json_int(meta, "chunk_size", TASFA_UPLOAD_CHUNK_SIZE_DEFAULT);
+        double rtt_ms = json_double(meta, "link_rtt_ms", 0.0);
+        if (suspect_count > 0 && htp_repair_worthwhile(suspect_count, chunk_count, chunk_size, rtt_ms)) {
+            int next_count = htp_contract_groups(htp_balanced_scalars, chunk_count, modulus_M,
+                                                  suspects, suspect_count);
             if (next_count > 0 && next_count < suspect_count) {
-                /* Contraction succeeded; replace suspects with contracted set */
-                suspect_count = 0;
-                for (int i = 0; i < next_count && suspect_count < chunk_count; i++) {
-                    suspects[suspect_count].chunk_index = next[i];
-                    suspects[suspect_count].suspicion_score = 0.85;
-                    suspect_count++;
-                }
+                suspect_count = next_count;
                 contraction_level++;
             }
-            cwist_free(next);
-            cwist_free(suspect_indices);
         }
 
         cwist_free(htp_tags);
-        cwist_free(htp_scalars);
+        cwist_free(htp_raw_scalars);
+        cwist_free(htp_balanced_scalars);
     }
 
     if (suspect_count > 0) {

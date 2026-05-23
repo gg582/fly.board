@@ -90,7 +90,7 @@ v3_balanced = (v3_raw + delta2) mod M
 v5_balanced = (v5_raw + delta3) mod M
 ```
 
-其餘所有頂點保持其原始純量。平衡值作為 `X-TASFA-Magic-Scalar` 傳送。
+其餘所有頂點保持其原始純量。客戶端同時發送兩者:\n\n- `X-TASFA-Raw-Scalar` — 未修改的 `raw_scalar`\n- `X-TASFA-Magic-Scalar` — 平衡值 (`v3_balanced` 或 `v5_balanced`，其餘與 raw 相同)\n\n伺服器將兩個純量分別儲存在 `htp.bin` 中，從而可以在不受人工平衡約束影響的情況下分析原始拓撲。
 
 ### 為什麼只有 v3 和 v5？
 
@@ -104,7 +104,7 @@ v5_balanced = (v5_raw + delta3) mod M
 
 在 `POST /file/upload/complete` 期間，伺服器執行以下操作：
 
-1. 從 `htp.bin` 載入所有分塊級 `magic_scalars`。
+1. 從 `htp.bin` 載入所有分塊級 `raw_scalars` 和 `magic_scalars`。
 2. 僅驗證**完整的 6 槽組**（跳過部分組）。
 3. 對每個失敗組，透過分析每個槽位參與的線方程式來計算**嫌疑分數（suspicion scores）**。
 
@@ -121,11 +121,14 @@ v5_balanced = (v5_raw + delta3) mod M
 | v4   | L2, L3 |
 | v5   | L3     |
 
-槽位在以下情況獲得更高嫌疑分數：
-- 出現在**所有失敗方程式**中（分數 `0.95`）。
-- 出現在**多個失敗方程式**中但沒有通過方程式（分數 `0.95`）。
-- 出現在**多個失敗方程式**中且有一些通過方程式（分數 `0.85`，若存在共識值則降低）。
-- 僅出現在**單個失敗方程式**中（基礎分數 `in_fail / total_fail`）。
+每個槽位的嫌疑分數是確定性的，僅由拓撲推導得出：
+
+```
+score = in_fail / total_fail
+```
+
+其中 `in_fail` 是該槽位參與的失敗線方程數，`total_fail` 是該組的總失敗方程數。不使用任意置信度常數。
+
 
 若槽位僅出現在通過方程式中，則**清除**出嫌疑列表。
 
@@ -136,18 +139,23 @@ v5_balanced = (v5_raw + delta3) mod M
 在請求任何修復之前，伺服器評估收縮是否比直接重傳更便宜：
 
 ```
-repair_worthwhile(嫌疑數, 總分塊數):
-    if 嫌疑數 <= 2       → false  （太少，拓撲無意義）
-    if 嫌疑數 > 總數/3   → false  （直接重傳全部更便宜）
-    otherwise            → true
+repair_worthwhile(嫌疑數, 總分塊數, 分塊大小, rtt_ms):
+    if 嫌疑數 < 3                → false  （太少，拓撲無意義）
+    retry_cost  = 嫌疑數 * 分塊大小 * (rtt_ms / 100)
+    repair_cost = 嫌疑數 * 2048   + (總分塊數 / 6) * 512
+    return retry_cost > repair_cost
 ```
+
+閾值現在考慮 RTT 和分塊大小: 大分塊或高延遲使收縮更有吸引力，而大量小嫌疑分塊使直接重傳更便宜。
 
 若閾值拒絕修復，伺服器傳回 `needs_retry`，並將**所有**嫌疑分塊作為重傳目標。用戶端透過普通上傳端點重傳它們。
 
 ### 伺服器端遞迴收縮
 
-若修復值得，伺服器**內部地**將嫌疑分塊重新分組為新的 6 槽 HTP 組（與原始拓撲不同），並對現有純量資料重新評估線不變式：
+若修復值得，伺服器執行 **組級收縮**: 每個原始完整的 6 槽組被收縮為單個純量（其平衡純量之和對 M 取模）。這些組聚合值成為更高級別 HTP 格的頂點。連續的 6 個組聚合值形成 level-1 超級組，並重新評估相同的線不變式：
 
+- 若 level-1 超級組通過，則清除其底層 level-0 組中的嫌疑分塊（失敗模式在組級一致）。
+- 若 level-1 超級組失敗，則保留其底層 level-0 組中的嫌疑分塊。
 - 若收縮縮小了嫌疑集（更少分塊），伺服器儲存縮小後的目標並傳回 `needs_retry` 及縮減列表。
 - 若收縮未能縮小集合，伺服器回退到原始嫌疑分塊的直接重傳。
 - 收縮級別在工作階段中繼資料中遞增，以便用戶端報告診斷資訊。
@@ -213,7 +221,7 @@ repair_worthwhile(嫌疑數, 總分塊數):
 工作階段中繼資料還儲存逐頂點陣列：
 
 - `hash_tags` — 每個分塊的 SHA-512 十六進位字串陣列
-- `magic_scalars` — 每個分塊的平衡純量陣列
+- `raw_scalars` — 每個分塊的原始純量（未修改的 SHA-512 摘要 mod M）陣列\n- `magic_scalars` — 每個分塊的平衡純量陣列
 - `htp_retry_targets` — 目前伺服器發出的重試目標列表
 - `htp_suspicion_scores` — 目前嫌疑排序
 - `htp_contraction_level` — 已應用的伺服器端收縮遍數
@@ -254,5 +262,5 @@ repair_worthwhile(嫌疑數, 總分塊數):
 | Q2: 是否在收縮前顯式評估修復成本閾值？ | **是。** `htp_repair_worthwhile` 在 `嫌疑數 <= 2` 或 `嫌疑數 > 總分塊數 / 3` 時傳回 false，回退到直接重傳。 |
 | Q3: 部分組是否補零？ | **否。** 僅驗證完整的 6 槽組（`chunk_count / 6`）。不完整的最後一組完全排除。 |
 | Q4: 回應是否包含嫌疑分數，而非僅二進位旗標？ | **是。** 每個 `needs_retry` 回應都包含 `suspicion_scores` 作為 `{chunk_index, score}` 物件。 |
-| Q5: 收縮是否使用與原始不同的分組？ | **是。** `htp_contract_suspects` 將嫌疑分塊重新分組為與原始位置無關的新 6 槽組。 |
+| Q5: 收縮是否保留原始組拓撲？ | **是。** `htp_contract_groups` 將每個原始完整組視為單個高級頂點，不在組間重新打亂嫌疑分塊。 |
 | Q6: 成功重傳時是否清除重試目標？ | **是。** `handler_file_upload` 在接受重試重傳後從 `htp_retry_targets` 中移除該分塊。 |
