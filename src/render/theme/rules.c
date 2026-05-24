@@ -11,6 +11,12 @@ static cJSON *create_rule(const char *sel) {
     return r;
 }
 
+static cJSON *create_mobile_rule(const char *sel) {
+    char buf[512];
+    snprintf(buf, sizeof(buf), "html.mobile %s, body.mobile %s", sel, sel);
+    return create_rule(buf);
+}
+
 static void add_decl(cJSON *r, const char *p, const char *v) {
     cJSON *decls = cJSON_GetObjectItem(r, "decls");
     if (decls) cJSON_AddStringToObject(decls, p, v);
@@ -1414,7 +1420,7 @@ void rule_animations(cJSON *rules) {
 }
 
 void rule_media(cJSON *rules) {
-    cJSON *mq_acct = create_rule("body.mobile .mobile-account-header");
+    cJSON *mq_acct = create_mobile_rule(".mobile-account-header");
     add_decl(mq_acct, "display", "flex");
     add_decl(mq_acct, "align-items", "center");
     add_decl(mq_acct, "justify-content", "space-between");
@@ -1423,24 +1429,24 @@ void rule_media(cJSON *rules) {
     add_decl(mq_acct, "gap", "12px");
     cJSON_AddItemToArray(rules, mq_acct);
 
-    cJSON *mq_desktop_hide = create_rule("body.mobile .desktop-only");
+    cJSON *mq_desktop_hide = create_mobile_rule(".desktop-only");
     add_decl(mq_desktop_hide, "display", "none");
     cJSON_AddItemToArray(rules, mq_desktop_hide);
 
-    cJSON *mq = create_rule("body.mobile .shell");
+    cJSON *mq = create_mobile_rule(".shell");
     add_decl(mq, "padding", "16px");
     cJSON_AddItemToArray(rules, mq);
 
-    cJSON *mq2 = create_rule("body.mobile .topbar");
+    cJSON *mq2 = create_mobile_rule(".topbar");
     add_decl(mq2, "align-items", "center");
     add_decl(mq2, "padding", "0 12px");
     cJSON_AddItemToArray(rules, mq2);
 
-    cJSON *mq3 = create_rule("body.mobile .burger-btn");
+    cJSON *mq3 = create_mobile_rule(".burger-btn");
     add_decl(mq3, "display", "inline-flex");
     cJSON_AddItemToArray(rules, mq3);
 
-    cJSON *mq4 = create_rule("body.mobile .nav-links");
+    cJSON *mq4 = create_mobile_rule(".nav-links");
     add_decl(mq4, "display", "none");
     add_decl(mq4, "position", "fixed");
     add_decl(mq4, "top", "60px");
@@ -1455,38 +1461,38 @@ void rule_media(cJSON *rules) {
     add_decl(mq4, "border-bottom", "1px solid var(--border)");
     cJSON_AddItemToArray(rules, mq4);
 
-    cJSON *mq5 = create_rule("body.mobile .nav-links.open");
+    cJSON *mq5 = create_mobile_rule(".nav-links.open");
     add_decl(mq5, "display", "flex");
     cJSON_AddItemToArray(rules, mq5);
 
-    cJSON *mq6 = create_rule("body.mobile .nav-item");
+    cJSON *mq6 = create_mobile_rule(".nav-item");
     add_decl(mq6, "padding", "14px 24px");
     add_decl(mq6, "border-bottom", "1px solid var(--border)");
     cJSON_AddItemToArray(rules, mq6);
 
-    cJSON *mq7 = create_rule("body.mobile .nav-item:hover");
+    cJSON *mq7 = create_mobile_rule(".nav-item:hover");
     add_decl(mq7, "border-bottom-color", "var(--border)");
     cJSON_AddItemToArray(rules, mq7);
 
-    cJSON *mq8 = create_rule("body.mobile .nav-board-dropdown");
+    cJSON *mq8 = create_mobile_rule(".nav-board-dropdown");
     add_decl(mq8, "width", "100%");
     cJSON_AddItemToArray(rules, mq8);
 
-    cJSON *mq_media_card = create_rule("body.mobile .media-card");
+    cJSON *mq_media_card = create_mobile_rule(".media-card");
     add_decl(mq_media_card, "grid-template-columns", "72px minmax(0,1fr)");
     cJSON_AddItemToArray(rules, mq_media_card);
 
-    cJSON *mq_media_thumb = create_rule("body.mobile .media-thumb");
+    cJSON *mq_media_thumb = create_mobile_rule(".media-thumb");
     add_decl(mq_media_thumb, "width", "72px");
     add_decl(mq_media_thumb, "height", "54px");
     cJSON_AddItemToArray(rules, mq_media_thumb);
 
-    cJSON *mq_media_actions = create_rule("body.mobile .media-actions");
+    cJSON *mq_media_actions = create_mobile_rule(".media-actions");
     add_decl(mq_media_actions, "grid-column", "1 / -1");
     add_decl(mq_media_actions, "justify-content", "flex-start");
     cJSON_AddItemToArray(rules, mq_media_actions);
 
-    cJSON *mq9 = create_rule("body.mobile .nav-board-menu");
+    cJSON *mq9 = create_mobile_rule(".nav-board-menu");
     add_decl(mq9, "position", "static");
     add_decl(mq9, "display", "none");
     add_decl(mq9, "opacity", "0");
@@ -1501,7 +1507,7 @@ void rule_media(cJSON *rules) {
     add_decl(mq9, "transition", "max-height 0.3s ease, opacity 0.2s ease, transform 0.2s ease");
     cJSON_AddItemToArray(rules, mq9);
 
-    cJSON *mq10 = create_rule("body.mobile .nav-board-menu.open");
+    cJSON *mq10 = create_mobile_rule(".nav-board-menu.open");
     add_decl(mq10, "display", "block");
     add_decl(mq10, "opacity", "1");
     add_decl(mq10, "pointer-events", "auto");
@@ -1512,78 +1518,78 @@ void rule_media(cJSON *rules) {
     add_decl(mq10, "border-left", "3px solid var(--accent)");
     cJSON_AddItemToArray(rules, mq10);
 
-    cJSON *mq11 = create_rule("body.mobile .nav-board-menu-list");
+    cJSON *mq11 = create_mobile_rule(".nav-board-menu-list");
     add_decl(mq11, "display", "none");
     cJSON_AddItemToArray(rules, mq11);
 
-    cJSON *mq12 = create_rule("body.mobile .nav-board-dropdown:hover .nav-board-menu");
+    cJSON *mq12 = create_mobile_rule(".nav-board-dropdown:hover .nav-board-menu");
     add_decl(mq12, "display", "none !important");
     add_decl(mq12, "opacity", "0");
     add_decl(mq12, "pointer-events", "none");
     cJSON_AddItemToArray(rules, mq12);
 
-    cJSON *mq13 = create_rule("body.mobile .nav-board-trigger");
+    cJSON *mq13 = create_mobile_rule(".nav-board-trigger");
     add_decl(mq13, "cursor", "pointer");
     cJSON_AddItemToArray(rules, mq13);
 
-    cJSON *mq14 = create_rule("body.mobile .nav-board-subitem");
+    cJSON *mq14 = create_mobile_rule(".nav-board-subitem");
     add_decl(mq14, "padding", "10px 24px");
     add_decl(mq14, "border-bottom", "1px solid var(--border)");
     add_decl(mq14, "color", "var(--muted)");
     add_decl(mq14, "font-size", "14px");
     cJSON_AddItemToArray(rules, mq14);
 
-    cJSON *mq15 = create_rule("body.mobile .nav-board-subitem-all");
+    cJSON *mq15 = create_mobile_rule(".nav-board-subitem-all");
     add_decl(mq15, "color", "var(--fg)");
     add_decl(mq15, "font-weight", "700");
     add_decl(mq15, "border-bottom", "1px solid var(--border)");
     add_decl(mq15, "margin-bottom", "0");
     cJSON_AddItemToArray(rules, mq15);
 
-    cJSON *mq16 = create_rule("body.mobile .dropdown, body.mobile .dropdown-content");
+    cJSON *mq16 = create_rule("html.mobile .dropdown, body.mobile .dropdown, html.mobile .dropdown-content, body.mobile .dropdown-content");
     add_decl(mq16, "position", "static");
     add_decl(mq16, "display", "block");
     cJSON_AddItemToArray(rules, mq16);
 
-    cJSON *mq17 = create_rule("body.mobile .dropdown-content a");
+    cJSON *mq17 = create_mobile_rule(".dropdown-content a");
     add_decl(mq17, "display", "list-item");
     add_decl(mq17, "list-style-type", "disc");
     add_decl(mq17, "margin-left", "20px");
     cJSON_AddItemToArray(rules, mq17);
 
-    cJSON *mq18 = create_rule("body.mobile .theme-switch");
+    cJSON *mq18 = create_mobile_rule(".theme-switch");
     add_decl(mq18, "padding", "0");
     cJSON_AddItemToArray(rules, mq18);
 
-    cJSON *mq20 = create_rule("body.mobile .mobile-overlay");
+    cJSON *mq20 = create_mobile_rule(".mobile-overlay");
     add_decl(mq20, "display", "block");
     cJSON_AddItemToArray(rules, mq20);
 
-    cJSON *mq21 = create_rule("body.mobile .hero-logo");
+    cJSON *mq21 = create_mobile_rule(".hero-logo");
     add_decl(mq21, "height", "100px");
     cJSON_AddItemToArray(rules, mq21);
 
-    cJSON *mq22 = create_rule("body.mobile .hero h1");
+    cJSON *mq22 = create_mobile_rule(".hero h1");
     add_decl(mq22, "font-size", "clamp(2rem, 8vw, 3rem)");
     cJSON_AddItemToArray(rules, mq22);
 
-    cJSON *mq23 = create_rule("body.mobile .post-grid");
+    cJSON *mq23 = create_mobile_rule(".post-grid");
     add_decl(mq23, "grid-template-columns", "1fr");
     cJSON_AddItemToArray(rules, mq23);
 
-    cJSON *mq24 = create_rule("body.mobile .board-grid");
+    cJSON *mq24 = create_mobile_rule(".board-grid");
     add_decl(mq24, "grid-template-columns", "1fr");
     cJSON_AddItemToArray(rules, mq24);
 
-    cJSON *mq25 = create_rule("body.mobile .board-list");
+    cJSON *mq25 = create_mobile_rule(".board-list");
     add_decl(mq25, "border-top", "1px solid var(--border)");
     cJSON_AddItemToArray(rules, mq25);
 
-    cJSON *mq26 = create_rule("body.mobile .board-line");
+    cJSON *mq26 = create_mobile_rule(".board-line");
     add_decl(mq26, "padding", "16px");
     cJSON_AddItemToArray(rules, mq26);
 
-    cJSON *mq27 = create_rule("body.mobile .board-line-title");
+    cJSON *mq27 = create_mobile_rule(".board-line-title");
     add_decl(mq27, "font-size", "1.2rem");
     cJSON_AddItemToArray(rules, mq27);
 }

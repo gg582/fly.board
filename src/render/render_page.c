@@ -135,11 +135,20 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *script = cwist_html_element_create("script");
     cwist_html_element_set_text(script,
         "(function(){"
-        "function toggleMobileNav(){var nav=document.querySelector('.nav-links');var overlay=document.querySelector('.mobile-overlay');var btn=document.querySelector('.burger-btn');var open=!nav.classList.contains('open');nav.classList.toggle('open',open);nav.style.display=open?'flex':'';overlay.classList.toggle('open',open);btn.classList.toggle('open',open);document.body.style.overflow=open?'hidden':'';}"
+        "function hasMobileUa(){var n=window.navigator||{};if(n.userAgentData&&n.userAgentData.mobile===true)return true;var ua=n.userAgent||'';return /Android|webOS|iPhone|iPod|BlackBerry|BB10|IEMobile|Windows Phone|Opera Mini|Mobi|Mobile/i.test(ua);}"
+        "function hasMobileAspect(){var de=document.documentElement;var w=window.innerWidth||de.clientWidth||(window.screen&&window.screen.width)||0;var h=window.innerHeight||de.clientHeight||(window.screen&&window.screen.height)||0;if(!w||!h)return false;var s=Math.min(w,h),l=Math.max(w,h);return l>0&&s/l<=0.65;}"
+        "function hasCoarseInput(){var n=window.navigator||{};return !!((window.matchMedia&&matchMedia('(pointer: coarse)').matches)||n.maxTouchPoints>1);}"
+        "function shouldUseMobileNav(){return hasMobileUa()||(hasCoarseInput()&&hasMobileAspect());}"
+        "function isMobileLayout(){return document.documentElement.classList.contains('mobile')||(document.body&&document.body.classList.contains('mobile'));}"
+        "function setMobileLayout(on){document.documentElement.classList.toggle('mobile',on);if(document.body)document.body.classList.toggle('mobile',on);}"
+        "function closeMobileNav(){var nav=document.querySelector('.nav-links');var overlay=document.querySelector('.mobile-overlay');var btn=document.querySelector('.burger-btn');if(nav){nav.classList.remove('open');nav.style.display='';}if(overlay)overlay.classList.remove('open');if(btn){btn.classList.remove('open');btn.setAttribute('aria-expanded','false');}if(document.body)document.body.style.overflow='';}"
+        "function syncMobileLayout(){var on=shouldUseMobileNav();setMobileLayout(on);if(!on)closeMobileNav();}"
+        "syncMobileLayout();window.addEventListener('resize',syncMobileLayout);window.addEventListener('orientationchange',syncMobileLayout);if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',syncMobileLayout);}else{syncMobileLayout();}"
+        "function toggleMobileNav(){syncMobileLayout();if(!isMobileLayout())return;var nav=document.querySelector('.nav-links');var overlay=document.querySelector('.mobile-overlay');var btn=document.querySelector('.burger-btn');if(!nav||!overlay||!btn)return;var open=!nav.classList.contains('open');nav.classList.toggle('open',open);nav.style.display=open?'flex':'';overlay.classList.toggle('open',open);btn.classList.toggle('open',open);btn.setAttribute('aria-expanded',open?'true':'false');document.body.style.overflow=open?'hidden':'';}"
         "window.toggleMobileNav=toggleMobileNav;"
-        "function toggleBoardsDropdown(ev){if(!document.body.classList.contains('mobile'))return;if(ev){ev.preventDefault();ev.stopPropagation();}var menu=document.getElementById('boards-dropdown');if(!menu)return;var open=!menu.classList.contains('open');menu.classList.toggle('open',open);}"
+        "function toggleBoardsDropdown(ev){syncMobileLayout();if(!isMobileLayout())return;if(ev){ev.preventDefault();ev.stopPropagation();}var menu=document.getElementById('boards-dropdown');if(!menu)return;var open=!menu.classList.contains('open');menu.classList.toggle('open',open);}"
         "window.toggleBoardsDropdown=toggleBoardsDropdown;" 
-        "var CACHE_KEY='fly_themes';"
+        "var CACHE_KEY='fly_themes_v2';"
         "var MIX_KEY='fly_theme_mix';"
         "var HL_LIGHT='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css';"
         "var HL_DARK='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css';"
@@ -212,6 +221,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(burger_btn, "type", "button");
     cwist_html_element_add_attr(burger_btn, "class", "burger-btn");
     cwist_html_element_add_attr(burger_btn, "aria-label", "Menu");
+    cwist_html_element_add_attr(burger_btn, "aria-expanded", "false");
     cwist_html_element_add_attr(burger_btn, "onclick", "toggleMobileNav()");
     cwist_html_element_t *burger_icon = cwist_html_element_create("span");
     cwist_html_element_add_class(burger_icon, "burger-icon");
@@ -236,6 +246,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *boards_link = cwist_html_element_create("a");
     cwist_html_element_add_attr(boards_link, "href", "/boards");
     cwist_html_element_add_attr(boards_link, "class", "nav-item nav-board-trigger");
+    cwist_html_element_add_attr(boards_link, "onclick", "toggleBoardsDropdown(event)");
     cwist_html_element_set_text(boards_link, "Boards");
     cwist_html_element_add_child(boards_wrap, boards_link);
     cwist_html_element_t *boards_menu = cwist_html_element_create("div");
