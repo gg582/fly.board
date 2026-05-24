@@ -222,6 +222,15 @@ The upload client measures chunk completion time, retries, timeouts, and Network
 
 Download uses the same high-throughput bias: the handshake carries the client's preferred chunk-size hint, and active downloads grow `span` and parallelism after successful chunk groups. Short reads, timeouts, and network errors are requeued by chunk index; a failed group does not fail the whole download until the same chunk has exhausted a high retry budget.
 
+### Tail RTT Prediction (Lagrange Extrapolation)
+
+For large files (sessions with many chunks) the server accumulates per-chunk RTT samples reported by the client, up to a maximum of 8. Once 3 or more samples have been collected, a Lagrange polynomial extrapolation estimates the RTT at the last chunk index, and the remaining chunk count is multiplied to derive the estimated time left.
+
+- Upload: after each chunk finishes, the client may attach an `X-TASFA-Chunk-RTT` header (milliseconds) to the next chunk request.
+- Download: the client may separately report the previous chunk's RTT via the `chunk_rtt_ms` query parameter.
+
+The server adds `predicted_remaining_ms` to the status response JSON, and the download chunk response carries an `X-TASFA-Predicted-Remaining-Ms` header. Math is intentionally kept light: sample cap of 8, simple O(n²) Lagrange, and predictions are clipped to a 30-second ceiling.
+
 ### Wynn-Accelerated Predictive Guard
 
 TASFA does not predict plaintext bytes or trust predicted chunk contents. Prediction is limited to the transfer-quality sequence observed by the client: completion time, throughput, retries, timeouts, and short reads. The client applies the Wynn epsilon transform in its Aitken `Delta^2` form to the latest quality samples:

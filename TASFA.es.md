@@ -206,6 +206,31 @@ Esto evita el agotamiento del pool de conexiones del navegador y mantiene confia
 
 El límite de conexiones HTTP por origen del navegador se respeta naturalmente por el pool de workers.
 
+### Adaptación del Cliente
+
+El cliente de carga mide el tiempo de finalización del fragmento, reintentos, tiempos de espera, y pistas de la API de Información de Red cuando están disponibles. Envía esas entradas a `/file/upload/init` y `/file/upload/renegotiate`; el servidor responde con una ventana paralela actual y una ventana máxima. Las finalizaciones limpias aumentan la ventana activa rápidamente hasta el máximo negociado, mientras que los fallos la reducen de una ranura a la vez. Un watchdog aborta y reanuda una carga bloqueada desde el bitmap del servidor en lugar de dejar la transferencia atascada.
+
+La descarga usa el mismo sesgo de alto rendimiento: el handshake lleva la pista de tamaño de fragmento preferida del cliente, y las descargas activas aumentan el `span` y el paralelismo después de grupos de fragmentos exitosos. Las lecturas cortas, tiempos de espera y errores de red se reencolan por índice de fragmento; un grupo fallido no falla toda la descarga hasta que el mismo fragmento haya agotado un alto presupuesto de reintentos.
+
+### Predicción de RTT de Cola (Extrapolación de Lagrange)
+
+Para archivos grandes (sesiones con muchos fragmentos), el servidor acumula muestras de RTT por fragmento reportadas por el cliente, hasta un máximo de 8. Una vez que se han recopilado 3 o más muestras, una extrapolación polinomial de Lagrange estima el RTT en el índice del último fragmento, y se multiplica la cantidad de fragmentos restantes para derivar el tiempo estimado restante.
+
+- Carga: después de que cada fragmento termina, el cliente puede adjuntar un encabezado `X-TASFA-Chunk-RTT` (milisegundos) a la siguiente solicitud de fragmento.
+- Descarga: el cliente puede reportar por separado el RTT del fragmento anterior a través del parámetro de consulta `chunk_rtt_ms`.
+
+El servidor agrega `predicted_remaining_ms` a la respuesta JSON de estado, y la respuesta de fragmento de descarga lleva un encabezado `X-TASFA-Predicted-Remaining-Ms`. Las matemáticas se mantienen intencionalmente ligeras: límite de muestras de 8, Lagrange simple O(n²), y las predicciones se recortan con un techo de 30 segundos.
+
+### Guardia Predictiva Acelerada de Wynn
+
+TASFA no predice bytes de texto plano ni confía en contenidos de fragmentos predichos. La predicción se limita a la secuencia de calidad de transferencia observada por el cliente: tiempo de finalización, rendimiento, reintentos, tiempos de espera y lecturas cortas. El cliente aplica la transformación epsilon de Wynn en su forma Aitken `Delta^2` a las últimas muestras de calidad:
+
+```
+S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
+```
+
+`S_hat` se limita a `[0, 1]` y se usa solo como señal de guardia para el siguiente fragmento. Una calidad predicha alta mantiene la ruta normal y permite que la ventana adaptativa crezca. Una calidad predicha media-baja marca el siguiente fragmento como `guarded`, reduciendo la ventana paralela activa en uno antes del despacho. Una calidad predicha muy baja marca el siguiente fragmento de carga para el fallback serializado AES-GCM, o reduce el `span` y el paralelismo de descarga antes de emitir el siguiente grupo de rangos. Esta es una defensa de congestión y fallo prospectiva, no un oráculo criptográfico.
+
 ## Modelo de Almacenamiento
 
 Cada sesión de carga preasigna un archivo temporal:
@@ -259,7 +284,7 @@ Tanto el estado de carga como el de descarga se rastrean con un **bitmap binario
 | Pregunta | Respuesta |
 |----------|-----------|
 | Q1: ¿El cliente calcula algún álgebra de reparación? | **No.** El cliente es un agente de retransmisión tonto. Toda la derivación de sospechas, puntuación de confianza, umbrales de costo y lógica de contracción son exclusivamente del lado del servidor. |
-| Q2: ¿Se evalúa explícitamente el umbral de costo de reparación antes de la contracción? | **Sí.** `htp_repair_worthwhile` rechaza la reparación cuando `sospechosos <= 2` o `sospechosos > total / 3`, volviendo al reintento directo. |
+| Q2: ¿Se evalúa explícitamente el umbral de costo de reparación antes de la contracción? | **Sí.** `htp_repair_worthwhile` compara `retry_cost_estimate` (bytes × RTT) contra `repair_cost_estimate` (sobrecarga de análisis del servidor). Rechaza la reparación cuando `suspect_count < 3` o el reintento directo es más barato, volviendo al reintento directo. |
 | Q3: ¿Los grupos parciales se rellenan con ceros? | **No.** Solo los grupos completos de 6 ranuras (`chunk_count / 6`) se validan. El grupo final incompleto se excluye por completo. |
 | Q4: ¿La respuesta contiene puntajes de sospecha, no solo banderas binarias? | **Sí.** Cada respuesta `needs_retry` incluye `suspicion_scores` como objetos `{chunk_index, score}`. |
 | Q5: ¿La contracción preserva la topología de grupo original? | **Sí.** `htp_contract_groups` trata cada grupo original completo como un único vértice de nivel superior; los sospechosos nunca se reordenan entre grupos. |
