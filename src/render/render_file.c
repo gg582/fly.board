@@ -141,6 +141,8 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             cJSON *jpreview = cJSON_GetObjectItem(f, "preview_path");
             const char *thumb_path = (jthumb && jthumb->valuestring && jthumb->valuestring[0]) ? jthumb->valuestring : "";
             const char *preview_path = (jpreview && jpreview->valuestring && jpreview->valuestring[0]) ? jpreview->valuestring : "";
+            bool has_thumb = thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0;
+            bool has_preview = preview_path[0] && strncmp(preview_path, "public/uploads/", 15) == 0;
             int id_val = 0;
             if (fid && fid->type == cJSON_String) id_val = atoi(fid->valuestring);
             else if (fid && fid->type == cJSON_Number) id_val = fid->valueint;
@@ -159,27 +161,23 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             cwist_sstring_append(b, "<div class='file-repo-card-inner'>");
             cwist_sstring_append(b, "<div class='file-repo-thumb'>");
             if (is_image) {
-                if (thumb_path[0]) {
+                if (has_thumb) {
                     cwist_sstring_append(b, "<img src='/assets/uploads/");
                     cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
                     cwist_sstring_append(b, "' class='file-thumb-media' onerror=\"this.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'\">");
                 } else {
-                    cwist_sstring_append(b, "<img data-tasfa-download='/file/download/");
-                    cwist_sstring_append(b, fid_buf);
-                    cwist_sstring_append(b, "' class='file-thumb-media' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'>");
+                    cwist_sstring_append(b, "<span class='file-thumb-icon'>IMG</span>");
                 }
             } else if (is_video) {
-                if (thumb_path[0]) {
+                if (has_thumb) {
                     cwist_sstring_append(b, "<img src='/assets/uploads/");
                     cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
                     cwist_sstring_append(b, "' class='file-thumb-media' onerror=\"this.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'\">");
                 } else {
-                    cwist_sstring_append(b, "<video data-tasfa-download='/file/download/");
-                    cwist_sstring_append(b, fid_buf);
-                    cwist_sstring_append(b, "' class='file-thumb-media' muted playsinline preload='metadata'></video>");
+                    cwist_sstring_append(b, "<span class='file-thumb-icon'>VID</span>");
                 }
             } else if (strncmp(mime, "audio/", 6) == 0) {
-                if (preview_path[0]) {
+                if (has_preview) {
                     cwist_sstring_append(b, "<audio controls class='file-thumb-media' src='/assets/uploads/");
                     cwist_sstring_append(b, preview_path + strlen("public/uploads/"));
                     cwist_sstring_append(b, "' style='width:100%'></audio>");

@@ -262,7 +262,7 @@ void handler_file_repo(cwist_http_request *req, cwist_http_response *res) {
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char sql[] =
-        "SELECT a.id, a.user_id, a.filename, a.mime_type, a.file_path, a.size, a.created_at "
+        "SELECT a.id, a.user_id, a.filename, a.mime_type, a.file_path, a.size, a.created_at, a.thumb_path, a.preview_path "
         "FROM files a "
         "LEFT JOIN files b ON (a.post_id = b.post_id OR (a.post_id IS NULL AND b.post_id IS NULL)) "
         "AND a.filename = b.filename AND a.id < b.id "
