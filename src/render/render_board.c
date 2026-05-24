@@ -116,7 +116,6 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
                     cJSON *psummary = cJSON_GetObjectItem(p, "summary");
                     cJSON *pcontent = cJSON_GetObjectItem(p, "content");
                     cJSON *pauthor = cJSON_GetObjectItem(p, "author_name");
-                    cJSON *pviews = cJSON_GetObjectItem(p, "view_count");
                     cwist_sstring_append(b, "<li class='board-post-item'>");
                     cwist_sstring_append(b, "<a class='board-post-title' href='/post/");
                     cwist_sstring_append(b, pslug->valuestring);
@@ -149,13 +148,6 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
                     if (pauthor && pauthor->valuestring && pauthor->valuestring[0]) {
                         cwist_sstring_append(b, "<span class='post-badge'>");
                         cwist_sstring_append_escaped(b, pauthor->valuestring);
-                        cwist_sstring_append(b, "</span>");
-                    }
-                    if (pviews) {
-                        cwist_sstring_append(b, "<span class='post-badge'>");
-                        char views_buf[32];
-                        snprintf(views_buf, sizeof(views_buf), "%d", json_int(p, "view_count", 0));
-                        cwist_sstring_append(b, views_buf);
                         cwist_sstring_append(b, "</span>");
                     }
                     if (pdate && pdate->valuestring) {
