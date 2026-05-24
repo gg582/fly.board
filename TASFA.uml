@@ -1,161 +1,105 @@
-@startuml TASFA_Server_Authoritative_HTP
+@startuml TASFA_Unified_Server_Authoritative
 
 skinparam backgroundColor #FEFEFE
-skinparam handwritten false
 skinparam sequenceArrowThickness 2
 skinparam sequenceParticipantBorderThickness 2
+skinparam BoxBorderThickness 2
 
-== Upload Phase ==
-Client -> Server: POST /file/upload/init
-Server --> Client: upload_id, token, chunk_size, modulus_M
+participant Client
 
-loop Parallel chunk upload
-    Client -> Server: POST /file/upload
-    note right: X-TASFA-Chunk-Index, Hash-Tag, Raw-Scalar, Magic-Scalar
-    Server -> Server: pwrite(chunk_data) + save_htp_scalar()
-    Server --> Client: 204 Accepted
+box "TASFA Server" #F8F8F8
+    participant API
+    participant HTP
+    participant Storage
+end box
+
+== Upload Init ==
+
+Client -> API: POST /file/upload/init
+API --> Client: upload_id, token, chunk_size, modulus_M
+
+== Parallel Chunk Upload ==
+
+loop For each chunk
+    Client -> API: POST /file/upload
+    note right
+      Headers:
+      X-TASFA-Chunk-Index
+      Hash-Tag
+      Raw-Scalar
+      Magic-Scalar
+    end note
+
+    API -> Storage: pwrite(chunk_data)
+    API -> HTP: save_htp_scalar(chunk_index)
+    API --> Client: 204 Accepted
 end
 
-== HTP Level-0 Validation (Server-Side) ==
-Client -> Server: POST /file/upload/complete
-Server -> Server: load_htp_scalars() → validate complete 6-slot groups only
+== Completion Request ==
+
+Client -> API: POST /file/upload/complete
+API -> HTP: load all scalars
+HTP -> HTP: validate Level-0 6-slot groups
 
 alt All groups pass
-    Server -> Server: sha256_file() + finalize
-    Server --> Client: 200 OK (file_id, url, checksum)
+    HTP --> API: validation OK
+    API -> Storage: sha256_file()
+    API -> Storage: finalize commit
+    API --> Client: 200 OK\n(file_id, url, checksum)
+
 else Some groups fail
-    Server -> Server: derive suspicion scores per slot
-    Server -> Server: evaluate repair cost threshold
-    alt Repair worthwhile
-        Server -> Server: internal contraction → narrowed suspect set
-        Server --> Client: 409 needs_retry
-        note right
-          htp_status: "needs_retry"
-          retry_targets: [14, 15, 16, ...]
-          suspicion_scores: [{chunk_index, score}, ...]
-          contraction_level: 1
-        end note
+
+    HTP -> HTP: derive suspicion scores per slot
+    HTP -> HTP: evaluate repair threshold
+
+    alt Contraction worthwhile
+
+        HTP -> HTP: build Level-1 group aggregates
+        HTP -> HTP: validate contracted topology
+
+        alt Contraction narrows suspects
+            HTP --> API: retry_targets=[c14,c15]\ncontraction_level=1
+
+        else Contraction inconclusive
+            HTP --> API: retry_targets=all suspects\ncontraction_level=1
+        end
+
     else Direct retry cheaper
-        Server --> Client: 409 needs_retry
-        note right
-          htp_status: "needs_retry"
-          retry_targets: all suspects
-          suspicion_scores: [{chunk_index, score}, ...]
-          contraction_level: 0
-        end note
+        HTP --> API: retry_targets=all suspects\ncontraction_level=0
     end
+
+    API --> Client: 409 needs_retry
+    note right
+      htp_status: needs_retry
+      retry_targets: [...]
+      suspicion_scores: [...]
+    end note
 end
 
-== Retransmission (Dumb Agent) ==
+== Retransmission ==
+
 loop For each retry target
-    Client -> Server: POST /file/upload (retransmit)
-    note right: same headers; chunk already in retry_targets
-    Server -> Server: update chunk + remove from retry_targets
-    Server --> Client: 204 Accepted
+    Client -> API: POST /file/upload (retransmit)
+
+    API -> Storage: overwrite chunk
+    API -> HTP: replace scalar
+    API --> Client: 204 Accepted
 end
 
 == Re-Validation ==
-Client -> Server: POST /file/upload/complete
-Server -> Server: re-validate with fresh scalars
+
+Client -> API: POST /file/upload/complete
+API -> HTP: validate fresh topology
+
 alt Pass
-    Server --> Client: 200 OK (file_id, url, checksum, delete_pin)
+    HTP --> API: validation OK
+    API -> Storage: commit file
+    API --> Client: 200 OK\n(file_id, url, checksum, delete_pin)
+
 else Still failing
-    Server -> Server: next contraction level or direct retry
-    Server --> Client: 409 needs_retry (narrowed targets)
+    HTP -> HTP: next contraction or retry escalation
+    HTP --> API: narrowed retry_targets
+    API --> Client: 409 needs_retry
 end
-
-@enduml
-
-@startuml TASFA_State_Machine
-
-skinparam backgroundColor #FEFEFE
-skinparam stateBorderThickness 2
-
-[*] --> Initializing : POST /init
-Initializing --> Uploading : 200 init response
-
-state Uploading {
-  [*] --> ReceivingChunks
-  ReceivingChunks --> ReceivingChunks : chunk accepted
-  ReceivingChunks --> RetryingChunks : POST /complete → needs_retry
-  ReceivingChunks --> Finalizing : POST /complete → OK
-}
-
-state RetryingChunks {
-  [*] --> WaitingRetransmit
-  WaitingRetransmit --> WaitingRetransmit : chunk retransmitted & removed from targets
-}
-
-RetryingChunks --> Uploading : all retry_targets cleared → retry complete
-
-Finalizing --> [*] : 200 file committed
-
-@enduml
-
-@startuml HTP_Server_Side_Contraction
-
-skinparam backgroundColor #FEFEFE
-skinparam rectangleBorderThickness 2
-
-rectangle "Level 0: Full File" as L0 {
-    rectangle "G0: [c0..c5]" as G0
-    rectangle "G1: [c6..c11]" as G1
-    rectangle "G2: [c12..c17]" as G2
-    rectangle "G3: [c18..c23]" as G3
-    rectangle "..." as GX
-}
-
-rectangle "Server: Group G2 fails" as SV1 #FFFFCC {
-    note right
-      L1 ≠ L2 ≠ L3
-      v2 in L1+L2 fail → score 1.0
-      v3 in L2 fail only → score 0.5
-      v4 in L2+L3 fail → score 1.0
-    end note
-}
-
-rectangle "Suspect Set S0" as S0 #FFCCCC {
-    card "c12: score 0.50"
-    card "c13: score 0.50"
-    card "c14: score 1.00"
-    card "c15: score 1.00"
-    card "c16: score 0.50"
-    card "c17: score 0.50"
-}
-
-rectangle "Server: Cost threshold OK" as TH #CCFFCC {
-    note right
-      6 suspects ≤ 24 total / 3
-      repair worthwhile
-    end note
-}
-
-rectangle "Server: Contraction L1" as L1 #CCFFCC {
-    rectangle "G0..G3: group aggregates" as R0
-    note right
-      Level-1: consecutive groups as vertices
-      topology preserved, suspects not reshuffled
-    end note
-}
-
-rectangle "Server: R0 fails again" as SV2 #FFFFCC {
-    note right
-      contraction narrows to
-      c14, c15
-    end note
-}
-
-rectangle "Retry Targets" as RES #CCCCFF {
-    card "c14: retry"
-    card "c15: retry"
-}
-
-L0 --> SV1 : server validates G2
-SV1 --> S0 : server derives scores
-S0 --> TH : server checks threshold
-TH --> L1 : server contracts groups
-L1 --> SV2 : server validates contraction
-SV2 --> RES : server returns retry_targets
-RES --> Client : client retransmits as dumb agent
 
 @enduml
