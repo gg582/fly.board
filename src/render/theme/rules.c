@@ -441,6 +441,83 @@ void rule_components(cJSON *rules) {
     add_decl(alert, "margin-bottom", "14px");
     cJSON_AddItemToArray(rules, alert);
 
+    cJSON *media_card = create_rule(".media-card");
+    add_decl(media_card, "display", "grid");
+    add_decl(media_card, "grid-template-columns", "96px minmax(0,1fr) auto");
+    add_decl(media_card, "gap", "12px");
+    add_decl(media_card, "align-items", "center");
+    add_decl(media_card, "padding", "10px");
+    add_decl(media_card, "border", "1px solid var(--border)");
+    add_decl(media_card, "background", "var(--panel)");
+    cJSON_AddItemToArray(rules, media_card);
+
+    cJSON *media_thumb = create_rule(".media-thumb");
+    add_decl(media_thumb, "width", "96px");
+    add_decl(media_thumb, "height", "72px");
+    add_decl(media_thumb, "display", "flex");
+    add_decl(media_thumb, "align-items", "center");
+    add_decl(media_thumb, "justify-content", "center");
+    add_decl(media_thumb, "overflow", "hidden");
+    add_decl(media_thumb, "border", "1px solid var(--border)");
+    add_decl(media_thumb, "background", "var(--bg)");
+    add_decl(media_thumb, "color", "var(--muted)");
+    add_decl(media_thumb, "font-size", "12px");
+    add_decl(media_thumb, "font-weight", "700");
+    cJSON_AddItemToArray(rules, media_thumb);
+
+    cJSON *media_thumb_asset = create_rule(".media-thumb img, .media-thumb video");
+    add_decl(media_thumb_asset, "width", "100%");
+    add_decl(media_thumb_asset, "height", "100%");
+    add_decl(media_thumb_asset, "object-fit", "cover");
+    add_decl(media_thumb_asset, "display", "block");
+    cJSON_AddItemToArray(rules, media_thumb_asset);
+
+    cJSON *media_info = create_rule(".media-info");
+    add_decl(media_info, "min-width", "0");
+    cJSON_AddItemToArray(rules, media_info);
+
+    cJSON *media_name = create_rule(".media-name");
+    add_decl(media_name, "font-size", "14px");
+    add_decl(media_name, "font-weight", "600");
+    add_decl(media_name, "line-height", "1.35");
+    add_decl(media_name, "overflow", "hidden");
+    add_decl(media_name, "text-overflow", "ellipsis");
+    add_decl(media_name, "white-space", "nowrap");
+    cJSON_AddItemToArray(rules, media_name);
+
+    cJSON *media_status = create_rule(".media-status");
+    add_decl(media_status, "color", "var(--muted)");
+    add_decl(media_status, "font-size", "12px");
+    add_decl(media_status, "line-height", "1.4");
+    add_decl(media_status, "margin-top", "4px");
+    cJSON_AddItemToArray(rules, media_status);
+
+    cJSON *media_actions = create_rule(".media-actions");
+    add_decl(media_actions, "display", "flex");
+    add_decl(media_actions, "gap", "8px");
+    add_decl(media_actions, "flex-wrap", "wrap");
+    add_decl(media_actions, "justify-content", "flex-end");
+    cJSON_AddItemToArray(rules, media_actions);
+
+    cJSON *media_actions_btn = create_rule(".media-actions .btn");
+    add_decl(media_actions_btn, "font-size", "12px");
+    add_decl(media_actions_btn, "padding", "4px 10px");
+    cJSON_AddItemToArray(rules, media_actions_btn);
+
+    cJSON *media_progress = create_rule(".media-progress-bar");
+    add_decl(media_progress, "height", "4px");
+    add_decl(media_progress, "background", "var(--border)");
+    add_decl(media_progress, "overflow", "hidden");
+    add_decl(media_progress, "margin-top", "8px");
+    cJSON_AddItemToArray(rules, media_progress);
+
+    cJSON *media_progress_inner = create_rule(".media-progress-inner");
+    add_decl(media_progress_inner, "height", "100%");
+    add_decl(media_progress_inner, "width", "0%");
+    add_decl(media_progress_inner, "background", "var(--accent)");
+    add_decl(media_progress_inner, "transition", "width 0.2s ease");
+    cJSON_AddItemToArray(rules, media_progress_inner);
+
     cJSON *tbl_scroll = create_rule(".table-scroll");
     add_decl(tbl_scroll, "width", "100%");
     add_decl(tbl_scroll, "overflow-x", "auto");
@@ -1068,6 +1145,21 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_img, "transition", "transform 0.3s ease, box-shadow 0.3s ease");
     cJSON_AddItemToArray(rules, md_img);
 
+    cJSON *editor_preview_media = create_rule("#md-preview .markdown-body img, #md-preview .markdown-body video");
+    add_decl(editor_preview_media, "max-width", "240px");
+    add_decl(editor_preview_media, "max-height", "180px");
+    add_decl(editor_preview_media, "width", "auto");
+    add_decl(editor_preview_media, "height", "auto");
+    add_decl(editor_preview_media, "object-fit", "contain");
+    add_decl(editor_preview_media, "margin", "12px 0");
+    cJSON_AddItemToArray(rules, editor_preview_media);
+
+    cJSON *editor_preview_audio = create_rule("#md-preview .markdown-body audio");
+    add_decl(editor_preview_audio, "width", "240px");
+    add_decl(editor_preview_audio, "max-width", "100%");
+    add_decl(editor_preview_audio, "margin", "12px 0");
+    cJSON_AddItemToArray(rules, editor_preview_audio);
+
     cJSON *md_imgh = create_rule(".markdown-body img:hover");
     add_decl(md_imgh, "transform", "scale(1.01)");
     add_decl(md_imgh, "box-shadow", "0 8px 24px var(--shadow)");
@@ -1379,6 +1471,20 @@ void rule_media(cJSON *rules) {
     cJSON *mq8 = create_rule("body.mobile .nav-board-dropdown");
     add_decl(mq8, "width", "100%");
     cJSON_AddItemToArray(rules, mq8);
+
+    cJSON *mq_media_card = create_rule("body.mobile .media-card");
+    add_decl(mq_media_card, "grid-template-columns", "72px minmax(0,1fr)");
+    cJSON_AddItemToArray(rules, mq_media_card);
+
+    cJSON *mq_media_thumb = create_rule("body.mobile .media-thumb");
+    add_decl(mq_media_thumb, "width", "72px");
+    add_decl(mq_media_thumb, "height", "54px");
+    cJSON_AddItemToArray(rules, mq_media_thumb);
+
+    cJSON *mq_media_actions = create_rule("body.mobile .media-actions");
+    add_decl(mq_media_actions, "grid-column", "1 / -1");
+    add_decl(mq_media_actions, "justify-content", "flex-start");
+    cJSON_AddItemToArray(rules, mq_media_actions);
 
     cJSON *mq9 = create_rule("body.mobile .nav-board-menu");
     add_decl(mq9, "position", "static");
