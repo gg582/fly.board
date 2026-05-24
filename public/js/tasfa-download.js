@@ -4,6 +4,14 @@
     var SPACER_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
     var CACHE_NAME = 'tasfa-small-files-v1';
     var SMALL_FILE_THRESHOLD = 5 * 1024 * 1024; // 5MB
+    var DOWNLOAD_CHUNK_STORE = 'tasfa_download_chunk_size_v2';
+    var DOWNLOAD_CHUNK_MIN = 256 * 1024;
+    var DOWNLOAD_CHUNK_DEFAULT = 1024 * 1024;
+    var DOWNLOAD_CHUNK_MOBILE_DEFAULT = 512 * 1024;
+    var DOWNLOAD_CHUNK_MAX = 8 * 1024 * 1024;
+    var DOWNLOAD_CHUNK_STEP_UP = 256 * 1024;
+    var DOWNLOAD_CHUNK_STEP_DOWN = 128 * 1024;
+    var DOWNLOAD_REQUEST_BYTES_MAX = 32 * 1024 * 1024;
 
     async function getCachedBlob(baseUrl) {
         try {
@@ -21,6 +29,125 @@
                 headers: {'Content-Type': mimeType || 'application/octet-stream'}
             }));
         } catch (e) {}
+    }
+
+    function clampNumber(value, minValue, maxValue) {
+        value = Number(value);
+        if (!Number.isFinite(value)) value = minValue;
+        return Math.max(minValue, Math.min(maxValue, value));
+    }
+
+    function isLikelyMobile() {
+        return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || '');
+    }
+
+    function getConnectionSnapshot() {
+        var c = navigator.connection || navigator.mozConnection || navigator.webkitConnection || {};
+        return {
+            effectiveType: c.effectiveType || '',
+            downlink: Number(c.downlink || 0),
+            rtt: Number(c.rtt || 0),
+            saveData: c.saveData ? '1' : '0'
+        };
+    }
+
+    function preferredDownloadChunkSize() {
+        var saved = 0;
+        try { saved = Number(localStorage.getItem(DOWNLOAD_CHUNK_STORE) || 0); } catch (e) {}
+        var base = saved || (isLikelyMobile() ? DOWNLOAD_CHUNK_MOBILE_DEFAULT : DOWNLOAD_CHUNK_DEFAULT);
+        base = Math.round(base / DOWNLOAD_CHUNK_STEP_DOWN) * DOWNLOAD_CHUNK_STEP_DOWN;
+        return clampNumber(base, DOWNLOAD_CHUNK_MIN, DOWNLOAD_CHUNK_MAX);
+    }
+
+    function rememberDownloadChunkSize(value) {
+        var next = Math.round(clampNumber(value, DOWNLOAD_CHUNK_MIN, DOWNLOAD_CHUNK_MAX) / DOWNLOAD_CHUNK_STEP_DOWN) * DOWNLOAD_CHUNK_STEP_DOWN;
+        try { localStorage.setItem(DOWNLOAD_CHUNK_STORE, String(next)); } catch (e) {}
+        return next;
+    }
+
+    function appendQuery(url, params) {
+        var parts = [];
+        Object.keys(params).forEach(function(key) {
+            var value = params[key];
+            if (value === undefined || value === null || value === '') return;
+            parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)));
+        });
+        if (!parts.length) return url;
+        return url + (url.indexOf('?') === -1 ? '?' : '&') + parts.join('&');
+    }
+
+    function downloadHandshakeParams() {
+        var conn = getConnectionSnapshot();
+        return {
+            chunk_size: String(preferredDownloadChunkSize()),
+            link_effective_type: conn.effectiveType,
+            link_downlink_mbps: conn.downlink > 0 ? conn.downlink.toFixed(2) : '',
+            link_rtt_ms: conn.rtt > 0 ? String(Math.round(conn.rtt)) : '',
+            link_retry_events: '0',
+            link_timeout_events: '0',
+            link_save_data: conn.saveData
+        };
+    }
+
+    function wynnEpsilonAitken(samples) {
+        if (!samples || samples.length < 3) return samples && samples.length ? samples[samples.length - 1] : 0.75;
+        var s0 = Number(samples[samples.length - 3]);
+        var s1 = Number(samples[samples.length - 2]);
+        var s2 = Number(samples[samples.length - 1]);
+        var denom = s2 - (2 * s1) + s0;
+        if (!Number.isFinite(denom) || Math.abs(denom) < 1e-6) return s2;
+        var accelerated = s0 - (((s1 - s0) * (s1 - s0)) / denom);
+        return Number.isFinite(accelerated) ? accelerated : s2;
+    }
+
+    function pushDownloadQuality(session, value) {
+        session.qualitySamples = session.qualitySamples || [];
+        session.qualitySamples.push(clampNumber(value, 0, 1));
+        if (session.qualitySamples.length > 12) session.qualitySamples.shift();
+    }
+
+    function predictedDownloadQuality(session) {
+        return clampNumber(wynnEpsilonAitken(session.qualitySamples || []), 0, 1);
+    }
+
+    function applyPredictedDownloadRule(session) {
+        var predicted = predictedDownloadQuality(session);
+        if (predicted < 0.25) {
+            session.currentSpan = 1;
+            session.targetParallel = Math.max(1, Math.min(session.targetParallel || 1, 2));
+        } else if (predicted < 0.45) {
+            session.currentSpan = Math.max(1, Math.min(session.currentSpan || 1, 2));
+            session.targetParallel = Math.max(1, Math.min(session.targetParallel || 1, Math.ceil((session.maxParallel || 1) / 2)));
+        }
+    }
+
+    function tuneDownloadSuccess(session, bytes, durationMs) {
+        session.successEvents = (session.successEvents || 0) + 1;
+        session.fastStreak = (session.fastStreak || 0) + 1;
+        var mbps = durationMs > 0 ? ((bytes * 8) / durationMs / 1000) : 0;
+        session.ewmaMbps = session.ewmaMbps ? (session.ewmaMbps * 0.75 + mbps * 0.25) : mbps;
+        pushDownloadQuality(session, clampNumber(mbps / 25, 0.1, 1));
+        if (session.fastStreak >= 6 && (session.ewmaMbps >= 25 || durationMs < 10000)) {
+            rememberDownloadChunkSize(preferredDownloadChunkSize() + DOWNLOAD_CHUNK_STEP_UP);
+            session.fastStreak = 0;
+        }
+        if (session.currentSpan < session.maxSpan && session.successEvents % 3 === 0) {
+            session.currentSpan += 1;
+        }
+        if (session.targetParallel < session.maxParallel && session.successEvents % 4 === 0) {
+            session.targetParallel += 1;
+        }
+    }
+
+    function tuneDownloadFailure(session, kind) {
+        session.failureEvents = (session.failureEvents || 0) + 1;
+        session.fastStreak = 0;
+        pushDownloadQuality(session, kind === 'timeout' ? 0.05 : 0.15);
+        rememberDownloadChunkSize(preferredDownloadChunkSize() - DOWNLOAD_CHUNK_STEP_DOWN);
+        if (session.currentSpan > 1) session.currentSpan -= 1;
+        if ((kind === 'timeout' || session.failureEvents % 3 === 0) && session.targetParallel > 1) {
+            session.targetParallel -= 1;
+        }
     }
 
     async function notifyDownloadComplete(sessionId, sessionToken) {
@@ -82,22 +209,36 @@
         if (!session) return null;
         var chunkCount = Math.max(1, Number(session.chunk_count) || 1);
         var hw = Math.max(1, Number(navigator.hardwareConcurrency) || 4);
+        var chunkSize = Math.max(1, Number(session.chunk_size) || 1);
+        var maxParallel = Math.max(1, Math.min(Number(session.max_parallel_chunks) || hw * 3, chunkCount));
+        var initialParallel = Math.max(1, Math.min(Number(session.initial_parallel_chunks) || maxParallel, maxParallel));
+        var coalesce = Math.max(1, Math.min(Number(session.coalesce_chunks) || 8, 64));
+        var maxSpan = Math.max(1, Math.min(64, Math.floor(DOWNLOAD_REQUEST_BYTES_MAX / chunkSize) || 1));
         return {
             sessionId: session.session_id,
             sessionToken: session.session_token,
-            chunkSize: Math.max(1, Number(session.chunk_size) || 1),
+            chunkSize: chunkSize,
             chunkCount: chunkCount,
             totalSize: Math.max(0, Number(session.total_size) || 0),
             mimeType: session.mime_type || 'application/octet-stream',
             filename: session.filename || 'download',
-            maxParallel: Math.max(1, Math.min(Number(session.max_parallel_chunks) || hw * 2, chunkCount)),
-            coalesceChunks: Math.max(1, Math.min(Number(session.coalesce_chunks) || 4, 64))
+            maxParallel: maxParallel,
+            targetParallel: initialParallel,
+            coalesceChunks: Math.min(coalesce, maxSpan),
+            currentSpan: Math.min(coalesce, maxSpan),
+            maxSpan: maxSpan,
+            successEvents: 0,
+            failureEvents: 0,
+            fastStreak: 0,
+            ewmaMbps: 0,
+            qualitySamples: []
         };
     }
 
     async function fetchDownloadSession(baseUrl) {
         var hsUrl = handshakeUrl(baseUrl);
         if (!hsUrl) throw new Error('unsupported base url');
+        hsUrl = appendQuery(hsUrl, downloadHandshakeParams());
         var session = normalizeDownloadSession(await fetchJson(hsUrl));
         if (!session || !session.sessionId || !session.sessionToken) {
             throw new Error((session && session.error) || 'invalid handshake');
@@ -147,12 +288,18 @@
     function fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries) {
         retries = retries || 0;
         return new Promise(function(resolve, reject) {
+            var startedAt = Date.now();
             var url = chunkUrl(baseUrl, session.sessionId, session.sessionToken, chunkIndex, span);
             var xhr = new XMLHttpRequest();
             xhr.open('GET', url, true);
             xhr.responseType = 'arraybuffer';
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-            xhr.timeout = 120000;
+            var expectedBytes = 0;
+            for (var e = 0; e < span; e++) {
+                if (chunkIndex + e >= session.chunkCount) break;
+                expectedBytes += chunkByteSize(session, chunkIndex + e);
+            }
+            xhr.timeout = Math.max(180000, Math.min(900000, Math.ceil((expectedBytes / (1024 * 1024)) * 30000)));
             xhr.onload = function() {
                 if (xhr.status === 429 && retries < 10) {
                     var delay = 3000;
@@ -178,6 +325,10 @@
                 var buffer = xhr.response;
                 if (!buffer) { reject(new Error('empty response')); return; }
                 var data = new Uint8Array(buffer);
+                if (data.byteLength !== expectedBytes) {
+                    reject(new Error('short response'));
+                    return;
+                }
                 var offset = 0;
                 var totalReceived = 0;
                 for (var i = 0; i < span; i++) {
@@ -193,7 +344,7 @@
                     offset += size;
                     totalReceived += size;
                 }
-                resolve(totalReceived);
+                resolve({ bytes: totalReceived, durationMs: Date.now() - startedAt });
             };
             xhr.onerror = function() {
                 if (retries < 5) {
@@ -252,18 +403,46 @@
 
             var pending = [];
             var bitmap = new Array(session.chunkCount).fill(0);
-            var SPAN = session.coalesceChunks || 4;
-            for (var i = 0; i < session.chunkCount; i += SPAN) pending.push(i);
+            var inflight = new Array(session.chunkCount).fill(0);
+            var retryCounts = new Array(session.chunkCount).fill(0);
+            var activeFetches = 0;
+            for (var i = 0; i < session.chunkCount; i++) pending.push(i);
+
+            function claimSpan() {
+                while (pending.length > 0) {
+                    var idx = pending.shift();
+                    if (bitmap[idx] || inflight[idx]) continue;
+                    applyPredictedDownloadRule(session);
+                    var span = Math.min(session.currentSpan || 1, session.chunkCount - idx);
+                    while (span > 1 && (bitmap[idx + span - 1] || inflight[idx + span - 1])) span -= 1;
+                    for (var j = 0; j < span; j++) inflight[idx + j] = 1;
+                    return { idx: idx, span: span };
+                }
+                return null;
+            }
+
+            function releaseSpan(idx, span) {
+                for (var j = 0; j < span; j++) {
+                    if (idx + j < inflight.length) inflight[idx + j] = 0;
+                }
+            }
 
             async function worker() {
-                while (pending.length > 0 && !sharedState.failed) {
-                    var idx = pending.pop();
-                    if (bitmap[idx]) continue;
+                while (!sharedState.failed) {
+                    if (activeFetches >= (session.targetParallel || 1)) {
+                        await new Promise(function(r) { setTimeout(r, 20); });
+                        continue;
+                    }
+                    var claim = claimSpan();
+                    if (!claim) break;
+                    activeFetches += 1;
                     try {
-                        var actualSpan = Math.min(SPAN, session.chunkCount - idx);
-                        var received = await fetchChunk(baseUrl, session, allBytes, idx, actualSpan);
-                        for (var i = 0; i < actualSpan; i++) {
-                            var doneIdx = idx + i;
+                        var received = await fetchChunk(baseUrl, session, allBytes, claim.idx, claim.span);
+                        releaseSpan(claim.idx, claim.span);
+                        activeFetches = Math.max(0, activeFetches - 1);
+                        tuneDownloadSuccess(session, received.bytes || 0, received.durationMs || 0);
+                        for (var i = 0; i < claim.span; i++) {
+                            var doneIdx = claim.idx + i;
                             if (doneIdx < session.chunkCount && !bitmap[doneIdx]) {
                                 bitmap[doneIdx] = 1;
                                 sharedState.completedChunks += 1;
@@ -271,7 +450,20 @@
                             }
                         }
                     } catch (e) {
-                        sharedState.failed = e || new Error('download failed');
+                        releaseSpan(claim.idx, claim.span);
+                        activeFetches = Math.max(0, activeFetches - 1);
+                        var msg = e && e.message ? e.message : 'network';
+                        tuneDownloadFailure(session, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
+                        var exhausted = false;
+                        for (var k = 0; k < claim.span; k++) {
+                            var ci = claim.idx + k;
+                            if (ci >= session.chunkCount || bitmap[ci]) continue;
+                            retryCounts[ci] = (retryCounts[ci] || 0) + 1;
+                            if (retryCounts[ci] > 80) exhausted = true;
+                            pending.push(ci);
+                        }
+                        if (exhausted) sharedState.failed = e || new Error('download failed');
+                        else await new Promise(function(r) { setTimeout(r, Math.min(15000, 250 * Math.max(1, session.failureEvents || 1))); });
                     }
                 }
             }

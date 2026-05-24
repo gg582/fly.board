@@ -11,5 +11,5 @@ files_img=
 use_rss=true
 use_tasfa=true
 max_upload_size=1G
-max_total_parallel_uploads=4
-max_upload_parallel_chunks=4
+max_total_parallel_uploads=8
+max_upload_parallel_chunks=16

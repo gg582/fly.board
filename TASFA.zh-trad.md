@@ -24,7 +24,7 @@ TASFA 是本專案用於檔案上傳與下載的傳輸協定。
 
 ## 上傳協定
 
-瀏覽器先協商上傳工作階段，然後傳送帶有 TASFA 標頭的**分塊**（預設 `8 MiB`，行動裝置 `4 MiB`）：
+瀏覽器先協商上傳工作階段，然後傳送帶有 TASFA 標頭的**分塊**（預設 `16 MiB`，行動裝置 `8 MiB`）：
 
 - `X-TASFA-Upload-ID`
 - `X-TASFA-Upload-Token`
@@ -195,14 +195,14 @@ repair_worthwhile(嫌疑數, 總分塊數, 分塊大小, rtt_ms):
 
 ## 執行階段設定
 
-- 上傳分塊大小：桌面 `8 MiB`，行動裝置 `4 MiB`
-- 預設瀏覽器上傳並行度：`4`
+- 上傳分塊大小：桌面 `16 MiB`，行動裝置 `8 MiB`
+- 預設瀏覽器上傳並行度：`12`
 - 最大瀏覽器上傳並行度：`blog.settings` 中的 `max_upload_parallel_chunks`
 - 最大並發上傳工作階段：`blog.settings` 中的 `max_total_parallel_uploads`
 - 最大上傳大小：`blog.settings` 中的 `max_upload_size`
 - 最大瀏覽器下載工作階段：伺服器定義
-- 上傳 xhr 逾時：`30 s`
-- 上傳工作階段 fetch 逾時：`12 s`
+- 上傳 xhr 逾時：至少 `180 s`
+- 上傳工作階段 fetch 逾時：`30 s`
 
 瀏覽器每來源 HTTP 連線限制由工作池自然遵守。
 

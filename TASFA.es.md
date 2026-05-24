@@ -24,7 +24,7 @@ Descarga:
 
 ## Protocolo de Carga
 
-El navegador negocia primero una sesión de carga, luego envía **fragmentos** (predeterminado `8 MiB`, móvil `4 MiB`) con encabezados TASFA:
+El navegador negocia primero una sesión de carga, luego envía **fragmentos** (predeterminado `16 MiB`, móvil `8 MiB`) con encabezados TASFA:
 
 - `X-TASFA-Upload-ID`
 - `X-TASFA-Upload-Token`
@@ -195,14 +195,14 @@ Esto evita el agotamiento del pool de conexiones del navegador y mantiene confia
 
 ## Configuración en Tiempo de Ejecución
 
-- tamaño de fragmento de carga: `8 MiB` escritorio, `4 MiB` móvil
-- paralelismo de carga del navegador predeterminado: `4`
+- tamaño de fragmento de carga: `16 MiB` escritorio, `8 MiB` móvil
+- paralelismo de carga del navegador predeterminado: `12`
 - paralelismo máximo de carga del navegador: `max_upload_parallel_chunks` en `blog.settings`
 - sesiones de carga concurrentes máximas: `max_total_parallel_uploads` en `blog.settings`
 - tamaño máximo de carga: `max_upload_size` en `blog.settings`
 - sesiones de descarga máximas del navegador: definido por el servidor
-- tiempo de espera xhr de carga: `30 s`
-- tiempo de espera fetch de sesión de carga: `12 s`
+- tiempo de espera xhr de carga: al menos `180 s`
+- tiempo de espera fetch de sesión de carga: `30 s`
 
 El límite de conexiones HTTP por origen del navegador se respeta naturalmente por el pool de workers.
 

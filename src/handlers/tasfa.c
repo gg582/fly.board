@@ -16,17 +16,22 @@
 
 #define TASFA_UPLOAD_DIR "data/tasfa/uploads"
 #define TASFA_DOWNLOAD_DIR "data/tasfa/downloads"
-#define TASFA_UPLOAD_CHUNK_SIZE_DEFAULT (8 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE  (4 * 1024 * 1024)
-#define TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT (256 * 1024)
-#define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (256 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_DEFAULT (16 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE  (8 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MIN     (1 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MAX     (32 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE_MAX (16 * 1024 * 1024)
+#define TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT (1024 * 1024)
+#define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (512 * 1024)
+#define TASFA_DOWNLOAD_CHUNK_SIZE_MIN     (128 * 1024)
+#define TASFA_DOWNLOAD_CHUNK_SIZE_MAX     (8 * 1024 * 1024)
 
 #define TASFA_UPLOAD_TTL 86400
 #define TASFA_DOWNLOAD_TTL 86400
-#define TASFA_UPLOAD_DEFAULT_PARALLEL 4
-#define TASFA_UPLOAD_MAX_PARALLEL 16
-#define TASFA_DOWNLOAD_DEFAULT_PARALLEL 6
-#define TASFA_DOWNLOAD_MAX_PARALLEL 24
+#define TASFA_UPLOAD_DEFAULT_PARALLEL 12
+#define TASFA_UPLOAD_MAX_PARALLEL 32
+#define TASFA_DOWNLOAD_DEFAULT_PARALLEL 12
+#define TASFA_DOWNLOAD_MAX_PARALLEL 32
 #define TASFA_CLIENT_STRIPES 32
 #define TASFA_CACHE_SLOTS 512
 
@@ -88,8 +93,20 @@ static bool is_mobile_request(cwist_http_request *req) {
     return false;
 }
 
-static int choose_chunk_size_upload(bool mobile) {
-    return mobile ? TASFA_UPLOAD_CHUNK_SIZE_MOBILE : TASFA_UPLOAD_CHUNK_SIZE_DEFAULT;
+static int normalize_chunk_size_hint(int requested, int fallback, int min_value, int max_value) {
+    if (requested <= 0) return fallback;
+    int quantum = 128 * 1024;
+    requested = (requested / quantum) * quantum;
+    if (requested < quantum) requested = quantum;
+    if (requested < min_value) return min_value;
+    if (requested > max_value) return max_value;
+    return requested;
+}
+
+static int choose_chunk_size_upload(bool mobile, int requested) {
+    int fallback = mobile ? TASFA_UPLOAD_CHUNK_SIZE_MOBILE : TASFA_UPLOAD_CHUNK_SIZE_DEFAULT;
+    int max_value = mobile ? TASFA_UPLOAD_CHUNK_SIZE_MOBILE_MAX : TASFA_UPLOAD_CHUNK_SIZE_MAX;
+    return normalize_chunk_size_hint(requested, fallback, TASFA_UPLOAD_CHUNK_SIZE_MIN, max_value);
 }
 
 static int tasfa_upload_session_limit(void) {
@@ -106,8 +123,9 @@ static int tasfa_upload_parallel_limit(void) {
     return limit;
 }
 
-static int choose_chunk_size_download(bool mobile) {
-    return mobile ? TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE : TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT;
+static int choose_chunk_size_download(bool mobile, int requested) {
+    int fallback = mobile ? TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE : TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT;
+    return normalize_chunk_size_hint(requested, fallback, TASFA_DOWNLOAD_CHUNK_SIZE_MIN, TASFA_DOWNLOAD_CHUNK_SIZE_MAX);
 }
 
 static bool tasfa_queue_try_enter(queue_slot_t *slots, int max_slots, const char *id) {
@@ -348,13 +366,13 @@ static int link_score_from_inputs(const char *score_str, const char *effective_t
 }
 
 static void choose_upload_window(int score, int *initial_parallel, int *max_parallel, int *pacing_ms) {
-    int initial_value = 6;
+    int initial_value = 12;
     int max_value = TASFA_UPLOAD_MAX_PARALLEL;
     int pace = 0;
-    if (score >= 85) { initial_value = 12; max_value = 16; }
-    else if (score >= 65) { initial_value = 8; max_value = 12; }
-    else if (score >= 45) { initial_value = 6; max_value = 8; pace = 15; }
-    else { initial_value = 4; max_value = 6; pace = 35; }
+    if (score >= 85) { initial_value = 24; max_value = 32; }
+    else if (score >= 65) { initial_value = 16; max_value = 24; }
+    else if (score >= 45) { initial_value = 12; max_value = 18; pace = 4; }
+    else { initial_value = 8; max_value = 12; pace = 12; }
     int configured_max = tasfa_upload_parallel_limit();
     if (max_value > configured_max) max_value = configured_max;
     if (initial_value > max_value) initial_value = max_value;
@@ -364,10 +382,11 @@ static void choose_upload_window(int score, int *initial_parallel, int *max_para
 }
 
 static void choose_download_profile(int score, int *initial_parallel, int *max_parallel, int *pacing_ms, int *coalesce_chunks) {
-    int initial_value = 8, max_value = 16, pace = 0, coalesce = 1;
-    if (score < 45) { initial_value = 3; max_value = 6; pace = 30; }
-    else if (score < 65) { initial_value = 5; max_value = 10; pace = 10; }
-    else if (score < 85) { initial_value = 6; max_value = 12; pace = 0; }
+    int initial_value = 14, max_value = 28, pace = 0, coalesce = 8;
+    if (score < 45) { initial_value = 6; max_value = 12; pace = 8; coalesce = 3; }
+    else if (score < 65) { initial_value = 9; max_value = 18; pace = 2; coalesce = 5; }
+    else if (score < 85) { initial_value = 12; max_value = 24; pace = 0; coalesce = 8; }
+    else { initial_value = 16; max_value = 32; coalesce = 12; }
     if (max_value > TASFA_DOWNLOAD_MAX_PARALLEL) max_value = TASFA_DOWNLOAD_MAX_PARALLEL;
     if (initial_value > max_value) initial_value = max_value;
     if (initial_parallel) *initial_parallel = initial_value;
@@ -1064,6 +1083,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     int chunk_count = atoi(cwist_query_map_get(kv, "chunk_count") ? cwist_query_map_get(kv, "chunk_count") : "0");
     long long total_size = atoll(cwist_query_map_get(kv, "total_size") ? cwist_query_map_get(kv, "total_size") : "0");
     int post_id = atoi(cwist_query_map_get(kv, "post_id") ? cwist_query_map_get(kv, "post_id") : "0");
+    int requested_chunk_size = atoi(cwist_query_map_get(kv, "chunk_size") ? cwist_query_map_get(kv, "chunk_size") : "0");
     if (!filename || !is_safe_filename_simple(filename) || total_size <= 0 || !ensure_tasfa_roots()) {
         cwist_query_map_destroy(kv);
         send_json_response(res, session_error_json("invalid upload init payload"), CWIST_HTTP_BAD_REQUEST);
@@ -1075,7 +1095,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         return;
     }
     bool mobile = is_mobile_request(req);
-    int chunk_size = choose_chunk_size_upload(mobile);
+    int chunk_size = choose_chunk_size_upload(mobile, requested_chunk_size);
     chunk_count = (int)((total_size + chunk_size - 1) / chunk_size);
     if (chunk_count < 1) chunk_count = 1;
     tasfa_queue_sweep(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, 3600);
@@ -1153,10 +1173,22 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     cJSON_AddNumberToObject(meta, "received_chunks", 0);
     cJSON_AddNumberToObject(meta, "modulus_M", (double)modulus_M);
     cJSON_AddNumberToObject(meta, "group_count", group_count);
-    int configured_parallel = tasfa_upload_parallel_limit();
-    cJSON_AddNumberToObject(meta, "current_parallel_chunks", configured_parallel);
-    cJSON_AddNumberToObject(meta, "max_parallel_chunks", configured_parallel);
-    cJSON_AddNumberToObject(meta, "dispatch_pacing_ms", 0);
+    int score = link_score_from_inputs(
+        cwist_query_map_get(kv, "link_stability_score"),
+        cwist_query_map_get(kv, "link_effective_type"),
+        cwist_query_map_get(kv, "link_downlink_mbps"),
+        cwist_query_map_get(kv, "link_rtt_ms"),
+        cwist_query_map_get(kv, "link_retry_events"),
+        cwist_query_map_get(kv, "link_timeout_events"),
+        cwist_query_map_get(kv, "link_save_data")
+    );
+    int initial_parallel = 0, max_parallel = 0, pacing_ms = 0;
+    choose_upload_window(score, &initial_parallel, &max_parallel, &pacing_ms);
+    cJSON_AddNumberToObject(meta, "current_parallel_chunks", initial_parallel);
+    cJSON_AddNumberToObject(meta, "max_parallel_chunks", max_parallel);
+    cJSON_AddNumberToObject(meta, "dispatch_pacing_ms", pacing_ms);
+    double rtt_ms = atof(cwist_query_map_get(kv, "link_rtt_ms") ? cwist_query_map_get(kv, "link_rtt_ms") : "0");
+    cJSON_AddNumberToObject(meta, "link_rtt_ms", rtt_ms);
     char expires_at[32];
     snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_UPLOAD_TTL));
     cJSON_AddStringToObject(meta, "expires_at", expires_at);
@@ -1283,7 +1315,7 @@ void handler_file_upload_renegotiate(cwist_http_request *req, cwist_http_respons
     if (current_max < configured_max && max_parallel < current_max) max_parallel = current_max;
     if (max_parallel > configured_max) max_parallel = configured_max;
     if (suggested > 0) initial_parallel = clamp_int(suggested, 1, max_parallel);
-    if (initial_parallel < current_parallel) initial_parallel = current_parallel;
+    if (initial_parallel < current_parallel - 1) initial_parallel = current_parallel - 1;
     if (initial_parallel > max_parallel) initial_parallel = max_parallel;
     double rtt_ms = atof(cwist_query_map_get(kv, "link_rtt_ms") ? cwist_query_map_get(kv, "link_rtt_ms") : "0");
     cJSON_DeleteItemFromObject(meta, "link_rtt_ms");
@@ -2014,7 +2046,8 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
         return;
     }
     bool mobile = is_mobile_request(req);
-    int chunk_size = choose_chunk_size_download(mobile);
+    int requested_chunk_size = atoi(cwist_query_map_get(req->query_params, "chunk_size") ? cwist_query_map_get(req->query_params, "chunk_size") : "0");
+    int chunk_size = choose_chunk_size_download(mobile, requested_chunk_size);
     tasfa_queue_sweep(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, 3600);
     int score = link_score_from_inputs(
         cwist_query_map_get(req->query_params, "link_stability_score"),
@@ -2102,7 +2135,8 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
         return;
     }
     bool mobile = is_mobile_request(req);
-    int chunk_size = choose_chunk_size_download(mobile);
+    int requested_chunk_size = atoi(cwist_query_map_get(req->query_params, "chunk_size") ? cwist_query_map_get(req->query_params, "chunk_size") : "0");
+    int chunk_size = choose_chunk_size_download(mobile, requested_chunk_size);
     tasfa_queue_sweep(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, 3600);
     int score = link_score_from_inputs(
         cwist_query_map_get(req->query_params, "link_stability_score"),

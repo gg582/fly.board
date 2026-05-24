@@ -38,8 +38,8 @@ static void set_default(void) {
     g_config.use_tasfa = true;
     g_config.use_rss = false;
     g_config.max_upload_size = 1024LL * 1024LL * 1024LL;
-    g_config.max_total_parallel_uploads = 4;
-    g_config.max_upload_parallel_chunks = 4;
+    g_config.max_total_parallel_uploads = 8;
+    g_config.max_upload_parallel_chunks = 16;
 }
 
 static void trim_newline(char *s) {
@@ -124,6 +124,6 @@ bool blog_config_load(const char *path) {
     if (g_config.port <= 0 || g_config.port > 65535) g_config.port = 8443;
     if (g_config.max_upload_size <= 0) g_config.max_upload_size = 1024LL * 1024LL * 1024LL;
     g_config.max_total_parallel_uploads = clamp_int_config(g_config.max_total_parallel_uploads, 1, 64);
-    g_config.max_upload_parallel_chunks = clamp_int_config(g_config.max_upload_parallel_chunks, 1, 16);
+    g_config.max_upload_parallel_chunks = clamp_int_config(g_config.max_upload_parallel_chunks, 1, 32);
     return true;
 }

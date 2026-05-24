@@ -24,7 +24,7 @@ Download:
 
 ## Upload Protocol
 
-The browser negotiates an upload session first, then sends **chunks** (default `8 MiB`, mobile `4 MiB`) with TASFA headers:
+The browser negotiates an upload session first, then sends **chunks** (default `16 MiB`, mobile `8 MiB`) with TASFA headers:
 
 - `X-TASFA-Upload-ID`
 - `X-TASFA-Upload-Token`
@@ -45,7 +45,11 @@ If the file size is not a multiple of the chunk size, the last chunk is a **rema
 The `init` endpoint returns, among other fields:
 
 - `chunk_size` — negotiated chunk size
+- `current_parallel_chunks` — the server-approved active upload window
 - `max_parallel_chunks` — how many chunks the client may upload concurrently
+- `dispatch_pacing_ms` — a small pacing delay only when the measured link is poor
+
+The client treats `chunk_size` as a session contract because it defines each chunk's file offset. During an active upload it tunes concurrency and retry behavior, while the learned chunk-size hint is applied to the next TASFA session: good links raise the next hint gradually, and degraded links reduce it in small `512 KiB` steps.
 
 ## HTP Server-Authoritative Recovery Lattice
 
@@ -199,16 +203,34 @@ This prevents browser connection pool exhaustion and keeps stall detection relia
 
 ## Runtime Settings
 
-- upload chunk size: `8 MiB` desktop, `4 MiB` mobile
-- default browser upload parallelism: `4`
+- upload chunk size: `16 MiB` desktop, `8 MiB` mobile
+- adaptive upload chunk-size hint: `4 MiB` minimum, up to `32 MiB` desktop / `16 MiB` mobile
+- download chunk size: `1 MiB` desktop, `512 KiB` mobile, up to `8 MiB` when the client hints a larger session
+- default browser upload parallelism: `12`
 - max browser upload parallelism: `max_upload_parallel_chunks` in `blog.settings`
 - max concurrent upload sessions: `max_total_parallel_uploads` in `blog.settings`
 - max upload size: `max_upload_size` in `blog.settings`
-- max browser download sessions: server-defined
-- upload xhr timeout: `30 s`
-- upload session fetch timeout: `12 s`
+- max browser download sessions: server-defined, currently up to `32` chunk requests per session
+- upload xhr timeout: adaptive by chunk size, at least `180 s`
+- upload session fetch timeout: `30 s`
 
-The browser's per-origin HTTP connection limit is respected naturally by the worker pool.
+TASFA is tuned for general high-bandwidth server deployments, not an embedded/aerospace low-bandwidth profile. The browser's per-origin HTTP connection limit is still respected naturally by the worker pool.
+
+### Client adaptation
+
+The upload client measures chunk completion time, retries, timeouts, and Network Information API hints when available. It sends those inputs to `/file/upload/init` and `/file/upload/renegotiate`; the server answers with a current parallel window and max window. Clean completions increase the active window quickly up to the negotiated max, while failures reduce it by one slot at a time. A watchdog aborts and resumes a stalled upload from the server bitmap instead of leaving the transfer stuck.
+
+Download uses the same high-throughput bias: the handshake carries the client's preferred chunk-size hint, and active downloads grow `span` and parallelism after successful chunk groups. Short reads, timeouts, and network errors are requeued by chunk index; a failed group does not fail the whole download until the same chunk has exhausted a high retry budget.
+
+### Wynn-Accelerated Predictive Guard
+
+TASFA does not predict plaintext bytes or trust predicted chunk contents. Prediction is limited to the transfer-quality sequence observed by the client: completion time, throughput, retries, timeouts, and short reads. The client applies the Wynn epsilon transform in its Aitken `Delta^2` form to the latest quality samples:
+
+```
+S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
+```
+
+`S_hat` is clamped to `[0, 1]` and used only as a guard signal for the next chunk. High predicted quality keeps the normal path and lets the adaptive window grow. Medium-low predicted quality marks the next chunk as `guarded`, trimming the active parallel window by one before dispatch. Very low predicted quality marks the next upload chunk for serialized AES-GCM fallback, or trims download `span` and parallelism before issuing the next range group. This is a forward-looking congestion and failure defense, not a cryptographic oracle.
 
 ## Storage Model
 
@@ -241,7 +263,7 @@ Completed uploads receive a one-time delete PIN. The clear PIN is returned once;
 
 1. Client requests a handshake.
 2. Server returns `session_id`, `session_token`, `chunk_size`, `chunk_count`, and concurrency hints.
-3. Client fetches chunk groups with `span=...` when supported.
+3. Client fetches chunk groups with an adaptive `span=...`.
 4. Browser assembles the response into one contiguous buffer.
 
 ## DoS Mitigation via Bitmap

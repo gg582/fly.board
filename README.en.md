@@ -6,7 +6,7 @@
 > A lightweight board-and-blog engine built on the C-based CWIST web framework, supporting HTTPS/3, Argon2id, PQC signatures, and NATS messaging.
 >
 > **Fairly small, greater usability.**  
-> TASFA intentionally sacrifices RPS. Per-chunk AES-256-GCM encryption, HTP lattice validation, bitmap sessions, and adaptive pacing guarantee uploads finish without interruption even on degraded networks, while blocking DoS attacks and chunk substitution to pursue maximally reliable transfer.  
+> TASFA prioritizes completion rate and real transfer throughput over peak RPS. Large chunks, aggressive parallel windows, HTP validation, bitmap sessions, and adaptive renegotiation use high-bandwidth servers quickly while still keeping uploads from breaking on degraded networks.
 > PQC signatures absorb the ML-DSA-65 overhead to give post body tamper-evidence in a quantum-computing era.  
 > Simultaneous HTTP/1.1, HTTP/2, and HTTP/3 support abandons single-protocol peak performance in exchange for universal reach across firewalls, proxies, and legacy devices.
 

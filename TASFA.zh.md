@@ -24,7 +24,7 @@ TASFA 是本项目用于文件上传和下载的传输协议。
 
 ## 上传协议
 
-浏览器先协商上传会话，然后发送带有 TASFA 标头的**分块**（默认 `8 MiB`，移动端 `4 MiB`）：
+浏览器先协商上传会话，然后发送带有 TASFA 标头的**分块**（默认 `16 MiB`，移动端 `8 MiB`）：
 
 - `X-TASFA-Upload-ID`
 - `X-TASFA-Upload-Token`
@@ -194,14 +194,14 @@ repair_worthwhile(嫌疑数, 总分块数, 分块大小, rtt_ms):
 
 ## 运行时设置
 
-- 上传分块大小：桌面 `8 MiB`，移动端 `4 MiB`
-- 默认浏览器上传并行度：`4`
+- 上传分块大小：桌面 `16 MiB`，移动端 `8 MiB`
+- 默认浏览器上传并行度：`12`
 - 最大浏览器上传并行度：`blog.settings` 中的 `max_upload_parallel_chunks`
 - 最大并发上传会话：`blog.settings` 中的 `max_total_parallel_uploads`
 - 最大上传大小：`blog.settings` 中的 `max_upload_size`
 - 最大浏览器下载会话：服务器定义
-- 上传 xhr 超时：`30 s`
-- 上传会话 fetch 超时：`12 s`
+- 上传 xhr 超时：至少 `180 s`
+- 上传会话 fetch 超时：`30 s`
 
 浏览器每源 HTTP 连接限制由工作池自然遵守。
 
