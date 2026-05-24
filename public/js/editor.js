@@ -707,12 +707,7 @@
             asset.isUploading = false;
             asset.isCancelling = false;
             asset.xhrs = [];
-            if (asset.ui && asset.ui.progressInner) {
-                asset.ui.progressInner.style.width = '0%';
-            }
-            if (asset.ui && asset.ui.progress) {
-                asset.ui.progress.style.display = '';
-            }
+            resetDisplayedProgress(asset);
             if (asset.uploadId && asset.uploadToken && asset.isSessionExpired) {
                 asset.isSessionExpired = false;
                 verifyAllChunksBeforeComplete(asset, asset.file);
@@ -802,6 +797,7 @@
         asset.isCancelling = false;
         asset.xhrs = [];
         asset.mode = 'attachment';
+        asset.displayPercent = 100;
         asset.ui.status.textContent = response.delete_pin
             ? ((isEditorMode ? 'Uploaded. Save delete PIN: ' : 'Uploaded. Save delete PIN: ') + response.delete_pin)
             : (isEditorMode ? 'Uploaded and available for inline placement' : 'Uploaded to file repository');
@@ -915,20 +911,41 @@
     }
 
     function updateAssetProgress(asset) {
+        if (!asset || !asset.ui || !asset.ui.progressInner) return;
         var totalTransferred = asset.confirmedBytes || 0;
         if (asset.inflightBytes) {
             for (var i = 0; i < asset.inflightBytes.length; i++) {
                 totalTransferred += Number(asset.inflightBytes[i] || 0);
             }
         }
+        totalTransferred = Math.max(0, Math.min(Number(asset.fileSize || 0), totalTransferred));
         var percent = asset.fileSize ? Math.min(100, Math.round((totalTransferred / asset.fileSize) * 100)) : 0;
+        var previous = Number(asset.displayPercent || 0);
+        if (Number.isFinite(previous)) percent = Math.max(previous, percent);
+        if (asset.uploadMethod === 'tasfa' && asset.fid === null && percent >= 100) {
+            percent = 99;
+        }
+        asset.displayPercent = percent;
         asset.ui.status.textContent = percent >= 100 ? 'Upload complete, processing...' : ('Uploading [' + percent + '%]');
         asset.ui.progressInner.style.width = percent + '%';
+    }
+
+    function resetDisplayedProgress(asset) {
+        if (!asset) return;
+        asset.displayPercent = 0;
+        if (asset.ui && asset.ui.progressInner) {
+            asset.ui.progressInner.style.width = '0%';
+        }
+        if (asset.ui && asset.ui.progress) {
+            asset.ui.progress.classList.remove('is-completing');
+            asset.ui.progress.style.display = '';
+        }
     }
 
     function uploadFilePlain(asset, file) {
         asset.isUploading = true;
         asset.failed = false;
+        resetDisplayedProgress(asset);
         asset.ui.status.textContent = 'Uploading...';
         updateFileRepoUploadButton();
         updateSubmitButtons();
@@ -1131,6 +1148,7 @@
         asset.isCancelling = false;
         asset.xhrs = asset.xhrs || [];
         asset.confirmedBytes = 0;
+        resetDisplayedProgress(asset);
         asset.ui.status.textContent = 'Preparing upload session';
         updateFileRepoUploadButton();
         updateSubmitButtons();
@@ -1705,6 +1723,7 @@
             inflightBytes: [],
             retryCounts: [],
             completedChunks: 0,
+            displayPercent: 0,
             isUploading: false,
             failed: false,
             isCancelling: false,
