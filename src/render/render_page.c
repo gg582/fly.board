@@ -146,8 +146,6 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "syncMobileLayout();window.addEventListener('resize',syncMobileLayout);window.addEventListener('orientationchange',syncMobileLayout);if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',syncMobileLayout);}else{syncMobileLayout();}"
         "function toggleMobileNav(){syncMobileLayout();if(!isMobileLayout())return;var nav=document.querySelector('.nav-links');var overlay=document.querySelector('.mobile-overlay');var btn=document.querySelector('.burger-btn');if(!nav||!overlay||!btn)return;var open=!nav.classList.contains('open');nav.classList.toggle('open',open);nav.style.display=open?'flex':'';overlay.classList.toggle('open',open);btn.classList.toggle('open',open);btn.setAttribute('aria-expanded',open?'true':'false');document.body.style.overflow=open?'hidden':'';}"
         "window.toggleMobileNav=toggleMobileNav;"
-        "function toggleBoardsDropdown(ev){syncMobileLayout();if(!isMobileLayout())return;if(ev){ev.preventDefault();ev.stopPropagation();}var menu=document.getElementById('boards-dropdown');if(!menu)return;var open=!menu.classList.contains('open');menu.classList.toggle('open',open);}"
-        "window.toggleBoardsDropdown=toggleBoardsDropdown;" 
         "var CACHE_KEY='fly_themes_v2';"
         "var MIX_KEY='fly_theme_mix';"
         "var HL_LIGHT='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css';"
@@ -246,7 +244,6 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *boards_link = cwist_html_element_create("a");
     cwist_html_element_add_attr(boards_link, "href", "/boards");
     cwist_html_element_add_attr(boards_link, "class", "nav-item nav-board-trigger");
-    cwist_html_element_add_attr(boards_link, "onclick", "toggleBoardsDropdown(event)");
     cwist_html_element_set_text(boards_link, "Boards");
     cwist_html_element_add_child(boards_wrap, boards_link);
     cwist_html_element_t *boards_menu = cwist_html_element_create("div");
