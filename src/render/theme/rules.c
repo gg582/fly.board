@@ -1106,12 +1106,18 @@ void rule_markdown(cJSON *rules) {
     add_decl(md, "max-width", "760px");
     add_decl(md, "margin", "0 auto");
     add_decl(md, "line-height", "1.8");
+    add_decl(md, "overflow-wrap", "break-word");
+    add_decl(md, "word-break", "break-word");
+    add_decl(md, "min-width", "0");
     cJSON_AddItemToArray(rules, md);
 
     cJSON *article = create_rule("article");
     add_decl(article, "max-width", "920px");
     add_decl(article, "margin", "0 auto");
     add_decl(article, "padding", "0 0 6px");
+    add_decl(article, "overflow-wrap", "break-word");
+    add_decl(article, "word-break", "break-word");
+    add_decl(article, "min-width", "0");
     cJSON_AddItemToArray(rules, article);
 
     cJSON *md_h1 = create_rule(".markdown-body h1");
@@ -1207,6 +1213,8 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_code, "transition", "background 0.5s ease");
     add_decl(md_code, "font-family", "'JetBrains Mono', 'Fira Code', 'D2Coding', monospace");
     add_decl(md_code, "font-feature-settings", "\"liga\" 1, \"calt\" 1");
+    add_decl(md_code, "word-break", "break-word");
+    add_decl(md_code, "overflow-wrap", "break-word");
     cJSON_AddItemToArray(rules, md_code);
 
     cJSON *md_blockquote = create_rule(".markdown-body blockquote");
@@ -1226,12 +1234,17 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_tbl, "border-collapse", "collapse");
     add_decl(md_tbl, "width", "100%");
     add_decl(md_tbl, "margin", "18px 0");
+    add_decl(md_tbl, "table-layout", "fixed");
+    add_decl(md_tbl, "display", "block");
+    add_decl(md_tbl, "overflow-x", "auto");
     cJSON_AddItemToArray(rules, md_tbl);
 
     cJSON *md_thtd = create_rule(".markdown-body th, .markdown-body td");
     add_decl(md_thtd, "border", "1px solid var(--border)");
     add_decl(md_thtd, "padding", "8px 10px");
     add_decl(md_thtd, "transition", "border-color 0.5s ease");
+    add_decl(md_thtd, "word-break", "break-word");
+    add_decl(md_thtd, "overflow-wrap", "break-word");
     cJSON_AddItemToArray(rules, md_thtd);
 
     cJSON *md_th = create_rule(".markdown-body th");
@@ -1239,6 +1252,11 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_th, "font-weight", "600");
     add_decl(md_th, "transition", "background 0.5s ease");
     cJSON_AddItemToArray(rules, md_th);
+
+    cJSON *md_a = create_rule(".markdown-body a");
+    add_decl(md_a, "word-break", "break-word");
+    add_decl(md_a, "overflow-wrap", "break-word");
+    cJSON_AddItemToArray(rules, md_a);
 
     cJSON *md_zebra = create_rule(".markdown-body tbody tr:nth-child(even)");
     add_decl(md_zebra, "background", "var(--hover)");
