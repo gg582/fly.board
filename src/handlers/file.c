@@ -226,11 +226,20 @@ void handler_asset_profile_upload(cwist_http_request *req, cwist_http_response *
     }
 
     char path[PATH_MAX];
-    int written = snprintf(path, sizeof(path), "public/uploads/%s", decoded);
+    int written = snprintf(path, sizeof(path), "public/profile/%s", decoded);
     if (written < 0 || written >= (int)sizeof(path)) {
         cwist_free(decoded);
         send_upload_not_found(res);
         return;
+    }
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        written = snprintf(path, sizeof(path), "public/uploads/%s", decoded);
+        if (written < 0 || written >= (int)sizeof(path)) {
+            cwist_free(decoded);
+            send_upload_not_found(res);
+            return;
+        }
     }
 
     char detected_mime[128] = {0};

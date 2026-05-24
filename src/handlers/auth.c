@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#include <ctype.h>
 
 void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
     send_html_res(res, render_login(is_dark(req), NULL));
@@ -186,6 +187,73 @@ void handler_account_settings_get(cwist_http_request *req, cwist_http_response *
     free(pp);
 }
 
+static const char *profile_ext_from_mime(const char *mime, const char *filename) {
+    if (mime) {
+        if (strcmp(mime, "image/png") == 0) return ".png";
+        if (strcmp(mime, "image/jpeg") == 0) return ".jpg";
+        if (strcmp(mime, "image/gif") == 0) return ".gif";
+        if (strcmp(mime, "image/webp") == 0) return ".webp";
+        if (strcmp(mime, "image/svg+xml") == 0) return ".svg";
+    }
+    const char *dot = filename ? strrchr(filename, '.') : NULL;
+    if (!dot || strlen(dot) > 10) return ".img";
+    for (const char *p = dot + 1; *p; ++p) {
+        if (!isalnum((unsigned char)*p)) return ".img";
+    }
+    return dot;
+}
+
+static bool persist_profile_pic_upload(form_field_t *f, int target_uid, char **out_url) {
+    if (!f || !f->filename || !f->filename[0] || !f->data || !f->data[0] || f->file_size == 0 || !out_url) {
+        return false;
+    }
+
+    char detected_mime[128] = {0};
+    const char *mt = mime_type(f->filename);
+    if (mime_type_from_data(f->data, detected_mime, sizeof(detected_mime))) {
+        mt = detected_mime;
+    }
+    if (!mt || strncmp(mt, "image/", 6) != 0) {
+        unlink(f->data);
+        return false;
+    }
+    if (!dir_ensure("public/profile")) {
+        return false;
+    }
+
+    const char *ext = profile_ext_from_mime(mt, f->filename);
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+        ts.tv_sec = time(NULL);
+        ts.tv_nsec = 0;
+    }
+    char stored_name[256];
+    snprintf(stored_name, sizeof(stored_name), "profile_%d_%lld_%ld_%zu%s",
+             target_uid > 0 ? target_uid : 0,
+             (long long)ts.tv_sec,
+             ts.tv_nsec,
+             f->file_size,
+             ext);
+
+    char target_path[PATH_MAX];
+    int written = snprintf(target_path, sizeof(target_path), "public/profile/%s", stored_name);
+    if (written < 0 || written >= (int)sizeof(target_path)) return false;
+
+    if (rename(f->data, target_path) != 0) {
+        size_t len = 0;
+        char *data = file_read(f->data, &len);
+        if (!data) return false;
+        bool ok = file_write(target_path, data, len);
+        cwist_free(data);
+        if (!ok) return false;
+        unlink(f->data);
+    }
+
+    *out_url = (char *)cwist_alloc(512);
+    snprintf(*out_url, 512, "/assets/profile/%s", stored_name);
+    return true;
+}
+
 void handler_account_settings_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -223,19 +291,7 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
             }
             f = form_find(fields, "profile_pic");
             if (f && f->filename && f->filename[0] && f->data && f->file_size > 0) {
-                const char *mt = mime_type(f->filename);
-                if (mt && strncmp(mt, "image/", 6) == 0) {
-                    const char *data_path = f->data;
-                    profile_pic_url = (char *)cwist_alloc(512);
-                    if (strncmp(data_path, "public/uploads/", 15) == 0) {
-                        snprintf(profile_pic_url, 512, "/assets/profile/%s", data_path + 15);
-                    } else if (strncmp(data_path, "public/", 7) == 0) {
-                        snprintf(profile_pic_url, 512, "/assets/%s", data_path + 7);
-                    } else {
-                        // If it's already an absolute or relative URL, keep it
-                        snprintf(profile_pic_url, 512, "%s", data_path);
-                    }
-                }
+                persist_profile_pic_upload(f, target_uid, &profile_pic_url);
             }
             multipart_free(fields);
         }
