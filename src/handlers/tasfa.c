@@ -1655,20 +1655,25 @@ static void upload_work_func(void *arg) {
     upload_work_t *w = (upload_work_t *)arg;
 
     int fd = open(w->temp_path, O_WRONLY);
-    if (fd >= 0) {
-        if (w->encrypted_stream) {
-            unsigned char *plaintext = ensure_decrypt_buf((size_t)w->expected_size);
-            if (plaintext && w->body_size == (size_t)w->expected_size + 16 &&
-                decrypt_stream_block(w->stream_key, w->stream_iv_seed, w->chunk_index, w->upload_id,
-                                     (const unsigned char *)w->body_data, w->body_size,
-                                     plaintext, (size_t)w->expected_size)) {
-                w->stored = pwrite_all(fd, plaintext, (size_t)w->expected_size, (off_t)w->offset);
-            }
-        } else if ((long long)w->body_size == w->expected_size) {
-            w->stored = pwrite_all(fd, w->body_data, w->body_size, (off_t)w->offset);
-        }
-        close(fd);
+    if (fd < 0) {
+        FLY_LOG_ERROR("[TASFA] chunk open failed: %s errno=%d", w->temp_path, errno);
+        return;
     }
+    if (w->encrypted_stream) {
+        unsigned char *plaintext = ensure_decrypt_buf((size_t)w->expected_size);
+        if (plaintext && w->body_size == (size_t)w->expected_size + 16 &&
+            decrypt_stream_block(w->stream_key, w->stream_iv_seed, w->chunk_index, w->upload_id,
+                                 (const unsigned char *)w->body_data, w->body_size,
+                                 plaintext, (size_t)w->expected_size)) {
+            w->stored = pwrite_all(fd, plaintext, (size_t)w->expected_size, (off_t)w->offset);
+        }
+    } else if ((long long)w->body_size == w->expected_size) {
+        w->stored = pwrite_all(fd, w->body_data, w->body_size, (off_t)w->offset);
+    } else {
+        FLY_LOG_ERROR("[TASFA] chunk store size mismatch: index=%d expected=%lld got=%zu",
+                      w->chunk_index, w->expected_size, w->body_size);
+    }
+    close(fd);
 
     if (!w->stored) return;
 
@@ -1739,6 +1744,17 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     if (expected_size > mbin.chunk_size) expected_size = mbin.chunk_size;
     if (expected_size <= 0) {
         send_json_response(res, session_error_json("invalid chunk bounds"), CWIST_HTTP_BAD_REQUEST);
+        return;
+    }
+
+    if (!req->body || req->body->size == 0) {
+        send_json_response(res, session_error_json("empty chunk body"), CWIST_HTTP_BAD_REQUEST);
+        return;
+    }
+    if ((long long)req->body->size != expected_size) {
+        FLY_LOG_ERROR("[TASFA] chunk size mismatch: upload_id=%s index=%d expected=%lld got=%zu",
+                      upload_id, chunk_index, expected_size, req->body->size);
+        send_json_response(res, session_error_json("chunk size mismatch"), CWIST_HTTP_BAD_REQUEST);
         return;
     }
 

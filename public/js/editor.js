@@ -259,13 +259,19 @@
     function startTasfaWatchdog(asset) {
         if (!asset || asset.watchdogTimer) return;
         touchTasfaActivity(asset);
-        asset.watchdogTimer = setInterval(function() {
+        (function tick() {
             if (!asset || asset.fid !== null || asset.failed || asset.isCancelling) {
-                stopTasfaWatchdog(asset);
+                asset.watchdogTimer = null;
                 return;
             }
-            if (!asset.uploadId || asset.isNetworkPaused) return;
-            if (Date.now() - (asset.lastTasfaActivityAt || 0) < 90000) return;
+            if (!asset.uploadId || asset.isNetworkPaused) {
+                asset.watchdogTimer = setTimeout(tick, 15000);
+                return;
+            }
+            if (Date.now() - (asset.lastTasfaActivityAt || 0) < 90000) {
+                asset.watchdogTimer = setTimeout(tick, 15000);
+                return;
+            }
             asset.uploadRunId = (asset.uploadRunId || 0) + 1;
             if (asset.xhrs && asset.xhrs.length) {
                 asset.xhrs.slice().forEach(function(xhr) {
@@ -276,7 +282,8 @@
             asset.isUploading = false;
             asset.ui.status.textContent = 'Resuming stalled upload...';
             resumeTasfaUpload(asset, asset.file);
-        }, 15000);
+            asset.watchdogTimer = setTimeout(tick, 15000);
+        })();
     }
 
     function lineIsTableSeparator(line) {
@@ -1562,7 +1569,7 @@
                 if (htp && htp.rawScalar) xhr.setRequestHeader('X-TASFA-Raw-Scalar', htp.rawScalar);
                 if (htp && htp.magicScalar) xhr.setRequestHeader('X-TASFA-Magic-Scalar', htp.magicScalar);
 
-                xhr.timeout = Math.max(180000, Math.min(900000, Math.ceil((size / (1024 * 1024)) * 30000)));
+                xhr.timeout = Math.max(30000, Math.min(120000, Math.ceil((size / (1024 * 1024)) * 5000)));
 
                 xhr.upload.onprogress = function(event) {
                     if (!event.lengthComputable) return;
@@ -1655,7 +1662,7 @@
                         if (htp && htp.hashTag) xhr.setRequestHeader('X-TASFA-Hash-Tag', htp.hashTag);
                         if (htp && htp.rawScalar) xhr.setRequestHeader('X-TASFA-Raw-Scalar', htp.rawScalar);
                         if (htp && htp.magicScalar) xhr.setRequestHeader('X-TASFA-Magic-Scalar', htp.magicScalar);
-                        xhr.timeout = Math.max(180000, Math.min(900000, Math.ceil((size / (1024 * 1024)) * 45000)));
+                        xhr.timeout = Math.max(30000, Math.min(120000, Math.ceil((size / (1024 * 1024)) * 7000)));
                         xhr.onload = function() {
                             touchTasfaActivity(asset);
                             asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
@@ -1703,7 +1710,7 @@
                         resolve();
                         return;
                     }
-                    if (asset.isNetworkPaused || asset.isBackgroundPaused) {
+                    if (asset.isNetworkPaused) {
                         setTimeout(next, 1000);
                         return;
                     }
@@ -2325,6 +2332,29 @@
             alert('Failed to delete file.');
         });
     });
+
+    (function() {
+        var audioCtx = null;
+        function ensureAudioCtx() {
+            if (!audioCtx && (window.AudioContext || window.webkitAudioContext)) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            return audioCtx;
+        }
+        function playSilentBuffer() {
+            var ctx = ensureAudioCtx();
+            if (!ctx) return;
+            if (ctx.state === 'suspended') ctx.resume();
+            var osc = ctx.createOscillator();
+            var gain = ctx.createGain();
+            gain.gain.value = 0.001;
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.001);
+        }
+        window._tasfaKeepAlive = setInterval(playSilentBuffer, 30000);
+    })();
 
     bootstrapExistingAssets();
     updateSubmitButtons();
