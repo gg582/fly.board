@@ -125,7 +125,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             get_image_text_style(img_path, img_url, bg_style, sizeof(bg_style),
                                  text_style, sizeof(text_style),
                                  logo_filter, sizeof(logo_filter));
-            cwist_sstring_append(b, "<div style=\"");
+            cwist_sstring_append(b, "<div class='hero-image-shell' style=\"");
             cwist_sstring_append(b, bg_style);
             cwist_sstring_append(b, ";padding:40px 20px 20px;");
             cwist_sstring_append(b, text_style);
@@ -133,7 +133,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         }
         cwist_sstring_append(b, "<div class='hero' ");
         if (has_home_bg) cwist_sstring_append(b, "style='background:none;padding:0' ");
-        cwist_sstring_append(b, "><img class='hero-logo' src='/assets/img/");
+        cwist_sstring_append(b, "><img class='hero-logo' data-tasfa-skip='1' src='/assets/img/");
         if (g_config.blog_logo[0]) cwist_sstring_append_escaped(b, g_config.blog_logo);
         else cwist_sstring_append(b, "logo.png");
         cwist_sstring_append(b, "' alt='Logo' style='height:120px");
@@ -266,7 +266,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cJSON *summary = cJSON_GetObjectItem(p, "summary");
             cJSON *author = cJSON_GetObjectItem(p, "author_name");
             cJSON *date = cJSON_GetObjectItem(p, "created_at");
-            cJSON *views = cJSON_GetObjectItem(p, "view_count");
+
             cwist_sstring_append(b, "<div class='post-row");
             cJSON *is_notice = cJSON_GetObjectItem(p, "is_notice");
             if (is_notice && is_notice->valueint) {
@@ -321,10 +321,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             } else {
                 cwist_sstring_append(b, "<span class='post-badge'>unknown</span>");
             }
-            cwist_sstring_append(b, "<span class='post-badge'>Views ");
-            char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%d", views ? views->valueint : 0);
-            cwist_sstring_append(b, vbuf);
-            cwist_sstring_append(b, " views</span>");
+
             cwist_sstring_append(b, "<span class='post-badge'>");
             cwist_sstring_append_escaped(b, date && date->valuestring ? date->valuestring : "");
             cwist_sstring_append(b, "</span>");
@@ -459,8 +456,9 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     }
     cwist_sstring_append(b, " &middot; ");
     cwist_sstring_append_escaped(b, date->valuestring);
-    cwist_sstring_append(b, " &middot; Views: ");
-    char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%d", view_count ? view_count->valueint : 0);
+    int view_total = view_count ? view_count->valueint : 0;
+    cwist_sstring_append(b, " &middot; ");
+    char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%d view%s", view_total, view_total == 1 ? "" : "s");
     cwist_sstring_append(b, vbuf);
     cwist_sstring_append(b, "</p>");
 
