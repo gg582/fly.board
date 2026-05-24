@@ -336,6 +336,76 @@ static int clamp_int(int value, int min_value, int max_value) {
     return value;
 }
 
+/* --- Lagrange Extrapolation for RTT Prediction ---
+ * For large files we collect per-chunk RTT samples and use
+ * Lagrange polynomial extrapolation to estimate the RTT of
+ * the tail chunks.  Math is kept light: max 8 samples,
+ * O(n^2) with tiny n, and clamped to avoid runaway values.
+ */
+#define TASFA_RTT_MAX_SAMPLES 8
+#define TASFA_RTT_CLAMP_MAX   30000.0  /* 30 s ceiling */
+
+static double lagrange_predict(const double *xs, const double *ys, int n, double x) {
+    double result = 0.0;
+    for (int i = 0; i < n; i++) {
+        double term = ys[i];
+        for (int j = 0; j < n; j++) {
+            if (i == j) continue;
+            double denom = xs[i] - xs[j];
+            if (denom == 0.0) denom = 1e-9;
+            term *= (x - xs[j]) / denom;
+        }
+        result += term;
+    }
+    return result;
+}
+
+static void append_rtt_sample(cJSON *meta, int chunk_index, double rtt_ms) {
+    if (!meta || rtt_ms < 0.0) return;
+    cJSON *samples = cJSON_GetObjectItem(meta, "rtt_samples");
+    if (!samples || !cJSON_IsArray(samples)) {
+        samples = cJSON_CreateArray();
+        cJSON_AddItemToObject(meta, "rtt_samples", samples);
+    }
+    cJSON *item = cJSON_CreateObject();
+    cJSON_AddNumberToObject(item, "chunk_index", chunk_index);
+    cJSON_AddNumberToObject(item, "rtt_ms", rtt_ms);
+    cJSON_AddItemToArray(samples, item);
+    while (cJSON_GetArraySize(samples) > TASFA_RTT_MAX_SAMPLES)
+        cJSON_DeleteItemFromArray(samples, 0);
+}
+
+static double predict_remaining_ms(cJSON *meta) {
+    cJSON *samples = cJSON_GetObjectItem(meta, "rtt_samples");
+    if (!samples || !cJSON_IsArray(samples)) return -1.0;
+    int n = cJSON_GetArraySize(samples);
+    if (n < 3) return -1.0; /* need at least 3 points for extrapolation */
+
+    double xs[TASFA_RTT_MAX_SAMPLES];
+    double ys[TASFA_RTT_MAX_SAMPLES];
+    for (int i = 0; i < n; i++) {
+        cJSON *item = cJSON_GetArrayItem(samples, i);
+        xs[i] = json_double(item, "chunk_index", 0.0);
+        ys[i] = json_double(item, "rtt_ms", 0.0);
+    }
+
+    int chunk_count = json_int(meta, "chunk_count", 0);
+    int received    = json_int(meta, "received_chunks", 0);
+    int remaining   = chunk_count - received;
+    if (remaining <= 0) return 0.0;
+
+    /* Extrapolate to the last chunk index to get a tail RTT estimate. */
+    double target_x = (double)(chunk_count - 1);
+    double predicted_rtt = lagrange_predict(xs, ys, n, target_x);
+    if (predicted_rtt < 0.0) predicted_rtt = 0.0;
+    if (predicted_rtt > TASFA_RTT_CLAMP_MAX) predicted_rtt = TASFA_RTT_CLAMP_MAX;
+
+    /* Naive total: remaining chunks * predicted single-chunk RTT.
+     * This is intentionally simple to keep CPU load negligible.
+     */
+    return predicted_rtt * (double)remaining;
+}
+
 static int link_score_from_inputs(const char *score_str, const char *effective_type, const char *downlink_str,
                                   const char *rtt_str, const char *retry_str, const char *timeout_str, const char *save_data_str) {
     int explicit_score = score_str ? atoi(score_str) : 0;
@@ -928,6 +998,9 @@ static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
     int percent = chunk_count > 0 ? (int)((received_chunks * 100LL) / chunk_count) : 0;
     cJSON_AddNumberToObject(obj, "percent", percent);
 
+    double pred = predict_remaining_ms(meta);
+    cJSON_AddNumberToObject(obj, "predicted_remaining_ms", pred >= 0.0 ? pred : 0.0);
+
     /* Missing vertices for HTP per-vertex retry */
     cJSON *missing = cJSON_CreateArray();
     for (int i = 0; i < chunk_count; i++) {
@@ -1036,6 +1109,7 @@ static bool init_download_session(const char *filename, const char *mime, const 
     cJSON_AddNumberToObject(meta, "dispatch_pacing_ms", pacing_ms);
     cJSON_AddNumberToObject(meta, "coalesce_chunks", coalesce);
     cJSON_AddNumberToObject(meta, "file_id", file_id);
+    cJSON_AddNumberToObject(meta, "received_chunks", 0);
     char expires_at[32];
     snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_DOWNLOAD_TTL));
     cJSON_AddStringToObject(meta, "expires_at", expires_at);
@@ -1713,6 +1787,20 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
         }
     }
 
+    /* Collect per-chunk RTT for large-file tail prediction (Lagrange extrapolation) */
+    const char *chunk_rtt_hdr = cwist_http_header_get(req->headers, "X-TASFA-Chunk-RTT");
+    if (chunk_rtt_hdr) {
+        double chunk_rtt = atof(chunk_rtt_hdr);
+        if (chunk_rtt > 0.0) {
+            cJSON *session_meta = load_upload_session(upload_id);
+            if (session_meta) {
+                append_rtt_sample(session_meta, chunk_index, chunk_rtt);
+                save_upload_session(upload_id, session_meta);
+                cJSON_Delete(session_meta);
+            }
+        }
+    }
+
     if (hash_tag_hex && hash_tag_hex[0]) {
         uint64_t balanced_scalar = magic_scalar_str ? (uint64_t)strtoull(magic_scalar_str, NULL, 10) : 0;
         uint64_t raw_scalar = raw_scalar_str ? (uint64_t)strtoull(raw_scalar_str, NULL, 10) : 0;
@@ -2111,10 +2199,29 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
     long long total_size = json_long_long(meta, "total_size", 0);
     if (end > total_size) end = total_size;
     size_t amount = (size_t)(end - offset);
+
+    /* Approximate progress tracking for tail prediction */
+    int received_so_far = json_int(meta, "received_chunks", 0);
+    if (chunk_index + span > received_so_far) {
+        cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(chunk_index + span));
+    }
+    const char *chunk_rtt_param = cwist_query_map_get(req->query_params, "chunk_rtt_ms");
+    if (chunk_rtt_param) {
+        double chunk_rtt = atof(chunk_rtt_param);
+        if (chunk_rtt > 0.0) append_rtt_sample(meta, chunk_index, chunk_rtt);
+    }
+    save_download_session(session_id, meta);
+
     bool ok = send_file_slice_response(req, res, json_string(meta, "storage_path", ""),
                                        json_string(meta, "mime_type", "application/octet-stream"), offset, amount,
                                        chunk_index, chunk_count);
+    double pred = predict_remaining_ms(meta);
     cJSON_Delete(meta);
+    if (ok && pred >= 0.0) {
+        char pred_buf[32];
+        snprintf(pred_buf, sizeof(pred_buf), "%.0f", pred);
+        cwist_http_header_add(&res->headers, "X-TASFA-Predicted-Remaining-Ms", pred_buf);
+    }
     if (!ok) {
         send_json_response(res, session_error_json("download not found"), CWIST_HTTP_NOT_FOUND);
     }
