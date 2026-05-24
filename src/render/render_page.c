@@ -410,7 +410,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(body, footer);
 
     cwist_html_element_t *tasfa_script = cwist_html_element_create("script");
-    cwist_html_element_add_attr(tasfa_script, "src", "/js/tasfa-download.js");
+    cwist_html_element_add_attr(tasfa_script, "src", "/assets/js/tasfa-download.js");
     cwist_html_element_add_child(body, tasfa_script);
 
     cwist_html_element_add_child(html, head);

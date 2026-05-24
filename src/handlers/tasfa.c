@@ -971,6 +971,7 @@ static bool send_file_slice_response(cwist_http_request *req, cwist_http_respons
 
 static bool resolve_asset_scope_path(cwist_db *db, const char *scope, const char *encoded, char *storage_path, size_t storage_len,
                                      char *filename, size_t filename_len, const char **mime_out) {
+    (void)db;
     char *decoded = decode_segment(encoded ? encoded : "");
     bool ok = false;
     if (!decoded) return false;
@@ -984,23 +985,6 @@ static bool resolve_asset_scope_path(cwist_db *db, const char *scope, const char
         snprintf(filename, filename_len, "%s", decoded);
         if (mime_out) *mime_out = mime_type(decoded);
         ok = true;
-    } else if (!strcmp(scope ? scope : "", "profile") && is_safe_filename_simple(decoded)) {
-        char profile_url[512];
-        int written = snprintf(profile_url, sizeof(profile_url), "/assets/profile/%s", decoded);
-        if (written > 0 && written < (int)sizeof(profile_url)) {
-            sqlite3_stmt *stmt = NULL;
-            const char *sql = "SELECT 1 FROM users WHERE profile_pic=? LIMIT 1";
-            if (db && sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) == SQLITE_OK) {
-                sqlite3_bind_text(stmt, 1, profile_url, -1, SQLITE_STATIC);
-                ok = sqlite3_step(stmt) == SQLITE_ROW;
-                sqlite3_finalize(stmt);
-            }
-        }
-        if (ok) {
-            snprintf(storage_path, storage_len, "public/uploads/%s", decoded);
-            snprintf(filename, filename_len, "%s", decoded);
-            if (mime_out) *mime_out = mime_type(decoded);
-        }
     }
     cwist_free(decoded);
     return ok;

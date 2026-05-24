@@ -210,6 +210,7 @@ int main(void) {
     cwist_app_get(app, "/assets/tasfa/:scope/:filename/chunk/:chunk_index", handler_asset_tasfa_chunk);
     cwist_app_static(app, "/assets/images", "public/images");
     cwist_app_static(app, "/assets/js", "public/js");
+    cwist_app_static(app, "/js", "public/js");
     cwist_app_static(app, "/assets/media", "public/media");
     cwist_app_get(app, "/sw.js", handler_sw_js);
 

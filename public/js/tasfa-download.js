@@ -43,7 +43,6 @@
         if (baseUrl.indexOf('/file/download/') === 0) return baseUrl + '/handshake';
         if (baseUrl.indexOf('/assets/img/') === 0) return '/assets/tasfa/img/' + encodeURIComponent(baseUrl.slice('/assets/img/'.length)) + '/handshake';
         if (baseUrl.indexOf('/assets/uploads/') === 0) return '/assets/tasfa/uploads/' + encodeURIComponent(baseUrl.slice('/assets/uploads/'.length)) + '/handshake';
-        if (baseUrl.indexOf('/assets/profile/') === 0) return '/assets/tasfa/profile/' + encodeURIComponent(baseUrl.slice('/assets/profile/'.length)) + '/handshake';
         return null;
     }
 
@@ -55,8 +54,6 @@
             url = '/assets/tasfa/img/' + encodeURIComponent(baseUrl.slice('/assets/img/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
         } else if (baseUrl.indexOf('/assets/uploads/') === 0) {
             url = '/assets/tasfa/uploads/' + encodeURIComponent(baseUrl.slice('/assets/uploads/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
-        } else if (baseUrl.indexOf('/assets/profile/') === 0) {
-            url = '/assets/tasfa/profile/' + encodeURIComponent(baseUrl.slice('/assets/profile/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
         }
         if (url && span > 1) url += '&span=' + String(span);
         return url;
@@ -387,7 +384,7 @@
 
     function upgradeMediaElement(el) {
         var baseUrl = el.getAttribute('data-tasfa-download') || el.getAttribute('src') || '';
-        if (!/^\/(file\/download|assets\/img|assets\/uploads|assets\/profile)\//.test(baseUrl)) return;
+        if (!/^\/(file\/download|assets\/img|assets\/uploads)\//.test(baseUrl)) return;
         if (!el.getAttribute('data-tasfa-download')) el.setAttribute('data-tasfa-download', baseUrl);
         if (el.tagName === 'IMG') el.src = SPACER_GIF;
         else el.removeAttribute('src');
@@ -431,7 +428,7 @@
     function upgradeWithin(root) {
         if (!root || !root.querySelectorAll) return;
         root.querySelectorAll('.markdown-body img[src^="blob:"], .markdown-body video[src^="blob:"], .markdown-body audio[src^="blob:"]').forEach(function(el) { el.remove(); });
-        root.querySelectorAll('img[data-tasfa-download], img[src^="/assets/img/"], img[src^="/assets/profile/"]').forEach(upgradeMediaElement);
+        root.querySelectorAll('img[data-tasfa-download], img[src^="/assets/img/"]').forEach(upgradeMediaElement);
         root.querySelectorAll('video[src^="/file/download/"], video[data-tasfa-download], audio[src^="/file/download/"], audio[data-tasfa-download]').forEach(upgradeMediaElement);
         root.querySelectorAll('a[data-tasfa-download-link], a[href^="/file/download/"]').forEach(upgradeDownloadLink);
         root.querySelectorAll('.markdown-body img, .markdown-body video, .markdown-body audio').forEach(wrapMediaForDownload);

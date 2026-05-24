@@ -795,7 +795,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<a href='/' class='btn btn-outline'>Cancel</a></div>");
     cwist_sstring_append(b, "</form></div>");
     cwist_sstring_append(b, "<script>window.BLOG_USE_TASFA=true;</script>");
-    cwist_sstring_append(b, "<script src='/js/editor.js'></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/editor.js'></script>");
 
     cwist_sstring *page = render_page(post ? "Edit Post" : "New Post", b->data, dark, user_role, profile_pic);
     cwist_sstring_destroy(b);
