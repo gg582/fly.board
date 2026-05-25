@@ -1,9 +1,19 @@
 (function() {
     var cache = new Map();
     var downloadStates = {};
-    var SPACER_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    var SPACER_GIF = "";
+    try {
+        var binary = atob("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
+        var array = new Uint8Array(binary.length);
+        for (var i = 0; i < binary.length; i++) {
+            array[i] = binary.charCodeAt(i);
+        }
+        SPACER_GIF = URL.createObjectURL(new Blob([array], { type: "image/gif" }));
+    } catch (e) {
+        SPACER_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    }
     var CACHE_NAME = 'tasfa-small-files-v1';
-    var SMALL_FILE_THRESHOLD = 5 * 1024 * 1024; // 5MB
+    var SMALL_FILE_THRESHOLD = 100 * 1024 * 1024; // 100MB
     var DOWNLOAD_CHUNK_STORE = 'tasfa_download_chunk_size_v3';
     var DOWNLOAD_CHUNK_MIN = 512 * 1024;
     var DOWNLOAD_CHUNK_DEFAULT = 2 * 1024 * 1024;
@@ -485,7 +495,7 @@
             }
 
             async function worker() {
-                while (!sharedState.failed) {
+                while (!sharedState.failed && sharedState.completedChunks < session.chunkCount) {
                     if (activeFetches >= (session.targetParallel || 1)) {
                         await new Promise(function(r) { setTimeout(r, 20); });
                         continue;
@@ -788,9 +798,21 @@
         overlay.className = 'tasfa-video-play-overlay';
         var poster = el.getAttribute('poster');
         if (poster) {
-            overlay.style.backgroundImage = 'linear-gradient(180deg, rgba(0,0,0,0.3), rgba(0,0,0,0.6)), url("' + poster + '")';
-            overlay.style.backgroundSize = 'cover';
-            overlay.style.backgroundPosition = 'center';
+            var path = normalizeUrl(poster);
+            if (/^\/(file\/download|assets\/img|assets\/uploads)\//.test(path)) {
+                fetchBlobViaTasfa(poster, { silent: true }).then(function(result) {
+                    var objectUrl = URL.createObjectURL(result.blob);
+                    overlay.style.backgroundImage = 'linear-gradient(180deg, rgba(0,0,0,0.3), rgba(0,0,0,0.6)), url("' + objectUrl + '")';
+                    overlay.style.backgroundSize = 'cover';
+                    overlay.style.backgroundPosition = 'center';
+                }).catch(function(err) {
+                    console.error('TASFA video poster load failed:', poster, err);
+                });
+            } else {
+                overlay.style.backgroundImage = 'linear-gradient(180deg, rgba(0,0,0,0.3), rgba(0,0,0,0.6)), url("' + poster + '")';
+                overlay.style.backgroundSize = 'cover';
+                overlay.style.backgroundPosition = 'center';
+            }
         } else {
             overlay.style.background = 'linear-gradient(180deg, rgba(0,0,0,0.3), rgba(0,0,0,0.6))';
         }
@@ -1039,6 +1061,200 @@
         }
     }
 
+    function upgradeAudioElement(el) {
+        if (el.getAttribute('data-tasfa-skip') === '1') return;
+        var baseUrl = el.getAttribute('data-tasfa-download') || el.getAttribute('src') || '';
+        var path = normalizeUrl(baseUrl);
+        if (!/^\/(file\/download|assets\/uploads)\//.test(path)) return;
+        
+        var isLoaded = el.getAttribute('data-tasfa-loaded') === '1';
+        if (!el.getAttribute('data-tasfa-download')) el.setAttribute('data-tasfa-download', baseUrl);
+        if (el.closest('.tasfa-audio-container')) return;
+
+        // Custom HTML5 Audio Player Container
+        var container = document.createElement('div');
+        container.className = 'tasfa-audio-container paused';
+        el.parentNode.insertBefore(container, el);
+        container.appendChild(el);
+
+        el.removeAttribute('controls');
+        el.setAttribute('preload', 'none');
+
+        if (!isLoaded) {
+            el.src = '';
+            el.removeAttribute('src');
+            try { el.load(); } catch(e) {}
+        }
+
+        // Control Panel
+        var controls = document.createElement('div');
+        controls.className = 'tasfa-audio-controls';
+
+        // Play/Pause Button
+        var playBtn = document.createElement('button');
+        playBtn.type = 'button';
+        playBtn.className = 'tasfa-audio-play-btn';
+        var playSvg = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+        var pauseSvg = '<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+        playBtn.innerHTML = playSvg;
+        controls.appendChild(playBtn);
+
+        // Details / Progress Info
+        var details = document.createElement('div');
+        details.className = 'tasfa-audio-details';
+
+        var title = document.createElement('div');
+        title.className = 'tasfa-audio-title';
+        var filename = baseUrl.substring(baseUrl.lastIndexOf('/') + 1);
+        title.textContent = decodeURIComponent(filename) || 'Audio Track';
+        details.appendChild(title);
+
+        var progressRow = document.createElement('div');
+        progressRow.className = 'tasfa-audio-progress-row';
+
+        var seeker = document.createElement('input');
+        seeker.type = 'range';
+        seeker.className = 'tasfa-audio-seeker';
+        seeker.min = '0';
+        seeker.max = '100';
+        seeker.value = '0';
+        progressRow.appendChild(seeker);
+
+        var timeDisplay = document.createElement('div');
+        timeDisplay.className = 'tasfa-audio-time-display';
+        timeDisplay.textContent = '0:00 / 0:00';
+        progressRow.appendChild(timeDisplay);
+
+        details.appendChild(progressRow);
+        controls.appendChild(details);
+
+        // Volume
+        var volumeGroup = document.createElement('div');
+        volumeGroup.className = 'tasfa-audio-volume-group';
+        var muteBtn = document.createElement('button');
+        muteBtn.type = 'button';
+        muteBtn.className = 'tasfa-audio-control-btn';
+        var volHighSvg = '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>';
+        var volMuteSvg = '<svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.21.05-.42.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>';
+        muteBtn.innerHTML = volHighSvg;
+        volumeGroup.appendChild(muteBtn);
+
+        var volumeSlider = document.createElement('input');
+        volumeSlider.type = 'range';
+        volumeSlider.className = 'tasfa-audio-volume-slider';
+        volumeSlider.min = '0';
+        volumeSlider.max = '100';
+        volumeSlider.value = '80';
+        el.volume = 0.8;
+        volumeGroup.appendChild(volumeSlider);
+        controls.appendChild(volumeGroup);
+
+        container.appendChild(controls);
+
+        // State update helpers
+        function updatePlayPause() {
+            if (el.paused) {
+                container.classList.add('paused');
+                playBtn.innerHTML = playSvg;
+            } else {
+                container.classList.remove('paused');
+                playBtn.innerHTML = pauseSvg;
+            }
+        }
+
+        function initPlayerEvents() {
+            volumeSlider.addEventListener('input', function() {
+                var vol = volumeSlider.value / 100;
+                el.volume = vol;
+                el.muted = (vol === 0);
+                muteBtn.innerHTML = el.muted ? volMuteSvg : volHighSvg;
+            });
+
+            muteBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                el.muted = !el.muted;
+                muteBtn.innerHTML = el.muted ? volMuteSvg : volHighSvg;
+                volumeSlider.value = el.muted ? '0' : Math.round(el.volume * 100);
+            });
+
+            el.addEventListener('timeupdate', function() {
+                if (el.duration) {
+                    var pct = (el.currentTime / el.duration) * 100;
+                    seeker.value = Math.round(pct);
+                    timeDisplay.textContent = formatTime(el.currentTime) + ' / ' + formatTime(el.duration);
+                }
+            });
+
+            el.addEventListener('loadedmetadata', function() {
+                timeDisplay.textContent = formatTime(el.currentTime) + ' / ' + formatTime(el.duration);
+            });
+
+            seeker.addEventListener('input', function() {
+                if (el.duration) {
+                    el.currentTime = (seeker.value / 100) * el.duration;
+                }
+            });
+
+            var togglePlay = function(e) {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                if (el.paused) {
+                    el.play().catch(function(){});
+                } else {
+                    el.pause();
+                }
+                updatePlayPause();
+            };
+
+            playBtn.addEventListener('click', togglePlay);
+            el.addEventListener('play', updatePlayPause);
+            el.addEventListener('pause', updatePlayPause);
+        }
+
+        if (isLoaded) {
+            initPlayerEvents();
+        } else {
+            var loadAndPlay = function(e) {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                if (container.getAttribute('data-tasfa-loading') === '1') return;
+
+                container.setAttribute('data-tasfa-loading', '1');
+                title.textContent = 'Loading audio... 0%';
+
+                fetchBlobViaTasfa(baseUrl, { 
+                    silent: true,
+                    onProgress: function(pct) {
+                        title.textContent = 'Loading audio... ' + pct + '%';
+                    }
+                }).then(function(result) {
+                    var objectUrl = URL.createObjectURL(result.blob);
+                    el.src = objectUrl;
+                    el.setAttribute('preload', 'auto');
+                    el.load();
+                    el.setAttribute('data-tasfa-loaded', '1');
+                    
+                    container.setAttribute('data-tasfa-loading', '0');
+                    title.textContent = decodeURIComponent(filename) || 'Audio Track';
+                    
+                    initPlayerEvents();
+                    el.play().catch(function(){});
+                    playBtn.removeEventListener('click', loadAndPlay);
+                }).catch(function(err) {
+                    console.error('TASFA audio load failed:', baseUrl, err);
+                    container.setAttribute('data-tasfa-loading', '0');
+                    title.textContent = 'Loading failed';
+                    el.setAttribute('data-tasfa-error', '1');
+                });
+            };
+            playBtn.addEventListener('click', loadAndPlay);
+        }
+    }
+
     function upgradeWithin(root) {
         if (!root || !root.querySelectorAll) return;
         root.querySelectorAll('.markdown-body img[src^="blob:"]:not([data-tasfa-download]), .markdown-body video[src^="blob:"]:not([data-tasfa-download]), .markdown-body audio[src^="blob:"]:not([data-tasfa-download])').forEach(function(el) { el.remove(); });
@@ -1046,7 +1262,7 @@
         // Upgrade TASFA media first
         root.querySelectorAll('img[data-tasfa-download], img[src^="/assets/img/"], img[src^="/assets/uploads/"]').forEach(upgradeMediaElement);
         root.querySelectorAll('video[src^="/file/download/"], video[src^="/assets/uploads/"], video[data-tasfa-download]').forEach(upgradeVideoElement);
-        root.querySelectorAll('audio[src^="/file/download/"], audio[src^="/assets/uploads/"], audio[data-tasfa-download]').forEach(upgradeMediaElement);
+        root.querySelectorAll('audio[src^="/file/download/"], audio[src^="/assets/uploads/"], audio[data-tasfa-download]').forEach(upgradeAudioElement);
         
         // Upgrade links
         root.querySelectorAll('a[data-tasfa-download-link], a[href^="/file/download/"]').forEach(upgradeDownloadLink);
@@ -1062,11 +1278,11 @@
             .tasfa-video-container {
                 position: relative;
                 width: 100%;
-                background: #000;
-                border-radius: 8px;
+                background: #0d0d11;
+                border-radius: 12px;
                 overflow: hidden;
                 aspect-ratio: 16 / 9;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+                box-shadow: 0 20px 40px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.05);
             }
             .tasfa-video-container video {
                 width: 100%;
@@ -1077,14 +1293,16 @@
             .tasfa-video-play-overlay {
                 position: absolute;
                 inset: 0;
-                background: rgba(0, 0, 0, 0.4);
+                background: rgba(10, 10, 14, 0.6);
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
                 display: flex;
                 flex-direction: column;
                 align-items: center;
                 justify-content: center;
                 z-index: 5;
                 cursor: pointer;
-                transition: opacity 0.3s ease, visibility 0.3s ease;
+                transition: opacity 0.4s cubic-bezier(0.25, 1, 0.5, 1), visibility 0.4s;
             }
             .tasfa-video-play-overlay.playing {
                 opacity: 0;
@@ -1092,46 +1310,44 @@
                 pointer-events: none;
             }
             .tasfa-video-play-overlay-btn {
-                width: 72px;
-                height: 72px;
+                width: 80px;
+                height: 80px;
                 border: none;
                 border-radius: 50%;
-                background: var(--accent, #0066cc);
+                background: linear-gradient(135deg, var(--accent, #0066cc) 0%, var(--accent-hover, #0052a3) 100%);
                 color: #fff;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-size: 24px;
-                box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+                font-size: 28px;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.2);
                 cursor: pointer;
-                transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.2s ease;
+                transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease, box-shadow 0.3s ease;
             }
             .tasfa-video-play-overlay:hover .tasfa-video-play-overlay-btn {
-                transform: scale(1.1);
-                background: var(--accent-hover, #0052a3);
+                transform: scale(1.12);
+                box-shadow: 0 15px 35px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.3);
             }
             .tasfa-video-controls {
                 position: absolute;
                 bottom: 0;
                 left: 0;
                 right: 0;
-                background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.3) 70%, rgba(0, 0, 0, 0) 100%);
-                backdrop-filter: blur(4px);
-                -webkit-backdrop-filter: blur(4px);
-                padding: 10px 14px;
+                background: linear-gradient(to top, rgba(10, 10, 14, 0.95) 0%, rgba(10, 10, 14, 0.4) 70%, rgba(10, 10, 14, 0) 100%);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                border-top: 1px solid rgba(255, 255, 255, 0.08);
+                padding: 12px 16px;
                 display: flex;
                 flex-direction: column;
-                gap: 8px;
+                gap: 10px;
                 z-index: 6;
                 opacity: 0;
-                transform: translateY(5px);
-                transition: opacity 0.3s ease, transform 0.3s ease;
+                transform: translateY(10px);
+                transition: opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1), transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
                 pointer-events: auto;
             }
-            .tasfa-video-container:hover .tasfa-video-controls {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            .tasfa-video-container:hover .tasfa-video-controls,
             .tasfa-video-container.paused .tasfa-video-controls {
                 opacity: 1;
                 transform: translateY(0);
@@ -1139,21 +1355,21 @@
             .tasfa-video-seeker-container {
                 position: relative;
                 width: 100%;
-                height: 4px;
+                height: 6px;
                 display: flex;
                 align-items: center;
                 cursor: pointer;
             }
             .tasfa-video-seeker-container:hover {
-                height: 6px;
+                height: 8px;
             }
             .tasfa-video-seeker {
                 -webkit-appearance: none;
                 appearance: none;
                 width: 100%;
                 height: 100%;
-                background: rgba(255, 255, 255, 0.3);
-                border-radius: 3px;
+                background: rgba(255, 255, 255, 0.15);
+                border-radius: 4px;
                 outline: none;
                 cursor: pointer;
                 margin: 0;
@@ -1162,29 +1378,31 @@
             .tasfa-video-seeker::-webkit-slider-thumb {
                 -webkit-appearance: none;
                 appearance: none;
-                width: 12px;
-                height: 12px;
+                width: 14px;
+                height: 14px;
                 border-radius: 50%;
-                background: var(--accent, #0066cc);
+                background: #fff;
                 cursor: pointer;
-                transition: transform 0.1s ease;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+                transition: transform 0.15s ease;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.4);
             }
             .tasfa-video-seeker-container:hover .tasfa-video-seeker::-webkit-slider-thumb {
-                transform: scale(1.2);
+                transform: scale(1.25);
+                background: var(--accent, #0066cc);
             }
             .tasfa-video-seeker::-moz-range-thumb {
-                width: 12px;
-                height: 12px;
+                width: 14px;
+                height: 14px;
                 border: none;
                 border-radius: 50%;
-                background: var(--accent, #0066cc);
+                background: #fff;
                 cursor: pointer;
-                transition: transform 0.1s ease;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+                transition: transform 0.15s ease;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.4);
             }
             .tasfa-video-seeker-container:hover .tasfa-video-seeker::-moz-range-thumb {
-                transform: scale(1.2);
+                transform: scale(1.25);
+                background: var(--accent, #0066cc);
             }
             .tasfa-video-controls-row {
                 display: flex;
@@ -1197,7 +1415,7 @@
             .tasfa-video-controls-group {
                 display: flex;
                 align-items: center;
-                gap: 12px;
+                gap: 16px;
             }
             .tasfa-video-control-btn {
                 background: none;
@@ -1207,41 +1425,40 @@
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                padding: 4px;
-                opacity: 0.85;
-                transition: opacity 0.2s ease, transform 0.1s ease;
+                padding: 6px;
+                opacity: 0.8;
+                transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
             }
             .tasfa-video-control-btn:hover {
                 opacity: 1;
-                transform: scale(1.1);
+                transform: scale(1.15);
             }
             .tasfa-video-control-btn svg {
-                width: 18px;
-                height: 18px;
+                width: 20px;
+                height: 20px;
                 fill: currentColor;
             }
             .tasfa-video-time-display {
-                font-family: monospace, sans-serif;
+                font-family: 'Outfit', 'Inter', monospace, sans-serif;
                 font-size: 12px;
-                opacity: 0.85;
-                pointer-events: none;
-                user-select: none;
+                opacity: 0.8;
+                letter-spacing: 0.5px;
             }
             .tasfa-video-volume-group {
                 display: flex;
                 align-items: center;
-                gap: 6px;
+                gap: 8px;
             }
             .tasfa-video-volume-slider {
                 -webkit-appearance: none;
                 appearance: none;
-                width: 60px;
+                width: 70px;
                 height: 4px;
-                background: rgba(255, 255, 255, 0.3);
+                background: rgba(255, 255, 255, 0.2);
                 border-radius: 2px;
                 outline: none;
                 cursor: pointer;
-                transition: width 0.2s ease, background-color 0.15s;
+                transition: background-color 0.15s;
             }
             .tasfa-video-volume-slider::-webkit-slider-thumb {
                 -webkit-appearance: none;
@@ -1251,6 +1468,7 @@
                 border-radius: 50%;
                 background: #fff;
                 cursor: pointer;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.3);
             }
             .tasfa-video-volume-slider::-moz-range-thumb {
                 width: 10px;
@@ -1259,7 +1477,165 @@
                 border-radius: 50%;
                 background: #fff;
                 cursor: pointer;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.3);
             }
+
+            .tasfa-audio-container {
+                width: 100%;
+                background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%);
+                backdrop-filter: blur(16px);
+                -webkit-backdrop-filter: blur(16px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 16px;
+                padding: 16px 20px;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.1);
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                box-sizing: border-box;
+                margin: 12px 0;
+            }
+            .tasfa-audio-controls {
+                display: flex;
+                align-items: center;
+                gap: 20px;
+                width: 100%;
+            }
+            .tasfa-audio-play-btn {
+                width: 52px;
+                height: 52px;
+                border: none;
+                border-radius: 50%;
+                background: linear-gradient(135deg, var(--accent, #0066cc) 0%, var(--accent-hover, #0052a3) 100%);
+                color: #fff;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 20px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2);
+                cursor: pointer;
+                flex-shrink: 0;
+                transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s;
+            }
+            .tasfa-audio-play-btn:hover {
+                transform: scale(1.08);
+            }
+            .tasfa-audio-play-btn svg {
+                width: 22px;
+                height: 22px;
+                fill: currentColor;
+            }
+            .tasfa-audio-details {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                flex-grow: 1;
+                min-width: 0;
+            }
+            .tasfa-audio-title {
+                color: #fff;
+                font-size: 14px;
+                font-weight: 600;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                letter-spacing: 0.3px;
+            }
+            .tasfa-audio-progress-row {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                width: 100%;
+            }
+            .tasfa-audio-seeker {
+                -webkit-appearance: none;
+                appearance: none;
+                flex-grow: 1;
+                height: 5px;
+                background: rgba(255, 255, 255, 0.15);
+                border-radius: 3px;
+                outline: none;
+                cursor: pointer;
+                margin: 0;
+            }
+            .tasfa-audio-seeker::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                appearance: none;
+                width: 12px;
+                height: 12px;
+                border-radius: 50%;
+                background: var(--accent, #0066cc);
+                cursor: pointer;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            }
+            .tasfa-audio-seeker::-moz-range-thumb {
+                width: 12px;
+                height: 12px;
+                border: none;
+                border-radius: 50%;
+                background: var(--accent, #0066cc);
+                cursor: pointer;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            }
+            .tasfa-audio-time-display {
+                color: rgba(255, 255, 255, 0.6);
+                font-family: 'Outfit', 'Inter', monospace, sans-serif;
+                font-size: 11px;
+                flex-shrink: 0;
+                user-select: none;
+            }
+            .tasfa-audio-volume-group {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-shrink: 0;
+            }
+            .tasfa-audio-control-btn {
+                background: none;
+                border: none;
+                color: rgba(255, 255, 255, 0.7);
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 4px;
+                transition: color 0.2s, transform 0.1s;
+            }
+            .tasfa-audio-control-btn:hover {
+                color: #fff;
+                transform: scale(1.1);
+            }
+            .tasfa-audio-control-btn svg {
+                width: 18px;
+                height: 18px;
+                fill: currentColor;
+            }
+            .tasfa-audio-volume-slider {
+                -webkit-appearance: none;
+                appearance: none;
+                width: 60px;
+                height: 4px;
+                background: rgba(255, 255, 255, 0.15);
+                border-radius: 2px;
+                outline: none;
+                cursor: pointer;
+            }
+            .tasfa-audio-volume-slider::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                appearance: none;
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #fff;
+                cursor: pointer;
+            }
+            .tasfa-audio-volume-slider::-moz-range-thumb {
+                width: 8px;
+                height: 8px;
+                border: none;
+                border-radius: 50%;
+                background: #fff;
+                cursor: pointer;
         `;
         document.head.appendChild(style);
 
