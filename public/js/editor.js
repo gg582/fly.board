@@ -39,9 +39,10 @@
     var TASFA_UPLOAD_CHUNK_STEP_DOWN = 512 * 1024;
     var TASFA_UPLOAD_CHUNK_STORE = 'tasfa_upload_chunk_size_v3';
     var TASFA_TRACE_LIMIT = 160;
-    var TASFA_SOFT_STALL_MS = 25000;
-    var TASFA_HARD_STALL_MS = 90000;
-    var TASFA_FAST_RECOVERY_MS = 5000;
+    var TASFA_SOFT_STALL_MS = 8000;
+    var TASFA_HARD_STALL_MS = 20000;
+    var TASFA_FAST_RECOVERY_MS = 3000;
+    var TASFA_CONNECT_TIMEOUT_MS = 3000;
     var TASFA_FALLBACK_PREFETCH_MAX_BYTES = 64 * 1024 * 1024;
     var TASFA_MIN_SIZE_BYTES = 4 * 1024 * 1024;
     var FileUploadQueue = [];
@@ -229,6 +230,25 @@
         var next = Math.round(clampNumber(value, TASFA_UPLOAD_CHUNK_MIN, maxValue) / TASFA_UPLOAD_CHUNK_STEP_DOWN) * TASFA_UPLOAD_CHUNK_STEP_DOWN;
         try { localStorage.setItem(TASFA_UPLOAD_CHUNK_STORE, String(next)); } catch (err) {}
         return next;
+    }
+
+    function armXhrIdleTimeout(xhr, timeoutMs) {
+        var timer = null;
+        function clear() {
+            if (timer) {
+                clearTimeout(timer);
+                timer = null;
+            }
+        }
+        function arm() {
+            clear();
+            timer = setTimeout(function() {
+                try { xhr._tasfaIdleTimeout = true; } catch (err) {}
+                try { xhr.abort(); } catch (err2) {}
+            }, timeoutMs);
+        }
+        arm();
+        return { arm: arm, clear: clear };
     }
 
     function ensureTasfaStats(asset) {
@@ -422,6 +442,10 @@
         var now = Date.now();
         var stats = ensureTasfaStats(asset);
         if (!immediate && now - stats.lastRenegotiateAt < 5000) return;
+        if (!isGoodTasfaLink() || predictedTasfaQuality(asset) < 0.55) {
+            forceTasfaReconnect(asset, 'slow-link');
+            return;
+        }
         stats.lastRenegotiateAt = now;
         if (asset.renegotiateTimer) clearTimeout(asset.renegotiateTimer);
         asset.renegotiateTimer = setTimeout(function() {
@@ -471,6 +495,31 @@
         }, immediate ? 0 : 300);
     }
 
+    function forceTasfaReconnect(asset, reason) {
+        if (!asset || asset.isCancelling || !asset.file) return;
+        if (asset.forceReconnectTimer) return;
+        asset.forceReconnectTimer = setTimeout(function() {
+            asset.forceReconnectTimer = null;
+            if (!asset || asset.isCancelling || asset.fid !== null) return;
+            if (asset.renegotiateTimer) {
+                clearTimeout(asset.renegotiateTimer);
+                asset.renegotiateTimer = null;
+            }
+            asset.uploadRunId = (asset.uploadRunId || 0) + 1;
+            if (asset.xhrs && asset.xhrs.length) {
+                asset.xhrs.slice().forEach(function(xhr) {
+                    try { xhr.abort(); } catch (err) {}
+                });
+            }
+            asset.xhrs = [];
+            asset.isUploading = false;
+            asset.isNetworkPaused = false;
+            tasfaTrace(asset, 'force-reconnect', { reason: reason || 'slow-link' });
+            setTasfaStatus(asset, 'retrying');
+            resumeTasfaUpload(asset, asset.file);
+        }, 0);
+    }
+
     function recordTasfaSuccess(asset, bytes, durationMs) {
         maybeTuneUploadChunkHint(asset, true, durationMs, bytes);
         if (asset.maxParallel && (asset.targetParallel || 1) < asset.maxParallel) {
@@ -505,7 +554,11 @@
             asset.targetParallel = Math.min(asset.maxParallel || 1, (asset.targetParallel || 1) + (goodLink ? 2 : 1));
         }
         tasfaTrace(asset, 'failure', { kind: kind, floor: floor, predictable: predictable ? 1 : 0, reduced: shouldReduce ? 1 : 0 });
-        scheduleUploadRenegotiate(asset, true);
+        if (kind === 'timeout' || predictable || !goodLink) {
+            forceTasfaReconnect(asset, kind || 'network');
+        } else {
+            scheduleUploadRenegotiate(asset, true);
+        }
     }
 
     function touchTasfaActivity(asset) {
@@ -535,7 +588,7 @@
                 return;
             }
             if (!asset.uploadId || asset.isNetworkPaused) {
-                asset.watchdogTimer = setTimeout(tick, 15000);
+                asset.watchdogTimer = setTimeout(tick, 2000);
                 return;
             }
             var idleMs = Date.now() - (asset.lastTasfaActivityAt || 0);
@@ -544,15 +597,12 @@
             if (idleMs >= TASFA_SOFT_STALL_MS && Date.now() - (stats.lastSoftRecoveryAt || 0) >= TASFA_SOFT_STALL_MS) {
                 stats.lastSoftRecoveryAt = Date.now();
                 stats.fastRecoveryUntil = Date.now() + TASFA_FAST_RECOVERY_MS;
-                if ((asset.targetParallel || 1) < (asset.maxParallel || 1)) {
-                    asset.targetParallel = Math.min(asset.maxParallel || 1, (asset.targetParallel || 1) + (isGoodTasfaLink() ? 4 : 2));
-                }
-                setTasfaStatus(asset, 'checking');
+                setTasfaStatus(asset, 'retrying');
                 tasfaTrace(asset, 'soft-recovery', { idleMs: idleMs });
-                scheduleUploadRenegotiate(asset, true);
+                forceTasfaReconnect(asset, 'soft-stall');
             }
             if (idleMs < TASFA_HARD_STALL_MS) {
-                asset.watchdogTimer = setTimeout(tick, 15000);
+                asset.watchdogTimer = setTimeout(tick, 2000);
                 return;
             }
             asset.uploadRunId = (asset.uploadRunId || 0) + 1;
@@ -566,7 +616,7 @@
             tasfaTrace(asset, 'hard-recovery', { idleMs: idleMs });
             setTasfaStatus(asset, 'checking');
             resumeTasfaUpload(asset, asset.file);
-            asset.watchdogTimer = setTimeout(tick, 15000);
+            asset.watchdogTimer = setTimeout(tick, 2000);
         })();
     }
 
@@ -1491,14 +1541,32 @@
 
         xhr.open('POST', PLAIN_UPLOAD_ENDPOINT + '?post_id=' + encodeURIComponent(window.POST_ID || 0), true);
         xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        var watchdog = armXhrIdleTimeout(xhr, TASFA_CONNECT_TIMEOUT_MS);
+        var uploadStartedAt = Date.now();
+        var tinyProgressFloor = Math.max(1024, Math.min(file.size - 1, Math.floor(file.size * 0.01)));
 
         xhr.upload.onprogress = function(event) {
             if (!event.lengthComputable) return;
+            var elapsed = Date.now() - uploadStartedAt;
+            if (event.loaded > 0 && event.loaded <= 1 && elapsed >= 500) {
+                try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err) {}
+                return;
+            }
+            if (event.loaded > 0 && event.loaded < tinyProgressFloor && elapsed >= 1500) {
+                try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err2) {}
+                return;
+            }
+            watchdog.arm();
             asset.confirmedBytes = event.loaded;
             updateAssetProgress(asset);
         };
 
+        xhr.onprogress = function() {
+            watchdog.arm();
+        };
+
         xhr.onload = function() {
+            watchdog.clear();
             asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
             if (xhr.status === 200) {
                 var payload = null;
@@ -1542,8 +1610,20 @@
         };
 
         xhr.onerror = xhr.ontimeout = function() {
+            watchdog.clear();
             asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
             markUploadFailure(asset, 'Upload failed [network]');
+            if (isFileRepoMode) {
+                isFileUploadRunning = false;
+                processFileUploadQueue();
+                updateFileRepoUploadButton();
+            }
+        };
+
+        xhr.onabort = function() {
+            watchdog.clear();
+            asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
+            markUploadFailure(asset, 'Upload failed [' + (xhr._tasfaIdleTimeout || xhr._tasfaTinyProgress ? 'timeout' : 'abort') + ']');
             if (isFileRepoMode) {
                 isFileUploadRunning = false;
                 processFileUploadQueue();
@@ -1723,7 +1803,7 @@
         function doInit(retries) {
             retries = retries || 0;
             var controller = new AbortController();
-            var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
+            var timeoutId = setTimeout(function() { controller.abort(); }, TASFA_CONNECT_TIMEOUT_MS);
             var chunkCount = Math.max(1, Math.ceil(file.size / asset.chunkSize));
             var values = tasfaLinkFormValues(asset, {
                 filename: file.name,
@@ -1820,7 +1900,7 @@
         var body = 'upload_id=' + encodeURIComponent(asset.uploadId) +
             '&upload_token=' + encodeURIComponent(asset.uploadToken);
         var controller = new AbortController();
-        var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
+        var timeoutId = setTimeout(function() { controller.abort(); }, TASFA_CONNECT_TIMEOUT_MS);
         fetch(UPLOAD_STATUS_ENDPOINT, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -1936,17 +2016,34 @@
 	                var rttHint = Math.round((stats.lastChunkMs || stats.ewmaMs || 0));
 	                if (rttHint > 0) xhr.setRequestHeader('X-TASFA-Chunk-RTT', String(rttHint));
 
-                xhr.timeout = Math.max(60000, Math.min(300000, Math.ceil((size / (1024 * 1024)) * 10000)));
+                var watchdog = armXhrIdleTimeout(xhr, TASFA_CONNECT_TIMEOUT_MS);
+                var chunkStartedAt = Date.now();
+                var tinyProgressFloor = Math.max(1024, Math.min(size - 1, Math.floor(size * 0.01)));
 
                 xhr.upload.onprogress = function(event) {
                     if (!event.lengthComputable) return;
+                    var elapsed = Date.now() - chunkStartedAt;
+                    if (event.loaded > 0 && event.loaded <= 1 && elapsed >= 500) {
+                        try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err) {}
+                        return;
+                    }
+                    if (event.loaded > 0 && event.loaded < tinyProgressFloor && elapsed >= 1500) {
+                        try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err2) {}
+                        return;
+                    }
+                    watchdog.arm();
                     touchTasfaActivity(asset);
                     recordTasfaProgress(asset);
                     asset.inflightBytes[chunkIndex] = event.loaded;
                     updateAssetProgress(asset);
                 };
 
+                xhr.onprogress = function() {
+                    watchdog.arm();
+                };
+
                 xhr.onload = function() {
+                    watchdog.clear();
                     touchTasfaActivity(asset);
                     asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
                     asset.inflightBytes[chunkIndex] = 0;
@@ -1969,21 +2066,24 @@
                 };
 
                 xhr.onerror = function() {
+                    watchdog.clear();
                     asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
                     asset.inflightBytes[chunkIndex] = 0;
                     reject(new Error('network'));
                 };
 
                 xhr.ontimeout = function() {
+                    watchdog.clear();
                     asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
                     asset.inflightBytes[chunkIndex] = 0;
                     reject(new Error('timeout'));
                 };
 
                 xhr.onabort = function() {
+                    watchdog.clear();
                     asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
                     asset.inflightBytes[chunkIndex] = 0;
-                    reject(new Error('abort'));
+                    reject(new Error(xhr._tasfaIdleTimeout || xhr._tasfaTinyProgress ? 'timeout' : 'abort'));
                 };
 
                 xhr.send(blob);
@@ -2059,15 +2159,31 @@
 	                    var stats = ensureTasfaStats(asset);
 	                    var rttHint = Math.round((stats.lastChunkMs || stats.ewmaMs || 0));
 	                    if (rttHint > 0) xhr.setRequestHeader('X-TASFA-Chunk-RTT', String(rttHint));
-	                    xhr.timeout = Math.max(60000, Math.min(300000, Math.ceil((enc.size / (1024 * 1024)) * 15000)));
+	                    var watchdog = armXhrIdleTimeout(xhr, TASFA_CONNECT_TIMEOUT_MS);
+	                    var chunkStartedAt = Date.now();
+	                    var tinyProgressFloor = Math.max(1024, Math.min(enc.size - 1, Math.floor(enc.size * 0.01)));
                     xhr.upload.onprogress = function(event) {
                         if (!event.lengthComputable) return;
+                        var elapsed = Date.now() - chunkStartedAt;
+                        if (event.loaded > 0 && event.loaded <= 1 && elapsed >= 500) {
+                            try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err) {}
+                            return;
+                        }
+                        if (event.loaded > 0 && event.loaded < tinyProgressFloor && elapsed >= 1500) {
+                            try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err2) {}
+                            return;
+                        }
+                        watchdog.arm();
                         touchTasfaActivity(asset);
                         recordTasfaProgress(asset);
                         asset.inflightBytes[chunkIndex] = event.loaded;
                         updateAssetProgress(asset);
                     };
+                    xhr.onprogress = function() {
+                        watchdog.arm();
+                    };
                     xhr.onload = function() {
+                        watchdog.clear();
                         touchTasfaActivity(asset);
                         asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
                         asset.inflightBytes[chunkIndex] = 0;
@@ -2088,22 +2204,25 @@
                         }
                     };
                     xhr.onerror = function() {
+                        watchdog.clear();
                         asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
                         asset.inflightBytes[chunkIndex] = 0;
                         releaseEncryptedChunk(asset, chunkIndex);
                         reject(new Error('fallback:network'));
                     };
                     xhr.ontimeout = function() {
+                        watchdog.clear();
                         asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
                         asset.inflightBytes[chunkIndex] = 0;
                         releaseEncryptedChunk(asset, chunkIndex);
                         reject(new Error('fallback:timeout'));
                     };
                     xhr.onabort = function() {
+                        watchdog.clear();
                         asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
                         asset.inflightBytes[chunkIndex] = 0;
                         releaseEncryptedChunk(asset, chunkIndex);
-                        reject(new Error('fallback:abort'));
+                        reject(new Error(xhr._tasfaIdleTimeout || xhr._tasfaTinyProgress ? 'fallback:timeout' : 'fallback:abort'));
                     };
                     xhr.send(enc.cipher);
                 });
@@ -2290,7 +2409,7 @@
         var body = 'upload_id=' + encodeURIComponent(asset.uploadId) +
             '&upload_token=' + encodeURIComponent(asset.uploadToken);
         var controller = new AbortController();
-        var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
+        var timeoutId = setTimeout(function() { controller.abort(); }, TASFA_CONNECT_TIMEOUT_MS);
         fetch(UPLOAD_STATUS_ENDPOINT, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -2375,7 +2494,9 @@
         xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
         xhr.setRequestHeader('Accept', 'application/json');
         xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        var watchdog = armXhrIdleTimeout(xhr, TASFA_CONNECT_TIMEOUT_MS);
         xhr.onload = function() {
+            watchdog.clear();
             asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
             if (xhr.status === 200) {
                 var payload = null;
@@ -2459,6 +2580,7 @@
             markUploadFailure(asset, 'Upload failed [' + xhr.status + ']');
         };
         xhr.onerror = xhr.ontimeout = function() {
+            watchdog.clear();
             asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
             if (attempt < 20) {
                 var delay = Math.min(30000, Math.pow(2, attempt) * 1000);
@@ -2467,6 +2589,17 @@
                 return;
             }
             markUploadFailure(asset, 'Upload failed [network]');
+        };
+        xhr.onabort = function() {
+            watchdog.clear();
+            asset.xhrs = asset.xhrs.filter(function(x) { return x !== xhr; });
+            if (attempt < 20) {
+                var delay = Math.min(30000, Math.pow(2, attempt) * 1000);
+                setTasfaStatus(asset, 'retrying');
+                setTimeout(function() { completeTasfaUpload(asset, attempt + 1); }, delay);
+                return;
+            }
+            markUploadFailure(asset, 'Upload failed [' + (xhr._tasfaIdleTimeout ? 'timeout' : 'abort') + ']');
         };
         xhr.send(encodeFormBody({ upload_id: asset.uploadId, upload_token: asset.uploadToken }));
     }

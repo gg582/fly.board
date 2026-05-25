@@ -12,6 +12,7 @@
     var DOWNLOAD_CHUNK_STEP_UP = 512 * 1024;
     var DOWNLOAD_CHUNK_STEP_DOWN = 256 * 1024;
     var DOWNLOAD_REQUEST_BYTES_MAX = 64 * 1024 * 1024;
+    var DOWNLOAD_CONNECT_TIMEOUT_MS = 3000;
 
     async function getCachedBlob(baseUrl) {
         try {
@@ -144,6 +145,7 @@
     function tuneDownloadFailure(session, kind) {
         session.failureEvents = (session.failureEvents || 0) + 1;
         session.fastStreak = 0;
+        session.currentSpan = 1;
         pushDownloadQuality(session, kind === 'timeout' ? 0.05 : 0.15);
         rememberDownloadChunkSize(preferredDownloadChunkSize() - DOWNLOAD_CHUNK_STEP_DOWN);
         if (session.currentSpan > 1) session.currentSpan -= 1;
@@ -154,7 +156,12 @@
     }
 
     async function notifyDownloadComplete(sessionId, sessionToken) {
+        var controller = window.AbortController ? new AbortController() : null;
+        var timeoutId = null;
         try {
+            if (controller) {
+                timeoutId = setTimeout(function() { controller.abort(); }, DOWNLOAD_CONNECT_TIMEOUT_MS);
+            }
             await fetch('/file/download/complete', {
                 method: 'POST',
                 credentials: 'same-origin',
@@ -162,10 +169,13 @@
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-Requested-With': 'XMLHttpRequest'
                 },
-                body: 'session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken)
+                body: 'session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken),
+                signal: controller ? controller.signal : undefined
             });
         } catch (e) {
             // best-effort: ignore completion errors
+        } finally {
+            if (timeoutId) clearTimeout(timeoutId);
         }
     }
 
@@ -191,13 +201,24 @@
 
     async function fetchJson(url, retries) {
         retries = retries || 0;
-        var response = await fetch(url, {
-            credentials: 'same-origin',
-            headers: {
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
+        var controller = window.AbortController ? new AbortController() : null;
+        var timeoutId = null;
+        var response;
+        try {
+            if (controller) {
+                timeoutId = setTimeout(function() { controller.abort(); }, DOWNLOAD_CONNECT_TIMEOUT_MS);
             }
-        });
+            response = await fetch(url, {
+                credentials: 'same-origin',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                signal: controller ? controller.signal : undefined
+            });
+        } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+        }
         if (response.status === 429 && retries < 10) {
             var data = await response.json().catch(function() { return {}; });
             var delay = (data.retry_after || 3) * 1000;
@@ -288,6 +309,25 @@
         if (el) el.remove();
     }
 
+    function armXhrIdleTimeout(xhr, timeoutMs) {
+        var timer = null;
+        function clear() {
+            if (timer) {
+                clearTimeout(timer);
+                timer = null;
+            }
+        }
+        function arm() {
+            clear();
+            timer = setTimeout(function() {
+                try { xhr._tasfaIdleTimeout = true; } catch (e) {}
+                try { xhr.abort(); } catch (e) {}
+            }, timeoutMs);
+        }
+        arm();
+        return { arm: arm, clear: clear };
+    }
+
     function fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries) {
         retries = retries || 0;
         return new Promise(function(resolve, reject) {
@@ -302,8 +342,12 @@
                 if (chunkIndex + e >= session.chunkCount) break;
                 expectedBytes += chunkByteSize(session, chunkIndex + e);
             }
-            xhr.timeout = Math.max(180000, Math.min(900000, Math.ceil((expectedBytes / (1024 * 1024)) * 30000)));
+            var watchdog = armXhrIdleTimeout(xhr, DOWNLOAD_CONNECT_TIMEOUT_MS);
+            xhr.onprogress = function() {
+                watchdog.arm();
+            };
             xhr.onload = function() {
+                watchdog.clear();
                 if (xhr.status === 429 && retries < 10) {
                     var delay = 3000;
                     try {
@@ -316,12 +360,6 @@
                     return;
                 }
                 if (xhr.status < 200 || xhr.status >= 300) {
-                    if (retries < 3) {
-                        setTimeout(function() {
-                            fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries + 1).then(resolve).catch(reject);
-                        }, 2000 * (retries + 1));
-                        return;
-                    }
                     reject(new Error('chunk:' + xhr.status));
                     return;
                 }
@@ -350,22 +388,17 @@
                 resolve({ bytes: totalReceived, durationMs: Date.now() - startedAt });
             };
             xhr.onerror = function() {
-                if (retries < 5) {
-                    setTimeout(function() {
-                        fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries + 1).then(resolve).catch(reject);
-                    }, 2000 * (retries + 1));
-                    return;
-                }
+                watchdog.clear();
                 reject(new Error('network'));
             };
             xhr.ontimeout = function() {
-                if (retries < 5) {
-                    setTimeout(function() {
-                        fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries + 1).then(resolve).catch(reject);
-                    }, 2000 * (retries + 1));
-                    return;
-                }
+                watchdog.clear();
                 reject(new Error('timeout'));
+            };
+            xhr.onabort = function() {
+                watchdog.clear();
+                if (xhr._tasfaIdleTimeout) reject(new Error('timeout'));
+                else reject(new Error('abort'));
             };
             xhr.send();
         });
@@ -466,7 +499,6 @@
                             pending.push(ci);
                         }
                         if (exhausted) sharedState.failed = e || new Error('download failed');
-                        else await new Promise(function(r) { setTimeout(r, Math.min(15000, 250 * Math.max(1, session.failureEvents || 1))); });
                     }
                 }
             }
