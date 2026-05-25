@@ -8,6 +8,9 @@ MD4C_OBJS := $(MD4C_DIR)/build/md4c.o $(MD4C_DIR)/build/md4c-html.o $(MD4C_DIR)/
 
 MULTIPART_DIR := third_party/multipart-parser-c
 
+LIBMAGIC_DIR := third_party/file
+LIBMAGIC_A := $(LIBMAGIC_DIR)/src/.libs/libmagic.a
+
 SRCS := src/main.c \
         src/db/db.c src/db/user.c src/db/board.c src/db/post.c src/db/file.c src/db/comment.c src/db/vote.c src/db/tag.c src/db/sql_escape.c src/db/orm.c \
         src/auth/auth.c \
@@ -45,10 +48,10 @@ CWIST_ROOT ?= /home/yjlee/cwist
 
 CWIST_LIB := $(CWIST_PREFIX)/lib/libcwist.a
 ifeq ($(wildcard $(CWIST_LIB)),)
-  CWIST_LIB := $(CWIST_PREFIX)/libcwist.a
+  CWIST_LIB := $(CWIST_ROOT)/libcwist.a
 endif
 
-LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++ -lz -lm -lmagic
+LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++ -lz -lm $(shell pkg-config --libs libcurl 2>/dev/null || echo -lcurl)
 HAS_NGHTTP2 := $(shell pkg-config --exists libnghttp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGTCP2 := $(shell pkg-config --exists libngtcp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGHTTP3 := $(shell pkg-config --exists libnghttp3 2>/dev/null && echo 1 || echo 0)
@@ -79,7 +82,13 @@ TARGET := fly_board
 
 all: deps $(TARGET)
 
-deps: $(MD4C_LIB)
+deps: $(MD4C_LIB) $(LIBMAGIC_A)
+
+$(LIBMAGIC_A):
+	cd $(LIBMAGIC_DIR) && if [ ! -f configure ]; then autoreconf -fi; fi
+	cd $(LIBMAGIC_DIR) && ./configure --disable-shared --enable-static --disable-zstdlib --disable-xzlib --disable-bzlib --quiet
+	$(MAKE) -C $(LIBMAGIC_DIR) clean
+	$(MAKE) -C $(LIBMAGIC_DIR) -j$(shell nproc 2>/dev/null || echo 1)
 
 $(MD4C_DIR):
 	git clone --depth 1 https://github.com/mity/md4c.git $(MD4C_DIR)
@@ -105,8 +114,8 @@ src/crypto/fly_crypto.o: src/crypto/fly_crypto.c
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TARGET): $(OBJS) $(MD4C_LIB)
-	$(CC) $(CFLAGS) -o $@ $(OBJS) $(MD4C_LIB) $(LDFLAGS) $(CWIST_LIB) $(LIBS)
+$(TARGET): $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A) $(LDFLAGS) $(CWIST_LIB) $(LIBS)
 
 setup:
 	mkdir data
@@ -115,4 +124,5 @@ clean:
 	rm -f $(OBJS) $(TARGET)
 
 distclean: clean
+	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true
 	rm -rf third_party

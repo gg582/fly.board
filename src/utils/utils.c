@@ -259,10 +259,28 @@ bool mime_type_from_data(const char *file_path, char *out, size_t out_len) {
     if (!file_path || !out || out_len == 0) return false;
     magic_t magic = magic_open(MAGIC_MIME_TYPE | MAGIC_SYMLINK);
     if (!magic) return false;
-    if (magic_load(magic, NULL) != 0) {
+
+    static const char *magic_paths[] = {
+        NULL,                           /* system default */
+        "third_party/file/magic/magic.mgc",
+        "/usr/share/misc/magic.mgc",
+        "/usr/share/file/magic.mgc",
+        "/usr/lib/file/magic.mgc",
+        "/etc/magic",
+    };
+
+    bool loaded = false;
+    for (size_t i = 0; i < sizeof(magic_paths) / sizeof(magic_paths[0]); ++i) {
+        if (magic_load(magic, magic_paths[i]) == 0) {
+            loaded = true;
+            break;
+        }
+    }
+    if (!loaded) {
         magic_close(magic);
         return false;
     }
+
     const char *mime = magic_file(magic, file_path);
     bool ok = false;
     if (mime) {
