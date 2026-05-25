@@ -654,13 +654,106 @@
         wrap.appendChild(btn);
     }
 
+    function upgradeVideoElement(el) {
+        if (el.getAttribute('data-tasfa-skip') === '1') return;
+        var baseUrl = el.getAttribute('data-tasfa-download') || el.getAttribute('src') || '';
+        if (!/^\/(file\/download|assets\/uploads)\//.test(baseUrl)) return;
+        if (!el.getAttribute('data-tasfa-download')) el.setAttribute('data-tasfa-download', baseUrl);
+        if (el.closest('.tasfa-video-shell')) return;
+
+        var wrap = document.createElement('div');
+        wrap.className = 'tasfa-video-shell';
+        wrap.style.position = 'relative';
+        wrap.style.width = '100%';
+        wrap.style.background = '#000';
+        wrap.style.borderRadius = '8px';
+        wrap.style.overflow = 'hidden';
+        wrap.style.minHeight = '180px';
+        wrap.style.aspectRatio = el.style.aspectRatio || '16 / 9';
+        el.parentNode.insertBefore(wrap, el);
+        wrap.appendChild(el);
+
+        el.setAttribute('controls', 'controls');
+        el.setAttribute('preload', 'none');
+        el.setAttribute('playsinline', 'playsinline');
+        el.removeAttribute('src');
+
+        var overlay = document.createElement('div');
+        overlay.className = 'tasfa-video-overlay';
+        overlay.style.position = 'absolute';
+        overlay.style.inset = '0';
+        overlay.style.display = 'flex';
+        overlay.style.flexDirection = 'column';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        overlay.style.gap = '10px';
+        overlay.style.padding = '16px';
+        overlay.style.background = 'linear-gradient(180deg, rgba(0,0,0,0.36), rgba(0,0,0,0.62))';
+        overlay.style.color = '#fff';
+        overlay.style.zIndex = '2';
+
+        var status = document.createElement('div');
+        status.className = 'tasfa-video-status';
+        status.textContent = 'Ready to load';
+        status.style.fontSize = '13px';
+        status.style.opacity = '0.9';
+
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tasfa-video-load-btn';
+        btn.textContent = 'Load video';
+        btn.style.border = '0';
+        btn.style.borderRadius = '6px';
+        btn.style.padding = '10px 14px';
+        btn.style.background = 'rgba(255,255,255,0.92)';
+        btn.style.color = '#111';
+        btn.style.cursor = 'pointer';
+        btn.style.fontWeight = '600';
+
+        function setLoadingState(active, label) {
+            wrap.setAttribute('data-tasfa-loading', active ? '1' : '0');
+            overlay.style.display = active ? 'flex' : 'none';
+            btn.disabled = !!active;
+            btn.textContent = active ? 'Loading...' : 'Load video';
+            status.textContent = label || (active ? 'Loading through TASFA...' : 'Ready to load');
+        }
+
+        btn.addEventListener('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (wrap.getAttribute('data-tasfa-loading') === '1') return;
+            if (el.getAttribute('data-tasfa-loaded') === '1') {
+                try { el.play(); } catch (e) {}
+                return;
+            }
+            setLoadingState(true, 'Receiving video through TASFA...');
+            fetchBlobViaTasfa(baseUrl, { silent: true }).then(function(result) {
+                var objectUrl = URL.createObjectURL(result.blob);
+                el.src = objectUrl;
+                el.load();
+                el.setAttribute('data-tasfa-loaded', '1');
+                overlay.style.display = 'none';
+                try { el.play(); } catch (e) {}
+            }).catch(function(err) {
+                console.error('TASFA video load failed:', baseUrl, err);
+                setLoadingState(false, 'Video load failed');
+                el.setAttribute('data-tasfa-error', '1');
+            });
+        });
+
+        overlay.appendChild(btn);
+        overlay.appendChild(status);
+        wrap.appendChild(overlay);
+    }
+
     function upgradeWithin(root) {
         if (!root || !root.querySelectorAll) return;
         root.querySelectorAll('.markdown-body img[src^="blob:"], .markdown-body video[src^="blob:"], .markdown-body audio[src^="blob:"]').forEach(function(el) { el.remove(); });
         root.querySelectorAll('img[data-tasfa-download]').forEach(upgradeMediaElement);
-        root.querySelectorAll('video[src^="/file/download/"], video[src^="/assets/uploads/"], video[data-tasfa-download], audio[src^="/file/download/"], audio[src^="/assets/uploads/"], audio[data-tasfa-download]').forEach(upgradeMediaElement);
+        root.querySelectorAll('video[src^="/file/download/"], video[src^="/assets/uploads/"], video[data-tasfa-download]').forEach(upgradeVideoElement);
+        root.querySelectorAll('audio[src^="/file/download/"], audio[src^="/assets/uploads/"], audio[data-tasfa-download]').forEach(upgradeMediaElement);
         root.querySelectorAll('a[data-tasfa-download-link], a[href^="/file/download/"]').forEach(upgradeDownloadLink);
-        root.querySelectorAll('.markdown-body img, .markdown-body video, .markdown-body audio').forEach(wrapMediaForDownload);
+        root.querySelectorAll('.markdown-body img, .markdown-body audio').forEach(wrapMediaForDownload);
     }
 
     function init() {
