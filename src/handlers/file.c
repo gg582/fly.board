@@ -5,7 +5,8 @@
 #include <time.h>
 
 #define IMAGE_CACHE_CONTROL "public, max-age=31536000, immutable"
-#define FILE_CACHE_CONTROL "public, max-age=86400"
+#define LOGO_CACHE_CONTROL  "public, max-age=86400"
+#define FILE_CACHE_CONTROL  "public, max-age=86400"
 
 static void send_upload_not_found(cwist_http_response *res) {
     res->status_code = CWIST_HTTP_NOT_FOUND;
@@ -106,6 +107,14 @@ static bool is_safe_upload_preview_name(const char *name) {
     return false;
 }
 
+static bool is_logo_file(const char *filename) {
+    if (!filename || !filename[0]) return false;
+    if (g_config.blog_logo[0]) {
+        return strcmp(filename, g_config.blog_logo) == 0;
+    }
+    return strcmp(filename, "logo.png") == 0;
+}
+
 static bool is_profile_pic_asset(cwist_db *db, const char *name) {
     if (!db || !name || !name[0]) return false;
     char profile_url[512];
@@ -145,7 +154,8 @@ void handler_asset_img(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    if (!send_cached_file_response(req, res, path, mime_type(decoded), IMAGE_CACHE_CONTROL, NULL)) {
+    const char *cache_control = is_logo_file(decoded) ? LOGO_CACHE_CONTROL : IMAGE_CACHE_CONTROL;
+    if (!send_cached_file_response(req, res, path, mime_type(decoded), cache_control, NULL)) {
         cwist_free(decoded);
         send_upload_not_found(res);
         return;

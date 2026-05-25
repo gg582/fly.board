@@ -207,6 +207,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         "})();");
     cwist_html_element_add_child(head, script);
 
+    cwist_html_element_t *sw_script = cwist_html_element_create("script");
+    cwist_html_element_set_text(sw_script,
+        "if('serviceWorker'in navigator){navigator.serviceWorker.register('/sw.js');}");
+    cwist_html_element_add_child(head, sw_script);
+
     cwist_html_element_t *body = cwist_html_element_create("body");
     if (dark) cwist_html_element_add_class(body, "dark");
 

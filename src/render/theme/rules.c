@@ -1070,7 +1070,7 @@ void rule_boards(cJSON *rules) {
     add_decl(typo_row, "background", "transparent");
     add_decl(typo_row, "border", "none");
     add_decl(typo_row, "border-bottom", "1px solid var(--border)");
-    add_decl(typo_row, "padding", "18px 0");
+    add_decl(typo_row, "padding", "18px 20px");
     cJSON_AddItemToArray(rules, typo_row);
 
     cJSON *typo_row_h = create_rule(".board-typography-list .post-row:hover, .post-row-typography:hover");
