@@ -763,6 +763,39 @@
         return mins + ':' + secs;
     }
 
+    function loadPlyr(callback) {
+        if (window.Plyr) {
+            callback();
+            return;
+        }
+        if (window._loadingPlyr) {
+            window._plyrCallbacks = window._plyrCallbacks || [];
+            window._plyrCallbacks.push(callback);
+            return;
+        }
+        window._loadingPlyr = true;
+        window._plyrCallbacks = [callback];
+
+        // Load CSS
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://cdn.plyr.io/3.7.8/plyr.css';
+        document.head.appendChild(link);
+
+        // Load JS
+        var script = document.createElement('script');
+        script.src = 'https://cdn.plyr.io/3.7.8/plyr.js';
+        script.onload = function() {
+            window.Plyr = Plyr;
+            if (window._plyrCallbacks) {
+                window._plyrCallbacks.forEach(function(cb) { cb(); });
+            }
+            delete window._plyrCallbacks;
+            delete window._loadingPlyr;
+        };
+        document.head.appendChild(script);
+    }
+
     function upgradeVideoElement(el) {
         if (el.getAttribute('data-tasfa-skip') === '1') return;
         var baseUrl = el.getAttribute('data-tasfa-download') || el.getAttribute('src') || '';
@@ -771,266 +804,96 @@
         
         var isLoaded = el.getAttribute('data-tasfa-loaded') === '1';
         if (!el.getAttribute('data-tasfa-download')) el.setAttribute('data-tasfa-download', baseUrl);
-        if (el.closest('.tasfa-video-container')) return;
+        if (el.closest('.plyr-tasfa-wrapper')) return;
 
-        // Custom HTML5 Video Player Container
-        var container = document.createElement('div');
-        container.className = 'tasfa-video-container paused';
-        el.parentNode.insertBefore(container, el);
-        container.appendChild(el);
+        // Create player wrapper
+        var wrapper = document.createElement('div');
+        wrapper.className = 'plyr-tasfa-wrapper';
+        wrapper.style.cssText = 'position:relative;width:100%;border-radius:12px;overflow:hidden;aspect-ratio:16/9;background:#0c0c0e;box-shadow:0 20px 40px rgba(0,0,0,0.5);margin:24px auto;';
+        
+        el.parentNode.insertBefore(wrapper, el);
+        wrapper.appendChild(el);
 
         el.removeAttribute('controls');
         el.style.width = '100%';
         el.style.height = '100%';
         el.style.display = 'block';
-        el.style.objectFit = 'contain';
-        el.setAttribute('preload', 'none');
-        el.setAttribute('playsinline', 'playsinline');
 
-        if (!isLoaded) {
-            el.src = '';
-            el.removeAttribute('src');
-            try { el.load(); } catch(e) {}
-        }
-
-        // Overlay for Preloading / Loading / Play status
+        // Add loading/poster overlay
         var overlay = document.createElement('div');
-        overlay.className = 'tasfa-video-play-overlay';
+        overlay.className = 'plyr-tasfa-loading';
+        overlay.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10;background:rgba(10,10,14,0.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);color:#fff;font-family:sans-serif;cursor:pointer;transition:opacity 0.4s ease, visibility 0.4s;';
+        
         var poster = el.getAttribute('poster');
         if (poster) {
-            var path = normalizeUrl(poster);
-            if (/^\/(file\/download|assets\/img|assets\/uploads)\//.test(path)) {
+            var posterPath = normalizeUrl(poster);
+            if (/^\/(file\/download|assets\/img|assets\/uploads)\//.test(posterPath)) {
                 fetchBlobViaTasfa(poster, { silent: true }).then(function(result) {
                     var objectUrl = URL.createObjectURL(result.blob);
                     overlay.style.backgroundImage = 'linear-gradient(180deg, rgba(0,0,0,0.3), rgba(0,0,0,0.6)), url("' + objectUrl + '")';
                     overlay.style.backgroundSize = 'cover';
                     overlay.style.backgroundPosition = 'center';
-                }).catch(function(err) {
-                    console.error('TASFA video poster load failed:', poster, err);
-                });
+                }).catch(function() {});
             } else {
                 overlay.style.backgroundImage = 'linear-gradient(180deg, rgba(0,0,0,0.3), rgba(0,0,0,0.6)), url("' + poster + '")';
                 overlay.style.backgroundSize = 'cover';
                 overlay.style.backgroundPosition = 'center';
             }
-        } else {
-            overlay.style.background = 'linear-gradient(180deg, rgba(0,0,0,0.3), rgba(0,0,0,0.6))';
         }
 
-        var loadBtn = document.createElement('button');
-        loadBtn.type = 'button';
-        loadBtn.className = 'tasfa-video-play-overlay-btn';
-        loadBtn.innerHTML = '&#9654;'; // unicode play icon
-        overlay.appendChild(loadBtn);
+        // Add keyframe animation for spinner if not present
+        if (!document.getElementById('tasfa-spin-style')) {
+            var style = document.createElement('style');
+            style.id = 'tasfa-spin-style';
+            style.textContent = '@keyframes tasfa-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
+            document.head.appendChild(style);
+        }
+
+        var spinner = document.createElement('div');
+        spinner.style.cssText = 'width:50px;height:50px;border:4px solid rgba(255,255,255,0.1);border-top:4px solid var(--accent, #0066cc);border-radius:50%;animation:tasfa-spin 1s linear infinite;margin-bottom:16px;transition:opacity 0.3s;';
+        overlay.appendChild(spinner);
 
         var statusText = document.createElement('div');
-        statusText.className = 'tasfa-video-status';
-        statusText.textContent = 'Click to load';
-        statusText.style.cssText = 'color:#fff;font-size:14px;font-weight:500;text-shadow:0 1px 4px rgba(0,0,0,0.8);margin-top:12px;';
+        statusText.style.cssText = 'font-size:16px;font-weight:500;text-shadow:0 1px 3px rgba(0,0,0,0.5);';
+        statusText.textContent = 'Click to load video';
         overlay.appendChild(statusText);
 
-        var progressContainer = document.createElement('div');
-        progressContainer.className = 'tasfa-video-progress';
-        progressContainer.style.cssText = 'width:80%;max-width:240px;height:6px;background:rgba(255,255,255,0.2);border-radius:3px;margin-top:12px;overflow:hidden;display:none;';
-        var progressBar = document.createElement('div');
-        progressBar.style.cssText = 'width:0%;height:100%;background:var(--accent, #0066cc);transition:width 0.1s linear;';
-        progressContainer.appendChild(progressBar);
-        overlay.appendChild(progressContainer);
+        wrapper.appendChild(overlay);
 
-        container.appendChild(overlay);
-
-        // Control Bar elements
-        var controls = document.createElement('div');
-        controls.className = 'tasfa-video-controls';
-        
-        // Seeker Bar
-        var seekerContainer = document.createElement('div');
-        seekerContainer.className = 'tasfa-video-seeker-container';
-        var seeker = document.createElement('input');
-        seeker.type = 'range';
-        seeker.className = 'tasfa-video-seeker';
-        seeker.min = '0';
-        seeker.max = '100';
-        seeker.value = '0';
-        seekerContainer.appendChild(seeker);
-        controls.appendChild(seekerContainer);
-
-        // Controls Row
-        var row = document.createElement('div');
-        row.className = 'tasfa-video-controls-row';
-
-        // Group Left (Play/Pause, Time)
-        var groupLeft = document.createElement('div');
-        groupLeft.className = 'tasfa-video-controls-group';
-        var playBtn = document.createElement('button');
-        playBtn.type = 'button';
-        playBtn.className = 'tasfa-video-control-btn';
-        var playSvg = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
-        var pauseSvg = '<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
-        playBtn.innerHTML = playSvg;
-        groupLeft.appendChild(playBtn);
-
-        var timeDisplay = document.createElement('div');
-        timeDisplay.className = 'tasfa-video-time-display';
-        timeDisplay.textContent = '0:00 / 0:00';
-        groupLeft.appendChild(timeDisplay);
-        row.appendChild(groupLeft);
-
-        // Group Right (Volume, Fullscreen)
-        var groupRight = document.createElement('div');
-        groupRight.className = 'tasfa-video-controls-group';
-        
-        var volumeGroup = document.createElement('div');
-        volumeGroup.className = 'tasfa-video-volume-group';
-        var muteBtn = document.createElement('button');
-        muteBtn.type = 'button';
-        muteBtn.className = 'tasfa-video-control-btn';
-        var volHighSvg = '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>';
-        var volMuteSvg = '<svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.21.05-.42.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>';
-        muteBtn.innerHTML = volHighSvg;
-        volumeGroup.appendChild(muteBtn);
-
-        var volumeSlider = document.createElement('input');
-        volumeSlider.type = 'range';
-        volumeSlider.className = 'tasfa-video-volume-slider';
-        volumeSlider.min = '0';
-        volumeSlider.max = '100';
-        volumeSlider.value = '80';
-        el.volume = 0.8;
-        volumeGroup.appendChild(volumeSlider);
-        groupRight.appendChild(volumeGroup);
-
-        var fullscreenBtn = document.createElement('button');
-        fullscreenBtn.type = 'button';
-        fullscreenBtn.className = 'tasfa-video-control-btn';
-        var fsEnterSvg = '<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>';
-        var fsExitSvg = '<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>';
-        fullscreenBtn.innerHTML = fsEnterSvg;
-        groupRight.appendChild(fullscreenBtn);
-
-        row.appendChild(groupRight);
-        controls.appendChild(row);
-        container.appendChild(controls);
-
-        // State update helpers
-        function updatePlayPause() {
-            if (el.paused) {
-                container.classList.add('paused');
-                playBtn.innerHTML = playSvg;
-                overlay.classList.remove('playing');
-                loadBtn.innerHTML = '&#9654;';
-            } else {
-                container.classList.remove('paused');
-                playBtn.innerHTML = pauseSvg;
-                overlay.classList.add('playing');
-            }
-        }
-
-        function initPlayerEvents() {
-            // Volume
-            volumeSlider.addEventListener('input', function() {
-                var vol = volumeSlider.value / 100;
-                el.volume = vol;
-                el.muted = (vol === 0);
-                muteBtn.innerHTML = el.muted ? volMuteSvg : volHighSvg;
-            });
-
-            muteBtn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                el.muted = !el.muted;
-                muteBtn.innerHTML = el.muted ? volMuteSvg : volHighSvg;
-                volumeSlider.value = el.muted ? '0' : Math.round(el.volume * 100);
-            });
-
-            // Seeker updates
-            el.addEventListener('timeupdate', function() {
-                if (el.duration) {
-                    var pct = (el.currentTime / el.duration) * 100;
-                    seeker.value = Math.round(pct);
-                    timeDisplay.textContent = formatTime(el.currentTime) + ' / ' + formatTime(el.duration);
-                }
-            });
-
-            el.addEventListener('loadedmetadata', function() {
-                timeDisplay.textContent = formatTime(el.currentTime) + ' / ' + formatTime(el.duration);
-            });
-
-            seeker.addEventListener('input', function() {
-                if (el.duration) {
-                    el.currentTime = (seeker.value / 100) * el.duration;
-                }
-            });
-
-            // Play/Pause toggles
-            var togglePlay = function(e) {
-                if (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
-                if (el.paused) {
-                    el.play().catch(function(){});
-                } else {
-                    el.pause();
-                }
-                updatePlayPause();
-            };
-
-            playBtn.addEventListener('click', togglePlay);
-            overlay.addEventListener('click', togglePlay);
-            el.addEventListener('click', togglePlay);
-            el.addEventListener('play', updatePlayPause);
-            el.addEventListener('pause', updatePlayPause);
-
-            // Fullscreen
-            var toggleFullscreen = function(e) {
-                if (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
-                if (!document.fullscreenElement) {
-                    container.requestFullscreen().then(function() {
-                        fullscreenBtn.innerHTML = fsExitSvg;
-                    }).catch(function(){});
-                } else {
-                    document.exitFullscreen().then(function() {
-                        fullscreenBtn.innerHTML = fsEnterSvg;
-                    }).catch(function(){});
-                }
-            };
-
-            fullscreenBtn.addEventListener('click', toggleFullscreen);
-            container.addEventListener('dblclick', toggleFullscreen);
-            document.addEventListener('fullscreenchange', function() {
-                if (!document.fullscreenElement) {
-                    fullscreenBtn.innerHTML = fsEnterSvg;
-                } else if (document.fullscreenElement === container) {
-                    fullscreenBtn.innerHTML = fsExitSvg;
-                }
+        function initPlyrInstance() {
+            loadPlyr(function() {
+                var player = new Plyr(el, {
+                    controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
+                    ratio: '16:9'
+                });
+                player.play().catch(function(){});
             });
         }
 
-        // Hide overlay once loaded
-        if (el.getAttribute('data-tasfa-loaded') === '1') {
-            overlay.classList.add('playing');
-            initPlayerEvents();
+        if (isLoaded) {
+            overlay.style.opacity = '0';
+            overlay.style.visibility = 'hidden';
+            overlay.style.pointerEvents = 'none';
+            initPlyrInstance();
         } else {
-            loadBtn.addEventListener('click', function(event) {
-                event.preventDefault();
-                event.stopPropagation();
-                if (container.getAttribute('data-tasfa-loading') === '1') return;
+            var isDownloading = false;
+            var startLoad = function(event) {
+                if (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+                if (isDownloading) return;
+                isDownloading = true;
 
-                container.setAttribute('data-tasfa-loading', '1');
-                loadBtn.style.display = 'none';
+                spinner.style.borderColor = 'rgba(255,255,255,0.1)';
+                spinner.style.borderTopColor = 'var(--accent, #0066cc)';
                 statusText.textContent = 'Loading video... 0%';
-                progressContainer.style.display = 'block';
-                progressBar.style.width = '0%';
 
                 var progressInterval = setInterval(function() {
                     var state = downloadStates[baseUrl];
                     if (state && state.sharedState) {
                         var ss = state.sharedState;
                         var pct = ss.totalSize > 0 ? Math.round((ss.downloadedBytes / ss.totalSize) * 100) : 0;
-                        progressBar.style.width = pct + '%';
                         statusText.textContent = 'Loading video... ' + Math.min(100, pct) + '%';
                     }
                 }, 100);
@@ -1043,21 +906,21 @@
                     el.load();
                     el.setAttribute('data-tasfa-loaded', '1');
                     
-                    overlay.classList.add('playing');
-                    progressContainer.style.display = 'none';
+                    overlay.style.opacity = '0';
+                    overlay.style.visibility = 'hidden';
+                    overlay.style.pointerEvents = 'none';
                     
-                    initPlayerEvents();
-                    el.play().catch(function(){});
+                    initPlyrInstance();
                 }).catch(function(err) {
                     clearInterval(progressInterval);
                     console.error('TASFA video load failed:', baseUrl, err);
-                    container.setAttribute('data-tasfa-loading', '0');
-                    loadBtn.style.display = 'block';
-                    progressContainer.style.display = 'none';
-                    statusText.textContent = 'Loading failed';
+                    isDownloading = false;
+                    statusText.textContent = 'Loading failed. Click to retry.';
+                    spinner.style.borderTopColor = '#ff4d4d'; // Red spinner on error
                     el.setAttribute('data-tasfa-error', '1');
                 });
-            }, { once: true });
+            };
+            overlay.addEventListener('click', startLoad);
         }
     }
 
