@@ -244,13 +244,13 @@ static void rewrite_tasfa_bootstrap(cwist_sstring *html) {
                 if (tag_len >= sizeof(tag)) tag_len = sizeof(tag) - 1;
                 memcpy(tag, data + i, tag_len);
                 tag[tag_len] = '\0';
-                if (is_media && strcmp(tag_name, "img") != 0) {
+                if (is_media) {
                     const char *src = strstr(tag, "src=\"");
                     if (src) {
                         src += 5;
                         if (strncmp(src, "/file/download/", 15) == 0) {
                             char rewritten[3072];
-                            snprintf(rewritten, sizeof(rewritten), "%s src=\"\" data-tasfa-download=\"", strcmp(tag_name, "video") == 0 ? "<video" : "<audio");
+                            snprintf(rewritten, sizeof(rewritten), "<%s src=\"\" data-tasfa-download=\"", tag_name);
                             cwist_sstring_append(out, rewritten);
                             const char *value_end = strchr(src, '"');
                             if (value_end) cwist_sstring_append_len(out, src, (size_t)(value_end - src));

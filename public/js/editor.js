@@ -2725,6 +2725,7 @@
             var filename = card.getAttribute('data-filename') || 'Attachment';
             var url = card.getAttribute('data-url') || ('/file/download/' + fid);
             var mode = card.getAttribute('data-mode') || 'attachment';
+            var mime = card.getAttribute('data-mime') || '';
             var btnInsert = document.createElement('button');
             btnInsert.type = 'button';
             btnInsert.className = 'btn btn-outline media-insert-btn';
@@ -2738,6 +2739,7 @@
                 filename: filename,
                 blobUrl: null,
                 url: url,
+                mime_type: mime,
                 placeholderUrl: null,
                 mode: mode,
                 xhr: null,

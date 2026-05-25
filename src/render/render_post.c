@@ -59,21 +59,24 @@ static bool extract_download_id_from_anchor_tag(const char *tag, int *out_id) {
 }
 
 static bool extract_download_id_from_img_tag(const char *tag, int *out_id) {
-    const char *p = strstr(tag, "src=\"");
-    if (!p) return false;
-    p += 5;
-    if (strncmp(p, "/file/download/", 15) != 0) return false;
-    p += 15;
-    if (!isdigit((unsigned char)*p)) return false;
-    int id = 0;
-    while (isdigit((unsigned char)*p)) {
-        if (id > 214748364) return false;
-        id = id * 10 + (*p - '0');
-        p++;
-    }
-    if (id > 0) {
-        *out_id = id;
-        return true;
+    const char *attrs[] = {"data-tasfa-download=\"", "src=\"", "data-tasfa-download='", "src='"};
+    for (size_t i = 0; i < sizeof(attrs) / sizeof(attrs[0]); i++) {
+        const char *p = strstr(tag, attrs[i]);
+        if (!p) continue;
+        p += strlen(attrs[i]);
+        if (strncmp(p, "/file/download/", 15) != 0) continue;
+        p += 15;
+        if (!isdigit((unsigned char)*p)) continue;
+        int id = 0;
+        while (isdigit((unsigned char)*p)) {
+            if (id > 214748364) return false;
+            id = id * 10 + (*p - '0');
+            p++;
+        }
+        if (id > 0) {
+            *out_id = id;
+            return true;
+        }
     }
     return false;
 }
@@ -945,6 +948,10 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
             cwist_sstring_append(b, fid_buf);
             cwist_sstring_append(b, "' data-filename='");
             cwist_sstring_append_escaped(b, fname->valuestring);
+            cwist_sstring_append(b, "' data-mime='");
+            cJSON *stype = cJSON_GetObjectItem(f, "mime_type");
+            const char *mime = stype && stype->valuestring ? stype->valuestring : "";
+            cwist_sstring_append_escaped(b, mime);
             char asset_url[512] = {0};
             snprintf(asset_url, sizeof(asset_url), "/file/download/%s", fid_buf);
             cwist_sstring_append(b, "' data-url='");

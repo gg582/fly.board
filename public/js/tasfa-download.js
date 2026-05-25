@@ -579,6 +579,25 @@
         el.dataset.tasfaLoaded = '1';
         fetchBlobViaTasfa(baseUrl, { silent: true }).then(function(result) {
             var objectUrl = URL.createObjectURL(result.blob);
+            
+            if (el.tagName === 'IMG' && result.blob.type && result.blob.type.indexOf('video/') === 0) {
+                var video = document.createElement('video');
+                video.setAttribute('data-tasfa-download', baseUrl);
+                video.setAttribute('data-tasfa-loaded', '1');
+                video.src = objectUrl;
+                video.style.maxWidth = '100%';
+                video.style.height = 'auto';
+                video.style.display = 'block';
+                video.controls = true;
+                
+                var poster = el.getAttribute('poster');
+                if (poster) video.setAttribute('poster', poster);
+                
+                el.parentNode.replaceChild(video, el);
+                upgradeVideoElement(video);
+                return;
+            }
+            
             if (el.tagName === 'IMG') el.src = objectUrl;
             else el.src = objectUrl;
             if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') el.load();
@@ -698,6 +717,9 @@
         }
         overlay.style.color = '#fff';
         overlay.style.zIndex = '2';
+        if (el.getAttribute('data-tasfa-loaded') === '1') {
+            overlay.style.display = 'none';
+        }
 
         var status = document.createElement('div');
         status.className = 'tasfa-video-status';
@@ -717,12 +739,31 @@
         btn.style.cursor = 'pointer';
         btn.style.fontWeight = '600';
 
+        var progressContainer = document.createElement('div');
+        progressContainer.className = 'tasfa-video-progress';
+        progressContainer.style.width = '80%';
+        progressContainer.style.maxWidth = '300px';
+        progressContainer.style.height = '6px';
+        progressContainer.style.background = 'rgba(255,255,255,0.2)';
+        progressContainer.style.borderRadius = '3px';
+        progressContainer.style.marginTop = '10px';
+        progressContainer.style.overflow = 'hidden';
+        progressContainer.style.display = 'none';
+
+        var progressBar = document.createElement('div');
+        progressBar.style.width = '0%';
+        progressBar.style.height = '100%';
+        progressBar.style.background = 'var(--primary, #4CAF50)';
+        progressBar.style.transition = 'width 0.2s linear';
+        progressContainer.appendChild(progressBar);
+
         function setLoadingState(active, label) {
             wrap.setAttribute('data-tasfa-loading', active ? '1' : '0');
-            overlay.style.display = active ? 'flex' : 'none';
-            btn.disabled = !!active;
-            btn.textContent = active ? 'Loading...' : 'Load video';
-            status.textContent = label || (active ? 'Loading through TASFA...' : 'Ready to load');
+            // Keep overlay visible but hide the button and show the progress bar
+            btn.style.display = active ? 'none' : 'block';
+            progressContainer.style.display = active ? 'block' : 'none';
+            if (!active) overlay.style.display = 'flex';
+            status.textContent = label || (active ? 'Loading video...' : 'Ready to load');
         }
 
         btn.addEventListener('click', function(event) {
@@ -733,8 +774,21 @@
                 try { el.play(); } catch (e) {}
                 return;
             }
-            setLoadingState(true, 'Receiving video through TASFA...');
+            setLoadingState(true, 'Loading video... 0%');
+            progressBar.style.width = '0%';
+            
+            var progressInterval = setInterval(function() {
+                var state = downloadStates[baseUrl];
+                if (state && state.sharedState) {
+                    var ss = state.sharedState;
+                    var pct = ss.totalSize > 0 ? Math.round((ss.downloadedBytes / ss.totalSize) * 100) : 0;
+                    progressBar.style.width = pct + '%';
+                    status.textContent = 'Loading video... ' + Math.min(100, pct) + '%';
+                }
+            }, 150);
+
             fetchBlobViaTasfa(baseUrl, { silent: true }).then(function(result) {
+                clearInterval(progressInterval);
                 var objectUrl = URL.createObjectURL(result.blob);
                 el.src = objectUrl;
                 el.load();
@@ -742,6 +796,7 @@
                 overlay.style.display = 'none';
                 try { el.play(); } catch (e) {}
             }).catch(function(err) {
+                clearInterval(progressInterval);
                 console.error('TASFA video load failed:', baseUrl, err);
                 setLoadingState(false, 'Video load failed');
                 el.setAttribute('data-tasfa-error', '1');
@@ -749,6 +804,7 @@
         });
 
         overlay.appendChild(btn);
+        overlay.appendChild(progressContainer);
         overlay.appendChild(status);
         wrap.appendChild(overlay);
     }
