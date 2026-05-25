@@ -654,6 +654,99 @@ void rule_components(cJSON *rules) {
     cJSON *cbody_p = create_rule(".comment-body p");
     add_decl(cbody_p, "margin", "0 0 8px");
     cJSON_AddItemToArray(rules, cbody_p);
+
+    /* TASFA Download Progress */
+    cJSON *tdp = create_rule(".tasfa-download-progress");
+    add_decl(tdp, "position", "fixed");
+    add_decl(tdp, "bottom", "24px");
+    add_decl(tdp, "right", "24px");
+    add_decl(tdp, "width", "320px");
+    add_decl(tdp, "background", "var(--panel)");
+    add_decl(tdp, "border", "1px solid var(--border)");
+    add_decl(tdp, "padding", "16px");
+    add_decl(tdp, "z-index", "10000");
+    add_decl(tdp, "box-shadow", "0 8px 32px var(--shadow)");
+    add_decl(tdp, "font-family", "'Inter', sans-serif");
+    cJSON_AddItemToArray(rules, tdp);
+
+    cJSON *tdpt = create_rule(".tasfa-download-progress-text");
+    add_decl(tdpt, "display", "flex");
+    add_decl(tdpt, "justify-content", "space-between");
+    add_decl(tdpt, "font-size", "12px");
+    add_decl(tdpt, "font-weight", "600");
+    add_decl(tdpt, "margin-bottom", "10px");
+    add_decl(tdpt, "color", "var(--fg)");
+    cJSON_AddItemToArray(rules, tdpt);
+
+    cJSON *tdpb = create_rule(".tasfa-download-progress-bar");
+    add_decl(tdpb, "height", "6px");
+    add_decl(tdpb, "background", "var(--hover)");
+    add_decl(tdpb, "overflow", "hidden");
+    add_decl(tdpb, "border-radius", "0");
+    cJSON_AddItemToArray(rules, tdpb);
+
+    cJSON *tdpi = create_rule(".tasfa-download-progress-inner");
+    add_decl(tdpi, "height", "100%");
+    add_decl(tdpi, "background", "var(--accent)");
+    add_decl(tdpi, "width", "0%");
+    add_decl(tdpi, "transition", "width 0.2s ease");
+    cJSON_AddItemToArray(rules, tdpi);
+
+    /* Media Loading Wrap */
+    cJSON *mlw = create_rule(".media-loading-wrap");
+    add_decl(mlw, "position", "relative");
+    add_decl(mlw, "margin", "24px auto");
+    add_decl(mlw, "background", "var(--hover)");
+    add_decl(mlw, "min-height", "120px");
+    add_decl(mlw, "display", "flex");
+    add_decl(mlw, "flex-direction", "column");
+    add_decl(mlw, "align-items", "center");
+    add_decl(mlw, "justify-content", "center");
+    add_decl(mlw, "overflow", "hidden");
+    add_decl(mlw, "border", "1px solid var(--border)");
+    cJSON_AddItemToArray(rules, mlw);
+
+    cJSON *mlp = create_rule(".media-loading-progress");
+    add_decl(mlp, "position", "absolute");
+    add_decl(mlp, "bottom", "0");
+    add_decl(mlp, "left", "0");
+    add_decl(mlp, "right", "0");
+    add_decl(mlp, "height", "4px");
+    add_decl(mlp, "background", "rgba(0,0,0,0.1)");
+    add_decl(mlp, "z-index", "2");
+    cJSON_AddItemToArray(rules, mlp);
+
+    cJSON *mlpi = create_rule(".media-loading-progress-inner");
+    add_decl(mlpi, "height", "100%");
+    add_decl(mlpi, "background", "var(--accent)");
+    add_decl(mlpi, "width", "0%");
+    add_decl(mlpi, "transition", "width 0.2s ease");
+    cJSON_AddItemToArray(rules, mlpi);
+
+    cJSON *mlb = create_rule(".media-load-btn");
+    add_decl(mlb, "padding", "12px 24px");
+    add_decl(mlb, "background", "var(--accent)");
+    add_decl(mlb, "color", "#fff");
+    add_decl(mlb, "border", "none");
+    add_decl(mlb, "cursor", "pointer");
+    add_decl(mlb, "font-weight", "700");
+    add_decl(mlb, "font-size", "14px");
+    add_decl(mlb, "letter-spacing", "0.02em");
+    add_decl(mlb, "text-transform", "uppercase");
+    add_decl(mlb, "transition", "opacity 0.2s ease");
+    cJSON_AddItemToArray(rules, mlb);
+
+    cJSON *mlbh = create_rule(".media-load-btn:hover");
+    add_decl(mlbh, "opacity", "0.9");
+    cJSON_AddItemToArray(rules, mlbh);
+
+    cJSON *mab = create_rule(".media-attachment-block img, .media-attachment-block video");
+    add_decl(mab, "max-width", "100%");
+    add_decl(mab, "height", "auto");
+    add_decl(mab, "display", "block");
+    add_decl(mab, "margin", "0 auto");
+    add_decl(mab, "box-shadow", "0 4px 20px var(--shadow)");
+    cJSON_AddItemToArray(rules, mab);
 }
 
 void rule_home(cJSON *rules) {

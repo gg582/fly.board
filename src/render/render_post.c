@@ -695,8 +695,8 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
             }
         }
         if (valid_files > 0) {
-            cwist_sstring_append(b, "<h3 style='margin-top:32px'>Attachments</h3>");
-            cwist_sstring_append(b, "<div class='post-attachments' style='display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));margin-top:12px'>");
+            cwist_sstring_append(b, "<h3 style='margin-top:40px;margin-bottom:16px'>Attachments</h3>");
+            cwist_sstring_append(b, "<div class='post-attachments' style='display:flex;flex-direction:column;gap:24px;max-width:760px;margin:0 auto'>");
             for (int i = 0; i < n; i++) {
                 cJSON *f = cJSON_GetArrayItem(files, i);
                 cJSON *fname = cJSON_GetObjectItem(f, "filename");
@@ -715,49 +715,44 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 int is_video = (strncmp(mime, "video/", 6) == 0);
                 int is_audio = (strncmp(mime, "audio/", 6) == 0);
 
-                cwist_sstring_append(b, "<div class='post-attachment-item' style='border:1px solid var(--glass-border);background:color-mix(in srgb,var(--glass-bg) 90%,transparent);padding:10px'>");
-
-                if (is_image) {
-                    if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
-                        cwist_sstring_append(b, "<img data-tasfa-skip='1' src='/assets/uploads/");
-                        cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
-                        cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block'>");
-                    } else {
-                        cwist_sstring_append(b, "<img data-tasfa-skip='1' src='/file/download/");
+                if (is_image || is_video || is_audio) {
+                    cwist_sstring_append(b, "<div class='media-attachment-block' style='margin-bottom:12px'>");
+                    if (is_image) {
+                        if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
+                            cwist_sstring_append(b, "<img src='/assets/uploads/");
+                            cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
+                            cwist_sstring_append(b, "' loading='lazy' decoding='async'>");
+                        } else {
+                            cwist_sstring_append(b, "<img data-tasfa-download='/file/download/");
+                            cwist_sstring_append(b, fid_buf2);
+                            cwist_sstring_append(b, "' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'>");
+                        }
+                    } else if (is_video) {
+                        cwist_sstring_append(b, "<video data-tasfa-download='/file/download/");
                         cwist_sstring_append(b, fid_buf2);
-                        cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block'>");
-                    }
-                    cwist_sstring_append(b, "<div style='margin-top:8px;font-size:13px;word-break:break-all'>");
-                    cwist_sstring_append_escaped(b, fname->valuestring);
-                    cwist_sstring_append(b, "</div>");
-                } else if (is_video) {
-                    cwist_sstring_append(b, "<video data-tasfa-download='/file/download/");
-                    cwist_sstring_append(b, fid_buf2);
-                    cwist_sstring_append(b, "' ");
-                    if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
-                        cwist_sstring_append(b, "poster='/assets/uploads/");
-                        cwist_sstring_append(b, thumb_path + 15);
                         cwist_sstring_append(b, "' ");
+                        if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
+                            cwist_sstring_append(b, "poster='/assets/uploads/");
+                            cwist_sstring_append(b, thumb_path + 15);
+                            cwist_sstring_append(b, "' ");
+                        }
+                        cwist_sstring_append(b, "muted playsinline preload='metadata' controls></video>");
+                    } else if (is_audio) {
+                        cwist_sstring_append(b, "<audio data-tasfa-download='/file/download/");
+                        cwist_sstring_append(b, fid_buf2);
+                        cwist_sstring_append(b, "' style='width:100%' controls></audio>");
                     }
-                    cwist_sstring_append(b, "style='max-width:100%;height:auto;display:block' muted playsinline preload='metadata' controls></video>");
-                    cwist_sstring_append(b, "<div style='margin-top:8px;font-size:13px;word-break:break-all'>");
+                    cwist_sstring_append(b, "<div style='margin-top:8px;font-size:13px;color:var(--muted);text-align:center'>");
                     cwist_sstring_append_escaped(b, fname->valuestring);
-                    cwist_sstring_append(b, "</div>");
-                } else if (is_audio) {
-                    cwist_sstring_append(b, "<audio data-tasfa-download='/file/download/");
-                    cwist_sstring_append(b, fid_buf2);
-                    cwist_sstring_append(b, "' style='width:100%' controls></audio>");
-                    cwist_sstring_append(b, "<div style='margin-top:8px;font-size:13px;word-break:break-all'>");
-                    cwist_sstring_append_escaped(b, fname->valuestring);
-                    cwist_sstring_append(b, "</div>");
+                    cwist_sstring_append(b, "</div></div>");
                 } else {
+                    cwist_sstring_append(b, "<div class='file-attachment-block' style='padding:12px;border:1px solid var(--border);background:var(--panel)'>");
                     cwist_sstring_append(b, "<a href='#' data-tasfa-download-link='/file/download/");
                     cwist_sstring_append(b, fid_buf2);
                     cwist_sstring_append(b, "' style='display:flex;align-items:center;gap:8px;color:var(--accent);font-weight:600;font-size:14px'>&#128193; ");
                     cwist_sstring_append_escaped(b, fname->valuestring);
-                    cwist_sstring_append(b, "</a>");
+                    cwist_sstring_append(b, "</a></div>");
                 }
-                cwist_sstring_append(b, "</div>");
             }
             cwist_sstring_append(b, "</div>");
         }

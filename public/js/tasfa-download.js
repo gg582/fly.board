@@ -411,6 +411,7 @@
         }
 
         var silent = options && options.silent;
+        var onProgress = options && options.onProgress;
 
         var promise = (async function() {
             var session = await fetchDownloadSession(baseUrl);
@@ -419,6 +420,7 @@
                 var cachedBlob = await getCachedBlob(baseUrl);
                 if (cachedBlob) {
                     await notifyDownloadComplete(session.sessionId, session.sessionToken);
+                    if (onProgress) onProgress(100);
                     return {blob: cachedBlob, filename: session.filename};
                 }
             }
@@ -483,6 +485,10 @@
                                 bitmap[doneIdx] = 1;
                                 sharedState.completedChunks += 1;
                                 sharedState.downloadedBytes += chunkByteSize(session, doneIdx);
+                                if (onProgress) {
+                                    var pct = Math.round((sharedState.downloadedBytes / sharedState.totalSize) * 100);
+                                    onProgress(pct);
+                                }
                             }
                         }
                     } catch (e) {
@@ -521,6 +527,7 @@
             }
 
             await notifyDownloadComplete(session.sessionId, session.sessionToken);
+            if (onProgress) onProgress(100);
 
             return result;
         })();
@@ -577,7 +584,16 @@
         if (!baseUrl || el.dataset.tasfaLoaded === '1') return;
         if (el.getAttribute('data-tasfa-skip') === '1') return;
         el.dataset.tasfaLoaded = '1';
-        fetchBlobViaTasfa(baseUrl, { silent: true }).then(function(result) {
+        
+        var wrap = el.closest('.media-loading-wrap');
+        var progressInner = wrap ? wrap.querySelector('.media-loading-progress-inner') : null;
+
+        fetchBlobViaTasfa(baseUrl, { 
+            silent: true,
+            onProgress: function(pct) {
+                if (progressInner) progressInner.style.width = pct + '%';
+            }
+        }).then(function(result) {
             var objectUrl = URL.createObjectURL(result.blob);
             
             if (el.tagName === 'IMG' && result.blob.type && result.blob.type.indexOf('video/') === 0) {
@@ -600,11 +616,33 @@
             
             if (el.tagName === 'IMG') el.src = objectUrl;
             else el.src = objectUrl;
-            if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') el.load();
+            if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') {
+                el.load();
+                if (el.tagName === 'VIDEO' && isLikelyMobile()) {
+                    el.controls = true;
+                    el.play().catch(function(){});
+                }
+            }
+            if (wrap) {
+                setTimeout(function() {
+                    var p = wrap.querySelector('.media-loading-progress');
+                    if (p) p.style.opacity = '0';
+                }, 500);
+            }
         }).catch(function(err) {
             console.error('TASFA media load failed:', baseUrl, err);
             el.setAttribute('data-tasfa-error', '1');
             el.dataset.tasfaLoaded = '';
+            if (wrap) {
+                var btn = document.createElement('button');
+                btn.className = 'media-load-btn';
+                btn.textContent = 'Retry Load';
+                btn.onclick = function() {
+                    btn.remove();
+                    setMediaSource(el, baseUrl);
+                };
+                wrap.appendChild(btn);
+            }
         });
     }
 
@@ -633,10 +671,38 @@
         if (el.getAttribute('data-tasfa-skip') === '1') return;
         var baseUrl = el.getAttribute('data-tasfa-download') || el.getAttribute('src') || '';
         if (!/^\/(file\/download|assets\/img|assets\/uploads)\//.test(baseUrl)) return;
+        
+        if (el.closest('.media-loading-wrap')) return;
+
+        var wrap = document.createElement('div');
+        wrap.className = 'media-loading-wrap';
+        el.parentNode.insertBefore(wrap, el);
+        wrap.appendChild(el);
+        
+        var progress = document.createElement('div');
+        progress.className = 'media-loading-progress';
+        progress.innerHTML = '<div class="media-loading-progress-inner"></div>';
+        wrap.appendChild(progress);
+
         if (!el.getAttribute('data-tasfa-download')) el.setAttribute('data-tasfa-download', baseUrl);
         if (el.tagName === 'IMG') el.src = SPACER_GIF;
         else el.removeAttribute('src');
-        observeMediaLoad(el, baseUrl);
+
+        if (isLikelyMobile() && el.tagName === 'VIDEO') {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'media-load-btn';
+            btn.textContent = 'Load Video';
+            btn.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                btn.remove();
+                setMediaSource(el, baseUrl);
+            };
+            wrap.appendChild(btn);
+        } else {
+            observeMediaLoad(el, baseUrl);
+        }
     }
 
     function upgradeDownloadLink(el) {
@@ -652,7 +718,7 @@
     }
 
     function wrapMediaForDownload(el) {
-        if (el.closest('.media-download-wrap')) return;
+        if (el.closest('.media-download-wrap') || el.closest('.media-loading-wrap')) return;
         var wrap = document.createElement('div');
         wrap.className = 'media-download-wrap';
         el.parentNode.insertBefore(wrap, el);
@@ -812,11 +878,17 @@
     function upgradeWithin(root) {
         if (!root || !root.querySelectorAll) return;
         root.querySelectorAll('.markdown-body img[src^="blob:"], .markdown-body video[src^="blob:"], .markdown-body audio[src^="blob:"]').forEach(function(el) { el.remove(); });
-        root.querySelectorAll('img[data-tasfa-download]').forEach(upgradeMediaElement);
+        
+        // Upgrade TASFA media first
+        root.querySelectorAll('img[data-tasfa-download], img[src^="/assets/img/"], img[src^="/assets/uploads/"]').forEach(upgradeMediaElement);
         root.querySelectorAll('video[src^="/file/download/"], video[src^="/assets/uploads/"], video[data-tasfa-download]').forEach(upgradeVideoElement);
         root.querySelectorAll('audio[src^="/file/download/"], audio[src^="/assets/uploads/"], audio[data-tasfa-download]').forEach(upgradeMediaElement);
+        
+        // Upgrade links
         root.querySelectorAll('a[data-tasfa-download-link], a[href^="/file/download/"]').forEach(upgradeDownloadLink);
-        root.querySelectorAll('.markdown-body img, .markdown-body audio').forEach(wrapMediaForDownload);
+        
+        // Finally wrap others in markdown
+        root.querySelectorAll('.markdown-body img, .markdown-body video, .markdown-body audio').forEach(wrapMediaForDownload);
     }
 
     function init() {
