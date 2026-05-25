@@ -312,12 +312,6 @@ void handler_file_detail_get(cwist_http_request *req, cwist_http_response *res) 
 }
 
 void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
-    if (g_config.use_tasfa) {
-        res->status_code = CWIST_HTTP_FORBIDDEN;
-        cwist_sstring_assign(res->body, "Direct download disabled; use the reliable transfer path.");
-        return;
-    }
-
     const char *id_str = cwist_query_map_get(req->path_params, "id");
     if (!id_str) { send_upload_not_found(res); return; }
 
@@ -331,11 +325,31 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     const char *filename = (jfilename && jfilename->type == cJSON_String && jfilename->valuestring) ? jfilename->valuestring : "download";
     const char *mime = (jmime && jmime->type == cJSON_String && jmime->valuestring) ? jmime->valuestring : "application/octet-stream";
     bool is_image = strncmp(mime, "image/", 6) == 0;
+    if (!is_image && (!mime[0] || strcmp(mime, "application/octet-stream") == 0)) {
+        const char *name_mime = mime_type(filename);
+        if (name_mime && strncmp(name_mime, "image/", 6) == 0) {
+            mime = name_mime;
+            is_image = true;
+        }
+    }
 
     struct stat st;
     if (stat(path, &st) != 0 || st.st_size <= 0) {
         cJSON_Delete(file);
         send_upload_not_found(res);
+        return;
+    }
+
+    char detected_mime[128] = {0};
+    if (mime_type_from_data(path, detected_mime, sizeof(detected_mime))) {
+        mime = detected_mime;
+        is_image = strncmp(mime, "image/", 6) == 0;
+    }
+
+    if (g_config.use_tasfa && !is_image) {
+        cJSON_Delete(file);
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Direct download disabled; use the reliable transfer path.");
         return;
     }
 

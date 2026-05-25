@@ -11,8 +11,6 @@
 #include <stdio.h>
 #include <ctype.h>
 
-static const char *post_tasfa_spacer_gif = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-
 static cJSON *find_render_file_by_id(cJSON *files, int id) {
     if (!files || id <= 0) return NULL;
     int n = cJSON_GetArraySize(files);
@@ -67,13 +65,11 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
     snprintf(url, sizeof(url), "/file/download/%d", fid);
 
     if (strcmp(kind, "image") == 0) {
-        cwist_sstring_append(out, "<img data-tasfa-download=\"");
+        cwist_sstring_append(out, "<img data-tasfa-skip=\"1\" src=\"");
         cwist_sstring_append(out, url);
         cwist_sstring_append(out, "\" alt=\"");
         cwist_sstring_append_escaped(out, filename);
-        cwist_sstring_append(out, "\" loading=\"lazy\" decoding=\"async\" style=\"max-width:100%;height:auto;display:block\" src=\"");
-        cwist_sstring_append(out, post_tasfa_spacer_gif);
-        cwist_sstring_append(out, "\">");
+        cwist_sstring_append(out, "\" loading=\"lazy\" decoding=\"async\" style=\"max-width:100%;height:auto;display:block\">");
     } else if (strcmp(kind, "video") == 0) {
         cwist_sstring_append(out, "<video data-tasfa-download=\"");
         cwist_sstring_append(out, url);
@@ -670,13 +666,13 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
 
                 if (is_image) {
                     if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
-                        cwist_sstring_append(b, "<img data-tasfa-download='/assets/uploads/");
+                        cwist_sstring_append(b, "<img data-tasfa-skip='1' src='/assets/uploads/");
                         cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
-                        cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'>");
+                        cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block'>");
                     } else {
-                        cwist_sstring_append(b, "<img data-tasfa-download='/file/download/");
+                        cwist_sstring_append(b, "<img data-tasfa-skip='1' src='/file/download/");
                         cwist_sstring_append(b, fid_buf2);
-                        cwist_sstring_append(b, "' style='max-width:100%;height:auto;display:block' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'>");
+                        cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block'>");
                     }
                     cwist_sstring_append(b, "<div style='margin-top:8px;font-size:13px;word-break:break-all'>");
                     cwist_sstring_append_escaped(b, fname->valuestring);
