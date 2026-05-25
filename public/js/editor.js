@@ -1613,6 +1613,8 @@
             return Promise.resolve(null);
         }
         asset.htpGroups = asset.htpGroups || {};
+        asset.htpReadyGroups = asset.htpReadyGroups || {};
+        if (asset.htpReadyGroups[groupIndex]) return Promise.resolve(asset.htpReadyGroups[groupIndex]);
         if (asset.htpGroups[groupIndex]) return asset.htpGroups[groupIndex];
 
         asset.htpGroups[groupIndex] = (async function() {
@@ -1651,11 +1653,18 @@
                     magicScalar: scalars[slot].toString(10)
                 };
             }
+            asset.htpReadyGroups[groupIndex] = result;
             return result;
         })().catch(function() {
             return null;
         });
         return asset.htpGroups[groupIndex];
+    }
+
+    function peekHtpHeaders(asset, chunkIndex) {
+        if (!asset || !asset.htpReadyGroups) return null;
+        var group = asset.htpReadyGroups[Math.floor(chunkIndex / 6)];
+        return group && group[chunkIndex] ? group[chunkIndex] : null;
     }
 
     function getHtpHeaders(asset, file, chunkIndex) {
@@ -1902,13 +1911,14 @@
         var poolFailed = false;
 
         function postChunk(chunkIndex) {
-            return getHtpHeaders(asset, file, chunkIndex).then(function(htp) {
+            ensureHtpGroup(asset, file, Math.floor(chunkIndex / 6)).catch(function() {});
             return new Promise(function(resolve, reject) {
                 var start = chunkIndex * asset.chunkSize;
                 var end = Math.min(start + asset.chunkSize, file.size);
                 var blob = file.slice(start, end);
                 var size = end - start;
                 var xhr = new XMLHttpRequest();
+                var htp = peekHtpHeaders(asset, chunkIndex);
                 xhr._tasfaChunkIndex = chunkIndex;
                 asset.xhrs.push(xhr);
                 asset.inflightBytes[chunkIndex] = 0;
@@ -1978,7 +1988,6 @@
 
                 xhr.send(blob);
             });
-            });
         }
 
         function encryptChunk(chunkIndex, force) {
@@ -1996,12 +2005,9 @@
             if (!asset.encryptedCacheSizes) asset.encryptedCacheSizes = {};
             asset.encryptedCacheBytes = (asset.encryptedCacheBytes || 0) + size;
             asset.encryptedCacheSizes[chunkIndex] = size;
-            var promise = Promise.all([
-                importUploadStreamKey(asset),
-                getHtpHeaders(asset, file, chunkIndex)
-            ]).then(function(values) {
-                var key = values[0];
-                var htp = values[1];
+            ensureHtpGroup(asset, file, Math.floor(chunkIndex / 6)).catch(function() {});
+            var promise = importUploadStreamKey(asset).then(function(key) {
+                var htp = peekHtpHeaders(asset, chunkIndex);
                 var blob = file.slice(start, end);
                 if (!asset._streamIvSeedBytes) {
                     asset._streamIvSeedBytes = hexToBytes(asset.streamIvSeedHex || '');
@@ -2376,6 +2382,16 @@
                 try { payload = JSON.parse(xhr.responseText); } catch (e) {}
                 if (payload && payload.ok && payload.url) {
                     finalizeUploadSuccess(asset, payload);
+                    return;
+                }
+            }
+            if (xhr.status === 202) {
+                var processingPayload = null;
+                try { processingPayload = JSON.parse(xhr.responseText); } catch (e) {}
+                if (processingPayload && processingPayload.processing) {
+                    var pollDelay = Math.max(500, Math.min(5000, Number(processingPayload.retry_after || 1) * 1000));
+                    setTasfaStatus(asset, 'finalizing');
+                    setTimeout(function() { completeTasfaUpload(asset, attempt); }, pollDelay);
                     return;
                 }
             }

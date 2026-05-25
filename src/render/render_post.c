@@ -551,9 +551,9 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
 
                 if (is_image) {
                     if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
-                        cwist_sstring_append(b, "<img src='/assets/uploads/");
+                        cwist_sstring_append(b, "<img data-tasfa-download='/assets/uploads/");
                         cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
-                        cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block'>");
+                        cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'>");
                     } else {
                         cwist_sstring_append(b, "<img data-tasfa-download='/file/download/");
                         cwist_sstring_append(b, fid_buf2);

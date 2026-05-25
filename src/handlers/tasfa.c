@@ -37,6 +37,7 @@
 
 #define TASFA_MAX_CONCURRENT_UPLOADS 64
 #define TASFA_MAX_CONCURRENT_DOWNLOADS 8
+#define TASFA_FINALIZE_CACHE_SLOTS 128
 
 /* Binary Metadata Structure for Fast Path */
 typedef struct {
@@ -77,6 +78,19 @@ typedef struct {
 static queue_slot_t g_q_uploads[TASFA_MAX_CONCURRENT_UPLOADS];
 static queue_slot_t g_q_downloads[TASFA_MAX_CONCURRENT_DOWNLOADS];
 static pthread_mutex_t g_tasfa_queue_mtx = PTHREAD_MUTEX_INITIALIZER;
+
+typedef struct {
+    char upload_id[33];
+    char upload_token[49];
+    bool active;
+    bool done;
+    int status_code;
+    char *body;
+    time_t expires;
+} finalize_slot_t;
+
+static finalize_slot_t g_finalize_slots[TASFA_FINALIZE_CACHE_SLOTS];
+static pthread_mutex_t g_finalize_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 static long long tasfa_monotonic_ms(void) {
     struct timespec ts;
@@ -224,6 +238,14 @@ static bool is_safe_segment(const char *value) {
 
 static bool is_safe_filename_simple(const char *name) {
     return name && name[0] && strchr(name, '/') == NULL && strchr(name, '\\') == NULL;
+}
+
+static bool is_safe_upload_asset_name(const char *name) {
+    if (is_safe_filename_simple(name)) return true;
+    if (!name) return false;
+    if (strncmp(name, ".thumbs/", 8) == 0) return is_safe_filename_simple(name + 8);
+    if (strncmp(name, ".previews/", 10) == 0) return is_safe_filename_simple(name + 10);
+    return false;
 }
 
 static char *decode_segment(const char *src) {
@@ -1091,7 +1113,7 @@ static bool resolve_asset_scope_path(cwist_db *db, const char *scope, const char
         snprintf(filename, filename_len, "%s", decoded);
         if (mime_out) *mime_out = mime_type(decoded);
         ok = true;
-    } else if (!strcmp(scope ? scope : "", "uploads") && is_safe_filename_simple(decoded)) {
+    } else if (!strcmp(scope ? scope : "", "uploads") && is_safe_upload_asset_name(decoded)) {
         snprintf(storage_path, storage_len, "public/uploads/%s", decoded);
         snprintf(filename, filename_len, "%s", decoded);
         if (mime_out) *mime_out = mime_type(decoded);
@@ -1148,6 +1170,82 @@ static bool pwrite_all(int fd, const void *buf, size_t len, off_t offset) {
         written += (size_t)rc;
     }
     return true;
+}
+
+static void finalize_cache_sweep_locked(void) {
+    time_t now = time(NULL);
+    for (int i = 0; i < TASFA_FINALIZE_CACHE_SLOTS; i++) {
+        if (g_finalize_slots[i].upload_id[0] && g_finalize_slots[i].expires > 0 && g_finalize_slots[i].expires < now) {
+            free(g_finalize_slots[i].body);
+            memset(&g_finalize_slots[i], 0, sizeof(g_finalize_slots[i]));
+        }
+    }
+}
+
+static finalize_slot_t *finalize_cache_find_locked(const char *upload_id) {
+    if (!upload_id || !upload_id[0]) return NULL;
+    for (int i = 0; i < TASFA_FINALIZE_CACHE_SLOTS; i++) {
+        if (strcmp(g_finalize_slots[i].upload_id, upload_id) == 0) return &g_finalize_slots[i];
+    }
+    return NULL;
+}
+
+static bool finalize_cache_get(const char *upload_id, const char *upload_token, int *status_code, char **body, bool *active) {
+    bool found = false;
+    pthread_mutex_lock(&g_finalize_mtx);
+    finalize_cache_sweep_locked();
+    finalize_slot_t *slot = finalize_cache_find_locked(upload_id);
+    if (slot && secure_str_eq(upload_token, slot->upload_token)) {
+        if (status_code) *status_code = slot->status_code;
+        if (body) *body = slot->body ? strdup(slot->body) : strdup("{}");
+        if (active) *active = slot->active && !slot->done;
+        found = true;
+    }
+    pthread_mutex_unlock(&g_finalize_mtx);
+    return found;
+}
+
+static bool finalize_cache_mark_started(const char *upload_id, const char *upload_token) {
+    bool ok = false;
+    pthread_mutex_lock(&g_finalize_mtx);
+    finalize_cache_sweep_locked();
+    finalize_slot_t *slot = finalize_cache_find_locked(upload_id);
+    if (!slot) {
+        for (int i = 0; i < TASFA_FINALIZE_CACHE_SLOTS; i++) {
+            if (!g_finalize_slots[i].upload_id[0]) {
+                slot = &g_finalize_slots[i];
+                break;
+            }
+        }
+    }
+    if (slot) {
+        free(slot->body);
+        memset(slot, 0, sizeof(*slot));
+        snprintf(slot->upload_id, sizeof(slot->upload_id), "%s", upload_id);
+        snprintf(slot->upload_token, sizeof(slot->upload_token), "%s", upload_token);
+        slot->active = true;
+        slot->done = false;
+        slot->status_code = 202;
+        slot->body = strdup("{\"ok\":false,\"processing\":true}");
+        slot->expires = time(NULL) + 3600;
+        ok = true;
+    }
+    pthread_mutex_unlock(&g_finalize_mtx);
+    return ok;
+}
+
+static void finalize_cache_mark_done(const char *upload_id, int status_code, const char *body) {
+    pthread_mutex_lock(&g_finalize_mtx);
+    finalize_slot_t *slot = finalize_cache_find_locked(upload_id);
+    if (slot) {
+        free(slot->body);
+        slot->body = strdup(body ? body : "{}");
+        slot->status_code = status_code > 0 ? status_code : 500;
+        slot->active = false;
+        slot->done = true;
+        slot->expires = time(NULL) + 3600;
+    }
+    pthread_mutex_unlock(&g_finalize_mtx);
 }
 
 static bool sha256_file(const char *path, unsigned char out[32]) {
@@ -1928,7 +2026,7 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring_assign(res->body, "");
 }
 
-void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *res) {
+static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
@@ -2214,6 +2312,127 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     checksum_hex[64] = '\0';
     cJSON_AddStringToObject(obj, "checksum", checksum_hex);
     send_json_response(res, obj, CWIST_HTTP_OK);
+}
+
+typedef struct {
+    cwist_db *db;
+    char upload_id[33];
+    char upload_token[49];
+} upload_finalize_job_t;
+
+static void *upload_finalize_worker(void *arg) {
+    upload_finalize_job_t *job = (upload_finalize_job_t *)arg;
+    if (!job) return NULL;
+
+    cwist_http_request *fake_req = cwist_http_request_create();
+    cwist_http_response *fake_res = cwist_http_response_create();
+    if (fake_req && fake_res) {
+        fake_req->db = job->db;
+        if (!fake_req->body) fake_req->body = cwist_sstring_create();
+        char body[256];
+        snprintf(body, sizeof(body), "upload_id=%s&upload_token=%s", job->upload_id, job->upload_token);
+        cwist_sstring_assign(fake_req->body, body);
+        handler_file_upload_complete_sync(fake_req, fake_res);
+        finalize_cache_mark_done(job->upload_id, (int)fake_res->status_code,
+                                 fake_res->body && fake_res->body->data ? fake_res->body->data : "{}");
+    } else {
+        finalize_cache_mark_done(job->upload_id, 500, "{\"ok\":false,\"error\":\"finalize worker failed\"}");
+    }
+    if (fake_res) cwist_http_response_destroy(fake_res);
+    if (fake_req) cwist_http_request_destroy(fake_req);
+    free(job);
+    return NULL;
+}
+
+void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *res) {
+    cwist_query_map *kv = cwist_query_map_create();
+    cwist_query_map_parse(kv, req->body->data);
+    const char *upload_id = cwist_query_map_get(kv, "upload_id");
+    const char *upload_token = cwist_query_map_get(kv, "upload_token");
+    if (!is_safe_segment(upload_id) || !upload_token) {
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("invalid completion payload"), CWIST_HTTP_BAD_REQUEST);
+        return;
+    }
+
+    int cached_status = 0;
+    char *cached_body = NULL;
+    bool cached_active = false;
+    if (finalize_cache_get(upload_id, upload_token, &cached_status, &cached_body, &cached_active)) {
+        res->status_code = (cwist_http_status_t)(cached_active ? 202 : cached_status);
+        cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+        add_keepalive_headers(res);
+        cwist_sstring_assign(res->body, cached_body ? cached_body : "{}");
+        free(cached_body);
+        cwist_query_map_destroy(kv);
+        return;
+    }
+
+    int lock_fd = open_upload_session_lock(upload_id);
+    cJSON *meta = lock_fd >= 0 ? load_upload_session(upload_id) : NULL;
+    if (!meta) {
+        close_upload_session_lock(lock_fd);
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("upload session not found"), CWIST_HTTP_NOT_FOUND);
+        return;
+    }
+    if (!secure_str_eq(upload_token, json_string(meta, "upload_token", ""))) {
+        cJSON_Delete(meta);
+        close_upload_session_lock(lock_fd);
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("upload completion rejected"), CWIST_HTTP_FORBIDDEN);
+        return;
+    }
+
+    int chunk_count = json_int(meta, "chunk_count", 0);
+    const char *bitmap = json_string(meta, "received_bitmap", "");
+    int received = bitmap_count_set(bitmap, chunk_count);
+    if (received != chunk_count) {
+        cJSON *obj = build_upload_status_json(meta, upload_id);
+        cJSON_ReplaceItemInObject(obj, "ok", cJSON_CreateBool(false));
+        cJSON_AddStringToObject(obj, "error", "missing upload chunks");
+        cJSON_Delete(meta);
+        close_upload_session_lock(lock_fd);
+        cwist_query_map_destroy(kv);
+        send_json_response(res, obj, (cwist_http_status_t)409);
+        return;
+    }
+    cJSON_Delete(meta);
+    close_upload_session_lock(lock_fd);
+
+    if (!finalize_cache_mark_started(upload_id, upload_token)) {
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("finalize queue full"), CWIST_HTTP_SERVICE_UNAVAILABLE);
+        return;
+    }
+
+    upload_finalize_job_t *job = (upload_finalize_job_t *)calloc(1, sizeof(upload_finalize_job_t));
+    if (!job) {
+        finalize_cache_mark_done(upload_id, 500, "{\"ok\":false,\"error\":\"finalize queue failed\"}");
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("finalize queue failed"), CWIST_HTTP_INTERNAL_ERROR);
+        return;
+    }
+    job->db = req->db;
+    snprintf(job->upload_id, sizeof(job->upload_id), "%s", upload_id);
+    snprintf(job->upload_token, sizeof(job->upload_token), "%s", upload_token);
+    pthread_t tid;
+    if (pthread_create(&tid, NULL, upload_finalize_worker, job) != 0) {
+        free(job);
+        finalize_cache_mark_done(upload_id, 500, "{\"ok\":false,\"error\":\"finalize queue failed\"}");
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("finalize queue failed"), CWIST_HTTP_INTERNAL_ERROR);
+        return;
+    }
+    pthread_detach(tid);
+
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddBoolToObject(obj, "ok", false);
+    cJSON_AddBoolToObject(obj, "processing", true);
+    cJSON_AddStringToObject(obj, "status", "finalizing");
+    cJSON_AddNumberToObject(obj, "retry_after", 1);
+    cwist_query_map_destroy(kv);
+    send_json_response(res, obj, (cwist_http_status_t)202);
 }
 
 void handler_file_upload_cancel(cwist_http_request *req, cwist_http_response *res) {

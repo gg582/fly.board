@@ -172,23 +172,23 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             cwist_sstring_append(b, "<div class='file-repo-thumb'>");
             if (is_image) {
                 if (has_thumb) {
-                    cwist_sstring_append(b, "<img src='/assets/uploads/");
+                    cwist_sstring_append(b, "<img data-tasfa-download='/assets/uploads/");
                     cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
-                    cwist_sstring_append(b, "' class='file-thumb-media' onerror=\"this.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'\">");
+                    cwist_sstring_append(b, "' class='file-thumb-media' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'>");
                 } else {
                     cwist_sstring_append(b, "<span class='file-thumb-icon'>IMG</span>");
                 }
             } else if (is_video) {
                 if (has_thumb) {
-                    cwist_sstring_append(b, "<img src='/assets/uploads/");
+                    cwist_sstring_append(b, "<img data-tasfa-download='/assets/uploads/");
                     cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
-                    cwist_sstring_append(b, "' class='file-thumb-media' onerror=\"this.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'\">");
+                    cwist_sstring_append(b, "' class='file-thumb-media' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'>");
                 } else {
                     cwist_sstring_append(b, "<span class='file-thumb-icon'>VID</span>");
                 }
             } else if (strncmp(mime, "audio/", 6) == 0) {
                 if (has_preview) {
-                    cwist_sstring_append(b, "<audio controls class='file-thumb-media' src='/assets/uploads/");
+                    cwist_sstring_append(b, "<audio controls class='file-thumb-media' data-tasfa-download='/assets/uploads/");
                     cwist_sstring_append(b, preview_path + strlen("public/uploads/"));
                     cwist_sstring_append(b, "' style='width:100%'></audio>");
                 } else {
