@@ -143,6 +143,7 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
     cwist_http_header_add(&res->headers, "Access-Control-Allow-Credentials", "true");
     cwist_http_header_add(&res->headers, "Access-Control-Expose-Headers", "Content-Length, Content-Type, X-Request-Id");
     cwist_http_header_add(&res->headers, "Access-Control-Max-Age", "86400");
+    cwist_http_header_add(&res->headers, "Content-Security-Policy", "img-src * 'self' blob: data:; media-src * 'self' blob:;");
 
     if (req->method == CWIST_HTTP_OPTIONS) {
         res->status_code = CWIST_HTTP_NO_CONTENT;
