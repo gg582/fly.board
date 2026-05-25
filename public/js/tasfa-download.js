@@ -629,6 +629,11 @@
             var objectUrl = URL.createObjectURL(result.blob);
             el.src = objectUrl;
             el.dataset.tasfaLoaded = '1';
+            el.removeAttribute('data-tasfa-download');
+            el.removeAttribute('data-tasfa-processing');
+            el.removeAttribute('data-tasfa-skip');
+            el.removeAttribute('data-tasfa-error');
+            Object.defineProperty(el, 'src', { writable: false, configurable: false });
         }).catch(function(err) {
             console.error('TASFA media load failed:', baseUrl, err);
             el.setAttribute('data-tasfa-error', '1');
@@ -870,6 +875,12 @@
                     clearInterval(progressInterval);
                     var objectUrl = URL.createObjectURL(result.blob);
                     el.src = objectUrl;
+                    el.dataset.tasfaLoaded = '1';
+                    el.removeAttribute('data-tasfa-download');
+                    el.removeAttribute('data-tasfa-processing');
+                    el.removeAttribute('data-tasfa-skip');
+                    el.removeAttribute('data-tasfa-error');
+                    Object.defineProperty(el, 'src', { writable: false, configurable: false });
                     
                     overlay.style.opacity = '0';
                     overlay.style.visibility = 'hidden';
