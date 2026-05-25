@@ -443,21 +443,16 @@
         var onProgress = options && options.onProgress;
 
         var promise = (async function() {
-            var session = await fetchDownloadSession(baseUrl);
-
-            if (session.totalSize <= SMALL_FILE_THRESHOLD) {
-                var cachedBlob = await getCachedBlob(baseUrl);
-                if (cachedBlob) {
-                    await notifyDownloadComplete(session.sessionId, session.sessionToken);
-                    if (onProgress) onProgress(100);
-                    return {blob: cachedBlob, filename: session.filename};
-                }
-            }
-
-            var allBytes = new Uint8Array(session.totalSize);
+            var response = await fetch(baseUrl, { credentials: 'same-origin' });
+            if (!response.ok) throw new Error('Fetch failed: ' + response.status);
+            
+            var totalSize = parseInt(response.headers.get('content-length'), 10) || 0;
+            var contentType = response.headers.get('content-type') || 'application/octet-stream';
+            var filename = baseUrl.substring(baseUrl.lastIndexOf('/') + 1) || 'download';
+            
             var sharedState = {
-                chunkCount: session.chunkCount,
-                totalSize: session.totalSize,
+                chunkCount: 1,
+                totalSize: totalSize,
                 nextChunk: 0,
                 completedChunks: 0,
                 downloadedBytes: 0,
@@ -465,100 +460,36 @@
             };
             downloadStates[baseUrl] = {
                 sharedState: sharedState,
-                filename: session.filename
+                filename: filename
             };
 
-            var pending = [];
-            var bitmap = new Array(session.chunkCount).fill(0);
-            var inflight = new Array(session.chunkCount).fill(0);
-            var retryCounts = new Array(session.chunkCount).fill(0);
-            var activeFetches = 0;
-            for (var i = 0; i < session.chunkCount; i++) pending.push(i);
+            var reader = response.body ? response.body.getReader() : null;
+            var chunks = [];
+            var downloadedBytes = 0;
 
-            function claimSpan() {
-                while (pending.length > 0) {
-                    var idx = pending.shift();
-                    if (bitmap[idx] || inflight[idx]) continue;
-                    applyPredictedDownloadRule(session);
-                    var span = Math.min(session.currentSpan || 1, session.chunkCount - idx);
-                    while (span > 1 && (bitmap[idx + span - 1] || inflight[idx + span - 1])) span -= 1;
-                    for (var j = 0; j < span; j++) inflight[idx + j] = 1;
-                    return { idx: idx, span: span };
-                }
-                return null;
-            }
-
-            function releaseSpan(idx, span) {
-                for (var j = 0; j < span; j++) {
-                    if (idx + j < inflight.length) inflight[idx + j] = 0;
-                }
-            }
-
-            async function worker() {
-                while (!sharedState.failed && sharedState.completedChunks < session.chunkCount) {
-                    if (activeFetches >= (session.targetParallel || 1)) {
-                        await new Promise(function(r) { setTimeout(r, 20); });
-                        continue;
-                    }
-                    var claim = claimSpan();
-                    if (!claim) break;
-                    activeFetches += 1;
-                    try {
-                        var received = await fetchChunk(baseUrl, session, allBytes, claim.idx, claim.span);
-                        releaseSpan(claim.idx, claim.span);
-                        activeFetches = Math.max(0, activeFetches - 1);
-                        tuneDownloadSuccess(session, received.bytes || 0, received.durationMs || 0);
-                        for (var i = 0; i < claim.span; i++) {
-                            var doneIdx = claim.idx + i;
-                            if (doneIdx < session.chunkCount && !bitmap[doneIdx]) {
-                                bitmap[doneIdx] = 1;
-                                sharedState.completedChunks += 1;
-                                sharedState.downloadedBytes += chunkByteSize(session, doneIdx);
-                                if (onProgress) {
-                                    var pct = Math.round((sharedState.downloadedBytes / sharedState.totalSize) * 100);
-                                    onProgress(pct);
-                                }
-                            }
-                        }
-                    } catch (e) {
-                        releaseSpan(claim.idx, claim.span);
-                        activeFetches = Math.max(0, activeFetches - 1);
-                        var msg = e && e.message ? e.message : 'network';
-                        tuneDownloadFailure(session, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
-                        var exhausted = false;
-                        for (var k = 0; k < claim.span; k++) {
-                            var ci = claim.idx + k;
-                            if (ci >= session.chunkCount || bitmap[ci]) continue;
-                            retryCounts[ci] = (retryCounts[ci] || 0) + 1;
-                            if (retryCounts[ci] > 80) exhausted = true;
-                            pending.push(ci);
-                        }
-                        if (exhausted) sharedState.failed = e || new Error('download failed');
+            if (reader) {
+                while (true) {
+                    var { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    downloadedBytes += value.byteLength;
+                    sharedState.downloadedBytes = downloadedBytes;
+                    if (onProgress && totalSize > 0) {
+                        onProgress(Math.round((downloadedBytes / totalSize) * 100));
                     }
                 }
+                sharedState.completedChunks = 1;
+            } else {
+                var blob = await response.blob();
+                sharedState.downloadedBytes = blob.size;
+                sharedState.completedChunks = 1;
+                if (onProgress) onProgress(100);
+                return { blob: blob, filename: filename };
             }
 
-            var workers = [];
-            for (var i = 0; i < session.maxParallel; i++) {
-                workers.push(worker());
-            }
-            await Promise.all(workers);
-
-            if (sharedState.failed) throw sharedState.failed;
-
-            var result = {
-                blob: new Blob([allBytes.buffer], { type: session.mimeType }),
-                filename: session.filename
-            };
-
-            if (session.totalSize <= SMALL_FILE_THRESHOLD) {
-                await putCachedBlob(baseUrl, result.blob, session.mimeType);
-            }
-
-            await notifyDownloadComplete(session.sessionId, session.sessionToken);
+            var blob = new Blob(chunks, { type: contentType });
             if (onProgress) onProgress(100);
-
-            return result;
+            return { blob: blob, filename: filename };
         })();
 
         if (!silent) {
