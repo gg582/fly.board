@@ -688,7 +688,7 @@
         if (el.tagName === 'IMG') el.src = SPACER_GIF;
         else el.removeAttribute('src');
 
-        if (isLikelyMobile() && el.tagName === 'VIDEO') {
+        if (el.tagName === 'VIDEO') {
             var btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'media-load-btn';

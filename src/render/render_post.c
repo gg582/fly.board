@@ -730,13 +730,13 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                     } else if (is_video) {
                         cwist_sstring_append(b, "<video data-tasfa-download='/file/download/");
                         cwist_sstring_append(b, fid_buf2);
-                        cwist_sstring_append(b, "' ");
+                        cwist_sstring_append(b, "'");
                         if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
-                            cwist_sstring_append(b, "poster='/assets/uploads/");
-                            cwist_sstring_append(b, thumb_path + 15);
-                            cwist_sstring_append(b, "' ");
+                            cwist_sstring_append(b, " poster='/assets/uploads/");
+                            cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
+                            cwist_sstring_append(b, "'");
                         }
-                        cwist_sstring_append(b, "muted playsinline preload='metadata' controls></video>");
+                        cwist_sstring_append(b, " muted playsinline preload='metadata' controls></video>");
                     } else if (is_audio) {
                         cwist_sstring_append(b, "<audio data-tasfa-download='/file/download/");
                         cwist_sstring_append(b, fid_buf2);
