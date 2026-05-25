@@ -78,6 +78,12 @@ static queue_slot_t g_q_uploads[TASFA_MAX_CONCURRENT_UPLOADS];
 static queue_slot_t g_q_downloads[TASFA_MAX_CONCURRENT_DOWNLOADS];
 static pthread_mutex_t g_tasfa_queue_mtx = PTHREAD_MUTEX_INITIALIZER;
 
+static long long tasfa_monotonic_ms(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+    return ((long long)ts.tv_sec * 1000LL) + ((long long)ts.tv_nsec / 1000000LL);
+}
+
 static bool is_mobile_request(cwist_http_request *req) {
     const char *ua = cwist_http_header_get(req->headers, "User-Agent");
     if (!ua) return false;
@@ -429,8 +435,9 @@ static int link_score_from_inputs(const char *score_str, const char *effective_t
         else if (rtt <= 450.0) score -= 10;
         else score -= 18;
     }
-    score -= retries * 5;
-    score -= timeouts * 12;
+    bool good_mobile = effective_type && strcmp(effective_type, "4g") == 0 && (downlink >= 8.0 || downlink <= 0.0) && (rtt <= 220.0 || rtt <= 0.0);
+    score -= retries * (good_mobile ? 3 : 5);
+    score -= timeouts * (good_mobile ? 8 : 12);
     if (save_data_str && (!strcmp(save_data_str, "1") || !strcasecmp(save_data_str, "true"))) score -= 10;
     return clamp_int(score, 10, 100);
 }
@@ -1423,6 +1430,8 @@ typedef struct {
     /* outputs */
     bool stored;
     bool state_ok;
+    long long store_ms;
+    long long state_ms;
 } upload_work_t;
 
 #define HTP_TAG_LEN 129
@@ -1482,6 +1491,12 @@ typedef struct {
     double suspicion_score;
 } htp_suspect_t;
 
+typedef struct {
+    uint64_t l1;
+    uint64_t l2;
+    uint64_t l3;
+} htp_line_sums_t;
+
 static int compare_suspect_desc(const void *a, const void *b) {
     const htp_suspect_t *sa = (const htp_suspect_t *)a;
     const htp_suspect_t *sb = (const htp_suspect_t *)b;
@@ -1490,11 +1505,51 @@ static int compare_suspect_desc(const void *a, const void *b) {
     return sa->chunk_index - sb->chunk_index;
 }
 
+#if defined(__SSE2__) || defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(__VSX__) || defined(__mips_msa)
+#define TASFA_HTP_SIMD 1
+typedef uint64_t tasfa_u64x2 __attribute__((vector_size(16)));
+#else
+#define TASFA_HTP_SIMD 0
+#endif
+
+static const char *htp_simd_backend(void) {
+#if defined(__SSE2__)
+    return "sse2";
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__)
+    return "neon";
+#elif defined(__VSX__)
+    return "vsx";
+#elif defined(__mips_msa)
+    return "msa";
+#else
+    return "scalar";
+#endif
+}
+
+static htp_line_sums_t htp_line_sums(const uint64_t v[6], uint64_t modulus_M) {
+    if (modulus_M == 0) modulus_M = 1;
+    htp_line_sums_t sums;
+#if TASFA_HTP_SIMD
+    tasfa_u64x2 a = { v[0], v[2] };
+    tasfa_u64x2 b = { v[1], v[3] };
+    tasfa_u64x2 c = { v[2], v[4] };
+    tasfa_u64x2 pair = a + b + c;
+    sums.l1 = pair[0] % modulus_M;
+    sums.l2 = pair[1] % modulus_M;
+#else
+    sums.l1 = (v[0] + v[1] + v[2]) % modulus_M;
+    sums.l2 = (v[2] + v[3] + v[4]) % modulus_M;
+#endif
+    sums.l3 = (v[4] + v[5] + v[0]) % modulus_M;
+    return sums;
+}
+
 static void htp_analyze_group(uint64_t v[6], uint64_t modulus_M, int group_start,
                               htp_suspect_t *out, int *out_count) {
-    uint64_t L1 = (v[0] + v[1] + v[2]) % modulus_M;
-    uint64_t L2 = (v[2] + v[3] + v[4]) % modulus_M;
-    uint64_t L3 = (v[4] + v[5] + v[0]) % modulus_M;
+    htp_line_sums_t sums = htp_line_sums(v, modulus_M);
+    uint64_t L1 = sums.l1;
+    uint64_t L2 = sums.l2;
+    uint64_t L3 = sums.l3;
 
     bool all_equal = (L1 == L2 && L2 == L3);
     if (all_equal) {
@@ -1572,9 +1627,11 @@ static int htp_contract_groups(const uint64_t *balanced_scalars, int chunk_count
         uint64_t v3 = balanced_scalars[g * 6 + 3];
         uint64_t v4 = balanced_scalars[g * 6 + 4];
         uint64_t v5 = balanced_scalars[g * 6 + 5];
-        uint64_t L1 = (v0 + v1 + v2) % modulus_M;
-        uint64_t L2 = (v2 + v3 + v4) % modulus_M;
-        uint64_t L3 = (v4 + v5 + v0) % modulus_M;
+        uint64_t v[6] = {v0, v1, v2, v3, v4, v5};
+        htp_line_sums_t sums = htp_line_sums(v, modulus_M);
+        uint64_t L1 = sums.l1;
+        uint64_t L2 = sums.l2;
+        uint64_t L3 = sums.l3;
         /* Topology-preserving invariant signature:
          * encode the failure residuals (L1-L2, L2-L3) into a single scalar.
          * Multiplication in mod M is deterministic and sensitive to both
@@ -1611,9 +1668,10 @@ static int htp_contract_groups(const uint64_t *balanced_scalars, int chunk_count
         }
         if (lgs < 3) continue;
 
-        uint64_t LL1 = (lv[0] + lv[1] + lv[2]) % modulus_M;
-        uint64_t LL2 = (lgs > 3) ? ((lv[2] + lv[3] + lv[4]) % modulus_M) : LL1;
-        uint64_t LL3 = (lgs > 5) ? ((lv[4] + lv[5] + lv[0]) % modulus_M) : LL1;
+        htp_line_sums_t level_sums = htp_line_sums(lv, modulus_M);
+        uint64_t LL1 = level_sums.l1;
+        uint64_t LL2 = (lgs > 3) ? level_sums.l2 : LL1;
+        uint64_t LL3 = (lgs > 5) ? level_sums.l3 : LL1;
 
         if (LL1 == LL2 && LL2 == LL3) continue;
 
@@ -1654,6 +1712,7 @@ static int htp_contract_groups(const uint64_t *balanced_scalars, int chunk_count
 static void upload_work_func(void *arg) {
     upload_work_t *w = (upload_work_t *)arg;
 
+    long long store_start_ms = tasfa_monotonic_ms();
     int fd = open(w->temp_path, O_WRONLY);
     if (fd < 0) {
         FLY_LOG_ERROR("[TASFA] chunk open failed: %s errno=%d", w->temp_path, errno);
@@ -1674,13 +1733,23 @@ static void upload_work_func(void *arg) {
                       w->chunk_index, w->expected_size, w->body_size);
     }
     close(fd);
+    long long store_end_ms = tasfa_monotonic_ms();
+    if (store_start_ms > 0 && store_end_ms >= store_start_ms) {
+        w->store_ms = store_end_ms - store_start_ms;
+    }
 
     if (!w->stored) return;
 
+    long long state_start_ms = tasfa_monotonic_ms();
     w->state_ok = mark_chunk_received_in_session_state(w->upload_id, w->chunk_index);
+    long long state_end_ms = tasfa_monotonic_ms();
+    if (state_start_ms > 0 && state_end_ms >= state_start_ms) {
+        w->state_ms = state_end_ms - state_start_ms;
+    }
 }
 
 void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
+    long long request_start_ms = tasfa_monotonic_ms();
     const char *upload_id = cwist_http_header_get(req->headers, "X-TASFA-Upload-ID");
     const char *upload_token = cwist_http_header_get(req->headers, "X-TASFA-Upload-Token");
     const char *stream_mode = cwist_http_header_get(req->headers, "X-TASFA-Stream-Mode");
@@ -1806,22 +1875,38 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
 
     /* Collect per-chunk RTT for large-file tail prediction (Lagrange extrapolation) */
     const char *chunk_rtt_hdr = cwist_http_header_get(req->headers, "X-TASFA-Chunk-RTT");
+    long long rtt_save_ms = 0;
     if (chunk_rtt_hdr) {
         double chunk_rtt = atof(chunk_rtt_hdr);
         if (chunk_rtt > 0.0) {
+            long long rtt_start_ms = tasfa_monotonic_ms();
             cJSON *session_meta = load_upload_session(upload_id);
             if (session_meta) {
                 append_rtt_sample(session_meta, chunk_index, chunk_rtt);
                 save_upload_session(upload_id, session_meta);
                 cJSON_Delete(session_meta);
             }
+            long long rtt_end_ms = tasfa_monotonic_ms();
+            if (rtt_start_ms > 0 && rtt_end_ms >= rtt_start_ms) rtt_save_ms = rtt_end_ms - rtt_start_ms;
         }
     }
 
+    long long htp_save_ms = 0;
     if (hash_tag_hex && hash_tag_hex[0]) {
         uint64_t balanced_scalar = magic_scalar_str ? (uint64_t)strtoull(magic_scalar_str, NULL, 10) : 0;
         uint64_t raw_scalar = raw_scalar_str ? (uint64_t)strtoull(raw_scalar_str, NULL, 10) : 0;
+        long long htp_start_ms = tasfa_monotonic_ms();
         save_htp_scalar(upload_id, chunk_index, hash_tag_hex, raw_scalar, balanced_scalar);
+        long long htp_end_ms = tasfa_monotonic_ms();
+        if (htp_start_ms > 0 && htp_end_ms >= htp_start_ms) htp_save_ms = htp_end_ms - htp_start_ms;
+    }
+
+    long long request_end_ms = tasfa_monotonic_ms();
+    long long total_ms = (request_start_ms > 0 && request_end_ms >= request_start_ms) ? request_end_ms - request_start_ms : 0;
+    if (total_ms >= 500 || work.store_ms >= 250 || work.state_ms >= 100 || chunk_index % 4 == 0) {
+        FLY_LOG_DEBUG("[TASFA] chunk timing upload_id=%s index=%d mode=%s bytes=%zu total_ms=%lld store_ms=%lld state_ms=%lld rtt_save_ms=%lld htp_save_ms=%lld",
+                      upload_id, chunk_index, encrypted_stream ? "aes-256-gcm" : "plain",
+                      req->body->size, total_ms, work.store_ms, work.state_ms, rtt_save_ms, htp_save_ms);
     }
 
     res->status_code = CWIST_HTTP_NO_CONTENT;
@@ -1884,6 +1969,7 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     char *htp_tags = NULL;
     uint64_t *htp_raw_scalars = NULL;
     uint64_t *htp_balanced_scalars = NULL;
+    long long htp_verify_start_ms = tasfa_monotonic_ms();
     bool htp_ok = load_htp_scalars(upload_id, chunk_count, &htp_tags, &htp_raw_scalars, &htp_balanced_scalars);
     htp_suspect_t *suspects = (htp_suspect_t *)cwist_alloc((size_t)chunk_count * sizeof(htp_suspect_t));
     int suspect_count = 0;
@@ -1958,9 +2044,10 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
                             m[v] = item ? (uint64_t)item->valuedouble : 0;
                         }
                     }
-                    uint64_t L1 = (m[0] + m[1] + m[2]) % modulus_M;
-                    uint64_t L2 = (m[2] + m[3] + m[4]) % modulus_M;
-                    uint64_t L3 = (m[4] + m[5] + m[0]) % modulus_M;
+                    htp_line_sums_t sums = htp_line_sums(m, modulus_M);
+                    uint64_t L1 = sums.l1;
+                    uint64_t L2 = sums.l2;
+                    uint64_t L3 = sums.l3;
                     if (L1 != L2 || L2 != L3) {
                         const char *current_bitmap = json_string(meta, "received_bitmap", "");
                         char *mutable_bitmap = (char *)cwist_alloc((size_t)chunk_count + 1);
@@ -1988,6 +2075,16 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
                     }
                 }
             }
+        }
+    }
+
+    long long htp_verify_end_ms = tasfa_monotonic_ms();
+    if (htp_verify_start_ms > 0 && htp_verify_end_ms >= htp_verify_start_ms) {
+        long long verify_ms = htp_verify_end_ms - htp_verify_start_ms;
+        if (verify_ms >= 10 || chunk_count >= 6) {
+            FLY_LOG_DEBUG("[TASFA] htp verify upload_id=%s chunks=%d groups=%d backend=%s suspects=%d contraction=%d ms=%lld",
+                          upload_id, chunk_count, chunk_count / 6, htp_simd_backend(),
+                          suspect_count, contraction_level, verify_ms);
         }
     }
 
