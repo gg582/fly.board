@@ -31,4 +31,8 @@ int json_int(cJSON *obj, const char *key, int def);
 bool is_author_or_admin(cJSON *post, int uid, const char *role);
 cJSON *board_by_route_key(cwist_db *db, const char *key);
 
+bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res,
+                               const char *path, const char *mime,
+                               const char *cache_control, bool *not_modified);
+
 #endif

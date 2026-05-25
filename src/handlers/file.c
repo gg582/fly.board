@@ -2,6 +2,8 @@
 #include "handlers_internal.h"
 #include <ctype.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 #include <time.h>
 
 #define IMAGE_CACHE_CONTROL "public, max-age=31536000, immutable"
@@ -37,9 +39,14 @@ static bool request_cache_fresh(cwist_http_request *req, const char *etag, const
     return false;
 }
 
-static bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res,
-                                      const char *path, const char *mime,
-                                      const char *cache_control, bool *not_modified) {
+static void mmap_cleanup(const void *ptr, size_t len, void *ctx) {
+    (void)ctx;
+    munmap((void *)ptr, len);
+}
+
+bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res,
+                               const char *path, const char *mime,
+                               const char *cache_control, bool *not_modified) {
     struct stat st;
     if (not_modified) *not_modified = false;
     if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0) return false;
@@ -54,6 +61,11 @@ static bool send_cached_file_response(cwist_http_request *req, cwist_http_respon
     cwist_http_header_add(&res->headers, "ETag", etag);
     if (last_modified[0]) cwist_http_header_add(&res->headers, "Last-Modified", last_modified);
 
+    if (req->keep_alive) {
+        cwist_http_header_add(&res->headers, "Connection", "keep-alive");
+        cwist_http_header_add(&res->headers, "Keep-Alive", "timeout=600, max=10000");
+    }
+
     if (request_cache_fresh(req, etag, last_modified)) {
         res->status_code = (cwist_http_status_t)304;
         cwist_sstring_assign(res->body, "");
@@ -61,16 +73,21 @@ static bool send_cached_file_response(cwist_http_request *req, cwist_http_respon
         return true;
     }
 
-    size_t sz = 0;
-    char *data = file_read(path, &sz);
-    if (!data) return false;
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return false;
 
-    char slen[32];
-    snprintf(slen, sizeof(slen), "%zu", sz);
-    cwist_http_header_add(&res->headers, "Content-Length", slen);
-    cwist_sstring_assign(res->body, "");
-    cwist_sstring_append_len(res->body, data, sz);
-    cwist_free(data);
+    size_t sz = (size_t)st.st_size;
+    if (sz == 0) {
+        close(fd);
+        cwist_sstring_assign(res->body, "");
+        return true;
+    }
+
+    void *data = mmap(NULL, sz, PROT_READ, MAP_PRIVATE, fd, 0);
+    close(fd);
+    if (data == MAP_FAILED) return false;
+
+    cwist_http_response_set_body_ptr_managed(res, data, sz, mmap_cleanup, NULL);
     return true;
 }
 

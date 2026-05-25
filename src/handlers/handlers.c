@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers.h"
+#include "handlers_internal.h"
 #include "../auth/auth.h"
 #include "../crypto/fly_crypto.h"
 #include "../db/db.h"
@@ -123,6 +124,8 @@ cJSON *board_by_route_key(cwist_db *db, const char *key) {
 }
 
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
+    res->keep_alive = req->keep_alive;
+
     char altsvc[128];
     // Advertise HTTP/3 and HTTP/2 fallback. h3 is prioritized.
     snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"; ma=86400, h2=\":%d\"; ma=86400", g_config.port, g_config.port);
@@ -154,32 +157,11 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
 }
 
 void handler_sw_js(cwist_http_request *req, cwist_http_response *res) {
-    cwist_http_header_add(&res->headers, "Content-Type", "application/javascript; charset=utf-8");
-    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache");
-
-    FILE *fp = fopen("public/sw.js", "rb");
-    if (!fp) {
+    if (!send_cached_file_response(req, res, "public/sw.js",
+                                   "application/javascript; charset=utf-8",
+                                   "no-cache", NULL)) {
         res->status_code = CWIST_HTTP_NOT_FOUND;
-        return;
     }
-
-    fseek(fp, 0, SEEK_END);
-    long sz = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-
-    char *buf = (char *)cwist_alloc(sz + 1);
-    if (!buf) {
-        fclose(fp);
-        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
-        return;
-    }
-
-    fread(buf, 1, sz, fp);
-    buf[sz] = '\0';
-    fclose(fp);
-
-    cwist_sstring_assign(res->body, buf);
-    cwist_free(buf);
 }
 
 /* render_file_detail declared in render.h */
