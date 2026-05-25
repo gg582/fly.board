@@ -4,14 +4,14 @@
     var SPACER_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
     var CACHE_NAME = 'tasfa-small-files-v1';
     var SMALL_FILE_THRESHOLD = 5 * 1024 * 1024; // 5MB
-    var DOWNLOAD_CHUNK_STORE = 'tasfa_download_chunk_size_v2';
-    var DOWNLOAD_CHUNK_MIN = 256 * 1024;
-    var DOWNLOAD_CHUNK_DEFAULT = 1024 * 1024;
-    var DOWNLOAD_CHUNK_MOBILE_DEFAULT = 512 * 1024;
-    var DOWNLOAD_CHUNK_MAX = 8 * 1024 * 1024;
-    var DOWNLOAD_CHUNK_STEP_UP = 256 * 1024;
-    var DOWNLOAD_CHUNK_STEP_DOWN = 128 * 1024;
-    var DOWNLOAD_REQUEST_BYTES_MAX = 32 * 1024 * 1024;
+    var DOWNLOAD_CHUNK_STORE = 'tasfa_download_chunk_size_v3';
+    var DOWNLOAD_CHUNK_MIN = 512 * 1024;
+    var DOWNLOAD_CHUNK_DEFAULT = 2 * 1024 * 1024;
+    var DOWNLOAD_CHUNK_MOBILE_DEFAULT = 1024 * 1024;
+    var DOWNLOAD_CHUNK_MAX = 16 * 1024 * 1024;
+    var DOWNLOAD_CHUNK_STEP_UP = 512 * 1024;
+    var DOWNLOAD_CHUNK_STEP_DOWN = 256 * 1024;
+    var DOWNLOAD_REQUEST_BYTES_MAX = 64 * 1024 * 1024;
 
     async function getCachedBlob(baseUrl) {
         try {
@@ -113,11 +113,13 @@
     function applyPredictedDownloadRule(session) {
         var predicted = predictedDownloadQuality(session);
         if (predicted < 0.25) {
-            session.currentSpan = 1;
-            session.targetParallel = Math.max(1, Math.min(session.targetParallel || 1, 2));
-        } else if (predicted < 0.45) {
+            var lowFloor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 2 : 4);
             session.currentSpan = Math.max(1, Math.min(session.currentSpan || 1, 2));
-            session.targetParallel = Math.max(1, Math.min(session.targetParallel || 1, Math.ceil((session.maxParallel || 1) / 2)));
+            session.targetParallel = Math.max(lowFloor, Math.min(session.targetParallel || 1, Math.ceil((session.maxParallel || 1) / 3)));
+        } else if (predicted < 0.45) {
+            var guardedFloor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 3 : 6);
+            session.currentSpan = Math.max(1, Math.min(session.currentSpan || 1, 2));
+            session.targetParallel = Math.max(guardedFloor, Math.min(session.targetParallel || 1, Math.ceil((session.maxParallel || 1) / 2)));
         }
     }
 
@@ -131,10 +133,10 @@
             rememberDownloadChunkSize(preferredDownloadChunkSize() + DOWNLOAD_CHUNK_STEP_UP);
             session.fastStreak = 0;
         }
-        if (session.currentSpan < session.maxSpan && session.successEvents % 3 === 0) {
+        if (session.currentSpan < session.maxSpan && session.successEvents % 2 === 0) {
             session.currentSpan += 1;
         }
-        if (session.targetParallel < session.maxParallel && session.successEvents % 4 === 0) {
+        if (session.targetParallel < session.maxParallel && session.successEvents % 3 === 0) {
             session.targetParallel += 1;
         }
     }
@@ -145,7 +147,8 @@
         pushDownloadQuality(session, kind === 'timeout' ? 0.05 : 0.15);
         rememberDownloadChunkSize(preferredDownloadChunkSize() - DOWNLOAD_CHUNK_STEP_DOWN);
         if (session.currentSpan > 1) session.currentSpan -= 1;
-        if ((kind === 'timeout' || session.failureEvents % 3 === 0) && session.targetParallel > 1) {
+        var floor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 2 : 4);
+        if ((kind === 'timeout' || session.failureEvents % 4 === 0) && session.targetParallel > floor) {
             session.targetParallel -= 1;
         }
     }

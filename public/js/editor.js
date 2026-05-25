@@ -30,14 +30,14 @@
     var UPLOAD_STATUS_ENDPOINT = '/file/upload/status';
     var UPLOAD_RENEGOTIATE_ENDPOINT = '/file/upload/renegotiate';
     var UPLOAD_ENDPOINT = '/file/upload';
-    var UPLOAD_CHUNK_SIZE = 16 * 1024 * 1024;
-    var UPLOAD_DEFAULT_PARALLEL = 12;
+    var UPLOAD_CHUNK_SIZE = 24 * 1024 * 1024;
+    var UPLOAD_DEFAULT_PARALLEL = 16;
     var TASFA_UPLOAD_CHUNK_MIN = 4 * 1024 * 1024;
-    var TASFA_UPLOAD_CHUNK_MAX = 32 * 1024 * 1024;
-    var TASFA_UPLOAD_CHUNK_MOBILE_MAX = 16 * 1024 * 1024;
-    var TASFA_UPLOAD_CHUNK_STEP_UP = 1024 * 1024;
+    var TASFA_UPLOAD_CHUNK_MAX = 48 * 1024 * 1024;
+    var TASFA_UPLOAD_CHUNK_MOBILE_MAX = 24 * 1024 * 1024;
+    var TASFA_UPLOAD_CHUNK_STEP_UP = 2 * 1024 * 1024;
     var TASFA_UPLOAD_CHUNK_STEP_DOWN = 512 * 1024;
-    var TASFA_UPLOAD_CHUNK_STORE = 'tasfa_upload_chunk_size_v2';
+    var TASFA_UPLOAD_CHUNK_STORE = 'tasfa_upload_chunk_size_v3';
     var TASFA_MIN_SIZE_BYTES = 4 * 1024 * 1024;
     var FileUploadQueue = [];
     var isFileUploadRunning = false;
@@ -83,7 +83,7 @@
         var maxValue = isLikelyMobile() ? TASFA_UPLOAD_CHUNK_MOBILE_MAX : TASFA_UPLOAD_CHUNK_MAX;
         var saved = 0;
         try { saved = Number(localStorage.getItem(TASFA_UPLOAD_CHUNK_STORE) || 0); } catch (err) {}
-        var base = saved || (isLikelyMobile() ? 8 * 1024 * 1024 : UPLOAD_CHUNK_SIZE);
+        var base = saved || (isLikelyMobile() ? 12 * 1024 * 1024 : UPLOAD_CHUNK_SIZE);
         base = Math.round(base / TASFA_UPLOAD_CHUNK_STEP_DOWN) * TASFA_UPLOAD_CHUNK_STEP_DOWN;
         return Math.min(Math.max(TASFA_UPLOAD_CHUNK_MIN, clampNumber(base, TASFA_UPLOAD_CHUNK_MIN, maxValue)), Math.max(TASFA_UPLOAD_CHUNK_MIN, fileSize || maxValue));
     }
@@ -102,8 +102,10 @@
             failureEvents: 0,
             successEvents: 0,
             fastStreak: 0,
+            consecutiveFailures: 0,
             ewmaMs: 0,
             ewmaMbps: 0,
+            lastChunkMs: 0,
             qualitySamples: [],
             lastRenegotiateAt: 0
         };
@@ -136,8 +138,9 @@
     function predictUploadRule(asset, chunkIndex) {
         var retryCount = asset.retryCounts ? Number(asset.retryCounts[chunkIndex] || 0) : 0;
         var predicted = predictedTasfaQuality(asset);
-        if (retryCount >= 8 || (predicted < 0.25 && ensureTasfaStats(asset).failureEvents > 0)) return 'fallback';
-        if (retryCount >= 3 || predicted < 0.45) return 'guarded';
+        var stats = ensureTasfaStats(asset);
+        if (retryCount >= 6 || (predicted < 0.2 && (stats.consecutiveFailures || 0) >= 2)) return 'fallback';
+        if (retryCount >= 2 || predicted < 0.4) return 'guarded';
         return 'normal';
     }
 
@@ -174,6 +177,8 @@
             var mbps = durationMs > 0 ? ((bytes * 8) / durationMs / 1000) : 0;
             stats.successEvents += 1;
             stats.fastStreak += 1;
+            stats.consecutiveFailures = 0;
+            stats.lastChunkMs = durationMs > 0 ? durationMs : stats.lastChunkMs;
             stats.ewmaMs = stats.ewmaMs ? (stats.ewmaMs * 0.75 + durationMs * 0.25) : durationMs;
             stats.ewmaMbps = stats.ewmaMbps ? (stats.ewmaMbps * 0.75 + mbps * 0.25) : mbps;
             pushTasfaQuality(asset, clampNumber(mbps / 25, 0.1, 1));
@@ -183,6 +188,7 @@
             }
         } else {
             stats.fastStreak = 0;
+            stats.consecutiveFailures = (stats.consecutiveFailures || 0) + 1;
             pushTasfaQuality(asset, 0.2);
             rememberUploadChunkSize(preferredUploadChunkSize(asset.fileSize) - TASFA_UPLOAD_CHUNK_STEP_DOWN);
         }
@@ -225,7 +231,7 @@
         maybeTuneUploadChunkHint(asset, true, durationMs, bytes);
         if (asset.maxParallel && (asset.targetParallel || 1) < asset.maxParallel) {
             var stats = ensureTasfaStats(asset);
-            if (stats.successEvents % 4 === 0) {
+            if (stats.successEvents % 2 === 0) {
                 asset.targetParallel = Math.min(asset.maxParallel, (asset.targetParallel || 1) + 1);
                 scheduleUploadRenegotiate(asset, false);
             }
@@ -239,8 +245,9 @@
         if (kind === 'timeout') stats.timeoutEvents += 1;
         pushTasfaQuality(asset, kind === 'busy' ? 0.45 : (kind === 'timeout' ? 0.05 : 0.15));
         maybeTuneUploadChunkHint(asset, false, 0, 0);
-        if ((kind === 'timeout' || stats.failureEvents % 3 === 0) && (asset.targetParallel || 1) > 1) {
-            asset.targetParallel = Math.max(1, (asset.targetParallel || 1) - 1);
+        var floor = Math.min(asset.maxParallel || UPLOAD_DEFAULT_PARALLEL, isLikelyMobile() ? 2 : 4);
+        if ((kind === 'timeout' || stats.failureEvents % 4 === 0) && (asset.targetParallel || 1) > floor) {
+            asset.targetParallel = Math.max(floor, (asset.targetParallel || 1) - 1);
         }
         scheduleUploadRenegotiate(asset, true);
     }
@@ -1581,11 +1588,14 @@
                 xhr.setRequestHeader('Accept', 'application/json');
                 xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
                 xhr.setRequestHeader('X-TASFA-Upload-ID', asset.uploadId);
-                xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
-                xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
-                if (htp && htp.hashTag) xhr.setRequestHeader('X-TASFA-Hash-Tag', htp.hashTag);
-                if (htp && htp.rawScalar) xhr.setRequestHeader('X-TASFA-Raw-Scalar', htp.rawScalar);
-                if (htp && htp.magicScalar) xhr.setRequestHeader('X-TASFA-Magic-Scalar', htp.magicScalar);
+	                xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
+	                xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
+	                if (htp && htp.hashTag) xhr.setRequestHeader('X-TASFA-Hash-Tag', htp.hashTag);
+	                if (htp && htp.rawScalar) xhr.setRequestHeader('X-TASFA-Raw-Scalar', htp.rawScalar);
+	                if (htp && htp.magicScalar) xhr.setRequestHeader('X-TASFA-Magic-Scalar', htp.magicScalar);
+	                var stats = ensureTasfaStats(asset);
+	                var rttHint = Math.round((stats.lastChunkMs || stats.ewmaMs || 0));
+	                if (rttHint > 0) xhr.setRequestHeader('X-TASFA-Chunk-RTT', String(rttHint));
 
                 xhr.timeout = Math.max(60000, Math.min(300000, Math.ceil((size / (1024 * 1024)) * 10000)));
 
@@ -1697,13 +1707,16 @@
                     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
                     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
                     xhr.setRequestHeader('X-TASFA-Upload-ID', asset.uploadId);
-                    xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
-                    xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
-                    xhr.setRequestHeader('X-TASFA-Stream-Mode', 'aes-256-gcm');
-                    if (enc.htp && enc.htp.hashTag) xhr.setRequestHeader('X-TASFA-Hash-Tag', enc.htp.hashTag);
-                    if (enc.htp && enc.htp.rawScalar) xhr.setRequestHeader('X-TASFA-Raw-Scalar', enc.htp.rawScalar);
-                    if (enc.htp && enc.htp.magicScalar) xhr.setRequestHeader('X-TASFA-Magic-Scalar', enc.htp.magicScalar);
-                    xhr.timeout = Math.max(60000, Math.min(300000, Math.ceil((enc.size / (1024 * 1024)) * 15000)));
+	                    xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
+	                    xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
+	                    xhr.setRequestHeader('X-TASFA-Stream-Mode', 'aes-256-gcm');
+	                    if (enc.htp && enc.htp.hashTag) xhr.setRequestHeader('X-TASFA-Hash-Tag', enc.htp.hashTag);
+	                    if (enc.htp && enc.htp.rawScalar) xhr.setRequestHeader('X-TASFA-Raw-Scalar', enc.htp.rawScalar);
+	                    if (enc.htp && enc.htp.magicScalar) xhr.setRequestHeader('X-TASFA-Magic-Scalar', enc.htp.magicScalar);
+	                    var stats = ensureTasfaStats(asset);
+	                    var rttHint = Math.round((stats.lastChunkMs || stats.ewmaMs || 0));
+	                    if (rttHint > 0) xhr.setRequestHeader('X-TASFA-Chunk-RTT', String(rttHint));
+	                    xhr.timeout = Math.max(60000, Math.min(300000, Math.ceil((enc.size / (1024 * 1024)) * 15000)));
                     xhr.upload.onprogress = function(event) {
                         if (!event.lengthComputable) return;
                         touchTasfaActivity(asset);
@@ -1792,14 +1805,14 @@
                         setTimeout(next, 25);
                         return;
                     }
-                    var chunkIndex = pending.pop();
-                    var prefetchCount = Math.max(4, (asset.targetParallel || 1) - (asset.activeChunkPosts || 0));
-                    prefetchHtpGroups(prefetchCount);
-                    prefetchEncrypted(prefetchCount);
-                    var startedAt = Date.now();
-                    var predictedRule = predictUploadRule(asset, chunkIndex);
-                    applyPredictedUploadRule(asset, predictedRule);
-                    asset.activeChunkPosts = (asset.activeChunkPosts || 0) + 1;
+	                    var chunkIndex = pending.pop();
+	                    var prefetchCount = Math.max(4, (asset.targetParallel || 1) - (asset.activeChunkPosts || 0));
+	                    prefetchHtpGroups(prefetchCount);
+	                    var startedAt = Date.now();
+	                    var predictedRule = predictUploadRule(asset, chunkIndex);
+	                    applyPredictedUploadRule(asset, predictedRule);
+	                    if (predictedRule !== 'normal') prefetchEncrypted(prefetchCount);
+	                    asset.activeChunkPosts = (asset.activeChunkPosts || 0) + 1;
                     function runPost() {
                     if (predictedRule === 'fallback') asset.ui.status.textContent = 'Uploading fallback...';
                     var request = predictedRule === 'fallback' ? postEncryptedChunk(chunkIndex) : postChunk(chunkIndex);

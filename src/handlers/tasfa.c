@@ -16,22 +16,22 @@
 
 #define TASFA_UPLOAD_DIR "data/tasfa/uploads"
 #define TASFA_DOWNLOAD_DIR "data/tasfa/downloads"
-#define TASFA_UPLOAD_CHUNK_SIZE_DEFAULT (16 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE  (8 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MIN     (1 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MAX     (32 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE_MAX (16 * 1024 * 1024)
-#define TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT (1024 * 1024)
-#define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (512 * 1024)
-#define TASFA_DOWNLOAD_CHUNK_SIZE_MIN     (128 * 1024)
-#define TASFA_DOWNLOAD_CHUNK_SIZE_MAX     (8 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_DEFAULT (24 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE  (12 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MIN     (4 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MAX     (48 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE_MAX (24 * 1024 * 1024)
+#define TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT (2 * 1024 * 1024)
+#define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (1024 * 1024)
+#define TASFA_DOWNLOAD_CHUNK_SIZE_MIN     (512 * 1024)
+#define TASFA_DOWNLOAD_CHUNK_SIZE_MAX     (16 * 1024 * 1024)
 
 #define TASFA_UPLOAD_TTL 86400
 #define TASFA_DOWNLOAD_TTL 86400
-#define TASFA_UPLOAD_DEFAULT_PARALLEL 12
-#define TASFA_UPLOAD_MAX_PARALLEL 32
-#define TASFA_DOWNLOAD_DEFAULT_PARALLEL 12
-#define TASFA_DOWNLOAD_MAX_PARALLEL 32
+#define TASFA_UPLOAD_DEFAULT_PARALLEL 16
+#define TASFA_UPLOAD_MAX_PARALLEL 40
+#define TASFA_DOWNLOAD_DEFAULT_PARALLEL 16
+#define TASFA_DOWNLOAD_MAX_PARALLEL 48
 #define TASFA_CLIENT_STRIPES 32
 #define TASFA_CACHE_SLOTS 512
 
@@ -436,13 +436,13 @@ static int link_score_from_inputs(const char *score_str, const char *effective_t
 }
 
 static void choose_upload_window(int score, int *initial_parallel, int *max_parallel, int *pacing_ms) {
-    int initial_value = 12;
+    int initial_value = TASFA_UPLOAD_DEFAULT_PARALLEL;
     int max_value = TASFA_UPLOAD_MAX_PARALLEL;
     int pace = 0;
-    if (score >= 85) { initial_value = 24; max_value = 32; }
-    else if (score >= 65) { initial_value = 16; max_value = 24; }
-    else if (score >= 45) { initial_value = 12; max_value = 18; pace = 4; }
-    else { initial_value = 8; max_value = 12; pace = 12; }
+    if (score >= 85) { initial_value = 32; max_value = 40; }
+    else if (score >= 65) { initial_value = 24; max_value = 32; }
+    else if (score >= 45) { initial_value = 16; max_value = 24; pace = 2; }
+    else { initial_value = 10; max_value = 16; pace = 6; }
     int configured_max = tasfa_upload_parallel_limit();
     if (max_value > configured_max) max_value = configured_max;
     if (initial_value > max_value) initial_value = max_value;
@@ -452,11 +452,11 @@ static void choose_upload_window(int score, int *initial_parallel, int *max_para
 }
 
 static void choose_download_profile(int score, int *initial_parallel, int *max_parallel, int *pacing_ms, int *coalesce_chunks) {
-    int initial_value = 14, max_value = 28, pace = 0, coalesce = 8;
-    if (score < 45) { initial_value = 6; max_value = 12; pace = 8; coalesce = 3; }
-    else if (score < 65) { initial_value = 9; max_value = 18; pace = 2; coalesce = 5; }
-    else if (score < 85) { initial_value = 12; max_value = 24; pace = 0; coalesce = 8; }
-    else { initial_value = 16; max_value = 32; coalesce = 12; }
+    int initial_value = 18, max_value = 36, pace = 0, coalesce = 12;
+    if (score < 45) { initial_value = 10; max_value = 18; pace = 4; coalesce = 4; }
+    else if (score < 65) { initial_value = 14; max_value = 28; pace = 1; coalesce = 8; }
+    else if (score < 85) { initial_value = 18; max_value = 36; pace = 0; coalesce = 12; }
+    else { initial_value = 24; max_value = 48; coalesce = 16; }
     if (max_value > TASFA_DOWNLOAD_MAX_PARALLEL) max_value = TASFA_DOWNLOAD_MAX_PARALLEL;
     if (initial_value > max_value) initial_value = max_value;
     if (initial_parallel) *initial_parallel = initial_value;
@@ -1751,14 +1751,15 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
         send_json_response(res, session_error_json("empty chunk body"), CWIST_HTTP_BAD_REQUEST);
         return;
     }
-    if ((long long)req->body->size != expected_size) {
-        FLY_LOG_ERROR("[TASFA] chunk size mismatch: upload_id=%s index=%d expected=%lld got=%zu",
-                      upload_id, chunk_index, expected_size, req->body->size);
+    bool encrypted_stream = stream_mode && strcmp(stream_mode, "aes-256-gcm") == 0;
+    long long expected_body_size = encrypted_stream ? expected_size + 16 : expected_size;
+    if ((long long)req->body->size != expected_body_size) {
+        FLY_LOG_ERROR("[TASFA] chunk size mismatch: upload_id=%s index=%d mode=%s expected=%lld got=%zu",
+                      upload_id, chunk_index, encrypted_stream ? "aes-256-gcm" : "plain",
+                      expected_body_size, req->body->size);
         send_json_response(res, session_error_json("chunk size mismatch"), CWIST_HTTP_BAD_REQUEST);
         return;
     }
-
-    bool encrypted_stream = stream_mode && strcmp(stream_mode, "aes-256-gcm") == 0;
 
     upload_work_t work = {0};
     work.upload_id = upload_id;

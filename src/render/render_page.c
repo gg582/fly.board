@@ -48,6 +48,15 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(head, vp);
     cwist_html_element_add_child(head, title_el);
 
+    if (g_config.favicon[0]) {
+        cwist_html_element_t *favicon_el = cwist_html_element_create("link");
+        cwist_html_element_add_attr(favicon_el, "rel", "icon");
+        char favicon_url[512];
+        snprintf(favicon_url, sizeof(favicon_url), "/assets/img/%s", g_config.favicon);
+        cwist_html_element_add_attr(favicon_el, "href", favicon_url);
+        cwist_html_element_add_child(head, favicon_el);
+    }
+
     /* Preconnect + dns-prefetch to critical origins */
     cwist_html_element_t *preconnect_jsdelivr = cwist_html_element_create("link");
     cwist_html_element_add_attr(preconnect_jsdelivr, "rel", "preconnect");

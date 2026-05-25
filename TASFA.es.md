@@ -24,7 +24,7 @@ Descarga:
 
 ## Protocolo de Carga
 
-El navegador negocia primero una sesión de carga, luego envía **fragmentos** (predeterminado `16 MiB`, móvil `8 MiB`) con encabezados TASFA:
+El navegador negocia primero una sesión de carga, luego envía **fragmentos** (predeterminado `24 MiB`, móvil `12 MiB`) con encabezados TASFA:
 
 - `X-TASFA-Upload-ID`
 - `X-TASFA-Upload-Token`
@@ -34,7 +34,7 @@ El navegador negocia primero una sesión de carga, luego envía **fragmentos** (
 
 El servidor escribe cada fragmento directamente en el archivo temporal preasignado en el desplazamiento `chunk_index * chunk_size`. Ya no hay bloques de transporte.
 
-Si un fragmento normal falla repetidamente, el navegador serializa ese fragmento fallido a través de una solicitud de respaldo AES-256-GCM con `X-TASFA-Stream-Mode: aes-256-gcm`. La solicitud de respaldo aún lleva los mismos encabezados de etiqueta hash HTP y escalar equilibrado.
+Si un fragmento normal falla repetidamente, el navegador envía ese fragmento fallido a través de una solicitud de respaldo AES-256-GCM con `X-TASFA-Stream-Mode: aes-256-gcm`. El servidor acepta el texto cifrado más la etiqueta de autenticación GCM, y los fragmentos de respaldo permanecen dentro de la ventana paralela adaptativa. La solicitud de respaldo aún lleva los mismos encabezados de etiqueta hash HTP y escalar equilibrado.
 
 ### Resto (último fragmento parcial)
 
@@ -195,8 +195,8 @@ Esto evita el agotamiento del pool de conexiones del navegador y mantiene confia
 
 ## Configuración en Tiempo de Ejecución
 
-- tamaño de fragmento de carga: `16 MiB` escritorio, `8 MiB` móvil
-- paralelismo de carga del navegador predeterminado: `12`
+- tamaño de fragmento de carga: `24 MiB` escritorio, `12 MiB` móvil
+- paralelismo de carga del navegador predeterminado: `16`
 - paralelismo máximo de carga del navegador: `max_upload_parallel_chunks` en `blog.settings`
 - sesiones de carga concurrentes máximas: `max_total_parallel_uploads` en `blog.settings`
 - tamaño máximo de carga: `max_upload_size` en `blog.settings`
@@ -208,7 +208,7 @@ El límite de conexiones HTTP por origen del navegador se respeta naturalmente p
 
 ### Adaptación del Cliente
 
-El cliente de carga mide el tiempo de finalización del fragmento, reintentos, tiempos de espera, y pistas de la API de Información de Red cuando están disponibles. Envía esas entradas a `/file/upload/init` y `/file/upload/renegotiate`; el servidor responde con una ventana paralela actual y una ventana máxima. Las finalizaciones limpias aumentan la ventana activa rápidamente hasta el máximo negociado, mientras que los fallos la reducen de una ranura a la vez. Un watchdog aborta y reanuda una carga bloqueada desde el bitmap del servidor en lugar de dejar la transferencia atascada.
+El cliente de carga mide el tiempo de finalización del fragmento, reintentos, tiempos de espera, y pistas de la API de Información de Red cuando están disponibles. Envía esas entradas a `/file/upload/init` y `/file/upload/renegotiate`; el servidor responde con una ventana paralela actual y una ventana máxima. Las finalizaciones limpias aumentan la ventana activa rápidamente hasta el máximo negociado, mientras que los fallos transitorios ya no colapsan por debajo de un piso de paralelismo pequeño. El respaldo AES-GCM también se ejecuta dentro de la ventana adaptativa. Un watchdog aborta y reanuda una carga bloqueada desde el bitmap del servidor en lugar de dejar la transferencia atascada.
 
 La descarga usa el mismo sesgo de alto rendimiento: el handshake lleva la pista de tamaño de fragmento preferida del cliente, y las descargas activas aumentan el `span` y el paralelismo después de grupos de fragmentos exitosos. Las lecturas cortas, tiempos de espera y errores de red se reencolan por índice de fragmento; un grupo fallido no falla toda la descarga hasta que el mismo fragmento haya agotado un alto presupuesto de reintentos.
 
@@ -229,7 +229,7 @@ TASFA no predice bytes de texto plano ni confía en contenidos de fragmentos pre
 S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 ```
 
-`S_hat` se limita a `[0, 1]` y se usa solo como señal de guardia para el siguiente fragmento. Una calidad predicha alta mantiene la ruta normal y permite que la ventana adaptativa crezca. Una calidad predicha media-baja marca el siguiente fragmento como `guarded`, reduciendo la ventana paralela activa en uno antes del despacho. Una calidad predicha muy baja marca el siguiente fragmento de carga para el fallback serializado AES-GCM, o reduce el `span` y el paralelismo de descarga antes de emitir el siguiente grupo de rangos. Esta es una defensa de congestión y fallo prospectiva, no un oráculo criptográfico.
+`S_hat` se limita a `[0, 1]` y se usa solo como señal de guardia para el siguiente fragmento. Una calidad predicha alta mantiene la ruta normal y permite que la ventana adaptativa crezca. Una calidad predicha media-baja marca el siguiente fragmento como `guarded`, reduciendo la ventana paralela activa en uno antes del despacho. Una calidad predicha muy baja marca el siguiente fragmento de carga para el fallback AES-GCM paralelo, o reduce el `span` y el paralelismo de descarga antes de emitir el siguiente grupo de rangos. Esta es una defensa de congestión y fallo prospectiva, no un oráculo criptográfico.
 
 ## Modelo de Almacenamiento
 

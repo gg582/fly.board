@@ -39,7 +39,7 @@ static void set_default(void) {
     g_config.use_rss = false;
     g_config.max_upload_size = 1024LL * 1024LL * 1024LL;
     g_config.max_total_parallel_uploads = 8;
-    g_config.max_upload_parallel_chunks = 16;
+    g_config.max_upload_parallel_chunks = 32;
 }
 
 static void trim_newline(char *s) {
@@ -65,6 +65,7 @@ bool blog_config_load(const char *path) {
             fprintf(f, "blog_logo=%s\n", g_config.blog_logo);
             fprintf(f, "boards_img=%s\n", g_config.boards_img);
             fprintf(f, "files_img=%s\n", g_config.files_img);
+            fprintf(f, "favicon=%s\n", g_config.favicon);
             fprintf(f, "root_url=%s\n", g_config.root_url);
             fprintf(f, "use_tasfa=%s\n", g_config.use_tasfa ? "true" : "false");
             fprintf(f, "use_rss=%s\n", g_config.use_rss ? "true" : "false");
@@ -102,6 +103,8 @@ bool blog_config_load(const char *path) {
             snprintf(g_config.boards_img, sizeof(g_config.boards_img), "%s", val);
         } else if (strcmp(key, "files_img") == 0) {
             snprintf(g_config.files_img, sizeof(g_config.files_img), "%s", val);
+        } else if (strcmp(key, "favicon") == 0) {
+            snprintf(g_config.favicon, sizeof(g_config.favicon), "%s", val);
         } else if (strcmp(key, "root_url") == 0) {
             snprintf(g_config.root_url, sizeof(g_config.root_url), "%s", val);
         } else if (strcmp(key, "use_tasfa") == 0) {
@@ -124,6 +127,6 @@ bool blog_config_load(const char *path) {
     if (g_config.port <= 0 || g_config.port > 65535) g_config.port = 8443;
     if (g_config.max_upload_size <= 0) g_config.max_upload_size = 1024LL * 1024LL * 1024LL;
     g_config.max_total_parallel_uploads = clamp_int_config(g_config.max_total_parallel_uploads, 1, 64);
-    g_config.max_upload_parallel_chunks = clamp_int_config(g_config.max_upload_parallel_chunks, 1, 32);
+    g_config.max_upload_parallel_chunks = clamp_int_config(g_config.max_upload_parallel_chunks, 1, 64);
     return true;
 }

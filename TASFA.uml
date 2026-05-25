@@ -4,102 +4,253 @@ skinparam backgroundColor #FEFEFE
 skinparam sequenceArrowThickness 2
 skinparam sequenceParticipantBorderThickness 2
 skinparam BoxBorderThickness 2
+skinparam MaxMessageSize 120
+hide footbox
 
-participant Client
+actor "Browser Client" as Client
+participant "FileUploadQueue\none active file" as Queue
+participant "Upload Worker\nHTTP/XHR" as Uploader
+participant "Download Worker\nHTTP/XHR" as Downloader
 
 box "TASFA Server" #F8F8F8
-    participant API
-    participant HTP
-    participant Storage
+    participant "Upload API" as UploadAPI
+    participant "Download API" as DownloadAPI
+    participant "HTP Engine\nserver-authoritative" as HTP
+    participant "Predictor\nRTT + guard signals" as Predictor
+    database "Storage\nupload.bin.part\nmeta.*\nstate.*\nhtp.bin" as Storage
 end box
 
-== Upload Init ==
+== Routes ==
 
-Client -> API: POST /file/upload/init
-API --> Client: upload_id, token, chunk_size, modulus_M
+note over Client,DownloadAPI
+Upload:
+POST /file/upload/init
+POST /file/upload/status
+POST /file/upload/renegotiate
+POST /file/upload
+POST /file/upload/complete
+POST /file/upload/cancel
 
-== Parallel Chunk Upload ==
+Download:
+GET /file/download/:id/handshake
+GET /file/download/:id/chunk/:chunk_index
+GET /assets/tasfa/img/:filename/handshake
+GET /assets/tasfa/img/:filename/chunk/:chunk_index
+GET /assets/tasfa/uploads/:filename/handshake
+GET /assets/tasfa/uploads/:filename/chunk/:chunk_index
+end note
 
-loop For each chunk
-    Client -> API: POST /file/upload
-    note right
-      Headers:
-      X-TASFA-Chunk-Index
-      Hash-Tag
-      Raw-Scalar
-      Magic-Scalar
-    end note
+== File-Level Sequential Upload Queue ==
 
-    API -> Storage: pwrite(chunk_data)
-    API -> HTP: save_htp_scalar(chunk_index)
-    API --> Client: 204 Accepted
-end
+Client -> Queue: select one or more files
+Queue -> Queue: create asset, preview card,\nand HTP session per file
+Client -> Queue: Upload queued files
+Queue -> Uploader: start first pending file
+note right of Queue
+Only one file uploads at a time.
+The next file starts after the active
+file succeeds or fails.
+end note
 
-== Completion Request ==
+== Upload Session Init ==
 
-Client -> API: POST /file/upload/complete
-API -> HTP: load all scalars
-HTP -> HTP: validate Level-0 6-slot groups
+Uploader -> UploadAPI: POST /file/upload/init\n(file metadata, link hints)
+UploadAPI -> Storage: preallocate upload.bin.part\ncreate meta.*, state.*, htp.bin
+UploadAPI --> Uploader: upload_id, token, chunk_size,\ncurrent_parallel_chunks, max_parallel_chunks,\ndispatch_pacing_ms, modulus_M
+note right of Uploader
+chunk_size is a session contract because it
+defines chunk_index * chunk_size file offsets.
+Learned chunk-size hints apply to the next
+TASFA session.
+end note
 
-alt All groups pass
-    HTP --> API: validation OK
-    API -> Storage: sha256_file()
-    API -> Storage: finalize commit
-    API --> Client: 200 OK\n(file_id, url, checksum)
+== Chunk Preparation and Upload ==
 
-else Some groups fail
+loop For each plaintext chunk
+    Uploader -> Uploader: SHA-512(plaintext chunk)\nraw_scalar = first_8_bytes % M
 
-    HTP -> HTP: derive suspicion scores per slot
-    HTP -> HTP: evaluate repair threshold
-
-    alt Contraction worthwhile
-
-        HTP -> HTP: build Level-1 group aggregates
-        HTP -> HTP: validate contracted topology
-
-        alt Contraction narrows suspects
-            HTP --> API: retry_targets=[c14,c15]\ncontraction_level=1
-
-        else Contraction inconclusive
-            HTP --> API: retry_targets=all suspects\ncontraction_level=1
-        end
-
-    else Direct retry cheaper
-        HTP --> API: retry_targets=all suspects\ncontraction_level=0
+    group Complete 6-slot HTP group
+        Uploader -> Uploader: compute L1,L2,L3\nbalance only v3 and v5
     end
 
-    API --> Client: 409 needs_retry
-    note right
-      htp_status: needs_retry
-      retry_targets: [...]
-      suspicion_scores: [...]
+    note right of Uploader
+    The last partial chunk is sent once with its
+    exact byte range. No padding or splitting.
+
+    Incomplete final 6-slot groups are excluded
+    from HTP validation; they are never padded.
     end note
+
+    Uploader -> Predictor: Wynn/Aitken guard from quality samples
+    alt Very low predicted quality
+        Uploader -> Uploader: send this chunk through\nparallel AES-256-GCM fallback
+    else Normal or guarded path
+        Uploader -> Uploader: use adaptive parallel window\n(trim one slot when guarded)
+    end
+
+    Uploader -> UploadAPI: POST /file/upload\nchunk bytes
+    note right
+      Headers:
+      X-TASFA-Upload-ID
+      X-TASFA-Upload-Token
+      X-TASFA-Chunk-Index
+      X-TASFA-Hash-Tag
+      X-TASFA-Raw-Scalar
+      X-TASFA-Magic-Scalar
+      optional X-TASFA-Stream-Mode: aes-256-gcm
+      optional X-TASFA-Chunk-RTT
+    end note
+
+    UploadAPI -> Storage: check dense bitmap state.bin
+    alt New chunk or server retry target
+        UploadAPI -> Storage: pwrite(chunk, chunk_index * chunk_size)\nwrite one bitmap byte in state.bin
+        UploadAPI -> HTP: store hash_tag, raw_scalar,\nand magic_scalar in htp.bin
+        UploadAPI -> Predictor: add RTT sample if supplied
+        UploadAPI --> Uploader: 204 Accepted
+    else Duplicate chunk not in retry_targets
+        UploadAPI --> Uploader: reject replay / duplicate
+    end
 end
 
-== Retransmission ==
+== Upload Adaptation ==
 
-loop For each retry target
-    Client -> API: POST /file/upload (retransmit)
+Uploader -> UploadAPI: POST /file/upload/status\nor POST /file/upload/renegotiate
+UploadAPI -> Predictor: Lagrange tail RTT extrapolation\n(max 8 samples, clipped to 30s)
+Predictor --> UploadAPI: predicted_remaining_ms\nparallel window recommendation
+UploadAPI --> Uploader: current_parallel_chunks,\nmax_parallel_chunks,\npredicted_remaining_ms
+Uploader -> Uploader: increase window after clean completions\nreduce one slot after failures
 
-    API -> Storage: overwrite chunk
-    API -> HTP: replace scalar
-    API --> Client: 204 Accepted
+== Runtime Baselines ==
+
+note over Uploader,Downloader
+Upload chunk size: 24 MiB desktop, 12 MiB mobile.
+Upload chunk-size hint range: 4 MiB minimum,
+up to 48 MiB desktop or 24 MiB mobile.
+
+Download chunk size: 2 MiB desktop, 1 MiB mobile,
+up to 16 MiB when the client hints a larger session.
+
+Default browser upload parallelism is 16.
+Upload and download maximum windows are server-defined
+or backed by blog.settings.
+Upload XHR timeout is adaptive and at least 180s.
+Upload session fetch timeout is 30s.
+end note
+
+== Completion and Server-Authoritative HTP ==
+
+Uploader -> UploadAPI: POST /file/upload/complete
+UploadAPI -> Storage: count received chunks from state.bin
+
+alt Some chunks are still missing
+    UploadAPI --> Uploader: not finalized; missing chunks remain
+else All chunks received
+    UploadAPI -> HTP: load magic_scalars from htp.bin
+    HTP -> HTP: validate only complete\n6-slot groups
+
+    alt All complete groups pass
+        HTP --> UploadAPI: validation OK
+        UploadAPI -> Storage: SHA-256 finalization\ncommit file and store delete PIN hash
+        UploadAPI --> Uploader: 200 OK\nfile_id, url, checksum, delete_pin
+        Uploader -> Queue: mark active file complete
+        Queue -> Uploader: start next queued file
+
+    else One or more groups fail
+        HTP -> HTP: derive per-slot suspicion scores\nscore = in_fail / total_fail
+        note right of HTP
+        Slot line coverage:
+        v0: L1,L3
+        v1: L1
+        v2: L1,L2
+        v3: L2
+        v4: L2,L3
+        v5: L3
+
+        Slots that only appear in passing equations
+        are cleared from the suspect list.
+        end note
+
+        HTP -> HTP: evaluate repair_worthwhile\nat least 3 suspects and retry_cost exceeds repair_cost
+
+        alt Direct retry is cheaper
+            HTP --> UploadAPI: retry_targets = all suspects\ncontraction_level = 0
+        else Repair is worthwhile
+            HTP -> HTP: contract each level-0 group to\naggregate = (r12 * r23) % M
+            HTP -> HTP: form higher-level 6-slot groups\nand re-evaluate line invariants
+
+            alt Contraction narrows suspects
+                HTP --> UploadAPI: narrowed retry_targets\ncontraction_level += 1
+            else Contraction inconclusive
+                HTP --> UploadAPI: original suspects\ncontraction_level += 1
+            end
+        end
+
+        UploadAPI -> Storage: persist retry_targets,\nsuspicion_scores, contraction_level
+        UploadAPI --> Uploader: 409 needs_retry\nretry_targets, suspicion_scores,\ncontraction_level, retry_reason
+    end
 end
 
-== Re-Validation ==
+== Retry Target Retransmission ==
 
-Client -> API: POST /file/upload/complete
-API -> HTP: validate fresh topology
+loop For each server-issued retry target
+    Uploader -> UploadAPI: POST /file/upload\n(retransmit chunk)
+    UploadAPI -> Storage: confirm chunk_index is in\nhtp_retry_targets
+    UploadAPI -> Storage: overwrite chunk bytes\nand update bitmap
+    UploadAPI -> HTP: replace hash_tag, raw_scalar,\nand magic_scalar
+    UploadAPI -> Storage: remove chunk from retry_targets
+    UploadAPI --> Uploader: 204 Accepted
+end
+
+Uploader -> UploadAPI: POST /file/upload/complete
+UploadAPI -> HTP: revalidate current topology
 
 alt Pass
-    HTP --> API: validation OK
-    API -> Storage: commit file
-    API --> Client: 200 OK\n(file_id, url, checksum, delete_pin)
-
+    HTP --> UploadAPI: validation OK
+    UploadAPI -> Storage: commit file
+    UploadAPI --> Uploader: 200 OK\nfile_id, url, checksum, delete_pin
 else Still failing
-    HTP -> HTP: next contraction or retry escalation
-    HTP --> API: narrowed retry_targets
-    API --> Client: 409 needs_retry
+    HTP -> HTP: next contraction pass\nor direct retry escalation
+    HTP --> UploadAPI: retry_targets
+    UploadAPI --> Uploader: 409 needs_retry
 end
+
+== Download Protocol ==
+
+Client -> Downloader: request download
+Downloader -> DownloadAPI: GET .../handshake\npreferred chunk-size hint
+DownloadAPI --> Downloader: session_id, session_token,\nchunk_size, chunk_count,\nconcurrency hints
+
+loop Adaptive chunk groups
+    Downloader -> DownloadAPI: GET .../chunk/:chunk_index\n?span=N&chunk_rtt_ms=...
+    DownloadAPI -> Storage: read contiguous chunk range
+    DownloadAPI -> Predictor: add RTT sample\nestimate remaining time
+    DownloadAPI --> Downloader: chunk bytes\nX-TASFA-Predicted-Remaining-Ms
+    Downloader -> Downloader: requeue short reads,\ntimeouts, and network errors by chunk index
+    Downloader -> Downloader: grow span and parallelism\nafter successful chunk groups
+end
+
+Downloader -> Client: assemble one contiguous buffer
+
+== Storage and Hardening ==
+
+note over UploadAPI,Storage
+Upload session files:
+data/tasfa/uploads/{upload_id}/upload.bin.part
+data/tasfa/uploads/{upload_id}/meta.json
+data/tasfa/uploads/{upload_id}/meta.bin
+data/tasfa/uploads/{upload_id}/state.json
+data/tasfa/uploads/{upload_id}/state.bin
+data/tasfa/uploads/{upload_id}/htp.bin
+
+There is no blocks.bin or chunk_counts.bin.
+Chunk completion is one O(1) bitmap byte per chunk.
+
+Upload IDs and tokens are random hex strings.
+Session locks use flock to prevent racing bitmap writes.
+
+Session metadata stores hash_tags, raw_scalars,
+magic_scalars, htp_retry_targets,
+htp_suspicion_scores, and htp_contraction_level.
+end note
 
 @enduml

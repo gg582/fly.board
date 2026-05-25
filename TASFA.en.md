@@ -24,7 +24,7 @@ Download:
 
 ## Upload Protocol
 
-The browser negotiates an upload session first, then sends **chunks** (default `16 MiB`, mobile `8 MiB`) with TASFA headers:
+The browser negotiates an upload session first, then sends **chunks** (default `24 MiB`, mobile `12 MiB`) with TASFA headers:
 
 - `X-TASFA-Upload-ID`
 - `X-TASFA-Upload-Token`
@@ -34,7 +34,7 @@ The browser negotiates an upload session first, then sends **chunks** (default `
 
 The server writes each chunk directly to the preallocated temp file at `chunk_index * chunk_size`. There are no transport blocks anymore.
 
-If a normal chunk repeatedly fails, the browser serializes that failed chunk through an AES-256-GCM fallback request with `X-TASFA-Stream-Mode: aes-256-gcm`. The fallback still carries the same HTP hash tag and balanced scalar headers.
+If a normal chunk repeatedly fails, the browser sends that failed chunk through an AES-256-GCM fallback request with `X-TASFA-Stream-Mode: aes-256-gcm`. The server accepts the ciphertext plus the GCM authentication tag, and fallback chunks remain inside the adaptive parallel window. The fallback still carries the same HTP hash tag and balanced scalar headers.
 
 ### Remainder (last partial chunk)
 
@@ -203,14 +203,14 @@ This prevents browser connection pool exhaustion and keeps stall detection relia
 
 ## Runtime Settings
 
-- upload chunk size: `16 MiB` desktop, `8 MiB` mobile
-- adaptive upload chunk-size hint: `4 MiB` minimum, up to `32 MiB` desktop / `16 MiB` mobile
-- download chunk size: `1 MiB` desktop, `512 KiB` mobile, up to `8 MiB` when the client hints a larger session
-- default browser upload parallelism: `12`
+- upload chunk size: `24 MiB` desktop, `12 MiB` mobile
+- adaptive upload chunk-size hint: `4 MiB` minimum, up to `48 MiB` desktop / `24 MiB` mobile
+- download chunk size: `2 MiB` desktop, `1 MiB` mobile, up to `16 MiB` when the client hints a larger session
+- default browser upload parallelism: `16`
 - max browser upload parallelism: `max_upload_parallel_chunks` in `blog.settings`
 - max concurrent upload sessions: `max_total_parallel_uploads` in `blog.settings`
 - max upload size: `max_upload_size` in `blog.settings`
-- max browser download sessions: server-defined, currently up to `32` chunk requests per session
+- max browser download sessions: server-defined, currently up to `48` chunk requests per session
 - upload xhr timeout: adaptive by chunk size, at least `180 s`
 - upload session fetch timeout: `30 s`
 
@@ -218,7 +218,7 @@ TASFA is tuned for general high-bandwidth server deployments, not an embedded/ae
 
 ### Client adaptation
 
-The upload client measures chunk completion time, retries, timeouts, and Network Information API hints when available. It sends those inputs to `/file/upload/init` and `/file/upload/renegotiate`; the server answers with a current parallel window and max window. Clean completions increase the active window quickly up to the negotiated max, while failures reduce it by one slot at a time. A watchdog aborts and resumes a stalled upload from the server bitmap instead of leaving the transfer stuck.
+The upload client measures chunk completion time, retries, timeouts, and Network Information API hints when available. It sends those inputs to `/file/upload/init` and `/file/upload/renegotiate`; the server answers with a current parallel window and max window. Clean completions increase the active window quickly up to the negotiated max, while transient failures no longer collapse below a small parallelism floor. AES-GCM fallback also runs inside the adaptive window. A watchdog aborts and resumes a stalled upload from the server bitmap instead of leaving the transfer stuck.
 
 Download uses the same high-throughput bias: the handshake carries the client's preferred chunk-size hint, and active downloads grow `span` and parallelism after successful chunk groups. Short reads, timeouts, and network errors are requeued by chunk index; a failed group does not fail the whole download until the same chunk has exhausted a high retry budget.
 
@@ -239,7 +239,7 @@ TASFA does not predict plaintext bytes or trust predicted chunk contents. Predic
 S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 ```
 
-`S_hat` is clamped to `[0, 1]` and used only as a guard signal for the next chunk. High predicted quality keeps the normal path and lets the adaptive window grow. Medium-low predicted quality marks the next chunk as `guarded`, trimming the active parallel window by one before dispatch. Very low predicted quality marks the next upload chunk for serialized AES-GCM fallback, or trims download `span` and parallelism before issuing the next range group. This is a forward-looking congestion and failure defense, not a cryptographic oracle.
+`S_hat` is clamped to `[0, 1]` and used only as a guard signal for the next chunk. High predicted quality keeps the normal path and lets the adaptive window grow. Medium-low predicted quality marks the next chunk as `guarded`, trimming the active parallel window by one before dispatch. Very low predicted quality marks the next upload chunk for parallel-capable AES-GCM fallback, or trims download `span` and parallelism before issuing the next range group. This is a forward-looking congestion and failure defense, not a cryptographic oracle.
 
 ## Storage Model
 
