@@ -142,6 +142,7 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
     res->use_file_stream = true;
     res->file_stream_fd = fd;
     res->file_stream_auto_close = true;
+    cwist_sstring_assign(res->body, "");
 
     if (is_range) {
         res->status_code = (cwist_http_status_t)206;
@@ -427,15 +428,14 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     snprintf(disp, sizeof(disp), "%s; filename=\"%s\"", is_image ? "inline" : "attachment", filename);
     cwist_http_header_add(&res->headers, "Content-Disposition", disp);
 
+    db_file_increment_download(req->db, atoi(id_str));
+    cJSON_Delete(file);
+
     bool not_modified = false;
     if (!send_cached_file_response(req, res, path, mime, is_image ? IMAGE_CACHE_CONTROL : FILE_CACHE_CONTROL, &not_modified)) {
-        cJSON_Delete(file);
         send_upload_not_found(res);
         return;
     }
-
-    if (!not_modified) db_file_increment_download(req->db, atoi(id_str));
-    cJSON_Delete(file);
 }
 
 void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
