@@ -39,7 +39,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
         cwist_sstring_append(b, ";filter:");
         cwist_sstring_append(b, logo_filter);
     }
-    cwist_sstring_append(b, "'><h1>");
+    cwist_sstring_append(b, "' onerror=\"this.style.display='none';this.onerror=null;\"><h1>");
     cwist_sstring_append_escaped(b, g_config.title);
     cwist_sstring_append(b, "</h1><p");
     if (has_boards_bg) cwist_sstring_append(b, " style='opacity:0.85'");

@@ -416,6 +416,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(footer_logo, "alt", "Logo");
     cwist_html_element_add_attr(footer_logo, "width", "24");
     cwist_html_element_add_attr(footer_logo, "height", "16");
+    cwist_html_element_add_attr(footer_logo, "onerror", "this.style.display='none';this.onerror=null;");
     cwist_html_element_add_class(footer_logo, "footer-logo");
     cwist_html_element_add_child(footer_content, footer_logo);
 

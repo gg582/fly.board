@@ -141,7 +141,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cwist_sstring_append(b, ";filter:");
             cwist_sstring_append(b, logo_filter);
         }
-        cwist_sstring_append(b, "' fetchpriority='high'>");
+        cwist_sstring_append(b, "' fetchpriority='high' onerror=\"this.style.display='none';this.onerror=null;\">");
         if (!board_slug || !board_slug[0]) {
             cwist_sstring_append(b, "<h1>");
             cwist_sstring_append_escaped(b, g_config.title);
