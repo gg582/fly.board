@@ -39,9 +39,19 @@ static bool request_cache_fresh(cwist_http_request *req, const char *etag, const
     return false;
 }
 
+struct mmap_ctx {
+    void *addr;
+    size_t len;
+};
+
 static void mmap_cleanup(const void *ptr, size_t len, void *ctx) {
-    (void)ctx;
-    munmap((void *)ptr, len);
+    (void)ptr;
+    (void)len;
+    struct mmap_ctx *mctx = (struct mmap_ctx *)ctx;
+    if (mctx) {
+        munmap(mctx->addr, mctx->len);
+        cwist_free(mctx);
+    }
 }
 
 bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res,
@@ -59,6 +69,7 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
     cwist_http_header_add(&res->headers, "Content-Type", mime ? mime : "application/octet-stream");
     cwist_http_header_add(&res->headers, "Cache-Control", cache_control ? cache_control : FILE_CACHE_CONTROL);
     cwist_http_header_add(&res->headers, "ETag", etag);
+    cwist_http_header_add(&res->headers, "Accept-Ranges", "bytes");
     if (last_modified[0]) cwist_http_header_add(&res->headers, "Last-Modified", last_modified);
 
     if (req->keep_alive) {
@@ -71,6 +82,66 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
         cwist_sstring_assign(res->body, "");
         if (not_modified) *not_modified = true;
         return true;
+    }
+
+    off_t range_start = 0;
+    off_t range_end = st.st_size - 1;
+    bool is_range = false;
+
+    const char *range_hdr = cwist_http_header_get(req->headers, "Range");
+    if (range_hdr && strncmp(range_hdr, "bytes=", 6) == 0) {
+        const char *p = range_hdr + 6;
+        while (*p && isspace((unsigned char)*p)) p++;
+
+        if (*p == '-') {
+            p++;
+            char *end_ptr;
+            long long val = strtoll(p, &end_ptr, 10);
+            if (end_ptr != p && val > 0) {
+                if (val > (long long)st.st_size) {
+                    val = (long long)st.st_size;
+                }
+                range_start = st.st_size - val;
+                range_end = st.st_size - 1;
+                is_range = true;
+            }
+        } else {
+            char *end_ptr;
+            long long start_val = strtoll(p, &end_ptr, 10);
+            if (end_ptr != p && start_val >= 0) {
+                p = end_ptr;
+                while (*p && isspace((unsigned char)*p)) p++;
+                if (*p == '-') {
+                    p++;
+                    while (*p && isspace((unsigned char)*p)) p++;
+                    if (*p == '\0') {
+                        if (start_val < (long long)st.st_size) {
+                            range_start = start_val;
+                            range_end = st.st_size - 1;
+                            is_range = true;
+                        }
+                    } else {
+                        char *end_ptr2;
+                        long long end_val = strtoll(p, &end_ptr2, 10);
+                        if (end_ptr2 != p && end_val >= start_val) {
+                            range_start = start_val;
+                            range_end = (end_val < (long long)st.st_size) ? end_val : (st.st_size - 1);
+                            is_range = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!is_range) {
+            res->status_code = (cwist_http_status_t)416;
+            char content_range[128];
+            snprintf(content_range, sizeof(content_range), "bytes */%lld", (long long)st.st_size);
+            cwist_http_header_add(&res->headers, "Content-Range", content_range);
+            cwist_sstring_assign(res->body, "");
+            if (not_modified) *not_modified = false;
+            return true;
+        }
     }
 
     int fd = open(path, O_RDONLY);
@@ -87,7 +158,28 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
     close(fd);
     if (data == MAP_FAILED) return false;
 
-    cwist_http_response_set_body_ptr_managed(res, data, sz, mmap_cleanup, NULL);
+    struct mmap_ctx *mctx = (struct mmap_ctx *)cwist_alloc(sizeof(struct mmap_ctx));
+    if (!mctx) {
+        munmap(data, sz);
+        return false;
+    }
+    mctx->addr = data;
+    mctx->len = sz;
+
+    if (is_range) {
+        res->status_code = (cwist_http_status_t)206;
+        char content_range[128];
+        snprintf(content_range, sizeof(content_range), "bytes %lld-%lld/%lld",
+                 (long long)range_start, (long long)range_end, (long long)st.st_size);
+        cwist_http_header_add(&res->headers, "Content-Range", content_range);
+        
+        size_t range_len = (size_t)(range_end - range_start + 1);
+        cwist_http_response_set_body_ptr_managed(res, (const char *)data + range_start, range_len, mmap_cleanup, mctx);
+    } else {
+        res->status_code = CWIST_HTTP_OK;
+        cwist_http_response_set_body_ptr_managed(res, data, sz, mmap_cleanup, mctx);
+    }
+
     return true;
 }
 
