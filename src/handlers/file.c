@@ -39,21 +39,6 @@ static bool request_cache_fresh(cwist_http_request *req, const char *etag, const
     return false;
 }
 
-struct mmap_ctx {
-    void *addr;
-    size_t len;
-};
-
-static void mmap_cleanup(const void *ptr, size_t len, void *ctx) {
-    (void)ptr;
-    (void)len;
-    struct mmap_ctx *mctx = (struct mmap_ctx *)ctx;
-    if (mctx) {
-        munmap(mctx->addr, mctx->len);
-        cwist_free(mctx);
-    }
-}
-
 bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res,
                                const char *path, const char *mime,
                                const char *cache_control, bool *not_modified) {
@@ -154,17 +139,9 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
         return true;
     }
 
-    void *data = mmap(NULL, sz, PROT_READ, MAP_PRIVATE, fd, 0);
-    close(fd);
-    if (data == MAP_FAILED) return false;
-
-    struct mmap_ctx *mctx = (struct mmap_ctx *)cwist_alloc(sizeof(struct mmap_ctx));
-    if (!mctx) {
-        munmap(data, sz);
-        return false;
-    }
-    mctx->addr = data;
-    mctx->len = sz;
+    res->use_file_stream = true;
+    res->file_stream_fd = fd;
+    res->file_stream_auto_close = true;
 
     if (is_range) {
         res->status_code = (cwist_http_status_t)206;
@@ -173,11 +150,12 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
                  (long long)range_start, (long long)range_end, (long long)st.st_size);
         cwist_http_header_add(&res->headers, "Content-Range", content_range);
         
-        size_t range_len = (size_t)(range_end - range_start + 1);
-        cwist_http_response_set_body_ptr_managed(res, (const char *)data + range_start, range_len, mmap_cleanup, mctx);
+        res->file_stream_len = (size_t)(range_end - range_start + 1);
+        res->file_stream_offset = range_start;
     } else {
         res->status_code = CWIST_HTTP_OK;
-        cwist_http_response_set_body_ptr_managed(res, data, sz, mmap_cleanup, mctx);
+        res->file_stream_len = sz;
+        res->file_stream_offset = 0;
     }
 
     return true;
