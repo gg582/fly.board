@@ -610,6 +610,9 @@
     }
 
     function setMediaSource(el, baseUrl) {
+        if (el.dataset.tasfaProcessing) return;
+        el.dataset.tasfaProcessing = '1';
+
         if (!baseUrl || el.dataset.tasfaLoaded === '1') return;
         if (el.getAttribute('data-tasfa-skip') === '1') return;
         el.dataset.tasfaLoaded = '1';
@@ -625,10 +628,12 @@
         }).then(function(result) {
             var objectUrl = URL.createObjectURL(result.blob);
             el.src = objectUrl;
+            el.dataset.tasfaLoaded = '1';
         }).catch(function(err) {
             console.error('TASFA media load failed:', baseUrl, err);
             el.setAttribute('data-tasfa-error', '1');
             el.dataset.tasfaLoaded = '';
+            el.dataset.tasfaProcessing = '';
             if (wrap) {
                 var btn = document.createElement('button');
                 btn.className = 'media-load-btn';
@@ -664,6 +669,9 @@
     }
 
     function upgradeMediaElement(el) {
+        if (el.dataset.tasfaProcessing === '1' || el.dataset.tasfaLoaded === '1') return;
+        el.dataset.tasfaProcessing = '1';
+
         if (el.getAttribute('data-tasfa-skip') === '1') return;
         var baseUrl = el.getAttribute('data-tasfa-download') || el.getAttribute('src') || '';
         var path = normalizeUrl(baseUrl);
@@ -765,6 +773,9 @@
     }
 
     function upgradeVideoElement(el) {
+        if (el.dataset.tasfaProcessing) return;
+        el.dataset.tasfaProcessing = '1';
+
         if (el.getAttribute('data-tasfa-skip') === '1') return;
         var baseUrl = el.getAttribute('data-tasfa-download') || el.getAttribute('src') || '';
         var path = normalizeUrl(baseUrl);
@@ -782,7 +793,7 @@
         el.parentNode.insertBefore(wrapper, el);
         wrapper.appendChild(el);
 
-        el.removeAttribute('controls');
+        el.controls = true;
         el.style.width = '100%';
         el.style.height = '100%';
         el.style.display = 'block';
@@ -828,21 +839,10 @@
 
         wrapper.appendChild(overlay);
 
-        function initPlyrInstance() {
-            loadPlyr(function() {
-                var player = new Plyr(el, {
-                    controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
-                    ratio: '16:9'
-                });
-                player.play().catch(function(){});
-            });
-        }
-
         if (isLoaded) {
             overlay.style.opacity = '0';
             overlay.style.visibility = 'hidden';
             overlay.style.pointerEvents = 'none';
-            initPlyrInstance();
         } else {
             var isDownloading = false;
             var startLoad = function(event) {
@@ -870,15 +870,10 @@
                     clearInterval(progressInterval);
                     var objectUrl = URL.createObjectURL(result.blob);
                     el.src = objectUrl;
-                    el.setAttribute('preload', 'auto');
-                    el.load();
-                    el.setAttribute('data-tasfa-loaded', '1');
                     
                     overlay.style.opacity = '0';
                     overlay.style.visibility = 'hidden';
                     overlay.style.pointerEvents = 'none';
-                    
-                    initPlyrInstance();
                 }).catch(function(err) {
                     clearInterval(progressInterval);
                     console.error('TASFA video load failed:', baseUrl, err);
