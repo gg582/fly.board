@@ -2,6 +2,7 @@
 #include "render.h"
 #include "render_internal.h"
 #include "config/config.h"
+#include "utils/utils.h"
 #include "cwist/image_contrast.h"
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
@@ -165,6 +166,9 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             snprintf(sz_buf, sizeof(sz_buf), "%lld", (long long)(sz ? (sz->type == cJSON_String ? atoll(sz->valuestring) : sz->valuedouble) : 0));
             bool can_delete = (user_role && strcmp(user_role, "admin") == 0) || (file_uid > 0 && file_uid == user_id);
             const char *mime = stype && stype->valuestring ? stype->valuestring : "";
+            if (!mime[0] || strcmp(mime, "application/octet-stream") == 0) {
+                mime = mime_type(fname->valuestring);
+            }
             int is_image = (strncmp(mime, "image/", 6) == 0);
             int is_video = (strncmp(mime, "video/", 6) == 0);
             cwist_sstring_append(b, "<article class='card file-repo-card'>");

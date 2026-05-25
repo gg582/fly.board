@@ -2478,6 +2478,16 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
     const char *path = json_string(file, "file_path", "");
     const char *filename = json_string(file, "filename", "download");
     const char *mime = json_string(file, "mime_type", "application/octet-stream");
+    
+    char detected_mime[128] = {0};
+    if (strcmp(mime, "application/octet-stream") == 0) {
+        if (mime_type_from_data(path, detected_mime, sizeof(detected_mime))) {
+            mime = detected_mime;
+        } else {
+            mime = mime_type(filename);
+        }
+    }
+
     struct stat st;
     if (stat(path, &st) != 0 || st.st_size <= 0) {
         cJSON_Delete(file);

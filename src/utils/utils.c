@@ -283,7 +283,7 @@ bool mime_type_from_data(const char *file_path, char *out, size_t out_len) {
 
     const char *mime = magic_file(magic, file_path);
     bool ok = false;
-    if (mime) {
+    if (mime && strcmp(mime, "application/octet-stream") != 0) {
         strncpy(out, mime, out_len - 1);
         out[out_len - 1] = '\0';
         ok = true;

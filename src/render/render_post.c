@@ -88,7 +88,7 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
     snprintf(url, sizeof(url), "/file/download/%d", fid);
 
     if (strcmp(kind, "image") == 0) {
-        cwist_sstring_append(out, "<img data-tasfa-skip=\"1\" src=\"");
+        cwist_sstring_append(out, "<img src=\"");
         cwist_sstring_append(out, url);
         cwist_sstring_append(out, "\" alt=\"");
         cwist_sstring_append_escaped(out, filename);
