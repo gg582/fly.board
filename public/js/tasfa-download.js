@@ -543,6 +543,7 @@
 
     function setMediaSource(el, baseUrl) {
         if (!baseUrl || el.dataset.tasfaLoaded === '1') return;
+        if (el.getAttribute('data-tasfa-skip') === '1') return;
         el.dataset.tasfaLoaded = '1';
         fetchBlobViaTasfa(baseUrl, { silent: true }).then(function(result) {
             var objectUrl = URL.createObjectURL(result.blob);
@@ -578,6 +579,7 @@
     }
 
     function upgradeMediaElement(el) {
+        if (el.getAttribute('data-tasfa-skip') === '1') return;
         var baseUrl = el.getAttribute('data-tasfa-download') || el.getAttribute('src') || '';
         if (!/^\/(file\/download|assets\/img|assets\/uploads)\//.test(baseUrl)) return;
         if (!el.getAttribute('data-tasfa-download')) el.setAttribute('data-tasfa-download', baseUrl);

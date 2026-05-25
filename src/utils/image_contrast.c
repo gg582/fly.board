@@ -110,15 +110,17 @@ typedef struct {
     char bg_style[512];
     char text_style[256];
     char logo_filter[128];
+    char overlay_style[256];
     int valid;
 } style_cache_t;
 
 /* ---------- Public API ---------- */
 
 int get_image_text_style(const char *image_path, const char *image_url,
-                         char *bg_style_out, size_t bg_style_len,
+                         char *shell_style_out, size_t shell_style_len,
                          char *text_style_out, size_t text_style_len,
-                         char *logo_filter_out, size_t logo_filter_len)
+                         char *logo_filter_out, size_t logo_filter_len,
+                         char *overlay_style_out, size_t overlay_style_len)
 {
     static style_cache_t cache = {0};
 
@@ -129,9 +131,10 @@ int get_image_text_style(const char *image_path, const char *image_url,
     }
 
     if (cache.valid && strcmp(cache.path, image_path) == 0 && cache.mtime == mtime) {
-        snprintf(bg_style_out, bg_style_len, "%s", cache.bg_style);
+        snprintf(shell_style_out, shell_style_len, "%s", cache.bg_style);
         snprintf(text_style_out, text_style_len, "%s", cache.text_style);
         snprintf(logo_filter_out, logo_filter_len, "%s", cache.logo_filter);
+        snprintf(overlay_style_out, overlay_style_len, "%s", cache.overlay_style);
         return 0;
     }
 
@@ -139,13 +142,13 @@ int get_image_text_style(const char *image_path, const char *image_url,
     int ok = analyze_image(image_path, &L_left, &L_center, &L_right);
 
     if (ok != 0) {
-        snprintf(bg_style_out, bg_style_len,
-                 "background-image:url('%s?v=%ld');background-size:cover;background-position:center;border-radius:0;margin-bottom:24px",
-                 image_url, (long)mtime);
+        snprintf(shell_style_out, shell_style_len,
+                 "position:relative;border-radius:0;margin-bottom:24px");
         snprintf(text_style_out, text_style_len,
                  "color:#ffffff;text-shadow:0 1px 3px rgba(0,0,0,0.5)");
         snprintf(logo_filter_out, logo_filter_len,
                  "drop-shadow(0 1px 2px rgba(0,0,0,0.5))");
+        snprintf(overlay_style_out, overlay_style_len, "%s", "");
         return -1;
     }
 
@@ -200,10 +203,11 @@ int get_image_text_style(const char *image_path, const char *image_url,
         double overlay_alpha = 0.2 + (deficit / target_contrast) * 0.3; /* 0.2 .. 0.5 */
         int shadow_blur = 3 + (int)((deficit / target_contrast) * 10);   /* 3 .. 13 px */
 
-        snprintf(bg_style_out, bg_style_len,
-                 "background-image:linear-gradient(rgba(0,0,0,%.2f),rgba(0,0,0,%.2f)),url('%s?v=%ld');"
-                 "background-size:cover;background-position:center;border-radius:0;margin-bottom:24px",
-                 overlay_alpha, overlay_alpha, image_url, (long)mtime);
+        snprintf(shell_style_out, shell_style_len,
+                 "position:relative;border-radius:0;margin-bottom:24px");
+        snprintf(overlay_style_out, overlay_style_len,
+                 "background:linear-gradient(rgba(0,0,0,%.2f),rgba(0,0,0,%.2f))",
+                 overlay_alpha, overlay_alpha);
 
         snprintf(text_style_out, text_style_len,
                  "color:%s;text-shadow:0 1px %dpx %s,0 2px %dpx rgba(0,0,0,%.2f)",
@@ -214,9 +218,9 @@ int get_image_text_style(const char *image_path, const char *image_url,
                  "drop-shadow(0 1px 2px %s)", logo_rgba);
     } else {
         /* Sufficient contrast without overlay */
-        snprintf(bg_style_out, bg_style_len,
-                 "background-image:url('%s?v=%ld');background-size:cover;background-position:center;padding:40px 20px 20px;border-radius:0;margin-bottom:24px",
-                 image_url, (long)mtime);
+        snprintf(shell_style_out, shell_style_len,
+                 "position:relative;padding:40px 20px 20px;border-radius:0;margin-bottom:24px");
+        snprintf(overlay_style_out, overlay_style_len, "%s", "");
 
         snprintf(text_style_out, text_style_len,
                  "color:%s;text-shadow:0 1px 3px %s",
@@ -229,9 +233,10 @@ int get_image_text_style(const char *image_path, const char *image_url,
     /* Cache result */
     snprintf(cache.path, sizeof(cache.path), "%s", image_path);
     cache.mtime = mtime;
-    snprintf(cache.bg_style, sizeof(cache.bg_style), "%s", bg_style_out);
+    snprintf(cache.bg_style, sizeof(cache.bg_style), "%s", shell_style_out);
     snprintf(cache.text_style, sizeof(cache.text_style), "%s", text_style_out);
     snprintf(cache.logo_filter, sizeof(cache.logo_filter), "%s", logo_filter_out);
+    snprintf(cache.overlay_style, sizeof(cache.overlay_style), "%s", overlay_style_out);
     cache.valid = 1;
 
     return 0;

@@ -78,25 +78,35 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
 cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, int user_id, const char *profile_pic) {
     cwist_sstring *b = cwist_sstring_create();
     int has_files_bg = g_config.files_img[0];
-    char bg_style[768] = {0};
+    char shell_style[768] = {0};
     char text_style[256] = {0};
+    char overlay_style[256] = {0};
+    char img_url[512] = {0};
     if (has_files_bg) {
         char img_path[512];
-        char img_url[512];
         snprintf(img_path, sizeof(img_path), "public/img/%s", g_config.files_img);
         snprintf(img_url, sizeof(img_url), "/assets/img/%s", g_config.files_img);
         char logo_dummy[64];
-        get_image_text_style(img_path, img_url, bg_style, sizeof(bg_style),
+        get_image_text_style(img_path, img_url, shell_style, sizeof(shell_style),
                              text_style, sizeof(text_style),
-                             logo_dummy, sizeof(logo_dummy));
+                             logo_dummy, sizeof(logo_dummy),
+                             overlay_style, sizeof(overlay_style));
         cwist_sstring_append(b, "<div style=\"");
-        cwist_sstring_append(b, bg_style);
-        cwist_sstring_append(b, ";padding:40px 20px;");
+        cwist_sstring_append(b, shell_style);
+        cwist_sstring_append(b, ";");
         cwist_sstring_append(b, text_style);
         cwist_sstring_append(b, "\">");
+        cwist_sstring_append(b, "<img class='hero-bg' data-tasfa-skip='1' fetchpriority='high' src='");
+        cwist_sstring_append(b, img_url);
+        cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0'>");
+        if (overlay_style[0]) {
+            cwist_sstring_append(b, "<div style=\"position:absolute;inset:0;z-index:1;");
+            cwist_sstring_append(b, overlay_style);
+            cwist_sstring_append(b, "\"></div>");
+        }
     }
     cwist_sstring_append(b, "<div class='hero' ");
-    if (has_files_bg) cwist_sstring_append(b, "style='background:none;padding:0' ");
+    if (has_files_bg) cwist_sstring_append(b, "style='position:relative;z-index:2;background:none;' ");
     cwist_sstring_append(b, "><h1>File Repository</h1><p");
     if (has_files_bg) cwist_sstring_append(b, " style='opacity:0.85'");
     cwist_sstring_append(b, ">Shared files and attachments.</p></div>");

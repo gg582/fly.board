@@ -113,26 +113,36 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id) {
     cwist_sstring *b = cwist_sstring_create();
     int has_home_bg = g_config.home_img[0];
-    char bg_style[768] = {0};
+    char shell_style[768] = {0};
     char text_style[256] = {0};
     char logo_filter[128] = {0};
+    char overlay_style[256] = {0};
+    char img_url[512] = {0};
     if (!board_slug || board_slug[0] == '\0') {
         if (has_home_bg) {
             char img_path[512];
-            char img_url[512];
             snprintf(img_path, sizeof(img_path), "public/img/%s", g_config.home_img);
             snprintf(img_url, sizeof(img_url), "/assets/img/%s", g_config.home_img);
-            get_image_text_style(img_path, img_url, bg_style, sizeof(bg_style),
+            get_image_text_style(img_path, img_url, shell_style, sizeof(shell_style),
                                  text_style, sizeof(text_style),
-                                 logo_filter, sizeof(logo_filter));
-            cwist_sstring_append(b, "<div class='hero-image-shell' style=\"");
-            cwist_sstring_append(b, bg_style);
-            cwist_sstring_append(b, ";padding:40px 20px 20px;");
+                                 logo_filter, sizeof(logo_filter),
+                                 overlay_style, sizeof(overlay_style));
+            cwist_sstring_append(b, "<div style=\"");
+            cwist_sstring_append(b, shell_style);
+            cwist_sstring_append(b, ";");
             cwist_sstring_append(b, text_style);
             cwist_sstring_append(b, "\">");
+            cwist_sstring_append(b, "<img class='hero-bg' data-tasfa-skip='1' fetchpriority='high' src='");
+            cwist_sstring_append(b, img_url);
+            cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0'>");
+            if (overlay_style[0]) {
+                cwist_sstring_append(b, "<div style=\"position:absolute;inset:0;z-index:1;");
+                cwist_sstring_append(b, overlay_style);
+                cwist_sstring_append(b, "\"></div>");
+            }
         }
         cwist_sstring_append(b, "<div class='hero' ");
-        if (has_home_bg) cwist_sstring_append(b, "style='background:none;padding:0' ");
+        if (has_home_bg) cwist_sstring_append(b, "style='position:relative;z-index:2;background:none;' ");
         cwist_sstring_append(b, "><img class='hero-logo' data-tasfa-skip='1' src='/assets/img/");
         if (g_config.blog_logo[0]) cwist_sstring_append_escaped(b, g_config.blog_logo);
         else cwist_sstring_append(b, "logo.png");
@@ -141,7 +151,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cwist_sstring_append(b, ";filter:");
             cwist_sstring_append(b, logo_filter);
         }
-        cwist_sstring_append(b, "' fetchpriority='high' onerror=\"this.style.display='none';this.onerror=null;\">");
+        cwist_sstring_append(b, "' fetchpriority='high'>");
         if (!board_slug || !board_slug[0]) {
             cwist_sstring_append(b, "<h1>");
             cwist_sstring_append_escaped(b, g_config.title);
