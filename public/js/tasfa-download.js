@@ -688,7 +688,14 @@
         overlay.style.justifyContent = 'center';
         overlay.style.gap = '10px';
         overlay.style.padding = '16px';
-        overlay.style.background = 'linear-gradient(180deg, rgba(0,0,0,0.36), rgba(0,0,0,0.62))';
+        var poster = el.getAttribute('poster');
+        if (poster) {
+            overlay.style.backgroundImage = 'linear-gradient(180deg, rgba(0,0,0,0.36), rgba(0,0,0,0.62)), url("' + poster + '")';
+            overlay.style.backgroundSize = 'cover';
+            overlay.style.backgroundPosition = 'center';
+        } else {
+            overlay.style.background = 'linear-gradient(180deg, rgba(0,0,0,0.36), rgba(0,0,0,0.62))';
+        }
         overlay.style.color = '#fff';
         overlay.style.zIndex = '2';
 

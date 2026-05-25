@@ -58,6 +58,26 @@ static bool extract_download_id_from_anchor_tag(const char *tag, int *out_id) {
     return false;
 }
 
+static bool extract_download_id_from_img_tag(const char *tag, int *out_id) {
+    const char *p = strstr(tag, "src=\"");
+    if (!p) return false;
+    p += 5;
+    if (strncmp(p, "/file/download/", 15) != 0) return false;
+    p += 15;
+    if (!isdigit((unsigned char)*p)) return false;
+    int id = 0;
+    while (isdigit((unsigned char)*p)) {
+        if (id > 214748364) return false;
+        id = id * 10 + (*p - '0');
+        p++;
+    }
+    if (id > 0) {
+        *out_id = id;
+        return true;
+    }
+    return false;
+}
+
 static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int fid, const char *kind) {
     cJSON *jname = cJSON_GetObjectItem(file, "filename");
     const char *filename = jname && jname->valuestring ? jname->valuestring : "";
@@ -73,7 +93,17 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
     } else if (strcmp(kind, "video") == 0) {
         cwist_sstring_append(out, "<video data-tasfa-download=\"");
         cwist_sstring_append(out, url);
-        cwist_sstring_append(out, "\" style=\"max-width:100%;height:auto;display:block\" muted playsinline preload=\"metadata\" controls></video>");
+        cwist_sstring_append(out, "\" ");
+        cJSON *jthumb = cJSON_GetObjectItem(file, "thumb_path");
+        if (jthumb && jthumb->valuestring && jthumb->valuestring[0]) {
+            const char *tp = jthumb->valuestring;
+            if (strncmp(tp, "public/uploads/", 15) == 0) {
+                cwist_sstring_append(out, "poster=\"/assets/uploads/");
+                cwist_sstring_append(out, tp + 15);
+                cwist_sstring_append(out, "\" ");
+            }
+        }
+        cwist_sstring_append(out, "style=\"max-width:100%;height:auto;display:block\" muted playsinline preload=\"metadata\" controls></video>");
     } else if (strcmp(kind, "audio") == 0) {
         cwist_sstring_append(out, "<audio data-tasfa-download=\"");
         cwist_sstring_append(out, url);
@@ -110,6 +140,26 @@ static void upgrade_markdown_file_links_to_media(cwist_sstring *html, cJSON *fil
                             i = (size_t)((close + 4) - data);
                             continue;
                         }
+                    }
+                }
+            }
+        } else if (i + 4 <= len && strncmp(data + i, "<img", 4) == 0) {
+            const char *tag_end = strchr(data + i, '>');
+            if (tag_end) {
+                size_t tag_len = (size_t)(tag_end - (data + i)) + 1;
+                char tag[2048];
+                size_t copy_len = tag_len < sizeof(tag) ? tag_len : sizeof(tag) - 1;
+                memcpy(tag, data + i, copy_len);
+                tag[copy_len] = '\0';
+
+                int fid = 0;
+                if (extract_download_id_from_img_tag(tag, &fid)) {
+                    cJSON *file = find_render_file_by_id(files, fid);
+                    const char *kind = render_file_media_kind(file);
+                    if (kind[0] && strcmp(kind, "image") != 0) {
+                        append_inline_media_from_file(out, file, fid, kind);
+                        i = (size_t)((tag_end + 1) - data);
+                        continue;
                     }
                 }
             }
@@ -680,7 +730,13 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 } else if (is_video) {
                     cwist_sstring_append(b, "<video data-tasfa-download='/file/download/");
                     cwist_sstring_append(b, fid_buf2);
-                    cwist_sstring_append(b, "' style='max-width:100%;height:auto;display:block' muted playsinline preload='metadata' controls></video>");
+                    cwist_sstring_append(b, "' ");
+                    if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
+                        cwist_sstring_append(b, "poster='/assets/uploads/");
+                        cwist_sstring_append(b, thumb_path + 15);
+                        cwist_sstring_append(b, "' ");
+                    }
+                    cwist_sstring_append(b, "style='max-width:100%;height:auto;display:block' muted playsinline preload='metadata' controls></video>");
                     cwist_sstring_append(b, "<div style='margin-top:8px;font-size:13px;word-break:break-all'>");
                     cwist_sstring_append_escaped(b, fname->valuestring);
                     cwist_sstring_append(b, "</div>");

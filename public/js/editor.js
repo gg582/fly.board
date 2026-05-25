@@ -647,6 +647,31 @@
     function applyInline(text) {
         var html = escapeHtml(text);
         html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g, function(_, alt, src, title) {
+            var isVideo = /\.(mp4|mov|mkv|webm|avi|m4v)(\?.*)?$/i.test(src);
+            var poster = '';
+            
+            if (src.indexOf('/file/download/') === 0) {
+                var fidStr = src.split('/').pop();
+                var fid = parseInt(fidStr);
+                var asset = AssetRegistry.find(function(a) { return a.fid === fid; });
+                if (asset) {
+                    if (asset.mime_type && asset.mime_type.indexOf('video/') === 0) isVideo = true;
+                    if (asset.thumb_path) poster = asset.thumb_path;
+                }
+            }
+
+            if (isVideo) {
+                var vattrs = "style='max-width:100%;height:auto;display:block' muted playsinline preload='metadata' controls";
+                if (poster && poster.indexOf('public/uploads/') === 0) {
+                    vattrs += " poster='/assets/uploads/" + escapeHtml(poster.slice(15)) + "'";
+                }
+                if (src.indexOf('/file/download/') === 0) {
+                    vattrs = "data-tasfa-download='" + escapeHtml(src) + "' " + vattrs;
+                    return "<video " + vattrs + "></video>";
+                }
+                return "<video src='" + escapeHtml(src) + "' " + vattrs + "></video>";
+            }
+
             var attrs = "src='" + escapeHtml(src) + "' alt='" + escapeHtml(alt) + "' loading='lazy'";
             if (title) attrs += " title='" + escapeHtml(title) + "'";
             return "<img " + attrs + ">";
@@ -1369,6 +1394,8 @@
         asset.blob_url = response.url || '';
         asset.filename = response.filename || asset.filename;
         asset.mime_type = response.mime_type || asset.mime_type || '';
+        asset.thumb_path = response.thumb_path || '';
+        asset.preview_path = response.preview_path || '';
         asset.deletePin = response.delete_pin || '';
         asset.isUploading = false;
         asset.failed = false;

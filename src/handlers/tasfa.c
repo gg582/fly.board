@@ -2307,6 +2307,12 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     snprintf(url, sizeof(url), "/file/download/%d", fid);
     cJSON_AddStringToObject(obj, "url", url);
     cJSON_AddStringToObject(obj, "blob_url", url);
+    if (thumb_path[0]) {
+        cJSON_AddStringToObject(obj, "thumb_path", thumb_path);
+    }
+    if (preview_path[0]) {
+        cJSON_AddStringToObject(obj, "preview_path", preview_path);
+    }
     cJSON_AddStringToObject(obj, "delete_pin", delete_pin);
     for (int i = 0; i < 32; i++) snprintf(checksum_hex + (i * 2), 3, "%02x", checksum[i]);
     checksum_hex[64] = '\0';
