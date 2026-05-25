@@ -1385,7 +1385,11 @@
         stopTasfaWatchdog(asset);
         asset.isUploading = false;
         asset.failed = true;
-        asset.ui.status.textContent = message;
+        if (message === 'upload too large') {
+            asset.ui.status.textContent = 'Error: File size too large';
+        } else {
+            asset.ui.status.textContent = message;
+        }
         asset.ui.btnDelete.disabled = false;
         asset.xhrs = [];
         updateFileRepoUploadButton();
@@ -1736,7 +1740,14 @@
                         setTimeout(function() { doInit(retries + 1); }, 5000);
                     });
                 }
-                if (!response.ok) throw new Error('init:' + response.status);
+                if (!response.ok) {
+                    return response.json().then(function(payload) {
+                        throw new Error((payload && payload.error) || ('init:' + response.status));
+                    }).catch(function(err) {
+                        if (err && err.message && err.message.indexOf('init:') === 0) throw err;
+                        throw new Error('init:' + response.status);
+                    });
+                }
                 return response.json();
             }).then(function(payload) {
                 if (!payload || payload.queued) return;
