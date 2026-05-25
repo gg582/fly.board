@@ -250,11 +250,18 @@ static void rewrite_tasfa_bootstrap(cwist_sstring *html) {
                         src += 5;
                         if (strncmp(src, "/file/download/", 15) == 0) {
                             char rewritten[3072];
-                            snprintf(rewritten, sizeof(rewritten), "<%s src=\"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7\" data-tasfa-download=\"", tag_name);
-                            cwist_sstring_append(out, rewritten);
                             const char *value_end = strchr(src, '"');
-                            if (value_end) cwist_sstring_append_len(out, src, (size_t)(value_end - src));
-                            cwist_sstring_append(out, "\"");
+                            size_t path_len = value_end ? (size_t)(value_end - src) : strlen(src);
+                            
+                            // Get the download path
+                            char download_path[1024] = {0};
+                            if (path_len < sizeof(download_path)) {
+                                strncpy(download_path, src, path_len);
+                            }
+                            
+                            snprintf(rewritten, sizeof(rewritten), "<%s src=\"%s\" data-tasfa-download=\"%s\"", tag_name, download_path, download_path);
+                            cwist_sstring_append(out, rewritten);
+                            
                             const char *after_name = data + i + strlen(tag_name) + 1;
                             const char *src_pos = strstr(after_name, "src=\"");
                             if (src_pos && src_pos < data + j) {

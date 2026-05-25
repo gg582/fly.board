@@ -794,20 +794,34 @@
         var status = document.createElement('div');
         status.className = 'tasfa-video-status';
         status.textContent = 'Ready to load';
-        status.style.fontSize = '13px';
-        status.style.opacity = '0.9';
+        status.style.fontSize = '14px';
+        status.style.fontWeight = '500';
+        status.style.opacity = '0.95';
+        status.style.textShadow = '0 1px 4px rgba(0,0,0,0.6)';
+        status.style.fontFamily = 'inherit';
 
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'tasfa-video-load-btn';
-        btn.textContent = 'Load video';
+        btn.className = 'tasfa-video-load-btn btn';
+        btn.textContent = 'Play Video';
         btn.style.border = '0';
-        btn.style.borderRadius = '6px';
-        btn.style.padding = '10px 14px';
-        btn.style.background = 'rgba(255,255,255,0.92)';
-        btn.style.color = '#111';
+        btn.style.borderRadius = '20px';
+        btn.style.padding = '10px 22px';
+        btn.style.background = 'var(--accent, #0066cc)';
+        btn.style.color = '#ffffff';
         btn.style.cursor = 'pointer';
         btn.style.fontWeight = '600';
+        btn.style.fontSize = '14px';
+        btn.style.transition = 'transform 0.2s ease, filter 0.2s ease';
+        btn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+        btn.addEventListener('mouseenter', function() {
+            btn.style.transform = 'scale(1.05)';
+            btn.style.filter = 'brightness(1.1)';
+        });
+        btn.addEventListener('mouseleave', function() {
+            btn.style.transform = 'scale(1)';
+            btn.style.filter = 'none';
+        });
 
         var progressContainer = document.createElement('div');
         progressContainer.className = 'tasfa-video-progress';
@@ -823,7 +837,7 @@
         var progressBar = document.createElement('div');
         progressBar.style.width = '0%';
         progressBar.style.height = '100%';
-        progressBar.style.background = 'var(--primary, #4CAF50)';
+        progressBar.style.background = 'var(--accent, #0066cc)';
         progressBar.style.transition = 'width 0.2s linear';
         progressContainer.appendChild(progressBar);
 
@@ -865,6 +879,52 @@
                 el.load();
                 el.setAttribute('data-tasfa-loaded', '1');
                 overlay.style.display = 'none';
+
+                // Video Sane/Damage Playback Recovery Algorithm
+                var lastSaneTime = 0;
+                var recoveryAttempts = 0;
+                el.addEventListener('timeupdate', function() {
+                    if (el.currentTime > 0 && !el.paused && el.readyState >= 2) {
+                        lastSaneTime = el.currentTime;
+                    }
+                });
+
+                el.addEventListener('error', handleVideoDamage);
+                el.addEventListener('stalled', handleVideoDamage);
+
+                function handleVideoDamage(e) {
+                    // Detect potential frame/data corruption stalling
+                    if (recoveryAttempts < 3) {
+                        recoveryAttempts++;
+                        var failedTime = el.currentTime || lastSaneTime;
+                        status.style.display = 'block';
+                        status.textContent = 'Correcting playback...';
+                        
+                        // Calculate matching chunk index for failed timestamp (estimating chunk duration ~5 seconds)
+                        var chunkIndex = Math.max(0, Math.floor(failedTime / 5));
+                        
+                        // Attempt partial chunk re-fetch silently
+                        fetchDownloadSession(baseUrl).then(function(session) {
+                            var testBytes = new Uint8Array(session.chunkSize);
+                            return fetchChunk(baseUrl, session, testBytes, chunkIndex, 1);
+                        }).then(function() {
+                            // Recovered chunk, resume at last sane time
+                            el.currentTime = lastSaneTime;
+                            el.play().catch(function(){});
+                            status.style.display = 'none';
+                        }).catch(function() {
+                            // Fallback to Sane starting point
+                            el.currentTime = lastSaneTime;
+                            el.play().catch(function(){});
+                            status.style.display = 'none';
+                        });
+                    } else {
+                        // Hard reset to last sane timestamp
+                        el.currentTime = lastSaneTime;
+                        el.play().catch(function(){});
+                    }
+                }
+
                 try {
                     var p = el.play();
                     if (p && p.catch) p.catch(function(){});
