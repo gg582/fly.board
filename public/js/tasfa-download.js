@@ -702,6 +702,7 @@
         var path = normalizeUrl(baseUrl);
         if (!/^\/(file\/download|assets\/img|assets\/uploads)\//.test(path)) return;
         
+        if (!el.getAttribute('data-tasfa-download')) el.setAttribute('data-tasfa-download', baseUrl);
         if (el.closest('.media-loading-wrap')) return;
 
         var wrap = document.createElement('div');
@@ -734,7 +735,7 @@
     }
 
     function wrapMediaForDownload(el) {
-        if (el.closest('.media-download-wrap') || el.closest('.media-loading-wrap')) return;
+        if (el.closest('.media-download-wrap') || el.closest('.media-loading-wrap') || el.closest('.plyr-tasfa-wrapper') || el.closest('.plyr')) return;
         var wrap = document.createElement('div');
         wrap.className = 'media-download-wrap';
         el.parentNode.insertBefore(wrap, el);
