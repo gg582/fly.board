@@ -11,6 +11,121 @@
 #include <stdio.h>
 #include <ctype.h>
 
+static const char *post_tasfa_spacer_gif = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+static cJSON *find_render_file_by_id(cJSON *files, int id) {
+    if (!files || id <= 0) return NULL;
+    int n = cJSON_GetArraySize(files);
+    for (int i = 0; i < n; i++) {
+        cJSON *file = cJSON_GetArrayItem(files, i);
+        if (json_int(file, "id", 0) == id) return file;
+    }
+    return NULL;
+}
+
+static const char *render_file_media_kind(cJSON *file) {
+    if (!file) return "";
+    cJSON *jmime = cJSON_GetObjectItem(file, "mime_type");
+    cJSON *jname = cJSON_GetObjectItem(file, "filename");
+    const char *mime = jmime && jmime->valuestring ? jmime->valuestring : "";
+    if ((!mime[0] || strcmp(mime, "application/octet-stream") == 0) && jname && jname->valuestring) {
+        mime = mime_type(jname->valuestring);
+    }
+    if (strncmp(mime, "image/", 6) == 0) return "image";
+    if (strncmp(mime, "video/", 6) == 0) return "video";
+    if (strncmp(mime, "audio/", 6) == 0) return "audio";
+    return "";
+}
+
+static bool extract_download_id_from_anchor_tag(const char *tag, int *out_id) {
+    const char *attrs[] = {"data-tasfa-download-link=\"", "href=\"", "data-tasfa-download-link='", "href='"};
+    for (size_t i = 0; i < sizeof(attrs) / sizeof(attrs[0]); i++) {
+        const char *p = strstr(tag, attrs[i]);
+        if (!p) continue;
+        p += strlen(attrs[i]);
+        if (strncmp(p, "/file/download/", 15) != 0) continue;
+        p += 15;
+        if (!isdigit((unsigned char)*p)) continue;
+        int id = 0;
+        while (isdigit((unsigned char)*p)) {
+            if (id > 214748364) return false;
+            id = id * 10 + (*p - '0');
+            p++;
+        }
+        if (id > 0) {
+            *out_id = id;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int fid, const char *kind) {
+    cJSON *jname = cJSON_GetObjectItem(file, "filename");
+    const char *filename = jname && jname->valuestring ? jname->valuestring : "";
+    char url[64];
+    snprintf(url, sizeof(url), "/file/download/%d", fid);
+
+    if (strcmp(kind, "image") == 0) {
+        cwist_sstring_append(out, "<img data-tasfa-download=\"");
+        cwist_sstring_append(out, url);
+        cwist_sstring_append(out, "\" alt=\"");
+        cwist_sstring_append_escaped(out, filename);
+        cwist_sstring_append(out, "\" loading=\"lazy\" decoding=\"async\" style=\"max-width:100%;height:auto;display:block\" src=\"");
+        cwist_sstring_append(out, post_tasfa_spacer_gif);
+        cwist_sstring_append(out, "\">");
+    } else if (strcmp(kind, "video") == 0) {
+        cwist_sstring_append(out, "<video data-tasfa-download=\"");
+        cwist_sstring_append(out, url);
+        cwist_sstring_append(out, "\" style=\"max-width:100%;height:auto;display:block\" muted playsinline preload=\"metadata\" controls></video>");
+    } else if (strcmp(kind, "audio") == 0) {
+        cwist_sstring_append(out, "<audio data-tasfa-download=\"");
+        cwist_sstring_append(out, url);
+        cwist_sstring_append(out, "\" style=\"width:100%\" controls></audio>");
+    }
+}
+
+static void upgrade_markdown_file_links_to_media(cwist_sstring *html, cJSON *files) {
+    if (!html || !html->data || !files || cJSON_GetArraySize(files) <= 0) return;
+
+    const char *data = html->data;
+    size_t len = strlen(data);
+    cwist_sstring *out = cwist_sstring_create();
+    size_t i = 0;
+
+    while (i < len) {
+        if (i + 2 <= len && strncmp(data + i, "<a", 2) == 0) {
+            const char *tag_end = strchr(data + i, '>');
+            if (tag_end) {
+                size_t tag_len = (size_t)(tag_end - (data + i)) + 1;
+                char tag[2048];
+                size_t copy_len = tag_len < sizeof(tag) ? tag_len : sizeof(tag) - 1;
+                memcpy(tag, data + i, copy_len);
+                tag[copy_len] = '\0';
+
+                int fid = 0;
+                if (extract_download_id_from_anchor_tag(tag, &fid)) {
+                    cJSON *file = find_render_file_by_id(files, fid);
+                    const char *kind = render_file_media_kind(file);
+                    if (kind[0]) {
+                        const char *close = strstr(tag_end + 1, "</a>");
+                        if (close) {
+                            append_inline_media_from_file(out, file, fid, kind);
+                            i = (size_t)((close + 4) - data);
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        cwist_sstring_append_len(out, data + i, 1);
+        i++;
+    }
+
+    cwist_sstring_assign(html, out->data);
+    cwist_sstring_destroy(out);
+}
+
 void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, int depth, int current_user_id, const char *user_role, int target_id) {
     int cid = json_int(comment, "id", 0);
     int comment_user_id = json_int(comment, "user_id", 0);
@@ -513,6 +628,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring *md_html = render_markdown_to_html(content->valuestring);
     cwist_sstring_append(b, "<div class='markdown-body'>");
     if (md_html) {
+        upgrade_markdown_file_links_to_media(md_html, files);
         cwist_sstring_append_sstring(b, md_html);
         cwist_sstring_destroy(md_html);
     }
@@ -543,6 +659,9 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 char fid_buf2[32];
                 snprintf(fid_buf2, sizeof(fid_buf2), "%d", fid->valueint);
                 const char *mime = stype && stype->valuestring ? stype->valuestring : "";
+                if (!mime[0] || strcmp(mime, "application/octet-stream") == 0) {
+                    mime = mime_type(fname->valuestring);
+                }
                 int is_image = (strncmp(mime, "image/", 6) == 0);
                 int is_video = (strncmp(mime, "video/", 6) == 0);
                 int is_audio = (strncmp(mime, "audio/", 6) == 0);
