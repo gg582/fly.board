@@ -343,8 +343,8 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
             out->url, out->filename);
     } else if (strncmp(out->mime_type, "video/", 6) == 0) {
         snprintf(out->html, sizeof(out->html),
-            "<video src=\"%s\" style=\"max-width:100%%;height:auto;display:block\" controls preload=\"metadata\"></video>",
-            out->url);
+            "<div class=\"media-video-placeholder\"><div class=\"media-video-title\">%s</div><div class=\"media-video-frame\"><button type=\"button\" class=\"media-load-btn media-video-open\" data-tasfa-video-link=\"%s\">Click to Load</button></div></div>",
+            out->filename, out->url);
     } else if (strncmp(out->mime_type, "audio/", 6) == 0) {
         snprintf(out->html, sizeof(out->html),
             "<audio controls src=\"%s\"></audio>",

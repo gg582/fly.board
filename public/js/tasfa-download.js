@@ -12,7 +12,7 @@
     var DOWNLOAD_CHUNK_STEP_DOWN = 256 * 1024;
     var DOWNLOAD_REQUEST_BYTES_MAX = 64 * 1024 * 1024;
     var DOWNLOAD_CONNECT_TIMEOUT_MS = 3000;
-    var EMPTY_IMAGE_SRC = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+    /* data: URL은 TASFA 환경에서 수신 불가 — placeholder 미사용 */
     var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
     var objectUrls = new WeakMap();
     var videoPlayerModule = null;
@@ -681,8 +681,10 @@
     }
 
     async function createMediaPlaybackUrl(baseUrl, blob) {
-        var url = stableMediaCacheUrl(baseUrl);
+        /* blob: URL은 TASFA 환경에서 동작하지 않으므로 Service Worker cache path만 사용.
+           SW가 없거나 cache 저장에 실패하면 null을 반환해 호출부에서 에러 처리로 넘긴다. */
         if (window.caches && navigator.serviceWorker && await waitForServiceWorkerController(1500)) {
+            var url = stableMediaCacheUrl(baseUrl);
             try {
                 var cache = await caches.open(TASFA_MEDIA_CACHE);
                 await cache.put(url, new Response(blob, {
@@ -694,14 +696,11 @@
                 return url;
             } catch (e) {}
         }
-        return URL.createObjectURL(blob);
+        return null;
     }
 
     function setMediaObjectUrl(el, objectUrl) {
-        var previous = objectUrls.get(el);
-        if (previous && previous !== objectUrl && previous.indexOf('blob:') === 0) {
-            try { URL.revokeObjectURL(previous); } catch (e) {}
-        }
+        if (!objectUrl) return; /* SW cache path를 얻지 못한 경우 — 아무것도 하지 않음 */
         objectUrls.set(el, objectUrl);
         el.setAttribute('src', objectUrl);
         if (typeof el.load === 'function') {
@@ -797,16 +796,13 @@
             el.removeAttribute('src');
         }
 
-        /* img용 placeholder (video/audio는 src 없애는 것으로 충분) */
-        if (baseUrl && tagName === 'img' && !el.getAttribute('src')) {
-            el.setAttribute('src', EMPTY_IMAGE_SRC);
-        }
+        /* img용 placeholder: data: URL 불가 환경이므로 src를 비워 둠 (CSS로 처리) */
 
         /* Parallel upgrade for poster if exists */
         if (posterUrl && isTasfaDownloadUrl(posterUrl)) {
             fetchBlobViaTasfa(posterUrl, { silent: true }).then(async function(result) {
                 var objectUrl = await createMediaPlaybackUrl(posterUrl, result.blob);
-                el.setAttribute('poster', objectUrl);
+                if (objectUrl) el.setAttribute('poster', objectUrl);
             }).catch(function() {});
         }
 
@@ -900,11 +896,8 @@
             }).observe(document.documentElement, { childList: true, subtree: true });
         }
         window.addEventListener('pagehide', function() {
+            /* blob: URL은 더 이상 생성하지 않으므로 revoke 불필요 — WeakMap만 정리 */
             document.querySelectorAll('[data-tasfa-media-bound="1"]').forEach(function(el) {
-                var objectUrl = objectUrls.get(el);
-                if (objectUrl && objectUrl.indexOf('blob:') === 0) {
-                    try { URL.revokeObjectURL(objectUrl); } catch (e) {}
-                }
                 objectUrls.delete(el);
             });
         });
