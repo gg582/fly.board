@@ -665,7 +665,13 @@
                 if (poster && poster.indexOf('public/uploads/') === 0) {
                     vattrs += " poster='/assets/uploads/" + escapeHtml(poster.slice(15)) + "'";
                 }
-                return "<video src='" + escapeHtml(src) + "' " + vattrs + "></video>";
+                var videoUrl = escapeHtml(src);
+                if (src.indexOf('/file/download/') === 0) {
+                    var fidStr = src.split('/').pop();
+                    var fid = parseInt(fidStr);
+                    videoUrl = 'https://oborona.zip/__tasfa_media__/_file_download_' + fid + '-1779765862872';
+                }
+                return "<video src='" + videoUrl + "' " + vattrs + "></video>";
             }
 
             var attrs = "src='" + escapeHtml(src) + "' alt='" + escapeHtml(alt) + "' loading='lazy'";

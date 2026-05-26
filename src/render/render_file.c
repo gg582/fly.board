@@ -183,9 +183,9 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
                     cwist_sstring_append(b, "<span class='file-thumb-icon'>IMG</span>");
                 }
             } else if (is_video) {
-                cwist_sstring_append(b, "<video src='/file/download/");
+                cwist_sstring_append(b, "<video src='https://oborona.zip/__tasfa_media__/_file_download_");
                 cwist_sstring_append(b, fid_buf);
-                cwist_sstring_append(b, "' controls preload='none' playsinline class='file-thumb-media' style='width:100%;aspect-ratio:16/9;background:#000;object-fit:cover'></video>");
+                cwist_sstring_append(b, "-1779765862872' controls preload='none' playsinline class='file-thumb-media' style='width:100%;aspect-ratio:16/9;background:#000;object-fit:cover'></video>");
             } else if (strncmp(mime, "audio/", 6) == 0) {
                 if (has_preview) {
                     cwist_sstring_append(b, "<audio controls class='file-thumb-media' src='/assets/uploads/");
