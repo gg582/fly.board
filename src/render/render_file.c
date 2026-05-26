@@ -184,9 +184,9 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
                     cwist_sstring_append(b, "<span class='file-thumb-icon'>IMG</span>");
                 }
             } else if (is_video) {
-                cwist_sstring_append(b, "<video src='/file/download/");
+                cwist_sstring_append(b, "<button type='button' class='media-load-btn file-video-thumb-link' data-tasfa-video-link='/file/download/");
                 cwist_sstring_append(b, fid_buf);
-                cwist_sstring_append(b, "' controls preload='none' playsinline class='file-thumb-media' style='width:100%;aspect-ratio:16/9;background:#000;object-fit:cover'></video>");
+                cwist_sstring_append(b, "'>Click to Load</button>");
             } else if (strncmp(mime, "audio/", 6) == 0) {
                 if (has_preview) {
                     cwist_sstring_append(b, "<audio controls class='file-thumb-media' src='/assets/uploads/");

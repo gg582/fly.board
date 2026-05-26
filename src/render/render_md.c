@@ -416,6 +416,73 @@ static void inject_img_attrs(cwist_sstring *html) {
     cwist_sstring_destroy(out);
 }
 
+static bool extract_video_href(const char *block, size_t len, char *out, size_t out_size) {
+    if (!block || !out || out_size == 0) return false;
+    out[0] = '\0';
+    const char *end = block + len;
+    const char *p = block;
+    while (p < end) {
+        const char *src = strstr(p, "src=");
+        if (!src || src >= end) break;
+        if (src + 4 >= end) break;
+        char quote = src[4];
+        if (quote != '"' && quote != '\'') {
+            p = src + 4;
+            continue;
+        }
+        const char *value = src + 5;
+        const char *value_end = memchr(value, quote, (size_t)(end - value));
+        if (!value_end) return false;
+        size_t value_len = (size_t)(value_end - value);
+        if (value_len == 0 || value_len >= out_size) return false;
+        memcpy(out, value, value_len);
+        out[value_len] = '\0';
+        return true;
+    }
+    return false;
+}
+
+static void replace_video_tags_with_placeholders(cwist_sstring *html) {
+    const char *data = html->data;
+    size_t len = strlen(data);
+    if (len == 0) return;
+
+    cwist_sstring *out = cwist_sstring_create();
+    size_t i = 0;
+
+    while (i < len) {
+        if (i + 6 <= len && strncmp(data + i, "<video", 6) == 0) {
+            const char *close_tag = strstr(data + i, "</video>");
+            const char *tag_end = strchr(data + i, '>');
+            if (tag_end && close_tag && close_tag > tag_end) {
+                size_t block_len = (size_t)((close_tag + 8) - (data + i));
+                char block[4096];
+                size_t copy_len = block_len < sizeof(block) - 1 ? block_len : sizeof(block) - 1;
+                memcpy(block, data + i, copy_len);
+                block[copy_len] = '\0';
+
+                char href[1024];
+                if (extract_video_href(block, copy_len, href, sizeof(href))) {
+                    cwist_sstring_append(out, "<div class='media-video-placeholder'>");
+                    cwist_sstring_append(out, "<div class='media-video-frame'>");
+                    cwist_sstring_append(out, "<button type='button' class='media-load-btn media-video-open' data-tasfa-video-link='");
+                    cwist_sstring_append_escaped(out, href);
+                    cwist_sstring_append(out, "'>Click to Load</button>");
+                    cwist_sstring_append(out, "</div></div>");
+                    i += block_len;
+                    continue;
+                }
+            }
+        }
+
+        cwist_sstring_append_len(out, data + i, 1);
+        i++;
+    }
+
+    cwist_sstring_assign(html, out->data);
+    cwist_sstring_destroy(out);
+}
+
 cwist_sstring *render_markdown_to_html(const char *md) {
     math_registry_t blocks = {0}, inlines = {0};
     math_registry_init(&blocks);
@@ -443,6 +510,7 @@ cwist_sstring *render_markdown_to_html(const char *md) {
     math_registry_free(&blocks);
     math_registry_free(&inlines);
     inject_img_attrs(html);
+    replace_video_tags_with_placeholders(html);
     rewrite_tasfa_bootstrap(html);
     return html;
 }

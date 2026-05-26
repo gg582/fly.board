@@ -743,6 +743,20 @@
         }
     }
 
+    function upgradeVideoLinkButton(el) {
+        var videoLink = el.getAttribute('data-tasfa-video-link') || '';
+        if (!videoLink) return;
+        if (el.dataset.tasfaVideoBound === '1') return;
+        el.dataset.tasfaVideoBound = '1';
+        el.addEventListener('click', function(event) {
+            event.preventDefault();
+            var win = window.open(videoLink, '_blank', 'noopener,noreferrer');
+            if (win) {
+                try { win.opener = null; } catch (e) {}
+            }
+        });
+    }
+
     function upgradeMediaElement(el) {
         if (!el || el.dataset.tasfaMediaBound === '1') return;
         if (el.getAttribute('data-tasfa-skip') === '1') return;
@@ -820,16 +834,19 @@
 
     function upgradeWithin(root) {
         if (!root || !root.querySelectorAll) return;
-        var selector = 'a[data-tasfa-download-link], a[href^="/file/download/"], a[href*="/file/download/"]';
+        var downloadSelector = 'a[data-tasfa-download-link], a[href^="/file/download/"], a[href*="/file/download/"]';
+        var videoSelector = 'button[data-tasfa-video-link]';
         if (root.matches) {
-            if (root.matches(selector)) upgradeDownloadLink(root);
+            if (root.matches(downloadSelector)) upgradeDownloadLink(root);
+            if (root.matches(videoSelector)) upgradeVideoLinkButton(root);
         }
-        root.querySelectorAll(selector).forEach(upgradeDownloadLink);
+        root.querySelectorAll(downloadSelector).forEach(upgradeDownloadLink);
+        root.querySelectorAll(videoSelector).forEach(upgradeVideoLinkButton);
     }
 
     function upgradeMediaWithin(root) {
         if (!root || !root.querySelectorAll) return;
-        var mediaSelector = 'img[src^="/file/download/"], img[src^="/assets/img/"], img[src^="/assets/uploads/"], video[src^="/file/download/"], audio[src^="/file/download/"]';
+        var mediaSelector = 'img[src^="/file/download/"], img[src^="/assets/img/"], img[src^="/assets/uploads/"], audio[src^="/file/download/"]';
         if (root.matches) {
             if (root.matches(mediaSelector)) upgradeMediaElement(root);
         }

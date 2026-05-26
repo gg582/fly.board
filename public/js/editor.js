@@ -648,7 +648,6 @@
         var html = escapeHtml(text);
         html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g, function(_, alt, src, title) {
             var isVideo = /\.(mp4|mov|mkv|webm|avi|m4v)(\?.*)?$/i.test(src);
-            var poster = '';
             
             var dlMatch = src.match(/\/file\/download\/(\d+)/);
             if (dlMatch) {
@@ -656,16 +655,12 @@
                 var asset = AssetRegistry.find(function(a) { return a.fid === fid; });
                 if (asset) {
                     if (asset.mime_type && asset.mime_type.indexOf('video/') === 0) isVideo = true;
-                    if (asset.thumb_path) poster = asset.thumb_path;
                 }
             }
 
             if (isVideo) {
-                var vattrs = "style='max-width:100%;height:auto;display:block' controls preload='metadata'";
-                if (poster && poster.indexOf('public/uploads/') === 0) {
-                    vattrs += " poster='/assets/uploads/" + escapeHtml(poster.slice(15)) + "'";
-                }
                 var videoUrl = escapeHtml(src);
+                var videoTitle = alt;
                 if (dlMatch) {
                     var fid = parseInt(dlMatch[1]);
                     var asset = AssetRegistry.find(function(a) { return a.fid === fid; });
@@ -678,8 +673,14 @@
                         }
                     }
                     videoUrl = 'https://oborona.zip/__tasfa_media__/_file_download_' + fid + '-' + ts;
+                    if (!videoTitle && asset && asset.filename) videoTitle = asset.filename;
                 }
-                return "<video src='" + videoUrl + "' " + vattrs + "></video>";
+                var videoHtml = "<div class='media-video-placeholder'>";
+                if (videoTitle) {
+                    videoHtml += "<div class='media-video-title'>" + escapeHtml(videoTitle) + "</div>";
+                }
+                videoHtml += "<div class='media-video-frame'><button type='button' class='media-load-btn media-video-open' data-tasfa-video-link='" + videoUrl + "'>Click to Load</button></div></div>";
+                return videoHtml;
             }
 
             var attrs = "src='" + escapeHtml(src) + "' alt='" + escapeHtml(alt) + "' loading='lazy'";
@@ -1053,17 +1054,12 @@
             img.style.filter = 'grayscale(1) contrast(1.08)';
             thumb.appendChild(img);
         } else if (mediaType === 'video') {
-            var vid = document.createElement('video');
-            vid.src = previewUrl;
-            vid.muted = true;
-            vid.playsInline = true;
-            vid.preload = 'metadata';
-            vid.style.display = 'block';
-            vid.style.width = '100%';
-            vid.style.height = '100%';
-            vid.style.objectFit = 'cover';
-            vid.style.filter = 'grayscale(1) contrast(1.08)';
-            thumb.appendChild(vid);
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'media-load-btn media-video-open file-video-thumb-link';
+            btn.setAttribute('data-tasfa-video-link', previewUrl);
+            btn.textContent = 'Click to Load';
+            thumb.appendChild(btn);
         } else if (mediaType === 'audio') {
             var aud = document.createElement('audio');
             aud.src = previewUrl;

@@ -488,7 +488,7 @@ void rule_components(cJSON *rules) {
     add_decl(media_thumb, "font-weight", "700");
     cJSON_AddItemToArray(rules, media_thumb);
 
-    cJSON *media_thumb_asset = create_rule(".media-thumb img, .media-thumb video");
+    cJSON *media_thumb_asset = create_rule(".media-thumb img, .media-thumb .file-video-thumb-link");
     add_decl(media_thumb_asset, "width", "100%");
     add_decl(media_thumb_asset, "height", "100%");
     add_decl(media_thumb_asset, "object-fit", "cover");
@@ -777,7 +777,68 @@ void rule_components(cJSON *rules) {
     add_decl(mlbh, "opacity", "0.9");
     cJSON_AddItemToArray(rules, mlbh);
 
-    cJSON *mab = create_rule(".media-attachment-block img, .media-attachment-block video");
+    cJSON *video_placeholder = create_rule(".media-video-placeholder");
+    add_decl(video_placeholder, "display", "flex");
+    add_decl(video_placeholder, "flex-direction", "column");
+    add_decl(video_placeholder, "align-items", "center");
+    add_decl(video_placeholder, "justify-content", "center");
+    add_decl(video_placeholder, "gap", "12px");
+    add_decl(video_placeholder, "width", "100%");
+    add_decl(video_placeholder, "max-width", "760px");
+    add_decl(video_placeholder, "margin", "24px auto");
+    add_decl(video_placeholder, "padding", "16px");
+    add_decl(video_placeholder, "border", "1px solid var(--border)");
+    add_decl(video_placeholder, "background", "var(--bg)");
+    add_decl(video_placeholder, "box-shadow", "0 2px 12px var(--shadow)");
+    add_decl(video_placeholder, "box-sizing", "border-box");
+    add_decl(video_placeholder, "aspect-ratio", "16/9");
+    cJSON_AddItemToArray(rules, video_placeholder);
+
+    cJSON *video_frame = create_rule(".media-video-frame");
+    add_decl(video_frame, "display", "flex");
+    add_decl(video_frame, "align-items", "center");
+    add_decl(video_frame, "justify-content", "center");
+    add_decl(video_frame, "width", "100%");
+    cJSON_AddItemToArray(rules, video_frame);
+
+    cJSON *video_title = create_rule(".media-video-title");
+    add_decl(video_title, "width", "100%");
+    add_decl(video_title, "max-width", "100%");
+    add_decl(video_title, "overflow", "hidden");
+    add_decl(video_title, "text-overflow", "ellipsis");
+    add_decl(video_title, "white-space", "nowrap");
+    add_decl(video_title, "text-align", "center");
+    add_decl(video_title, "font-size", "13px");
+    add_decl(video_title, "font-weight", "600");
+    add_decl(video_title, "color", "var(--muted)");
+    cJSON_AddItemToArray(rules, video_title);
+
+    cJSON *video_open = create_rule(".media-video-open");
+    add_decl(video_open, "text-transform", "none");
+    add_decl(video_open, "min-height", "40px");
+    add_decl(video_open, "display", "inline-flex");
+    add_decl(video_open, "align-items", "center");
+    add_decl(video_open, "justify-content", "center");
+    add_decl(video_open, "padding", "10px 16px");
+    add_decl(video_open, "font-size", "13px");
+    add_decl(video_open, "line-height", "1.2");
+    cJSON_AddItemToArray(rules, video_open);
+
+    cJSON *file_video_thumb = create_rule(".file-video-thumb-link");
+    add_decl(file_video_thumb, "width", "100%");
+    add_decl(file_video_thumb, "height", "100%");
+    add_decl(file_video_thumb, "display", "flex");
+    add_decl(file_video_thumb, "align-items", "center");
+    add_decl(file_video_thumb, "justify-content", "center");
+    add_decl(file_video_thumb, "box-sizing", "border-box");
+    add_decl(file_video_thumb, "padding", "8px");
+    add_decl(file_video_thumb, "font-size", "11px");
+    add_decl(file_video_thumb, "line-height", "1.15");
+    add_decl(file_video_thumb, "text-align", "center");
+    add_decl(file_video_thumb, "text-transform", "none");
+    cJSON_AddItemToArray(rules, file_video_thumb);
+
+    cJSON *mab = create_rule(".media-attachment-block img, .media-attachment-block audio");
     add_decl(mab, "max-width", "100%");
     add_decl(mab, "height", "auto");
     add_decl(mab, "display", "block");
@@ -1301,7 +1362,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_h3, "margin-bottom", "14px");
     cJSON_AddItemToArray(rules, md_h3);
 
-    cJSON *md_img = create_rule(".markdown-body img, .markdown-body video, .markdown-body audio");
+    cJSON *md_img = create_rule(".markdown-body img, .markdown-body audio, .markdown-body .media-video-placeholder");
     add_decl(md_img, "max-width", "100%");
     add_decl(md_img, "height", "auto");
     add_decl(md_img, "border-radius", "0");
@@ -1311,7 +1372,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_img, "transition", "transform 0.3s ease, box-shadow 0.3s ease");
     cJSON_AddItemToArray(rules, md_img);
 
-    cJSON *editor_preview_media = create_rule("#md-preview .markdown-body img, #md-preview .markdown-body video");
+    cJSON *editor_preview_media = create_rule("#md-preview .markdown-body img, #md-preview .markdown-body .media-video-placeholder");
     add_decl(editor_preview_media, "max-width", "240px");
     add_decl(editor_preview_media, "max-height", "180px");
     add_decl(editor_preview_media, "width", "auto");
