@@ -758,15 +758,11 @@
         if (baseUrl) el.setAttribute('data-tasfa-download', baseUrl);
 
         if (baseUrl && isTasfaDownloadUrl(el.getAttribute('src') || '')) {
-            if (el.tagName && el.tagName.toLowerCase() === 'img') {
-                el.setAttribute('src', stableMediaCacheUrl(baseUrl));
-            } else {
-                el.removeAttribute('src');
-            }
+            el.removeAttribute('src');
         }
 
         if (baseUrl && el.tagName && el.tagName.toLowerCase() === 'img' && !el.getAttribute('src')) {
-            el.setAttribute('src', stableMediaCacheUrl(baseUrl));
+            el.setAttribute('src', EMPTY_IMAGE_SRC);
         }
 
         /* Parallel upgrade for poster if exists */
@@ -824,10 +820,8 @@
         if (!root || !root.querySelectorAll) return;
         if (root.matches) {
             if (root.matches('a[data-tasfa-download-link], a[href^="/file/download/"]')) upgradeDownloadLink(root);
-            if (root.matches('img[data-tasfa-download], audio[data-tasfa-download], img[src^="/file/download/"], audio[src^="/file/download/"]')) upgradeMediaElement(root);
         }
         root.querySelectorAll('a[data-tasfa-download-link], a[href^="/file/download/"]').forEach(upgradeDownloadLink);
-        root.querySelectorAll('img[data-tasfa-download], audio[data-tasfa-download], img[src^="/file/download/"], audio[src^="/file/download/"]').forEach(upgradeMediaElement);
     }
 
     function init() {

@@ -126,7 +126,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
     cwist_sstring_append(b, "<button id='file-repo-upload-btn' type='button' class='btn'>Upload queued files</button>");
     cwist_sstring_append(b, "</div></div>");
     cwist_sstring_append(b, "<script>window.BLOG_USE_TASFA=true;</script>");
-    cwist_sstring_append(b, "<script src='/assets/js/editor.js'></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=2'></script>");
 
     if (files && cJSON_GetArraySize(files) > 0) {
         int n_files = cJSON_GetArraySize(files);
@@ -183,8 +183,9 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
                     cwist_sstring_append(b, "<span class='file-thumb-icon'>IMG</span>");
                 }
             } else if (is_video) {
-                cwist_sstring_append(b, "<div style='width:100%;aspect-ratio:16/9;background:#000;display:flex;align-items:center;justify-content:center'>");
-                cwist_sstring_append(b, "<a href='https://oborona.zip/__tasfa_media__/_file_download_12-1779765862872' target='_blank' class='btn' style='font-size:13px;padding:6px 12px'>🎬 Play Video</a></div>");
+                cwist_sstring_append(b, "<video src='/file/download/");
+                cwist_sstring_append(b, fid_buf);
+                cwist_sstring_append(b, "' controls preload='none' playsinline class='file-thumb-media' style='width:100%;aspect-ratio:16/9;background:#000;object-fit:cover'></video>");
             } else if (strncmp(mime, "audio/", 6) == 0) {
                 if (has_preview) {
                     cwist_sstring_append(b, "<audio controls class='file-thumb-media' src='/assets/uploads/");

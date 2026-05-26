@@ -109,6 +109,7 @@ self.addEventListener('fetch', function(event) {
 
     var isTasfa = url.includes('/tasfa/') || url.includes('/file/upload') || url.includes('/file/download');
     if (!isTasfa || event.request.method !== 'GET') return;
+    if (event.request.headers.get('Range') || event.request.destination === 'video' || event.request.destination === 'audio') return;
     var promise = fetch(event.request).catch(function(err) {
         return new Response(JSON.stringify({ok:false, error:'network', retry:true}), {
             status: 503,

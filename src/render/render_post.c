@@ -97,7 +97,7 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
             cwist_sstring_append(out, thumb_path + 15);
             cwist_sstring_append(out, "\" ");
         } else {
-            cwist_sstring_append(out, "data-tasfa-download=\"");
+            cwist_sstring_append(out, "src=\"");
             cwist_sstring_append(out, url);
             cwist_sstring_append(out, "\" ");
         }
@@ -108,11 +108,11 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
         cwist_sstring_append(out, url);
         cwist_sstring_append(out, "\">Download original</a></div>");
     } else if (strcmp(kind, "video") == 0) {
-        cwist_sstring_append(out, "<div style=\"margin:12px 0\"><a href=\"https://oborona.zip/__tasfa_media__/_file_download_12-1779765862872\" target=\"_blank\" class=\"btn\" style=\"font-size:14px;padding:6px 12px\">🎬 Play Video (");
-        cwist_sstring_append_escaped(out, filename);
-        cwist_sstring_append(out, ")</a></div>");
+        cwist_sstring_append(out, "<video src=\"");
+        cwist_sstring_append(out, url);
+        cwist_sstring_append(out, "\" style=\"max-width:100%;height:auto;display:block\" controls preload=\"metadata\"></video>");
     } else if (strcmp(kind, "audio") == 0) {
-        cwist_sstring_append(out, "<audio data-tasfa-download=\"");
+        cwist_sstring_append(out, "<audio src=\"");
         cwist_sstring_append(out, url);
         cwist_sstring_append(out, "\" style=\"width:100%\" controls></audio>");
         cwist_sstring_append(out, "<div style=\"margin-top:8px\"><a href=\"#\" data-tasfa-download-link=\"");
@@ -174,14 +174,8 @@ static void upgrade_markdown_file_links_to_media(cwist_sstring *html, cJSON *fil
                     }
                 }
             }
-        } else if (i + 6 <= len && strncmp(data + i, "<video", 6) == 0) {
-            const char *tag_end = strchr(data + i, '>');
-            if (tag_end) {
-                cwist_sstring_append(out, "<div style=\"margin:12px 0\"><a href=\"https://oborona.zip/__tasfa_media__/_file_download_12-1779765862872\" target=\"_blank\" class=\"btn\" style=\"font-size:14px;padding:6px 12px\">🎬 Play Video</a></div>");
-                i = (size_t)((tag_end + 1) - data);
-                continue;
-            }
         }
+
         cwist_sstring_append_len(out, data + i, 1);
         i++;
     }
@@ -732,32 +726,27 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
 
                 if (is_image || is_video || is_audio) {
                     if (is_video) {
-                        cwist_sstring_append(b, "<div class='file-attachment-block' style='padding:12px;border:1px solid var(--border);background:var(--panel);margin-bottom:12px'>");
-                        cwist_sstring_append(b, "<a href='https://oborona.zip/__tasfa_media__/_file_download_12-1779765862872' target='_blank' style='display:flex;align-items:center;gap:8px;color:var(--accent);font-weight:600;font-size:14px'>🎬 ");
+                        cwist_sstring_append(b, "<div class='media-attachment-block' style='margin-bottom:12px'>");
+                        cwist_sstring_append(b, "<video src='/file/download/");
+                        cwist_sstring_append(b, fid_buf2);
+                        cwist_sstring_append(b, "' style='max-width:100%;height:auto;display:block' controls preload='metadata'></video>");
+                        cwist_sstring_append(b, "<div style='margin-top:8px;font-size:13px;color:var(--muted);text-align:center'>");
                         cwist_sstring_append_escaped(b, fname->valuestring);
-                        cwist_sstring_append(b, " (Play Video)</a></div>");
+                        cwist_sstring_append(b, "</div></div>");
                     } else {
-                        cwist_sstring_append(b, "<div class='media-attachment-block");
-                        if (g_config.use_tasfa) cwist_sstring_append(b, " tasfa-media-wrap");
-                        cwist_sstring_append(b, "' style='margin-bottom:12px'>");
+                        cwist_sstring_append(b, "<div class='media-attachment-block' style='margin-bottom:12px'>");
                         if (is_image) {
                             if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
-                                if (g_config.use_tasfa) {
-                                    cwist_sstring_append(b, "<img data-tasfa-download='/assets/uploads/");
-                                    cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
-                                    cwist_sstring_append(b, "'>");
-                                } else {
-                                    cwist_sstring_append(b, "<img src='/assets/uploads/");
-                                    cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
-                                    cwist_sstring_append(b, "' loading='lazy' decoding='async'>");
-                                }
+                                cwist_sstring_append(b, "<img src='/assets/uploads/");
+                                cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
+                                cwist_sstring_append(b, "' loading='lazy' decoding='async'>");
                             } else {
-                                cwist_sstring_append(b, "<img data-tasfa-download='/file/download/");
+                                cwist_sstring_append(b, "<img src='/file/download/");
                                 cwist_sstring_append(b, fid_buf2);
-                                cwist_sstring_append(b, "'>");
+                                cwist_sstring_append(b, "' loading='lazy' decoding='async'>");
                             }
                         } else if (is_audio) {
-                            cwist_sstring_append(b, "<audio data-tasfa-download='/file/download/");
+                            cwist_sstring_append(b, "<audio src='/file/download/");
                             cwist_sstring_append(b, fid_buf2);
                             cwist_sstring_append(b, "' style='width:100%' controls></audio>");
                         }
@@ -999,7 +988,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<a href='/' class='btn btn-outline'>Cancel</a></div>");
     cwist_sstring_append(b, "</form></div>");
     cwist_sstring_append(b, "<script>window.BLOG_USE_TASFA=true;</script>");
-    cwist_sstring_append(b, "<script src='/assets/js/editor.js'></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=2'></script>");
 
     cwist_sstring *page = render_page(post ? "Edit Post" : "New Post", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);

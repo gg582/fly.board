@@ -231,9 +231,7 @@ static void rewrite_tasfa_bootstrap(cwist_sstring *html) {
             const char *tag_name = NULL;
             bool is_media = false;
             bool is_link = false;
-            if (i + 4 <= len && strncmp(data + i, "<img", 4) == 0) { tag_name = "img"; is_media = true; }
-            else if (i + 6 <= len && strncmp(data + i, "<audio", 6) == 0) { tag_name = "audio"; is_media = true; }
-            else if (i + 2 <= len && strncmp(data + i, "<a", 2) == 0) { tag_name = "a"; is_link = true; }
+            if (i + 2 <= len && strncmp(data + i, "<a", 2) == 0) { tag_name = "a"; is_link = true; }
             if (tag_name) {
                 size_t j = i;
                 while (j < len && data[j] != '>') j++;
