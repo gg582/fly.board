@@ -272,41 +272,46 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
     cwist_html_element_add_child(nav, navlinks);
 
-    /* Theme toggle (inline in header) */
-    cwist_html_element_t *theme_wrapper = cwist_html_element_create("div");
-    cwist_html_element_add_class(theme_wrapper, "theme-switch");
+    /* Theme toggle (inline in header) — hidden on post editor pages because
+       inline onclick handlers are blocked by CSP and the editor UI is already
+       busy with the file browser / media controls. */
+    bool is_editor_page = title && (strcmp(title, "New Post") == 0 || strcmp(title, "Edit Post") == 0);
+    if (!is_editor_page) {
+        cwist_html_element_t *theme_wrapper = cwist_html_element_create("div");
+        cwist_html_element_add_class(theme_wrapper, "theme-switch");
 
-    cwist_html_element_t *theme_btn = cwist_html_element_create("button");
-    cwist_html_element_add_attr(theme_btn, "type", "button");
-    cwist_html_element_add_attr(theme_btn, "onclick", "toggleThemeMenu(event)");
-    cwist_html_element_add_attr(theme_btn, "class", "btn btn-outline theme-toggle-btn");
-    cwist_html_element_add_attr(theme_btn, "aria-expanded", "false");
-    cwist_html_element_set_text(theme_btn, dark ? "\u25CF" : "\u25CB");
-    cwist_html_element_add_child(theme_wrapper, theme_btn);
+        cwist_html_element_t *theme_btn = cwist_html_element_create("button");
+        cwist_html_element_add_attr(theme_btn, "type", "button");
+        cwist_html_element_add_attr(theme_btn, "onclick", "toggleThemeMenu(event)");
+        cwist_html_element_add_attr(theme_btn, "class", "btn btn-outline theme-toggle-btn");
+        cwist_html_element_add_attr(theme_btn, "aria-expanded", "false");
+        cwist_html_element_set_text(theme_btn, dark ? "\u25CF" : "\u25CB");
+        cwist_html_element_add_child(theme_wrapper, theme_btn);
 
-    cwist_html_element_t *theme_menu = cwist_html_element_create("div");
-    cwist_html_element_add_attr(theme_menu, "id", "theme-dropdown");
-    cwist_html_element_add_class(theme_menu, "theme-dropdown");
-    cwist_html_element_add_attr(theme_menu, "onclick", "event.stopPropagation()");
+        cwist_html_element_t *theme_menu = cwist_html_element_create("div");
+        cwist_html_element_add_attr(theme_menu, "id", "theme-dropdown");
+        cwist_html_element_add_class(theme_menu, "theme-dropdown");
+        cwist_html_element_add_attr(theme_menu, "onclick", "event.stopPropagation()");
 
-    cwist_html_element_t *theme_light = cwist_html_element_create("button");
-    cwist_html_element_add_attr(theme_light, "type", "button");
-    cwist_html_element_add_attr(theme_light, "class", dark ? "theme-option" : "theme-option active");
-    cwist_html_element_add_attr(theme_light, "data-theme", "light");
-    cwist_html_element_add_attr(theme_light, "onclick", "toggleTheme('light')");
-    cwist_html_element_set_text(theme_light, "\u25CB");
-    cwist_html_element_add_child(theme_menu, theme_light);
+        cwist_html_element_t *theme_light = cwist_html_element_create("button");
+        cwist_html_element_add_attr(theme_light, "type", "button");
+        cwist_html_element_add_attr(theme_light, "class", dark ? "theme-option" : "theme-option active");
+        cwist_html_element_add_attr(theme_light, "data-theme", "light");
+        cwist_html_element_add_attr(theme_light, "onclick", "toggleTheme('light')");
+        cwist_html_element_set_text(theme_light, "\u25CB");
+        cwist_html_element_add_child(theme_menu, theme_light);
 
-    cwist_html_element_t *theme_dark = cwist_html_element_create("button");
-    cwist_html_element_add_attr(theme_dark, "type", "button");
-    cwist_html_element_add_attr(theme_dark, "class", dark ? "theme-option active" : "theme-option");
-    cwist_html_element_add_attr(theme_dark, "data-theme", "dark");
-    cwist_html_element_add_attr(theme_dark, "onclick", "toggleTheme('dark')");
-    cwist_html_element_set_text(theme_dark, "\u25CF");
-    cwist_html_element_add_child(theme_menu, theme_dark);
+        cwist_html_element_t *theme_dark = cwist_html_element_create("button");
+        cwist_html_element_add_attr(theme_dark, "type", "button");
+        cwist_html_element_add_attr(theme_dark, "class", dark ? "theme-option active" : "theme-option");
+        cwist_html_element_add_attr(theme_dark, "data-theme", "dark");
+        cwist_html_element_add_attr(theme_dark, "onclick", "toggleTheme('dark')");
+        cwist_html_element_set_text(theme_dark, "\u25CF");
+        cwist_html_element_add_child(theme_menu, theme_dark);
 
-    cwist_html_element_add_child(theme_wrapper, theme_menu);
-    cwist_html_element_add_child(nav, theme_wrapper);
+        cwist_html_element_add_child(theme_wrapper, theme_menu);
+        cwist_html_element_add_child(nav, theme_wrapper);
+    }
 
     cwist_html_element_t *shell = cwist_html_element_create("div");
     if (shell) cwist_html_element_add_class(shell, "shell fade-in");
