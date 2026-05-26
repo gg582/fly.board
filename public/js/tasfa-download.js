@@ -711,7 +711,17 @@
     }
 
     function updateProgressUI(el, percent) {
-        var wrap = el.closest('.tasfa-media-wrap');
+        var wrap = el.closest('.tasfa-media-wrap') || el.closest('.tasfa-inline-media-wrap');
+        if (!wrap && el.parentNode) {
+            wrap = document.createElement('div');
+            wrap.className = 'tasfa-inline-media-wrap';
+            wrap.style.position = 'relative';
+            wrap.style.display = el.style.display === 'block' ? 'block' : 'inline-block';
+            wrap.style.maxWidth = '100%';
+            if (el.style.width) wrap.style.width = el.style.width;
+            el.parentNode.insertBefore(wrap, el);
+            wrap.appendChild(el);
+        }
         if (!wrap) return;
         var loader = wrap.querySelector('.tasfa-media-loader');
         if (!loader) {
@@ -723,7 +733,13 @@
         var inner = loader.querySelector('.tasfa-media-loader-inner');
         if (inner) inner.style.width = percent + '%';
         if (percent >= 100) {
-            setTimeout(function() { if (loader.parentElement) loader.remove(); }, 600);
+            setTimeout(function() {
+                if (loader.parentElement) loader.remove();
+                if (wrap.classList.contains('tasfa-inline-media-wrap') && wrap.parentElement) {
+                    wrap.parentElement.insertBefore(el, wrap);
+                    wrap.remove();
+                }
+            }, 600);
         }
     }
 
@@ -739,10 +755,17 @@
         if (baseUrl) el.setAttribute('data-tasfa-download', baseUrl);
 
         if (baseUrl && isTasfaDownloadUrl(el.getAttribute('src') || '')) {
-            el.removeAttribute('src');
+            if (el.tagName && (el.tagName.toLowerCase() === 'video' || el.tagName.toLowerCase() === 'img')) {
+                el.setAttribute('src', stableMediaCacheUrl(baseUrl));
+            } else {
+                el.removeAttribute('src');
+            }
         }
         if (baseUrl && el.tagName && el.tagName.toLowerCase() === 'img' && !el.getAttribute('src')) {
-            el.setAttribute('src', EMPTY_IMAGE_SRC);
+            el.setAttribute('src', stableMediaCacheUrl(baseUrl));
+        }
+        if (baseUrl && el.tagName && el.tagName.toLowerCase() === 'video' && !el.getAttribute('src')) {
+            el.setAttribute('src', stableMediaCacheUrl(baseUrl));
         }
 
         /* Parallel upgrade for poster if exists */
@@ -769,10 +792,14 @@
             }).catch(function() {
                 el.dataset.tasfaMediaBound = '0';
                 el.setAttribute('data-tasfa-error', '1');
-                var wrap = el.closest('.tasfa-media-wrap');
+                var wrap = el.closest('.tasfa-media-wrap') || el.closest('.tasfa-inline-media-wrap');
                 if (wrap) {
                     var loader = wrap.querySelector('.tasfa-media-loader');
                     if (loader) loader.remove();
+                    if (wrap.classList.contains('tasfa-inline-media-wrap') && wrap.parentElement) {
+                        wrap.parentElement.insertBefore(el, wrap);
+                        wrap.remove();
+                    }
                 }
             });
         }

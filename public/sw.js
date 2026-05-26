@@ -14,6 +14,50 @@ function isLogoUrl(url) {
     return url.startsWith(self.location.origin + '/assets/img/');
 }
 
+function handleRangeRequest(request, response) {
+    var rangeHeader = request.headers.get('Range');
+    if (!rangeHeader) {
+        return response;
+    }
+
+    return response.blob().then(function(blob) {
+        var total = blob.size;
+        var match = rangeHeader.trim().match(/^bytes=(\d+)-(\d+)?$/);
+        if (!match) {
+            return new Response(blob, {
+                status: 200,
+                headers: response.headers
+            });
+        }
+        var start = parseInt(match[1], 10);
+        var end = match[2] ? parseInt(match[2], 10) : total - 1;
+        if (end >= total) {
+            end = total - 1;
+        }
+
+        if (start >= total) {
+            return new Response('', {
+                status: 416,
+                headers: {
+                    'Content-Range': 'bytes */' + total
+                }
+            });
+        }
+
+        var slicedBlob = blob.slice(start, end + 1);
+        var headers = new Headers(response.headers);
+        headers.set('Content-Range', 'bytes ' + start + '-' + end + '/' + total);
+        headers.set('Content-Length', slicedBlob.size.toString());
+        headers.set('Accept-Ranges', 'bytes');
+
+        return new Response(slicedBlob, {
+            status: 206,
+            statusText: 'Partial Content',
+            headers: headers
+        });
+    });
+}
+
 self.addEventListener('fetch', function(event) {
     var url = event.request.url;
     // Don't intercept cross-origin requests (multi-port)
@@ -23,7 +67,10 @@ self.addEventListener('fetch', function(event) {
         event.respondWith(
             caches.open(TASFA_MEDIA_CACHE).then(function(cache) {
                 return cache.match(event.request).then(function(response) {
-                    return response || new Response('Not found', { status: 404 });
+                    if (!response) {
+                        return new Response('Not found', { status: 404 });
+                    }
+                    return handleRangeRequest(event.request, response);
                 });
             })
         );
