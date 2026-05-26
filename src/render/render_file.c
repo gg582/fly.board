@@ -184,7 +184,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
                 }
             } else if (is_video) {
                 if (has_thumb) {
-                    cwist_sstring_append(b, "<video controls preload='none' playsinline data-tasfa-download='/file/download/");
+                    cwist_sstring_append(b, "<video controls preload='none' playsinline src='/file/download/");
                     cwist_sstring_append(b, fid_buf);
                     cwist_sstring_append(b, "' poster='/assets/uploads/");
                     cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
@@ -192,14 +192,14 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
                 } else {
                     cwist_sstring_append(b, "<div class='file-thumb-media' style='width:100%;aspect-ratio:16/9;position:relative;background:#000;overflow:hidden'>");
                     cwist_sstring_append(b, "<span class='file-thumb-icon' style='position:absolute;inset:auto 0 0 0;z-index:1'>VID</span>");
-                    cwist_sstring_append(b, "<video controls preload='none' playsinline data-tasfa-download='/file/download/");
+                    cwist_sstring_append(b, "<video controls preload='none' playsinline src='/file/download/");
                     cwist_sstring_append(b, fid_buf);
                     cwist_sstring_append(b, "' class='file-thumb-media' style='width:100%;height:100%;object-fit:cover;position:absolute;inset:0'></video>");
                     cwist_sstring_append(b, "</div>");
                 }
             } else if (strncmp(mime, "audio/", 6) == 0) {
                 if (has_preview) {
-                    cwist_sstring_append(b, "<audio controls class='file-thumb-media' data-tasfa-download='/assets/uploads/");
+                    cwist_sstring_append(b, "<audio controls class='file-thumb-media' src='/assets/uploads/");
                     cwist_sstring_append(b, preview_path + strlen("public/uploads/"));
                     cwist_sstring_append(b, "' style='width:100%'></audio>");
                 } else {

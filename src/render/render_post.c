@@ -83,40 +83,46 @@ static bool extract_download_id_from_img_tag(const char *tag, int *out_id) {
 
 static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int fid, const char *kind) {
     cJSON *jname = cJSON_GetObjectItem(file, "filename");
+    cJSON *jthumb = cJSON_GetObjectItem(file, "thumb_path");
     const char *filename = jname && jname->valuestring ? jname->valuestring : "";
+    const char *thumb_path = jthumb && jthumb->valuestring ? jthumb->valuestring : "";
     char url[64];
     snprintf(url, sizeof(url), "/file/download/%d", fid);
 
     if (strcmp(kind, "image") == 0) {
-        cwist_sstring_append(out, "<img data-tasfa-download=\"");
-        cwist_sstring_append(out, url);
-        cwist_sstring_append(out, "\" src=\"");
-        cwist_sstring_append(out, url);
+        cwist_sstring_append(out, "<img src=\"");
+        if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
+            cwist_sstring_append(out, "/assets/uploads/");
+            cwist_sstring_append(out, thumb_path + 15);
+        } else {
+            cwist_sstring_append(out, url);
+        }
         cwist_sstring_append(out, "\" alt=\"");
         cwist_sstring_append_escaped(out, filename);
         cwist_sstring_append(out, "\" loading=\"lazy\" decoding=\"async\" style=\"max-width:100%;height:auto;display:block\">");
-    } else if (strcmp(kind, "video") == 0) {
-        cwist_sstring_append(out, "<video data-tasfa-download=\"");
+        cwist_sstring_append(out, "<div style=\"margin-top:8px\"><a href=\"#\" data-tasfa-download-link=\"");
         cwist_sstring_append(out, url);
-        cwist_sstring_append(out, "\" src=\"");
+        cwist_sstring_append(out, "\">Download original</a></div>");
+    } else if (strcmp(kind, "video") == 0) {
+        cwist_sstring_append(out, "<video src=\"");
         cwist_sstring_append(out, url);
         cwist_sstring_append(out, "\" ");
-        cJSON *jthumb = cJSON_GetObjectItem(file, "thumb_path");
-        if (jthumb && jthumb->valuestring && jthumb->valuestring[0]) {
-            const char *tp = jthumb->valuestring;
-            if (strncmp(tp, "public/uploads/", 15) == 0) {
-                cwist_sstring_append(out, "poster=\"/assets/uploads/");
-                cwist_sstring_append(out, tp + 15);
-                cwist_sstring_append(out, "\" ");
-            }
+        if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
+            cwist_sstring_append(out, "poster=\"/assets/uploads/");
+            cwist_sstring_append(out, thumb_path + 15);
+            cwist_sstring_append(out, "\" ");
         }
         cwist_sstring_append(out, "style=\"max-width:100%;height:auto;display:block\" muted playsinline preload=\"metadata\" controls></video>");
-    } else if (strcmp(kind, "audio") == 0) {
-        cwist_sstring_append(out, "<audio data-tasfa-download=\"");
+        cwist_sstring_append(out, "<div style=\"margin-top:8px\"><a href=\"#\" data-tasfa-download-link=\"");
         cwist_sstring_append(out, url);
-        cwist_sstring_append(out, "\" src=\"");
+        cwist_sstring_append(out, "\">Download original</a></div>");
+    } else if (strcmp(kind, "audio") == 0) {
+        cwist_sstring_append(out, "<audio src=\"");
         cwist_sstring_append(out, url);
         cwist_sstring_append(out, "\" style=\"width:100%\" controls></audio>");
+        cwist_sstring_append(out, "<div style=\"margin-top:8px\"><a href=\"#\" data-tasfa-download-link=\"");
+        cwist_sstring_append(out, url);
+        cwist_sstring_append(out, "\">Download original</a></div>");
     }
 }
 
@@ -726,22 +732,16 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                     cwist_sstring_append(b, "<div class='media-attachment-block' style='margin-bottom:12px'>");
                     if (is_image) {
                         if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
-                            cwist_sstring_append(b, "<img data-tasfa-download='/file/download/");
-                            cwist_sstring_append(b, fid_buf2);
-                            cwist_sstring_append(b, "' src='/assets/uploads/");
+                            cwist_sstring_append(b, "<img src='/assets/uploads/");
                             cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
                             cwist_sstring_append(b, "' loading='lazy' decoding='async'>");
                         } else {
-                            cwist_sstring_append(b, "<img data-tasfa-download='/file/download/");
-                            cwist_sstring_append(b, fid_buf2);
-                            cwist_sstring_append(b, "' src='/file/download/");
+                            cwist_sstring_append(b, "<img src='/file/download/");
                             cwist_sstring_append(b, fid_buf2);
                             cwist_sstring_append(b, "'>");
                         }
                     } else if (is_video) {
-                        cwist_sstring_append(b, "<video data-tasfa-download='/file/download/");
-                        cwist_sstring_append(b, fid_buf2);
-                        cwist_sstring_append(b, "' src='/file/download/");
+                        cwist_sstring_append(b, "<video src='/file/download/");
                         cwist_sstring_append(b, fid_buf2);
                         cwist_sstring_append(b, "'");
                         if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
@@ -751,14 +751,15 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                         }
                         cwist_sstring_append(b, " muted playsinline preload='metadata' controls></video>");
                     } else if (is_audio) {
-                        cwist_sstring_append(b, "<audio data-tasfa-download='/file/download/");
-                        cwist_sstring_append(b, fid_buf2);
-                        cwist_sstring_append(b, "' src='/file/download/");
+                        cwist_sstring_append(b, "<audio src='/file/download/");
                         cwist_sstring_append(b, fid_buf2);
                         cwist_sstring_append(b, "' style='width:100%' controls></audio>");
                     }
                     cwist_sstring_append(b, "<div style='margin-top:8px;font-size:13px;color:var(--muted);text-align:center'>");
                     cwist_sstring_append_escaped(b, fname->valuestring);
+                    cwist_sstring_append(b, " &middot; <a href='#' data-tasfa-download-link='/file/download/");
+                    cwist_sstring_append(b, fid_buf2);
+                    cwist_sstring_append(b, "'>Download original</a>");
                     cwist_sstring_append(b, "</div></div>");
                 } else {
                     cwist_sstring_append(b, "<div class='file-attachment-block' style='padding:12px;border:1px solid var(--border);background:var(--panel)'>");
