@@ -31,10 +31,11 @@ static void render_clear_nav_profile(void) {
     g_nav_profile_account[0] = '\0';
 }
 
-cwist_sstring *render_page(const char *title, const char *body_html, bool dark, const char *user_role, const char *profile_pic) {
+cwist_sstring *render_page(const char *title, const char *body_html, bool dark, const char *user_role, const char *profile_pic, bool is_mobile) {
 
     cwist_html_element_t *html = cwist_html_element_create("html");
     cwist_html_element_add_attr(html, "lang", "ko");
+    if (is_mobile) cwist_html_element_add_class(html, "mobile");
 
     cwist_html_element_t *head = cwist_html_element_create("head");
     cwist_html_element_t *meta = cwist_html_element_create("meta");
@@ -223,6 +224,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
     cwist_html_element_t *body = cwist_html_element_create("body");
     if (dark) cwist_html_element_add_class(body, "dark");
+    if (is_mobile) cwist_html_element_add_class(body, "mobile");
 
 
     /* Nav */

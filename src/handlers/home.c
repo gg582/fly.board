@@ -9,7 +9,7 @@ void handler_home(cwist_http_request *req, cwist_http_response *res) {
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *posts = db_post_recent(req->db, 12);
-    cwist_sstring *page = render_post_list(posts, NULL, dark, role, 1, 1, "", NULL, NULL, pp, uid);
+    cwist_sstring *page = render_post_list(posts, NULL, dark, role, 1, 1, "", NULL, NULL, pp, uid, is_mobile_request(req));
     if (posts) cJSON_Delete(posts);
     send_html_res(res, page);
     free(pp);

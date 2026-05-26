@@ -98,7 +98,7 @@ static long long tasfa_monotonic_ms(void) {
     return ((long long)ts.tv_sec * 1000LL) + ((long long)ts.tv_nsec / 1000000LL);
 }
 
-static bool is_mobile_request(cwist_http_request *req) {
+bool is_mobile_request(cwist_http_request *req) {
     const char *ua = cwist_http_header_get(req->headers, "User-Agent");
     if (!ua) return false;
     const char *p = ua;
@@ -464,7 +464,7 @@ static int link_score_from_inputs(const char *score_str, const char *effective_t
     return clamp_int(score, 10, 100);
 }
 
-static void choose_upload_window(int score, int *initial_parallel, int *max_parallel, int *pacing_ms) {
+static void choose_upload_window(bool mobile, int score, int *initial_parallel, int *max_parallel, int *pacing_ms) {
     int initial_value = TASFA_UPLOAD_DEFAULT_PARALLEL;
     int max_value = TASFA_UPLOAD_MAX_PARALLEL;
     int pace = 0;
@@ -472,6 +472,10 @@ static void choose_upload_window(int score, int *initial_parallel, int *max_para
     else if (score >= 65) { initial_value = 24; max_value = 32; }
     else if (score >= 45) { initial_value = 16; max_value = 24; pace = 2; }
     else { initial_value = 10; max_value = 16; pace = 6; }
+
+    int floor = mobile ? 4 : 8;
+    if (initial_value < floor) initial_value = floor;
+
     int configured_max = tasfa_upload_parallel_limit();
     if (max_value > configured_max) max_value = configured_max;
     if (initial_value > max_value) initial_value = max_value;
@@ -1374,7 +1378,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         cwist_query_map_get(kv, "link_save_data")
     );
     int initial_parallel = 0, max_parallel = 0, pacing_ms = 0;
-    choose_upload_window(score, &initial_parallel, &max_parallel, &pacing_ms);
+    choose_upload_window(mobile, score, &initial_parallel, &max_parallel, &pacing_ms);
     cJSON_AddNumberToObject(meta, "current_parallel_chunks", initial_parallel);
     cJSON_AddNumberToObject(meta, "max_parallel_chunks", max_parallel);
     cJSON_AddNumberToObject(meta, "dispatch_pacing_ms", pacing_ms);
@@ -1499,7 +1503,8 @@ void handler_file_upload_renegotiate(cwist_http_request *req, cwist_http_respons
     );
     int suggested = atoi(cwist_query_map_get(kv, "suggested_parallel") ? cwist_query_map_get(kv, "suggested_parallel") : "0");
     int initial_parallel = 0, max_parallel = 0, pacing_ms = 0;
-    choose_upload_window(score, &initial_parallel, &max_parallel, &pacing_ms);
+    bool mobile = is_mobile_request(req);
+    choose_upload_window(mobile, score, &initial_parallel, &max_parallel, &pacing_ms);
     int current_parallel = json_int(meta, "current_parallel_chunks", initial_parallel);
     int current_max = json_int(meta, "max_parallel_chunks", max_parallel);
     int configured_max = tasfa_upload_parallel_limit();
@@ -1615,15 +1620,22 @@ static int compare_suspect_desc(const void *a, const void *b) {
     return sa->chunk_index - sb->chunk_index;
 }
 
-#if defined(__SSE2__) || defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(__VSX__) || defined(__mips_msa)
+#if defined(__AVX2__)
 #define TASFA_HTP_SIMD 1
+#define TASFA_HTP_AVX2 1
+typedef uint64_t tasfa_u64x4 __attribute__((vector_size(32)));
+#elif defined(__SSE2__) || defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(__VSX__) || defined(__mips_msa)
+#define TASFA_HTP_SIMD 1
+#define TASFA_HTP_SSE2 1
 typedef uint64_t tasfa_u64x2 __attribute__((vector_size(16)));
 #else
 #define TASFA_HTP_SIMD 0
 #endif
 
 static const char *htp_simd_backend(void) {
-#if defined(__SSE2__)
+#if defined(TASFA_HTP_AVX2)
+    return "avx2";
+#elif defined(__SSE2__)
     return "sse2";
 #elif defined(__ARM_NEON) || defined(__ARM_NEON__)
     return "neon";
@@ -1639,18 +1651,27 @@ static const char *htp_simd_backend(void) {
 static htp_line_sums_t htp_line_sums(const uint64_t v[6], uint64_t modulus_M) {
     if (modulus_M == 0) modulus_M = 1;
     htp_line_sums_t sums;
-#if TASFA_HTP_SIMD
+#if defined(TASFA_HTP_AVX2)
+    tasfa_u64x4 v_left  = { v[0], v[2], v[4], 0 };
+    tasfa_u64x4 v_mid   = { v[1], v[3], v[5], 0 };
+    tasfa_u64x4 v_right = { v[2], v[4], v[0], 0 };
+    tasfa_u64x4 v_sum   = v_left + v_mid + v_right;
+    sums.l1 = v_sum[0] % modulus_M;
+    sums.l2 = v_sum[1] % modulus_M;
+    sums.l3 = v_sum[2] % modulus_M;
+#elif defined(TASFA_HTP_SSE2)
     tasfa_u64x2 a = { v[0], v[2] };
     tasfa_u64x2 b = { v[1], v[3] };
     tasfa_u64x2 c = { v[2], v[4] };
     tasfa_u64x2 pair = a + b + c;
     sums.l1 = pair[0] % modulus_M;
     sums.l2 = pair[1] % modulus_M;
+    sums.l3 = (v[4] + v[5] + v[0]) % modulus_M;
 #else
     sums.l1 = (v[0] + v[1] + v[2]) % modulus_M;
     sums.l2 = (v[2] + v[3] + v[4]) % modulus_M;
-#endif
     sums.l3 = (v[4] + v[5] + v[0]) % modulus_M;
+#endif
     return sums;
 }
 

@@ -9,7 +9,7 @@
 #include <string.h>
 #include <stdio.h>
 
-cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role, const char *profile_pic) {
+cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role, const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
     int has_boards_bg = g_config.boards_img[0];
     char shell_style[768] = {0};
@@ -178,12 +178,12 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     } else {
         cwist_sstring_append(b, "<p style='color:var(--muted)'>No boards available.</p>");
     }
-    cwist_sstring *page = render_page("Boards", b->data, dark, user_role, profile_pic);
+    cwist_sstring *page = render_page("Boards", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;
 }
 
-cwist_sstring *render_board_form(cJSON *board, bool dark, const char *error, const char *profile_pic) {
+cwist_sstring *render_board_form(cJSON *board, bool dark, const char *error, const char *profile_pic, bool is_mobile) {
     cwist_sstring *fields = cwist_sstring_create();
     cwist_sstring_assign(fields, "<label>Name</label><input name='name' value='");
     if (board) {
@@ -222,13 +222,13 @@ cwist_sstring *render_board_form(cJSON *board, bool dark, const char *error, con
         cwist_sstring_append(fields, "'>");
     }
     cwist_sstring *body = build_form(board ? "Edit Board" : "New Board", board ? "/board/edit" : "/board/new", "post", fields->data, "Save", error, dark);
-    cwist_sstring *page = render_page(board ? "Edit Board" : "New Board", body->data, dark, "admin", profile_pic);
+    cwist_sstring *page = render_page(board ? "Edit Board" : "New Board", body->data, dark, "admin", profile_pic, is_mobile);
     cwist_sstring_destroy(fields);
     cwist_sstring_destroy(body);
     return page;
 }
 
-cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool dark, const char *msg, const char *profile_pic) {
+cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool dark, const char *msg, const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
     cJSON *bname = cJSON_GetObjectItem(board, "name");
     cwist_sstring_assign(b, "<div class='hero'><h1>Permissions: ");
@@ -314,7 +314,7 @@ cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool
         cwist_sstring_append(b, "<p style='color:var(--muted)'>No allowed users.</p>");
     }
     cwist_sstring_append(b, "</div>");
-    cwist_sstring *page = render_page("Board Permissions", b->data, dark, "admin", profile_pic);
+    cwist_sstring *page = render_page("Board Permissions", b->data, dark, "admin", profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;
 }

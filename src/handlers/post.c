@@ -135,7 +135,7 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     }
 
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page_html = render_post_list(posts, NULL, dark, role, page, total_pages, slug, search, search_type, pp, uid);
+    cwist_sstring *page_html = render_post_list(posts, NULL, dark, role, page, total_pages, slug, search, search_type, pp, uid, is_mobile_request(req));
     if (posts) cJSON_Delete(posts);
     send_html_res(res, page_html);
     free(pp);
@@ -179,7 +179,7 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     if (uid > 0) user_vote = db_post_user_vote(req->db, post_id, uid);
     char *pp = get_profile_pic(req->db, uid, role);
     const char *ephemeral_delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
-    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, uid, ephemeral_delete_pin);
+    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, uid, ephemeral_delete_pin, is_mobile_request(req));
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
     if (comments) cJSON_Delete(comments);
@@ -193,7 +193,7 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *boards = db_board_list(req->db);
-    cwist_sstring *page = render_post_editor(boards, NULL, NULL, is_dark(req), role, NULL, pp);
+    cwist_sstring *page = render_post_editor(boards, NULL, NULL, is_dark(req), role, NULL, pp, is_mobile_request(req));
     if (boards) cJSON_Delete(boards);
     send_html_res(res, page);
     free(pp);
@@ -254,7 +254,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         CWIST_LOG_WARN("Post creation failed: missing title or content uid=%d", uid);
         cJSON *boards = db_board_list(req->db);
         char *pp = get_profile_pic(req->db, uid, role);
-        cwist_sstring *page = render_post_editor(boards, NULL, NULL, is_dark(req), role, "Title and content required", pp);
+        cwist_sstring *page = render_post_editor(boards, NULL, NULL, is_dark(req), role, "Title and content required", pp, is_mobile_request(req));
         if (boards) cJSON_Delete(boards);
         send_html_res(res, page);
         free(pp);
@@ -362,7 +362,7 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res) {
     char *pp = get_profile_pic(req->db, uid, role);
     int post_id_val = json_int(post, "id", 0);
     cJSON *files = db_file_list_by_post(req->db, post_id_val);
-    cwist_sstring *page = render_post_editor(boards, post, files, is_dark(req), role, NULL, pp);
+    cwist_sstring *page = render_post_editor(boards, post, files, is_dark(req), role, NULL, pp, is_mobile_request(req));
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
     if (boards) cJSON_Delete(boards);

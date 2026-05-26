@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 
-cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, const char *profile_pic, bool is_own_profile) {
+cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, const char *profile_pic, bool is_own_profile, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
     const char *username = cJSON_GetObjectItem(user, "username")->valuestring;
     const char *email = cJSON_GetObjectItem(user, "email")->valuestring;
@@ -103,12 +103,12 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
 
     cwist_sstring_append(b, "</div>");
 
-    cwist_sstring *res = render_page("Profile", b->data, dark, user_role, profile_pic);
+    cwist_sstring *res = render_page("Profile", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return res;
 }
 
-cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewer_role, const char *profile_pic, const char *error) {
+cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewer_role, const char *profile_pic, const char *error, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
     const char *username = cJSON_GetObjectItem(user, "username")->valuestring;
     const char *email = cJSON_GetObjectItem(user, "email")->valuestring;
@@ -175,7 +175,7 @@ cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewe
 
     cwist_sstring_append(b, "</div>");
 
-    cwist_sstring *res = render_page("Account Settings", b->data, dark, viewer_role, profile_pic);
+    cwist_sstring *res = render_page("Account Settings", b->data, dark, viewer_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return res;
 }

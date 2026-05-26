@@ -7,11 +7,11 @@
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
 
-cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const char *user_role, const char *profile_pic, int user_id) {
+cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const char *user_role, const char *profile_pic, int user_id, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
     if (!file) {
         cwist_sstring_assign(b, "<h1>File Not Found</h1>");
-        cwist_sstring *page = render_page("File Detail", b->data, dark, user_role, profile_pic);
+        cwist_sstring *page = render_page("File Detail", b->data, dark, user_role, profile_pic, is_mobile);
         cwist_sstring_destroy(b);
         return page;
     }
@@ -71,12 +71,12 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
     }
     cwist_sstring_append(b, "</div>");
 
-    cwist_sstring *page = render_page(fname && fname->valuestring ? fname->valuestring : "File Detail", b->data, dark, user_role, profile_pic);
+    cwist_sstring *page = render_page(fname && fname->valuestring ? fname->valuestring : "File Detail", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;
 }
 
-cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, int user_id, const char *profile_pic) {
+cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, int user_id, const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
     int has_files_bg = g_config.files_img[0];
     char shell_style[768] = {0};
@@ -235,7 +235,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
         cwist_sstring_append(b, "<div class='card' style='text-align:center;padding:40px 20px;color:var(--muted);'>No files uploaded yet.</div>");
     }
     cwist_sstring_append(b, "<div id='file-repo-list-anchor'></div>");
-    cwist_sstring *page = render_page("Files", b->data, dark, user_role, profile_pic);
+    cwist_sstring *page = render_page("Files", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;
 }

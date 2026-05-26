@@ -21,7 +21,7 @@ void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
             }
         }
     }
-    cwist_sstring *page = render_board_list(boards, dark, role, pp);
+    cwist_sstring *page = render_board_list(boards, dark, role, pp, is_mobile_request(req));
     if (boards) cJSON_Delete(boards);
     send_html_res(res, page);
     free(pp);
@@ -32,7 +32,7 @@ void handler_board_new_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0; char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
-    send_html_res(res, render_board_form(NULL, is_dark(req), NULL, pp));
+    send_html_res(res, render_board_form(NULL, is_dark(req), NULL, pp, is_mobile_request(req)));
     free(pp);
 }
 
@@ -67,7 +67,7 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
         int uid = 0; char role[32] = {0};
         auth_is_logged_in(req, &uid, role, sizeof(role));
         char *pp = get_profile_pic(req->db, uid, role);
-        cwist_sstring *page = render_board_form(NULL, is_dark(req), error, pp);
+        cwist_sstring *page = render_board_form(NULL, is_dark(req), error, pp, is_mobile_request(req));
         send_html_res(res, page);
         free(pp);
         cwist_query_map_destroy(kv);
@@ -92,7 +92,7 @@ void handler_board_edit_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0; char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page = render_board_form(board, is_dark(req), NULL, pp);
+    cwist_sstring *page = render_board_form(board, is_dark(req), NULL, pp, is_mobile_request(req));
     cJSON_Delete(board);
     send_html_res(res, page);
     free(pp);
@@ -157,7 +157,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
     }
 
     if (error) {
-        cwist_sstring *page = render_board_form(board, is_dark(req), error, pp);
+        cwist_sstring *page = render_board_form(board, is_dark(req), error, pp, is_mobile_request(req));
         if (board) cJSON_Delete(board);
         send_html_res(res, page);
         free(pp);
@@ -167,7 +167,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
 
     if (!db_board_update(req->db, bid, name, slug, desc ? desc : "", ao != NULL, 0, 0, 0)) {
         CWIST_LOG_ERROR("Board update failed: bid=%d", bid);
-        cwist_sstring *page = render_board_form(board, is_dark(req), "Failed to update board.", pp);
+        cwist_sstring *page = render_board_form(board, is_dark(req), "Failed to update board.", pp, is_mobile_request(req));
         send_html_res(res, page);
         cJSON_Delete(board);
         free(pp);
@@ -214,7 +214,7 @@ void handler_board_perms_get(cwist_http_request *req, cwist_http_response *res) 
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
     const char *msg = cwist_query_map_get(req->query_params, "msg");
-    cwist_sstring *page = render_board_perms(board, perms, users, is_dark(req), msg, pp);
+    cwist_sstring *page = render_board_perms(board, perms, users, is_dark(req), msg, pp, is_mobile_request(req));
     cJSON_Delete(board);
     if (perms) cJSON_Delete(perms);
     if (users) cJSON_Delete(users);

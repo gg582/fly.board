@@ -3,7 +3,7 @@
 #include <ctype.h>
 
 void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
-    send_html_res(res, render_login(is_dark(req), NULL));
+    send_html_res(res, render_login(is_dark(req), NULL, is_mobile_request(req)));
 }
 
 void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
@@ -14,7 +14,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     const char *password = cwist_query_map_get(kv, "password");
     if (!username || !password) {
         CWIST_LOG_WARN("Login failed: missing fields");
-        send_html_res(res, render_login(dark, "Missing fields"));
+        send_html_res(res, render_login(dark, "Missing fields", is_mobile_request(req)));
         cwist_query_map_destroy(kv);
         return;
     }
@@ -35,7 +35,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     cJSON *user = db_user_get_by_username(req->db, username);
     if (!user) {
         CWIST_LOG_WARN("Login failed: invalid credentials for username='%s'", username);
-        send_html_res(res, render_login(dark, "Invalid credentials"));
+        send_html_res(res, render_login(dark, "Invalid credentials", is_mobile_request(req)));
         cwist_query_map_destroy(kv);
         return;
     }
@@ -43,7 +43,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_verify_password(password, hash->valuestring)) {
         CWIST_LOG_WARN("Login failed: wrong password for username='%s'", username);
         cJSON_Delete(user);
-        send_html_res(res, render_login(dark, "Invalid credentials"));
+        send_html_res(res, render_login(dark, "Invalid credentials", is_mobile_request(req)));
         cwist_query_map_destroy(kv);
         return;
     }
@@ -72,7 +72,7 @@ void handler_logout(cwist_http_request *req, cwist_http_response *res) {
 }
 
 void handler_register_get(cwist_http_request *req, cwist_http_response *res) {
-    send_html_res(res, render_register(is_dark(req), NULL));
+    send_html_res(res, render_register(is_dark(req), NULL, is_mobile_request(req)));
 }
 
 void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
@@ -84,14 +84,14 @@ void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
     const char *password = cwist_query_map_get(kv, "password");
     if (!username || !email || !password || strlen(password) < 6) {
         CWIST_LOG_WARN("Registration failed: invalid input username='%s'", username ? username : "NULL");
-        send_html_res(res, render_register(dark, "Invalid input (password min 6 chars)"));
+        send_html_res(res, render_register(dark, "Invalid input (password min 6 chars)", is_mobile_request(req)));
         cwist_query_map_destroy(kv);
         return;
     }
     char hash[256];
     if (!auth_hash_password(password, hash, sizeof(hash))) {
         CWIST_LOG_ERROR("Registration failed: password hash error username='%s'", username);
-        send_html_res(res, render_register(dark, "Server error"));
+        send_html_res(res, render_register(dark, "Server error", is_mobile_request(req)));
         cwist_query_map_destroy(kv);
         return;
     }
@@ -99,7 +99,7 @@ void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
     cwist_query_map_destroy(kv);
     if (!ok) {
         CWIST_LOG_WARN("Registration failed: username or email exists username='%s' email='%s'", username, email);
-        send_html_res(res, render_register(dark, "Username or email already exists"));
+        send_html_res(res, render_register(dark, "Username or email already exists", is_mobile_request(req)));
         return;
     }
     CWIST_LOG_INFO("User registered: username='%s' email='%s'", username, email);
@@ -144,7 +144,7 @@ void handler_profile_get(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     char *pp = get_profile_pic(req->db, uid, role);
-    send_html_res(res, render_profile(user, is_dark(req), role, pp, true));
+    send_html_res(res, render_profile(user, is_dark(req), role, pp, true, is_mobile_request(req)));
     cJSON_Delete(user);
     free(pp);
 }
@@ -182,7 +182,7 @@ void handler_account_settings_get(cwist_http_request *req, cwist_http_response *
         return;
     }
     char *pp = get_profile_pic(req->db, uid, role);
-    send_html_res(res, render_account_settings(user, is_dark(req), role, pp, NULL));
+    send_html_res(res, render_account_settings(user, is_dark(req), role, pp, NULL, is_mobile_request(req)));
     cJSON_Delete(user);
     free(pp);
 }
@@ -314,7 +314,7 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
     if (!nickname || !bio) {
         cJSON *user = db_user_get_by_id(req->db, target_uid);
         char *pp = get_profile_pic(req->db, uid, role);
-        send_html_res(res, render_account_settings(user, is_dark(req), role, pp, "Invalid form data"));
+        send_html_res(res, render_account_settings(user, is_dark(req), role, pp, "Invalid form data", is_mobile_request(req)));
         if (user) cJSON_Delete(user);
         free(pp);
         cwist_free(nickname); cwist_free(bio); cwist_free(profile_pic_url);
@@ -344,7 +344,7 @@ void handler_password_change_get(cwist_http_request *req, cwist_http_response *r
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     char *pp = get_profile_pic(req->db, uid, role);
-    send_html_res(res, render_password_change(is_dark(req), role, pp, NULL));
+    send_html_res(res, render_password_change(is_dark(req), role, pp, NULL, is_mobile_request(req)));
     free(pp);
 }
 
@@ -363,14 +363,14 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
 
     if (!current || !new_pw || !confirm || strlen(new_pw) < 6) {
         CWIST_LOG_WARN("Password change failed: invalid input uid=%d", uid);
-        send_html_res(res, render_password_change(dark, role, pp, "Invalid input (password min 6 chars)"));
+        send_html_res(res, render_password_change(dark, role, pp, "Invalid input (password min 6 chars)", is_mobile_request(req)));
         free(pp);
         cwist_query_map_destroy(kv);
         return;
     }
     if (strcmp(new_pw, confirm) != 0) {
         CWIST_LOG_WARN("Password change failed: new passwords do not match uid=%d", uid);
-        send_html_res(res, render_password_change(dark, role, pp, "New passwords do not match"));
+        send_html_res(res, render_password_change(dark, role, pp, "New passwords do not match", is_mobile_request(req)));
         free(pp);
         cwist_query_map_destroy(kv);
         return;
@@ -378,7 +378,7 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
 
     cJSON *user = db_user_get_by_id(req->db, uid);
     if (!user) {
-        send_html_res(res, render_password_change(dark, role, pp, "User not found"));
+        send_html_res(res, render_password_change(dark, role, pp, "User not found", is_mobile_request(req)));
         free(pp);
         cwist_query_map_destroy(kv);
         return;
@@ -388,7 +388,7 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
     if (!hash || !hash->valuestring || !auth_verify_password(current, hash->valuestring)) {
         CWIST_LOG_WARN("Password change failed: current password incorrect uid=%d", uid);
         cJSON_Delete(user);
-        send_html_res(res, render_password_change(dark, role, pp, "Current password is incorrect"));
+        send_html_res(res, render_password_change(dark, role, pp, "Current password is incorrect", is_mobile_request(req)));
         free(pp);
         cwist_query_map_destroy(kv);
         return;
@@ -397,7 +397,7 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
     char new_hash[256];
     if (!auth_hash_password(new_pw, new_hash, sizeof(new_hash))) {
         cJSON_Delete(user);
-        send_html_res(res, render_password_change(dark, role, pp, "Server error"));
+        send_html_res(res, render_password_change(dark, role, pp, "Server error", is_mobile_request(req)));
         free(pp);
         cwist_query_map_destroy(kv);
         return;
@@ -432,7 +432,7 @@ void handler_user_profile_get(cwist_http_request *req, cwist_http_response *res)
 
     char *pp = get_profile_pic(req->db, viewer_uid, viewer_role);
     bool is_own = (viewer_uid == target_uid);
-    send_html_res(res, render_profile(user, dark, viewer_role, pp, is_own));
+    send_html_res(res, render_profile(user, dark, viewer_role, pp, is_own, is_mobile_request(req)));
     cJSON_Delete(user);
     free(pp);
 }

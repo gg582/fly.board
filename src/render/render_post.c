@@ -291,7 +291,7 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
     }
 }
 
-cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id) {
+cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
     int has_home_bg = g_config.home_img[0];
     char shell_style[768] = {0};
@@ -596,12 +596,12 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         cwist_sstring_append(b, "</div>");
     }
 
-    cwist_sstring *page_html = render_page("Posts", b->data, dark, user_role, profile_pic);
+    cwist_sstring *page_html = render_page("Posts", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page_html;
 }
 
-cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, int user_id, const char *ephemeral_delete_pin) {
+cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, int user_id, const char *ephemeral_delete_pin, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
     cJSON *title = cJSON_GetObjectItem(post, "title");
     cJSON *content = cJSON_GetObjectItem(post, "content");
@@ -828,12 +828,12 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     }
     cwist_sstring_append(b, "</div>");
 
-    cwist_sstring *page = render_page(title->valuestring, b->data, dark, user_role, profile_pic);
+    cwist_sstring *page = render_page(title->valuestring, b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;
 }
 
-cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool dark, const char *user_role, const char *error, const char *profile_pic) {
+cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool dark, const char *user_role, const char *error, const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
     cwist_sstring_assign(b, "<div class='card' style='margin:24px 0;'>");
     if (error && error[0]) {
@@ -998,7 +998,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<script>window.BLOG_USE_TASFA=true;</script>");
     cwist_sstring_append(b, "<script src='/assets/js/editor.js'></script>");
 
-    cwist_sstring *page = render_page(post ? "Edit Post" : "New Post", b->data, dark, user_role, profile_pic);
+    cwist_sstring *page = render_page(post ? "Edit Post" : "New Post", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;
 }

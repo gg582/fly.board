@@ -7,7 +7,7 @@ void handler_admin_users(cwist_http_request *req, cwist_http_response *res) {
     auth_is_logged_in(req, &uid, role, sizeof(role));
     cJSON *users = db_user_list(req->db);
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page = render_user_admin(users, is_dark(req), pp);
+    cwist_sstring *page = render_user_admin(users, is_dark(req), pp, is_mobile_request(req));
     if (users) cJSON_Delete(users);
     send_html_res(res, page);
     free(pp);
