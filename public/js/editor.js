@@ -661,8 +661,7 @@
             }
 
             if (isVideo) {
-                var vattrs = "style='max-width:100%;height:auto;display:block' muted playsinline preload='metadata' controls";
-                return "<video src='https://oborona.zip/__tasfa_media__/_file_download_12-1779765862872' " + vattrs + "></video>";
+                return "<div style='margin:12px 0'><a href='https://oborona.zip/__tasfa_media__/_file_download_12-1779765862872' target='_blank' class='btn' style='font-size:14px;padding:6px 12px'>🎬 Play Video</a></div>";
             }
 
             var attrs = "src='" + escapeHtml(src) + "' alt='" + escapeHtml(alt) + "' loading='lazy'";
