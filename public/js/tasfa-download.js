@@ -716,6 +716,8 @@
         if (!objectUrl) return; /* If SW cache path is not obtained - do nothing */
         objectUrls.set(el, objectUrl);
         el.setAttribute('src', objectUrl);
+        // Reveal the element now that the blob: (or SW cache) URL is in place.
+        el.style.opacity = '1';
         if (typeof el.load === 'function') {
             try { el.load(); } catch (e) {}
         } else if (el.parentElement && typeof el.parentElement.load === 'function') {
@@ -833,8 +835,14 @@
         if (baseUrl) el.setAttribute('data-tasfa-download', baseUrl);
 
         if (baseUrl && isTasfaDownloadUrl(el.getAttribute('src') || '')) {
-            el.removeAttribute('src');
+            // Swap the original src with a 1x1 transparent pixel so the browser
+            // never renders a broken-image icon while TASFA downloads the file.
+            el.setAttribute('src', 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
         }
+
+        // Keep the element invisible until the real blob: / SW-cache URL is ready.
+        el.style.opacity = '0';
+        el.style.transition = 'opacity 0.25s ease';
 
         if (posterUrl && isTasfaDownloadUrl(posterUrl)) {
             fetchBlobViaTasfa(posterUrl, { silent: true }).then(async function(result) {
