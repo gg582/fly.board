@@ -708,7 +708,6 @@
                 return url;
             } catch (e) {}
         }
-        if (tagName === 'video' || tagName === 'audio') return null;
         return URL.createObjectURL(blob);
     }
 
@@ -795,6 +794,13 @@
         el.setAttribute('data-tasfa-ready', '1');
         el.removeAttribute('data-tasfa-progress');
         updateProgressUI(el, 100);
+
+        var existingTag = el.tagName ? el.tagName.toLowerCase() : '';
+        if (existingTag === 'video' || existingTag === 'audio') {
+            el.src = playUrl;
+            el.style.opacity = '1';
+            return;
+        }
 
         var mediaEl = document.createElement(isAudio ? 'audio' : 'video');
         mediaEl.setAttribute('controls', '');
@@ -922,7 +928,7 @@
 
     function upgradeMediaWithin(root) {
         if (!root || !root.querySelectorAll) return;
-        var mediaSelector = 'img[src^="/file/download/"], img[src^="/assets/img/"], img[src^="/assets/uploads/"], audio[src^="/file/download/"]';
+        var mediaSelector = 'img[src^="/file/download/"], img[src^="/assets/img/"], img[src^="/assets/uploads/"], audio[src^="/file/download/"], video[src^="/file/download/"]';
         if (root.matches) {
             if (root.matches(mediaSelector)) upgradeMediaElement(root);
         }

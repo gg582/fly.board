@@ -658,21 +658,29 @@
                 }
             }
 
-            if (isVideo) {
-                var videoUrl = escapeHtml(src);
-                var videoTitle = alt;
+            var isAudio = /\.(mp3|wav|m4a|aac|flac|wma)(\?.*)?$/i.test(src);
+            if (dlMatch) {
+                var fid = parseInt(dlMatch[1]);
+                var asset = AssetRegistry.find(function(a) { return a.fid === fid; });
+                if (asset && asset.mime_type) {
+                    if (asset.mime_type.indexOf('video/') === 0) isVideo = true;
+                    if (asset.mime_type.indexOf('audio/') === 0) isAudio = true;
+                }
+            }
+
+            if (isVideo || isAudio) {
+                var mediaUrl = escapeHtml(src);
+                var mediaTitle = alt;
                 if (dlMatch) {
                     var fid = parseInt(dlMatch[1]);
                     var asset = AssetRegistry.find(function(a) { return a.fid === fid; });
-                    videoUrl = '/file/download/' + fid;
-                    if (!videoTitle && asset && asset.filename) videoTitle = asset.filename;
+                    mediaUrl = '/file/download/' + fid;
+                    if (!mediaTitle && asset && asset.filename) mediaTitle = asset.filename;
                 }
-                var videoHtml = "<div class='media-video-placeholder'>";
-                if (videoTitle) {
-                    videoHtml += "<div class='media-video-title'>" + escapeHtml(videoTitle) + "</div>";
-                }
-                videoHtml += "<div class='media-video-frame'><button type='button' class='media-load-btn media-video-open' data-tasfa-video-link='" + videoUrl + "'>&#9654; Click to View</button></div></div>";
-                return videoHtml;
+                var tag = isAudio ? 'audio' : 'video';
+                var attrs = "data-tasfa-download='" + escapeHtml(mediaUrl) + "' controls playsinline style='max-width:100%;display:block;'";
+                if (mediaTitle) attrs += " title='" + escapeHtml(mediaTitle) + "'";
+                return "<" + tag + " " + attrs + "></" + tag + ">";
             }
 
             var attrs = "src='" + escapeHtml(src) + "' alt='" + escapeHtml(alt) + "' loading='lazy'";
