@@ -758,11 +758,15 @@
         if (baseUrl) el.setAttribute('data-tasfa-download', baseUrl);
 
         if (baseUrl && isTasfaDownloadUrl(el.getAttribute('src') || '')) {
-            el.removeAttribute('src');
+            if (el.tagName && el.tagName.toLowerCase() === 'img') {
+                el.setAttribute('src', stableMediaCacheUrl(baseUrl));
+            } else {
+                el.removeAttribute('src');
+            }
         }
 
         if (baseUrl && el.tagName && el.tagName.toLowerCase() === 'img' && !el.getAttribute('src')) {
-            el.setAttribute('src', EMPTY_IMAGE_SRC);
+            el.setAttribute('src', stableMediaCacheUrl(baseUrl));
         }
 
         /* Parallel upgrade for poster if exists */
