@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#define _DEFAULT_SOURCE
 #include "handlers_internal.h"
 #include <ctype.h>
 #include <dirent.h>
@@ -38,6 +39,14 @@
 #define TASFA_MAX_CONCURRENT_UPLOADS 64
 #define TASFA_MAX_CONCURRENT_DOWNLOADS 8
 #define TASFA_FINALIZE_CACHE_SLOTS 128
+
+#define HTP_TAG_LEN 129
+#define HTP_RECORD_SIZE (HTP_TAG_LEN + 8 + 8)
+#define HTP_MODULUS_STABLE 4294967291ULL
+
+#define TASFA_MAX_MEDIA_CONCURRENCY 4
+static int g_media_concurrency = 0;
+static pthread_mutex_t g_media_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 /* Binary Metadata Structure for Fast Path */
 typedef struct {
@@ -326,6 +335,37 @@ static void derive_stream_iv(unsigned char out[12], const unsigned char seed[12]
 static int build_stream_aad(unsigned char *out, size_t out_len, const char *upload_id, int chunk_index) {
     if (!out || !out_len) return -1;
     return snprintf((char *)out, out_len, "%s:%d", upload_id ? upload_id : "", chunk_index);
+}
+
+static bool encrypt_stream_block(const unsigned char *key, const unsigned char *iv_seed, int chunk_index,
+                                  const char *session_id,
+                                  const unsigned char *plaintext, size_t plaintext_len,
+                                  unsigned char *ciphertext, size_t *ciphertext_len_out) {
+    if (!key || !iv_seed || !plaintext || !ciphertext || !ciphertext_len_out) return false;
+    unsigned char iv[12];
+    unsigned char aad[512];
+    int aad_len = build_stream_aad(aad, sizeof(aad), session_id, chunk_index);
+    if (aad_len <= 0) return false;
+    derive_stream_iv(iv, iv_seed, chunk_index);
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return false;
+    bool ok = false;
+    int out_len = 0;
+    int final_len = 0;
+    if (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL) != 1) goto cleanup;
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, sizeof(iv), NULL) != 1) goto cleanup;
+    if (EVP_EncryptInit_ex(ctx, NULL, NULL, key, iv) != 1) goto cleanup;
+    if (EVP_EncryptUpdate(ctx, NULL, &out_len, aad, aad_len) != 1) goto cleanup;
+    if (EVP_EncryptUpdate(ctx, ciphertext, &out_len, plaintext, (int)plaintext_len) != 1) goto cleanup;
+    if (EVP_EncryptFinal_ex(ctx, ciphertext + out_len, &final_len) != 1) goto cleanup;
+    unsigned char tag[16];
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) != 1) goto cleanup;
+    memcpy(ciphertext + out_len + final_len, tag, 16);
+    *ciphertext_len_out = (size_t)(out_len + final_len + 16);
+    ok = true;
+cleanup:
+    EVP_CIPHER_CTX_free(ctx);
+    return ok;
 }
 
 static bool decrypt_stream_block(const unsigned char *key, const unsigned char *iv_seed, int chunk_index,
@@ -1098,6 +1138,71 @@ static bool send_file_slice_response(cwist_http_request *req, cwist_http_respons
     snprintf(cnt_buf, sizeof(cnt_buf), "%d", chunk_count);
     cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Index", idx_buf);
     cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Count", cnt_buf);
+
+    /* Attach HTP headers if available for this session */
+    const char *session_id = cwist_query_map_get(req->query_params, "session_id");
+    unsigned char stream_key[32], stream_iv_seed[12];
+    bool use_encryption = false;
+
+    if (session_id) {
+        char htp_path[PATH_MAX];
+        download_session_dir(htp_path, sizeof(htp_path), session_id);
+        strncat(htp_path, "/htp.bin", sizeof(htp_path) - strlen(htp_path) - 1);
+        int hfd = open(htp_path, O_RDONLY);
+        if (hfd >= 0) {
+            char tag[HTP_TAG_LEN] = {0};
+            uint64_t raw = 0, balanced = 0;
+            off_t off = (off_t)chunk_index * HTP_RECORD_SIZE;
+            if (pread(hfd, tag, HTP_TAG_LEN, off) == HTP_TAG_LEN &&
+                pread(hfd, &raw, 8, off + HTP_TAG_LEN) == 8 &&
+                pread(hfd, &balanced, 8, off + HTP_TAG_LEN + 8) == 8) {
+                cwist_http_header_add(&res->headers, "X-TASFA-Hash-Tag", tag);
+                char bal_buf[32];
+                snprintf(bal_buf, sizeof(bal_buf), "%llu", (unsigned long long)balanced);
+                cwist_http_header_add(&res->headers, "X-TASFA-Magic-Scalar", bal_buf);
+            }
+            close(hfd);
+        }
+
+        /* Check for encryption keys in session metadata */
+        cJSON *sess = load_download_session_cached(session_id);
+        if (sess) {
+            const char *sk_hex = json_string(sess, "stream_key_hex", NULL);
+            const char *ivs_hex = json_string(sess, "stream_iv_seed_hex", NULL);
+            if (sk_hex && ivs_hex) {
+                for (int i = 0; i < 32; i++) {
+                    unsigned int val = 0;
+                    sscanf(sk_hex + (i * 2), "%02x", &val);
+                    stream_key[i] = (unsigned char)val;
+                }
+                for (int i = 0; i < 12; i++) {
+                    unsigned int val = 0;
+                    sscanf(ivs_hex + (i * 2), "%02x", &val);
+                    stream_iv_seed[i] = (unsigned char)val;
+                }
+                use_encryption = true;
+                cwist_http_header_add(&res->headers, "X-TASFA-Stream-Mode", "aes-256-gcm");
+            }
+            cJSON_Delete(sess);
+        }
+    }
+
+    if (use_encryption) {
+        size_t cipher_len = amount + 16;
+        unsigned char *cipher_buf = (unsigned char *)cwist_alloc(cipher_len);
+        size_t actual_cipher_len = 0;
+        if (cipher_buf && encrypt_stream_block(stream_key, stream_iv_seed, chunk_index, session_id, (unsigned char *)buf, amount, cipher_buf, &actual_cipher_len)) {
+            cwist_sstring_assign(res->body, "");
+            cwist_sstring_append_len(res->body, (char *)cipher_buf, actual_cipher_len);
+            char len_buf[32];
+            snprintf(len_buf, sizeof(len_buf), "%zu", actual_cipher_len);
+            cwist_http_header_add(&res->headers, "Content-Length", len_buf);
+            cwist_free(cipher_buf);
+            return true;
+        }
+        cwist_free(cipher_buf);
+    }
+
     char len_buf[32];
     snprintf(len_buf, sizeof(len_buf), "%zu", total);
     cwist_http_header_add(&res->headers, "Content-Length", len_buf);
@@ -1128,7 +1233,7 @@ static bool resolve_asset_scope_path(cwist_db *db, const char *scope, const char
 }
 
 static bool init_download_session(const char *filename, const char *mime, const char *storage_path, long long total_size,
-                                  int score, int chunk_size, int file_id, cJSON **out) {
+                                  int score, int chunk_size, int file_id, const char *media_name, cJSON **out) {
     if (!ensure_tasfa_roots()) return false;
     if (chunk_size <= 0) chunk_size = TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT;
     char session_id[33], session_token[49];
@@ -1136,6 +1241,37 @@ static bool init_download_session(const char *filename, const char *mime, const 
     char dir_path[PATH_MAX];
     download_session_dir(dir_path, sizeof(dir_path), session_id);
     if (!dir_ensure(dir_path)) return false;
+
+    uint64_t modulus_M = 0;
+
+    /* Load pre-calculated HTP metadata if available */
+    if (media_name && media_name[0]) {
+        char src_htp[PATH_MAX], dst_htp[PATH_MAX];
+        snprintf(src_htp, sizeof(src_htp), "data/tasfa/media_htp/%s/htp.bin", media_name);
+        snprintf(dst_htp, sizeof(dst_htp), "%s/htp.bin", dir_path);
+        struct stat st;
+        if (stat(src_htp, &st) == 0 && st.st_size > 0) {
+            /* Copy HTP metadata to session dir */
+            FILE *fsrc = fopen(src_htp, "rb");
+            FILE *fdst = fopen(dst_htp, "wb");
+            if (fsrc && fdst) {
+                char buf[8192]; size_t n;
+                while ((n = fread(buf, 1, sizeof(buf), fsrc)) > 0) fwrite(buf, 1, n, fdst);
+                modulus_M = HTP_MODULUS_STABLE;
+            }
+            if (fsrc) fclose(fsrc);
+            if (fdst) fclose(fdst);
+        }
+    }
+
+    if (modulus_M == 0) {
+        if (RAND_bytes((unsigned char *)&modulus_M, sizeof(modulus_M)) != 1) {
+            modulus_M = ((uint64_t)time(NULL) << 32) ^ (uint64_t)getpid();
+        }
+        modulus_M &= ((1ULL << 53) - 1ULL);
+        if (modulus_M == 0) modulus_M = 1;
+    }
+
     int initial_parallel = 0, max_parallel = 0, pacing_ms = 0, coalesce = 0;
     choose_download_profile(score, &initial_parallel, &max_parallel, &pacing_ms, &coalesce);
     int chunk_count = (int)((total_size + chunk_size - 1) / chunk_size);
@@ -1155,10 +1291,27 @@ static bool init_download_session(const char *filename, const char *mime, const 
     cJSON_AddNumberToObject(meta, "coalesce_chunks", coalesce);
     cJSON_AddNumberToObject(meta, "file_id", file_id);
     cJSON_AddNumberToObject(meta, "received_chunks", 0);
+    cJSON_AddNumberToObject(meta, "modulus_M", (double)modulus_M);
     char expires_at[32];
     snprintf(expires_at, sizeof(expires_at), "%lld", (long long)(time(NULL) + TASFA_DOWNLOAD_TTL));
     cJSON_AddStringToObject(meta, "expires_at", expires_at);
     if (!save_download_session(session_id, meta)) { cJSON_Delete(meta); cleanup_download_session(session_id); return false; }
+
+    unsigned char stream_key[32], stream_iv_seed[12];
+    if (RAND_bytes(stream_key, sizeof(stream_key)) != 1 || RAND_bytes(stream_iv_seed, sizeof(stream_iv_seed)) != 1) {
+        cJSON_Delete(meta); cleanup_download_session(session_id); return false;
+    }
+    char *stream_key_hex = hex_encode_alloc(stream_key, sizeof(stream_key));
+    char *stream_iv_seed_hex = hex_encode_alloc(stream_iv_seed, sizeof(stream_iv_seed));
+    if (stream_key_hex && stream_iv_seed_hex) {
+        cJSON_AddStringToObject(meta, "stream_key_hex", stream_key_hex);
+        cJSON_AddStringToObject(meta, "stream_iv_seed_hex", stream_iv_seed_hex);
+        cJSON_AddStringToObject(meta, "stream_mode", "aes-256-gcm");
+        save_download_session(session_id, meta); // update with keys
+    }
+    cwist_free(stream_key_hex);
+    cwist_free(stream_iv_seed_hex);
+
     if (out) *out = meta;
     else cJSON_Delete(meta);
     return true;
@@ -1552,10 +1705,9 @@ typedef struct {
 #define HTP_TAG_LEN 129
 #define HTP_RECORD_SIZE (HTP_TAG_LEN + 8 + 8)
 
-static bool save_htp_scalar(const char *upload_id, int chunk_index, const char *hash_tag_hex, uint64_t raw_scalar, uint64_t balanced_scalar) {
+static bool save_htp_scalar_to_dir(const char *dir_path, int chunk_index, const char *hash_tag_hex, uint64_t raw_scalar, uint64_t balanced_scalar) {
     char path[PATH_MAX];
-    upload_session_dir(path, sizeof(path), upload_id);
-    strncat(path, "/htp.bin", sizeof(path) - strlen(path) - 1);
+    snprintf(path, sizeof(path), "%s/htp.bin", dir_path);
     int fd = open(path, O_CREAT | O_WRONLY, 0644);
     if (fd < 0) return false;
     char tag[HTP_TAG_LEN] = {0};
@@ -1566,6 +1718,27 @@ static bool save_htp_scalar(const char *upload_id, int chunk_index, const char *
     pwrite(fd, &balanced_scalar, 8, offset + HTP_TAG_LEN + 8);
     close(fd);
     return true;
+}
+
+static bool save_htp_scalar(const char *upload_id, int chunk_index, const char *hash_tag_hex, uint64_t raw_scalar, uint64_t balanced_scalar) {
+    char path[PATH_MAX];
+    upload_session_dir(path, sizeof(path), upload_id);
+    return save_htp_scalar_to_dir(path, chunk_index, hash_tag_hex, raw_scalar, balanced_scalar);
+}
+
+static void finalize_cache_update_status(const char *upload_id, const char *msg) {
+    pthread_mutex_lock(&g_finalize_mtx);
+    finalize_slot_t *slot = finalize_cache_find_locked(upload_id);
+    if (slot) {
+        free(slot->body);
+        cJSON *obj = cJSON_CreateObject();
+        cJSON_AddBoolToObject(obj, "ok", false);
+        cJSON_AddBoolToObject(obj, "processing", true);
+        cJSON_AddStringToObject(obj, "status", msg ? msg : "");
+        slot->body = cJSON_PrintUnformatted(obj);
+        cJSON_Delete(obj);
+    }
+    pthread_mutex_unlock(&g_finalize_mtx);
 }
 
 static bool load_htp_scalars(const char *upload_id, int chunk_count, char **hash_tags_out, uint64_t **raw_scalars_out, uint64_t **balanced_scalars_out) {
@@ -2047,6 +2220,42 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring_assign(res->body, "");
 }
 
+static bool tasfa_generate_htp_metadata_for_file(const char *file_path, int chunk_size, uint64_t modulus_M, const char *media_name) {
+    if (!file_path || chunk_size <= 0 || modulus_M <= 1) return false;
+    FILE *f = fopen(file_path, "rb");
+    if (!f) return false;
+    fseek(f, 0, SEEK_END);
+    long long total_size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    char htp_dir[PATH_MAX];
+    snprintf(htp_dir, sizeof(htp_dir), "data/tasfa/media_htp/%s", media_name);
+    if (!dir_ensure("data/tasfa/media_htp") || !dir_ensure(htp_dir)) {
+        fclose(f);
+        return false;
+    }
+
+    int chunk_count = (int)((total_size + (long long)chunk_size - 1) / (long long)chunk_size);
+    unsigned char *buf = (unsigned char *)cwist_alloc((size_t)chunk_size);
+    if (!buf) { fclose(f); return false; }
+
+    for (int i = 0; i < chunk_count; i++) {
+        size_t n = fread(buf, 1, (size_t)chunk_size, f);
+        if (n <= 0) break;
+        unsigned char hash[32];
+        SHA256(buf, n, hash);
+        char hash_hex[65];
+        for (int j = 0; j < 32; j++) snprintf(hash_hex + (j * 2), 3, "%02x", hash[j]);
+        uint64_t raw_scalar = 0;
+        memcpy(&raw_scalar, hash, 8);
+        raw_scalar %= modulus_M;
+        save_htp_scalar_to_dir(htp_dir, i, hash_hex, raw_scalar, raw_scalar);
+    }
+    cwist_free(buf);
+    fclose(f);
+    return true;
+}
+
 static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -2257,9 +2466,24 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     }
     cwist_free(suspects);
 
+    finalize_cache_update_status(upload_id, "Processing media previews...");
+
+    /* Concurrency limit for ffmpeg */
+    while (1) {
+        pthread_mutex_lock(&g_media_mtx);
+        if (g_media_concurrency < TASFA_MAX_MEDIA_CONCURRENCY) {
+            g_media_concurrency++;
+            pthread_mutex_unlock(&g_media_mtx);
+            break;
+        }
+        pthread_mutex_unlock(&g_media_mtx);
+        usleep(100000);
+    }
+
     /* Post-quantum checksum (SHA-256 of final file) */
     unsigned char checksum[32];
     if (!sha256_file(temp_path, checksum)) {
+        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_mutex_unlock(&g_media_mtx);
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
         cwist_query_map_destroy(kv);
@@ -2270,6 +2494,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     char final_path[PATH_MAX];
     snprintf(final_path, sizeof(final_path), "public/uploads/%ld_%s", (long)time(NULL), filename);
     if (rename(temp_path, final_path) != 0) {
+        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_mutex_unlock(&g_media_mtx);
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
         cwist_query_map_destroy(kv);
@@ -2282,6 +2507,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     }
     int fid = db_file_create_volume_get_id(req->db, post_id, owner_uid, filename, mime_buf, final_path, (size_t)json_long_long(meta, "total_size", 0));
     if (fid <= 0) {
+        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_mutex_unlock(&g_media_mtx);
         unlink(final_path);
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
@@ -2295,14 +2521,25 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     char preview_path[PATH_MAX] = {0};
     if (strncmp(mime_buf, "image/", 6) == 0) {
         snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.jpg", fid);
-        if (!generate_image_thumb(final_path, thumb_path, 320, 240)) thumb_path[0] = '\0';
+        if (generate_image_thumb(final_path, thumb_path, 320, 240)) {
+            char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
+            tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
+        } else thumb_path[0] = '\0';
     } else if (strncmp(mime_buf, "video/", 6) == 0) {
         snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.jpg", fid);
-        if (!generate_video_thumb(final_path, thumb_path, 320, 240)) thumb_path[0] = '\0';
+        if (generate_video_thumb(final_path, thumb_path, 320, 240)) {
+            char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
+            tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
+        } else thumb_path[0] = '\0';
     } else if (strncmp(mime_buf, "audio/", 6) == 0) {
         snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp3", fid);
-        if (!generate_audio_preview(final_path, preview_path, 192)) preview_path[0] = '\0';
+        if (generate_audio_preview(final_path, preview_path, 192)) {
+            char media_name[64]; snprintf(media_name, sizeof(media_name), "preview_%d", fid);
+            tasfa_generate_htp_metadata_for_file(preview_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
+        } else preview_path[0] = '\0';
     }
+    pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_mutex_unlock(&g_media_mtx);
+
     if (thumb_path[0] || preview_path[0]) {
         db_file_set_preview_paths(req->db, fid, thumb_path[0] ? thumb_path : "", preview_path[0] ? preview_path : "");
     }
@@ -2529,7 +2766,9 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
         cwist_query_map_get(req->query_params, "link_save_data")
     );
     cJSON *obj = NULL;
-    if (!init_download_session(filename, mime, path, (long long)st.st_size, score, chunk_size, atoi(id_str), &obj)) {
+    char media_name[512];
+    snprintf(media_name, sizeof(media_name), "file_%s", id_str);
+    if (!init_download_session(filename, mime, path, (long long)st.st_size, score, chunk_size, atoi(id_str), media_name, &obj)) {
         cJSON_Delete(file);
         send_json_response(res, session_error_json("download handshake failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
@@ -2637,7 +2876,17 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
         cwist_query_map_get(req->query_params, "link_save_data")
     );
     cJSON *obj = NULL;
-    if (!init_download_session(filename, mime, path, (long long)st.st_size, score, chunk_size, 0, &obj)) {
+    char media_name[512];
+    const char *scope = cwist_query_map_get(req->path_params, "scope");
+    const char *raw_fname = cwist_query_map_get(req->path_params, "filename");
+    snprintf(media_name, sizeof(media_name), "%s_", scope ? scope : "unknown");
+    char *p = media_name + strlen(media_name);
+    for (int i = 0; raw_fname && raw_fname[i] && (size_t)(p - media_name) < sizeof(media_name) - 1; i++) {
+        *p++ = (raw_fname[i] == '/') ? '_' : raw_fname[i];
+    }
+    *p = '\0';
+
+    if (!init_download_session(filename, mime, path, (long long)st.st_size, score, chunk_size, 0, media_name, &obj)) {
         send_json_response(res, session_error_json("download handshake failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
     }

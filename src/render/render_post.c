@@ -736,9 +736,15 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                     cwist_sstring_append(b, "<div class='media-attachment-block' style='margin-bottom:12px'>");
                     if (is_image) {
                         if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
-                            cwist_sstring_append(b, "<img src='/assets/uploads/");
-                            cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
-                            cwist_sstring_append(b, "' loading='lazy' decoding='async'>");
+                            if (g_config.use_tasfa) {
+                                cwist_sstring_append(b, "<img data-tasfa-download='/assets/uploads/");
+                                cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
+                                cwist_sstring_append(b, "'>");
+                            } else {
+                                cwist_sstring_append(b, "<img src='/assets/uploads/");
+                                cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
+                                cwist_sstring_append(b, "' loading='lazy' decoding='async'>");
+                            }
                         } else {
                             cwist_sstring_append(b, "<img data-tasfa-download='/file/download/");
                             cwist_sstring_append(b, fid_buf2);
@@ -749,9 +755,17 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                         cwist_sstring_append(b, fid_buf2);
                         cwist_sstring_append(b, "'");
                         if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
-                            cwist_sstring_append(b, " poster='/assets/uploads/");
-                            cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
-                            cwist_sstring_append(b, "'");
+                            if (g_config.use_tasfa) {
+                                cwist_sstring_append(b, " poster='/assets/uploads/");
+                                cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
+                                cwist_sstring_append(b, "' data-tasfa-poster='/assets/uploads/");
+                                cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
+                                cwist_sstring_append(b, "'");
+                            } else {
+                                cwist_sstring_append(b, " poster='/assets/uploads/");
+                                cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
+                                cwist_sstring_append(b, "'");
+                            }
                         }
                         cwist_sstring_append(b, " muted playsinline preload='metadata' controls></video>");
                     } else if (is_audio) {

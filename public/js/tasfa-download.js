@@ -262,6 +262,9 @@
         return {
             sessionId: session.session_id,
             sessionToken: session.session_token,
+            streamKeyHex: session.stream_key_hex,
+            streamIvSeedHex: session.stream_iv_seed_hex,
+            streamMode: session.stream_mode,
             chunkSize: chunkSize,
             chunkCount: chunkCount,
             totalSize: Math.max(0, Number(session.total_size) || 0),
@@ -349,6 +352,37 @@
         return { arm: arm, clear: clear };
     }
 
+    async function decryptBuffer(session, chunkIndex, buffer) {
+        if (session.streamMode !== 'aes-256-gcm' || !session.streamKeyHex || !session.streamIvSeedHex) {
+            return new Uint8Array(buffer);
+        }
+
+        if (!session.cryptoKey) {
+            var rawKey = new Uint8Array(session.streamKeyHex.match(/.{1,2}/g).map(function(b) { return parseInt(b, 16); }));
+            session.cryptoKey = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['decrypt']);
+            session.ivSeed = new Uint8Array(session.streamIvSeedHex.match(/.{1,2}/g).map(function(b) { return parseInt(b, 16); }));
+        }
+
+        var iv = new Uint8Array(session.ivSeed);
+        iv[8] ^= (chunkIndex >> 24) & 0xff;
+        iv[9] ^= (chunkIndex >> 16) & 0xff;
+        iv[10] ^= (chunkIndex >> 8) & 0xff;
+        iv[11] ^= chunkIndex & 0xff;
+
+        var aad = new TextEncoder().encode(session.sessionId + ':' + chunkIndex);
+
+        try {
+            var plaintext = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv: iv, additionalData: aad, tagLength: 128 },
+                session.cryptoKey,
+                buffer
+            );
+            return new Uint8Array(plaintext);
+        } catch (e) {
+            throw new Error('decryption_failed');
+        }
+    }
+
     function fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries) {
         retries = retries || 0;
         return new Promise(function(resolve, reject) {
@@ -386,27 +420,29 @@
                 }
                 var buffer = xhr.response;
                 if (!buffer) { reject(new Error('empty response')); return; }
-                var data = new Uint8Array(buffer);
-                if (data.byteLength !== expectedBytes) {
-                    reject(new Error('short response'));
-                    return;
-                }
-                var offset = 0;
-                var totalReceived = 0;
-                for (var i = 0; i < span; i++) {
-                    var idx = chunkIndex + i;
-                    if (idx >= session.chunkCount) break;
-                    var size = chunkByteSize(session, idx);
-                    if (offset + size > data.byteLength) {
-                        size = data.byteLength - offset;
+
+                decryptBuffer(session, chunkIndex, buffer).then(function(data) {
+                    if (data.byteLength !== expectedBytes) {
+                        reject(new Error('short response'));
+                        return;
                     }
-                    if (size > 0) {
-                        allBytes.set(data.subarray(offset, offset + size), idx * session.chunkSize);
+                    var offset = 0;
+                    var totalReceived = 0;
+                    for (var i = 0; i < span; i++) {
+                        var idx = chunkIndex + i;
+                        if (idx >= session.chunkCount) break;
+                        var size = chunkByteSize(session, idx);
+                        if (offset + size > data.byteLength) {
+                            size = data.byteLength - offset;
+                        }
+                        if (size > 0) {
+                            allBytes.set(data.subarray(offset, offset + size), idx * session.chunkSize);
+                        }
+                        offset += size;
+                        totalReceived += size;
                     }
-                    offset += size;
-                    totalReceived += size;
-                }
-                resolve({ bytes: totalReceived, durationMs: Date.now() - startedAt });
+                    resolve({ bytes: totalReceived, durationMs: Date.now() - startedAt });
+                }).catch(reject);
             };
             xhr.onerror = function() {
                 watchdog.clear();
