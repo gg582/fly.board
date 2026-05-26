@@ -767,17 +767,10 @@
         if (baseUrl) el.setAttribute('data-tasfa-download', baseUrl);
 
         if (baseUrl && isTasfaDownloadUrl(el.getAttribute('src') || '')) {
-            if (el.tagName && (el.tagName.toLowerCase() === 'video' || el.tagName.toLowerCase() === 'img')) {
-                el.setAttribute('src', stableMediaCacheUrl(baseUrl));
-            } else {
-                el.removeAttribute('src');
-            }
+            el.removeAttribute('src');
         }
         if (baseUrl && el.tagName && el.tagName.toLowerCase() === 'img' && !el.getAttribute('src')) {
-            el.setAttribute('src', stableMediaCacheUrl(baseUrl));
-        }
-        if (baseUrl && el.tagName && el.tagName.toLowerCase() === 'video' && !el.getAttribute('src')) {
-            el.setAttribute('src', stableMediaCacheUrl(baseUrl));
+            el.setAttribute('src', EMPTY_IMAGE_SRC);
         }
 
         /* Parallel upgrade for poster if exists */
