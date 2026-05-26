@@ -976,6 +976,10 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
             cJSON *stype = cJSON_GetObjectItem(f, "mime_type");
             const char *mime = stype && stype->valuestring ? stype->valuestring : "";
             cwist_sstring_append_escaped(b, mime);
+            cJSON *jpath = cJSON_GetObjectItem(f, "file_path");
+            const char *file_path = jpath && jpath->valuestring ? jpath->valuestring : "";
+            cwist_sstring_append(b, "' data-file-path='");
+            cwist_sstring_append_escaped(b, file_path);
             char asset_url[512] = {0};
             snprintf(asset_url, sizeof(asset_url), "/file/download/%s", fid_buf);
             cwist_sstring_append(b, "' data-url='");

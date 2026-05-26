@@ -650,9 +650,9 @@
             var isVideo = /\.(mp4|mov|mkv|webm|avi|m4v)(\?.*)?$/i.test(src);
             var poster = '';
             
-            if (src.indexOf('/file/download/') === 0) {
-                var fidStr = src.split('/').pop();
-                var fid = parseInt(fidStr);
+            var dlMatch = src.match(/\/file\/download\/(\d+)/);
+            if (dlMatch) {
+                var fid = parseInt(dlMatch[1]);
                 var asset = AssetRegistry.find(function(a) { return a.fid === fid; });
                 if (asset) {
                     if (asset.mime_type && asset.mime_type.indexOf('video/') === 0) isVideo = true;
@@ -666,9 +666,8 @@
                     vattrs += " poster='/assets/uploads/" + escapeHtml(poster.slice(15)) + "'";
                 }
                 var videoUrl = escapeHtml(src);
-                if (src.indexOf('/file/download/') === 0) {
-                    var fidStr = src.split('/').pop();
-                    var fid = parseInt(fidStr);
+                if (dlMatch) {
+                    var fid = parseInt(dlMatch[1]);
                     var asset = AssetRegistry.find(function(a) { return a.fid === fid; });
                     var ts = '0000000000000';
                     if (asset && asset.file_path) {
@@ -684,13 +683,20 @@
             }
 
             var attrs = "src='" + escapeHtml(src) + "' alt='" + escapeHtml(alt) + "' loading='lazy'";
-            if (src.indexOf('/file/download/') === 0) {
+            if (dlMatch) {
                 attrs = "data-tasfa-download='" + escapeHtml(src) + "' alt='" + escapeHtml(alt) + "' loading='lazy'";
             }
             if (title) attrs += " title='" + escapeHtml(title) + "'";
             return "<img " + attrs + ">";
         });
         html = html.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g, function(_, label, href, title) {
+            var isDownload = href.indexOf('/file/download/') === 0 || href.indexOf('https://oborona.zip/file/download/') === 0 || href.indexOf('http://oborona.zip/file/download/') === 0;
+            if (isDownload) {
+                var relativeUrl = href;
+                var match = href.match(/\/file\/download\/\d+/);
+                if (match) relativeUrl = match[0];
+                return "<a href='#' data-tasfa-download-link='" + escapeHtml(relativeUrl) + "'>" + label + "</a>";
+            }
             var attrs = "href='" + escapeHtml(href) + "'";
             if (/^https?:\/\//.test(href)) attrs += " target='_blank' rel='noopener noreferrer'";
             if (title) attrs += " title='" + escapeHtml(title) + "'";
