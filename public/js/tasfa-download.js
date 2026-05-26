@@ -748,7 +748,6 @@
         if (el.getAttribute('data-tasfa-skip') === '1') return;
 
         var tagName = el.tagName ? el.tagName.toLowerCase() : '';
-        if (tagName === 'video' || tagName === 'source') return;
 
         var baseUrl = mediaBaseUrl(el);
         var posterUrl = el.getAttribute('data-tasfa-poster') || '';
@@ -761,7 +760,8 @@
             el.removeAttribute('src');
         }
 
-        if (baseUrl && el.tagName && el.tagName.toLowerCase() === 'img' && !el.getAttribute('src')) {
+        /* img용 placeholder (video/audio는 src 없애는 것으로 충분) */
+        if (baseUrl && tagName === 'img' && !el.getAttribute('src')) {
             el.setAttribute('src', EMPTY_IMAGE_SRC);
         }
 
@@ -827,20 +827,33 @@
         root.querySelectorAll(selector).forEach(upgradeDownloadLink);
     }
 
+    function upgradeMediaWithin(root) {
+        if (!root || !root.querySelectorAll) return;
+        var mediaSelector = 'img[src^="/file/download/"], img[src^="/assets/img/"], img[src^="/assets/uploads/"], video[src^="/file/download/"], audio[src^="/file/download/"]';
+        if (root.matches) {
+            if (root.matches(mediaSelector)) upgradeMediaElement(root);
+        }
+        root.querySelectorAll(mediaSelector).forEach(upgradeMediaElement);
+    }
+
     function init() {
         window.fetchBlobViaTasfa = fetchBlobViaTasfa;
         window.openTasfaDownload = triggerDownload;
         window.upgradeTasfaMedia = upgradeMediaElement;
         window.initMarkdownAffordances = function(root) {
-            upgradeWithin(root && root.querySelectorAll ? root : document);
+            var r = root && root.querySelectorAll ? root : document;
+            upgradeWithin(r);
+            upgradeMediaWithin(r);
         };
         upgradeWithin(document);
+        upgradeMediaWithin(document);
         if (window.MutationObserver) {
             new MutationObserver(function(mutations) {
                 mutations.forEach(function(mutation) {
                     mutation.addedNodes.forEach(function(node) {
                         if (node && node.nodeType === 1) {
                             upgradeWithin(node);
+                            upgradeMediaWithin(node);
                         }
                     });
                 });

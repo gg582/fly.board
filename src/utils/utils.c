@@ -342,11 +342,9 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
             "<img src=\"%s\" alt=\"%s\" style=\"max-width:100%%\">",
             out->url, out->filename);
     } else if (strncmp(out->mime_type, "video/", 6) == 0) {
-        char ts[32];
-        get_file_timestamp_str(out->file_path, ts, sizeof(ts));
         snprintf(out->html, sizeof(out->html),
-            "<video src=\"https://oborona.zip/__tasfa_media__/_file_download_%d-%s\" style=\"max-width:100%%;height:auto;display:block\" controls preload=\"metadata\"></video>",
-            fid, ts);
+            "<video src=\"%s\" style=\"max-width:100%%;height:auto;display:block\" controls preload=\"metadata\"></video>",
+            out->url);
     } else if (strncmp(out->mime_type, "audio/", 6) == 0) {
         snprintf(out->html, sizeof(out->html),
             "<audio controls src=\"%s\"></audio>",

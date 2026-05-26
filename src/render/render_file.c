@@ -154,8 +154,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             const char *preview_path = (jpreview && jpreview->valuestring && jpreview->valuestring[0]) ? jpreview->valuestring : "";
             bool has_thumb = thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0;
             bool has_preview = preview_path[0] && strncmp(preview_path, "public/uploads/", 15) == 0;
-            cJSON *jpath = cJSON_GetObjectItem(f, "file_path");
-            const char *file_path = (jpath && jpath->valuestring) ? jpath->valuestring : "";
+            cJSON *jpath = cJSON_GetObjectItem(f, "file_path"); (void)jpath;
             int id_val = 0;
             if (fid && fid->type == cJSON_String) id_val = atoi(fid->valuestring);
             else if (fid && fid->type == cJSON_Number) id_val = fid->valueint;
@@ -185,12 +184,8 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
                     cwist_sstring_append(b, "<span class='file-thumb-icon'>IMG</span>");
                 }
             } else if (is_video) {
-                char ts[32];
-                get_file_timestamp_str(file_path, ts, sizeof(ts));
-                cwist_sstring_append(b, "<video src='https://oborona.zip/__tasfa_media__/_file_download_");
+                cwist_sstring_append(b, "<video src='/file/download/");
                 cwist_sstring_append(b, fid_buf);
-                cwist_sstring_append(b, "-");
-                cwist_sstring_append(b, ts);
                 cwist_sstring_append(b, "' controls preload='none' playsinline class='file-thumb-media' style='width:100%;aspect-ratio:16/9;background:#000;object-fit:cover'></video>");
             } else if (strncmp(mime, "audio/", 6) == 0) {
                 if (has_preview) {
