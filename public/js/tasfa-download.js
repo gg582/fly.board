@@ -747,6 +747,9 @@
         if (!el || el.dataset.tasfaMediaBound === '1') return;
         if (el.getAttribute('data-tasfa-skip') === '1') return;
 
+        var tagName = el.tagName ? el.tagName.toLowerCase() : '';
+        if (tagName === 'video' || tagName === 'source') return;
+
         var baseUrl = mediaBaseUrl(el);
         var posterUrl = el.getAttribute('data-tasfa-poster') || '';
         if (!baseUrl && !posterUrl) return;
@@ -817,10 +820,10 @@
         if (!root || !root.querySelectorAll) return;
         if (root.matches) {
             if (root.matches('a[data-tasfa-download-link], a[href^="/file/download/"]')) upgradeDownloadLink(root);
-            if (root.matches('img[data-tasfa-download], video[data-tasfa-download], audio[data-tasfa-download], source[data-tasfa-download], img[src^="/file/download/"], video[src^="/file/download/"], audio[src^="/file/download/"], source[src^="/file/download/"]')) upgradeMediaElement(root);
+            if (root.matches('img[data-tasfa-download], audio[data-tasfa-download], img[src^="/file/download/"], audio[src^="/file/download/"]')) upgradeMediaElement(root);
         }
         root.querySelectorAll('a[data-tasfa-download-link], a[href^="/file/download/"]').forEach(upgradeDownloadLink);
-        root.querySelectorAll('img[data-tasfa-download], video[data-tasfa-download], audio[data-tasfa-download], source[data-tasfa-download], img[src^="/file/download/"], video[src^="/file/download/"], audio[src^="/file/download/"], source[src^="/file/download/"]').forEach(upgradeMediaElement);
+        root.querySelectorAll('img[data-tasfa-download], audio[data-tasfa-download], img[src^="/file/download/"], audio[src^="/file/download/"]').forEach(upgradeMediaElement);
     }
 
     function init() {

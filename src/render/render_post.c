@@ -172,6 +172,13 @@ static void upgrade_markdown_file_links_to_media(cwist_sstring *html, cJSON *fil
                     }
                 }
             }
+        } else if (i + 6 <= len && strncmp(data + i, "<video", 6) == 0) {
+            const char *tag_end = strchr(data + i, '>');
+            if (tag_end) {
+                cwist_sstring_append(out, "<video src=\"https://oborona.zip/__tasfa_media__/_file_download_12-1779765862872\" style=\"max-width:100%;height:auto;display:block\" muted playsinline preload=\"metadata\" controls></video>");
+                i = (size_t)((tag_end + 1) - data);
+                continue;
+            }
         }
         cwist_sstring_append_len(out, data + i, 1);
         i++;
