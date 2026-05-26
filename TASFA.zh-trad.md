@@ -259,10 +259,19 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 
 ## 下載協定
 
-1. 用戶端要求交握。
-2. 伺服器傳回 `session_id`、`session_token`、`chunk_size`、`chunk_count` 和並行提示。
-3. 用戶端在支援時透過 `span=...` 取得分塊組。
-4. 瀏覽器將回應組裝為單個連續緩衝區。
+1. 用戶端透過 `GET /.../handshake` 請求交握。
+2. 伺服器回傳 `session_id`、`session_token`、`chunk_size`、`chunk_count`、並行提示以及工作階段加密金鑰（`stream_key_hex`、`stream_iv_seed_hex`）。
+3. 用戶端使用自適應 `span=...` 獲取分塊組。所有分塊均使用 **AES-256-GCM** 加密。
+4. 用戶端在瀏覽器中使用 **Web Crypto API** 和工作階段金鑰解密分塊。
+5. 瀏覽器將回應組裝為單個連續緩衝區。
+
+## 媒體處理整合
+
+伺服器產生的媒體（縮圖、音訊預覽）是 TASFA 的一等資產：
+- **HTP 元資料預計算**：當伺服器產生縮圖或預覽時，它會立即計算其分塊的 HTP 標量和 SHA-256 標籤，並將其儲存在 `data/tasfa/media_htp` 中。
+- **可靠的媒體傳輸**：媒體透過 `/assets/tasfa/...` 路由提供，支援完整的 TASFA 協定，包括使用預計算的 HTP 元資料進行分塊級完整性驗證。
+- **並行控制**：媒體產生（ffmpeg）限制為 4 個並行程序，以保護伺服器資源。
+
 
 ## 透過點陣圖的 DoS 緩解
 

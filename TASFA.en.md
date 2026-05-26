@@ -270,10 +270,18 @@ Completed uploads receive a one-time delete PIN. The clear PIN is returned once;
 
 ## Download Protocol
 
-1. Client requests a handshake.
-2. Server returns `session_id`, `session_token`, `chunk_size`, `chunk_count`, and concurrency hints.
-3. Client fetches chunk groups with an adaptive `span=...`.
-4. Browser assembles the response into one contiguous buffer.
+1. Client requests a handshake via `GET /.../handshake`.
+2. Server returns `session_id`, `session_token`, `chunk_size`, `chunk_count`, concurrency hints, and session encryption keys (`stream_key_hex`, `stream_iv_seed_hex`).
+3. Client fetches chunk groups with an adaptive `span=...`. All chunks are encrypted with **AES-256-GCM**.
+4. Client decrypts chunks in the browser using the **Web Crypto API** and the session keys.
+5. Browser assembles the response into one contiguous buffer.
+
+## Media Processing Integration
+
+Server-generated media (thumbnails, audio previews) are first-class TASFA assets:
+- **HTP Metadata Pre-calculation**: When the server generates a thumbnail or preview, it immediately computes HTP scalars and SHA-256 tags for its chunks and stores them in `data/tasfa/media_htp`.
+- **Reliable Media Transfer**: Media is served via the `/assets/tasfa/...` routes, which support the full TASFA protocol including chunk-level integrity verification using the pre-calculated HTP metadata.
+- **Concurrency Control**: Media generation (ffmpeg) is limited to 4 concurrent processes to protect server resources.
 
 ## DoS Mitigation via Bitmap
 

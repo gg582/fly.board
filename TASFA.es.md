@@ -259,10 +259,18 @@ Las cargas completadas reciben un PIN de eliminación de un solo uso. El PIN en 
 
 ## Protocolo de Descarga
 
-1. El cliente solicita un handshake.
-2. El servidor devuelve `session_id`, `session_token`, `chunk_size`, `chunk_count`, y sugerencias de concurrencia.
-3. El cliente obtiene grupos de fragmentos con `span=...` cuando está soportado.
-4. El navegador ensambla la respuesta en un búfer contiguo.
+1. El cliente solicita un handshake a través de `GET /.../handshake`.
+2. El servidor devuelve `session_id`, `session_token`, `chunk_size`, `chunk_count`, sugerencias de concurrencia y claves de cifrado de sesión (`stream_key_hex`, `stream_iv_seed_hex`).
+3. El cliente obtiene grupos de fragmentos con un `span=...` adaptativo. Todos los fragmentos están cifrados con **AES-256-GCM**.
+4. El cliente descifra los fragmentos en el navegador utilizando la **Web Crypto API** y las claves de sesión.
+5. El navegador ensambla la respuesta en un búfer contiguo.
+
+## Integración de Procesamiento de Medios
+
+Los medios generados por el servidor (miniaturas, vistas previas de audio) son activos TASFA de primera clase:
+- **Precalculación de Metadatos HTP**: Cuando el servidor genera una miniatura o vista previa, calcula inmediatamente los escalares HTP y las etiquetas SHA-256 para sus fragmentos y los almacena en `data/tasfa/media_htp`.
+- **Transferencia Confiable de Medios**: Los medios se sirven a través de las rutas `/assets/tasfa/...`, que admiten el protocolo TASFA completo, incluida la verificación de integridad a nivel de fragmento utilizando los metadatos HTP precalculados.
+- **Control de Concurrencia**: La generación de medios (ffmpeg) está limitada a 4 procesos concurrentes para proteger los recursos del servidor.
 
 ## Mitigación DoS vía Bitmap
 

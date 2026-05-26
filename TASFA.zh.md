@@ -258,10 +258,19 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 
 ## 下载协议
 
-1. 客户端请求握手。
-2. 服务器返回 `session_id`、`session_token`、`chunk_size`、`chunk_count` 和并发提示。
-3. 客户端在支持时通过 `span=...` 获取分块组。
-4. 浏览器将响应组装为单个连续缓冲区。
+1. 客户端通过 `GET /.../handshake` 请求握手。
+2. 服务器返回 `session_id`、`session_token`、`chunk_size`、`chunk_count`、并发提示以及会话加密密钥（`stream_key_hex`、`stream_iv_seed_hex`）。
+3. 客户端使用自适应 `span=...` 获取分块组。所有分块均使用 **AES-256-GCM** 加密。
+4. 客户端在浏览器中使用 **Web Crypto API** 和会话密钥解密分块。
+5. 浏览器将响应组装成一个连续的缓冲区。
+
+## 媒体处理集成
+
+服务器生成的媒体（缩略图、音频预览）是 TASFA 的一等资产：
+- **HTP 元数据预计算**：当服务器生成缩略图或预览时，它会立即计算其分块的 HTP 标量和 SHA-256 标签，并将其存储在 `data/tasfa/media_htp` 中。
+- **可靠的媒体传输**：媒体通过 `/assets/tasfa/...` 路由提供，支持完整的 TASFA 协议，包括使用预计算的 HTP 元数据进行分块级完整性验证。
+- **并发控制**：媒体生成（ffmpeg）限制为 4 个并发进程，以保护服务器资源。
+
 
 ## 通过位图的 DoS 缓解
 
