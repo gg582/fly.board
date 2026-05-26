@@ -780,6 +780,47 @@
         });
     }
 
+    /**
+     * img/audio 엘리먼트가 실제로는 video 또는 audio 파일을 가리킬 때 호출.
+     * 이미 다운로드한 blob을 SW cache에 넣고 web player modal로 연다.
+     * SW cache가 없으면 baseUrl(원본 TASFA 경로)을 플레이어에 전달한다.
+     */
+    async function redirectToMediaPlayer(el, baseUrl, blob) {
+        el.setAttribute('data-tasfa-ready', '1');
+        el.removeAttribute('data-tasfa-progress');
+        updateProgressUI(el, 100);
+
+        /* SW cache path를 먼저 시도 — 실패하면 원본 TASFA URL 사용 */
+        var playUrl = null;
+        if (window.caches && navigator.serviceWorker && await waitForServiceWorkerController(1500)) {
+            var cacheKey = stableMediaCacheUrl(baseUrl);
+            try {
+                var mc = await caches.open(TASFA_MEDIA_CACHE);
+                await mc.put(cacheKey, new Response(blob, {
+                    headers: {
+                        'Content-Type': blob.type || 'application/octet-stream',
+                        'Cache-Control': 'no-store'
+                    }
+                }));
+                playUrl = cacheKey;
+            } catch (e) {}
+        }
+        if (!playUrl) playUrl = baseUrl;
+
+        var title = el.getAttribute('alt') || el.getAttribute('title') || '';
+        (videoPlayerModule || (videoPlayerModule = import('/assets/js/tasfa-video-player.js?v=2')))
+            .then(function(mod) {
+                if (!mod || typeof mod.openTasfaVideoModal !== 'function') {
+                    window.open(playUrl, '_blank', 'noopener,noreferrer');
+                    return;
+                }
+                mod.openTasfaVideoModal(playUrl, title);
+            })
+            .catch(function() {
+                window.open(playUrl, '_blank', 'noopener,noreferrer');
+            });
+    }
+
     function upgradeMediaElement(el) {
         if (!el || el.dataset.tasfaMediaBound === '1') return;
         if (el.getAttribute('data-tasfa-skip') === '1') return;
@@ -816,6 +857,12 @@
                     updateProgressUI(el, percent);
                 }
             }).then(async function(result) {
+                var mimeType = result.blob.type || '';
+                /* 클라이언트에서 MIME type 재확인 — video/audio 파일이
+                   img 엘리먼트에 걸린 경우 web player로 라우팅 */
+                if (/^(video|audio)\//.test(mimeType)) {
+                    return redirectToMediaPlayer(el, baseUrl, result.blob);
+                }
                 var objectUrl = await createMediaPlaybackUrl(baseUrl, result.blob, tagName);
                 setMediaObjectUrl(el, objectUrl);
                 el.setAttribute('data-tasfa-ready', '1');
