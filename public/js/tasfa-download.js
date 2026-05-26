@@ -760,12 +760,57 @@
 
         var tagName = el.tagName ? el.tagName.toLowerCase() : '';
         if (tagName === 'video' || tagName === 'source') {
-            el.setAttribute('src', 'https://oborona.zip/__tasfa_media__/_file_download_12-1779765862872');
-            if (typeof el.load === 'function') {
-                try { el.load(); } catch (e) {}
-            } else if (el.parentElement && typeof el.parentElement.load === 'function') {
-                try { el.parentElement.load(); } catch (e) {}
-            }
+            var videoUrl = 'https://oborona.zip/__tasfa_media__/_file_download_12-1779765862872';
+            updateProgressUI(el, 5);
+            fetch(videoUrl)
+                .then(function(response) {
+                    if (!response.ok) throw new Error('status ' + response.status);
+                    var reader = response.body ? response.body.getReader() : null;
+                    if (!reader) return response.blob();
+                    
+                    var contentLength = +response.headers.get('Content-Length') || 0;
+                    var receivedLength = 0;
+                    var chunks = [];
+                    
+                    return new Promise(function(resolve, reject) {
+                        function read() {
+                            reader.read().then(function(result) {
+                                if (result.done) {
+                                    var blob = new Blob(chunks, { type: response.headers.get('Content-Type') || 'video/mp4' });
+                                    resolve(blob);
+                                    return;
+                                }
+                                chunks.push(result.value);
+                                receivedLength += result.value.byteLength;
+                                if (contentLength) {
+                                    var pct = Math.round((receivedLength / contentLength) * 100);
+                                    updateProgressUI(el, Math.min(99, pct));
+                                }
+                                read();
+                            }).catch(reject);
+                        }
+                        read();
+                    });
+                })
+                .then(async function(blob) {
+                    var cacheUrl = await createMediaPlaybackUrl(videoUrl, blob);
+                    setMediaObjectUrl(el, cacheUrl);
+                    el.setAttribute('data-tasfa-ready', '1');
+                    updateProgressUI(el, 100);
+                })
+                .catch(function(err) {
+                    el.dataset.tasfaMediaBound = '0';
+                    el.setAttribute('data-tasfa-error', '1');
+                    var wrap = el.closest('.tasfa-media-wrap') || el.closest('.tasfa-inline-media-wrap');
+                    if (wrap) {
+                        var loader = wrap.querySelector('.tasfa-media-loader');
+                        if (loader) loader.remove();
+                        if (wrap.classList.contains('tasfa-inline-media-wrap') && wrap.parentElement) {
+                            wrap.parentElement.insertBefore(el, wrap);
+                            wrap.remove();
+                        }
+                    }
+                });
             return;
         }
 
