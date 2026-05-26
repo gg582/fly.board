@@ -396,15 +396,11 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     const char *filename = (jfilename && jfilename->type == cJSON_String && jfilename->valuestring) ? jfilename->valuestring : "download";
     const char *mime = (jmime && jmime->type == cJSON_String && jmime->valuestring) ? jmime->valuestring : "application/octet-stream";
     bool is_image = strncmp(mime, "image/", 6) == 0;
-    bool is_video = strncmp(mime, "video/", 6) == 0;
-    if (!is_image && !is_video && (!mime[0] || strcmp(mime, "application/octet-stream") == 0)) {
+    if (!is_image && (!mime[0] || strcmp(mime, "application/octet-stream") == 0)) {
         const char *name_mime = mime_type(filename);
         if (name_mime && strncmp(name_mime, "image/", 6) == 0) {
             mime = name_mime;
             is_image = true;
-        } else if (name_mime && strncmp(name_mime, "video/", 6) == 0) {
-            mime = name_mime;
-            is_video = true;
         }
     }
 
@@ -419,10 +415,9 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     if (mime_type_from_data(path, detected_mime, sizeof(detected_mime))) {
         mime = detected_mime;
         is_image = strncmp(mime, "image/", 6) == 0;
-        is_video = strncmp(mime, "video/", 6) == 0;
     }
 
-    if (g_config.use_tasfa && !is_image && !is_video) {
+    if (g_config.use_tasfa && !is_image) {
         cJSON_Delete(file);
         res->status_code = CWIST_HTTP_FORBIDDEN;
         cwist_sstring_assign(res->body, "Direct download disabled; use the reliable transfer path.");
@@ -430,7 +425,7 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     }
 
     char disp[512];
-    snprintf(disp, sizeof(disp), "%s; filename=\"%s\"", (is_image || is_video) ? "inline" : "attachment", filename);
+    snprintf(disp, sizeof(disp), "%s; filename=\"%s\"", is_image ? "inline" : "attachment", filename);
     cwist_http_header_add(&res->headers, "Content-Disposition", disp);
 
     db_file_increment_download(req->db, atoi(id_str));
