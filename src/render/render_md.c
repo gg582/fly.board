@@ -467,7 +467,7 @@ static void replace_video_tags_with_placeholders(cwist_sstring *html) {
                     cwist_sstring_append(out, "<div class='media-video-frame'>");
                     cwist_sstring_append(out, "<button type='button' class='media-load-btn media-video-open' data-tasfa-video-link='");
                     cwist_sstring_append_escaped(out, href);
-                    cwist_sstring_append(out, "'>Click to Load</button>");
+                    cwist_sstring_append(out, "'>&#9654; Click to View</button>");
                     cwist_sstring_append(out, "</div></div>");
                     i += block_len;
                     continue;

@@ -15,6 +15,7 @@
     var EMPTY_IMAGE_SRC = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
     var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
     var objectUrls = new WeakMap();
+    var videoPlayerModule = null;
 
     async function getCachedBlob(baseUrl) {
         try {
@@ -748,11 +749,33 @@
         if (!videoLink) return;
         if (el.dataset.tasfaVideoBound === '1') return;
         el.dataset.tasfaVideoBound = '1';
+
+        var isThumb = el.classList.contains('file-video-thumb-link');
+
         el.addEventListener('click', function(event) {
             event.preventDefault();
-            var win = window.open(videoLink, '_blank', 'noopener,noreferrer');
-            if (win) {
-                try { win.opener = null; } catch (e) {}
+
+            if (isThumb) {
+                // File repo card thumbnail: open Plyr modal overlay
+                var title = el.closest('.file-repo-card-inner')
+                    ? (el.closest('.file-repo-card-inner').querySelector('h4') || {}).textContent || ''
+                    : '';
+                el.disabled = true;
+                (videoPlayerModule || (videoPlayerModule = import('/assets/js/tasfa-video-player.js?v=2')))
+                    .then(function(mod) {
+                        if (!mod || typeof mod.openTasfaVideoModal !== 'function') throw new Error('modal unavailable');
+                        mod.openTasfaVideoModal(videoLink, title);
+                    })
+                    .catch(function() {
+                        window.open(videoLink, '_blank', 'noopener,noreferrer');
+                    })
+                    .finally(function() {
+                        el.disabled = false;
+                    });
+            } else {
+                // Post / markdown embedded video: open in new tab (no preloading)
+                var win = window.open(videoLink, '_blank', 'noopener,noreferrer');
+                if (win) { try { win.opener = null; } catch (e) {} }
             }
         });
     }

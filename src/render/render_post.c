@@ -84,7 +84,7 @@ static bool extract_download_id_from_img_tag(const char *tag, int *out_id) {
 static void append_video_load_button(cwist_sstring *out, const char *href) {
     cwist_sstring_append(out, "<button type='button' class='media-load-btn media-video-open' data-tasfa-video-link='");
     cwist_sstring_append_escaped(out, href ? href : "");
-    cwist_sstring_append(out, "'>Click to Load</button>");
+    cwist_sstring_append(out, "'>&#9654; Click to View</button>");
 }
 
 static void append_video_placeholder(cwist_sstring *out, const char *href, const char *title) {

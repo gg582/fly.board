@@ -679,7 +679,7 @@
                 if (videoTitle) {
                     videoHtml += "<div class='media-video-title'>" + escapeHtml(videoTitle) + "</div>";
                 }
-                videoHtml += "<div class='media-video-frame'><button type='button' class='media-load-btn media-video-open' data-tasfa-video-link='" + videoUrl + "'>Click to Load</button></div></div>";
+                videoHtml += "<div class='media-video-frame'><button type='button' class='media-load-btn media-video-open' data-tasfa-video-link='" + videoUrl + "'>&#9654; Click to View</button></div></div>";
                 return videoHtml;
             }
 
@@ -1058,7 +1058,7 @@
             btn.type = 'button';
             btn.className = 'media-load-btn media-video-open file-video-thumb-link';
             btn.setAttribute('data-tasfa-video-link', previewUrl);
-            btn.textContent = 'Click to Load';
+            btn.textContent = '\u25b6 Play';
             thumb.appendChild(btn);
         } else if (mediaType === 'audio') {
             var aud = document.createElement('audio');
