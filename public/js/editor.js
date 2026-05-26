@@ -664,15 +664,7 @@
                 if (dlMatch) {
                     var fid = parseInt(dlMatch[1]);
                     var asset = AssetRegistry.find(function(a) { return a.fid === fid; });
-                    var ts = '0000000000000';
-                    if (asset && asset.file_path) {
-                        var onDisk = asset.file_path.split('/').pop();
-                        var match = onDisk.match(/^([0-9]+)_/);
-                        if (match) {
-                            ts = match[1] + '000';
-                        }
-                    }
-                    videoUrl = 'https://oborona.zip/__tasfa_media__/_file_download_' + fid + '-' + ts;
+                    videoUrl = '/file/download/' + fid;
                     if (!videoTitle && asset && asset.filename) videoTitle = asset.filename;
                 }
                 var videoHtml = "<div class='media-video-placeholder'>";

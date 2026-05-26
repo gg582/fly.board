@@ -143,7 +143,30 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
     cwist_http_header_add(&res->headers, "Access-Control-Allow-Credentials", "true");
     cwist_http_header_add(&res->headers, "Access-Control-Expose-Headers", "Content-Length, Content-Type, X-Request-Id");
     cwist_http_header_add(&res->headers, "Access-Control-Max-Age", "86400");
-    cwist_http_header_add(&res->headers, "Content-Security-Policy", "default-src * 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; img-src * 'self' blob: data:; media-src * 'self' blob:;");
+
+    /* Remove any existing Content-Security-Policy header added by the framework
+       so that our policy (which allows blob: URLs for img/media) is the only one sent. */
+    cwist_http_header_node **cur = &res->headers;
+    while (*cur) {
+        if (strcmp((*cur)->key->data, "Content-Security-Policy") == 0) {
+            cwist_http_header_node *to_remove = *cur;
+            *cur = (*cur)->next;
+            cwist_sstring_destroy(to_remove->key);
+            cwist_sstring_destroy(to_remove->value);
+            free(to_remove);
+        } else {
+            cur = &(*cur)->next;
+        }
+    }
+    cwist_http_header_add(&res->headers, "Content-Security-Policy",
+        "default-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net data: blob:; "
+        "script-src 'self' https://cdnjs.cloudflare.com https://cdn.plyr.io; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.plyr.io; "
+        "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; "
+        "img-src 'self' blob: data:; "
+        "media-src 'self' blob:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none';");
 
     if (req->method == CWIST_HTTP_OPTIONS) {
         res->status_code = CWIST_HTTP_NO_CONTENT;

@@ -767,28 +767,21 @@
         el.addEventListener('click', function(event) {
             event.preventDefault();
 
-            if (isThumb) {
-                // File repo card thumbnail: open Plyr modal overlay
-                var title = el.closest('.file-repo-card-inner')
-                    ? (el.closest('.file-repo-card-inner').querySelector('h4') || {}).textContent || ''
-                    : '';
-                el.disabled = true;
-                (videoPlayerModule || (videoPlayerModule = import('/assets/js/tasfa-video-player.js?v=2')))
-                    .then(function(mod) {
-                        if (!mod || typeof mod.openTasfaVideoModal !== 'function') throw new Error('modal unavailable');
-                        mod.openTasfaVideoModal(videoLink, title);
-                    })
-                    .catch(function() {
-                        window.open(videoLink, '_blank', 'noopener,noreferrer');
-                    })
-                    .finally(function() {
-                        el.disabled = false;
-                    });
-            } else {
-                // Post / markdown embedded video: open in new tab (no preloading)
-                var win = window.open(videoLink, '_blank', 'noopener,noreferrer');
-                if (win) { try { win.opener = null; } catch (e) {} }
-            }
+            el.disabled = true;
+            var title = isThumb ? (el.closest('.file-repo-card-inner')
+                ? (el.closest('.file-repo-card-inner').querySelector('h4') || {}).textContent || ''
+                : '') : '';
+            (videoPlayerModule || (videoPlayerModule = import('/assets/js/tasfa-video-player.js?v=2')))
+                .then(function(mod) {
+                    if (!mod || typeof mod.openTasfaVideoModal !== 'function') throw new Error('modal unavailable');
+                    mod.openTasfaVideoModal(videoLink, title);
+                })
+                .catch(function() {
+                    window.open(videoLink, '_blank', 'noopener,noreferrer');
+                })
+                .finally(function() {
+                    el.disabled = false;
+                });
         });
     }
 

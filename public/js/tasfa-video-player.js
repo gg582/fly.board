@@ -79,7 +79,7 @@ function closeModal() {
     setTimeout(function() { if (overlay.parentElement) overlay.remove(); }, 150);
 }
 
-export function openTasfaVideoModal(url, title, isAudio) {
+function _openModal(url, title, isAudio) {
     if (!url) return;
     closeModal();
     injectModalStyles();
@@ -144,5 +144,23 @@ export function openTasfaVideoModal(url, title, isAudio) {
         // Plyr failed to load — native controls still work
         try { mediaEl.play(); } catch(e) {}
     });
+}
+
+export function openTasfaVideoModal(url, title, isAudio) {
+    if (!url) return;
+    // If the URL is a TASFA-protected download link, fetch the blob first
+    // because direct GET to /file/download/... returns 403 when TASFA is active.
+    if (window.fetchBlobViaTasfa && /^https?:\/\/[^/]+\/file\/download\/\d+/.test(url)) {
+        window.fetchBlobViaTasfa(url, { silent: false }).then(function(result) {
+            var blobUrl = URL.createObjectURL(result.blob);
+            _openModal(blobUrl, title, isAudio);
+        }).catch(function() {
+            // Fallback: try the original URL (will likely fail for non-image files,
+            // but gives a chance for images or if TASFA is disabled).
+            _openModal(url, title, isAudio);
+        });
+        return;
+    }
+    _openModal(url, title, isAudio);
 }
 
