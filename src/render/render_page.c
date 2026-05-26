@@ -155,7 +155,6 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(burger_btn, "class", "burger-btn");
     cwist_html_element_add_attr(burger_btn, "aria-label", "Menu");
     cwist_html_element_add_attr(burger_btn, "aria-expanded", "false");
-    cwist_html_element_add_attr(burger_btn, "onclick", "toggleMobileNav()");
     cwist_html_element_t *burger_icon = cwist_html_element_create("span");
     cwist_html_element_add_class(burger_icon, "burger-icon");
     cwist_html_element_set_text(burger_icon, "\u2630");
@@ -280,7 +279,6 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(theme_btn, "type", "button");
     cwist_html_element_add_attr(theme_btn, "id", "theme-toggle-btn");
     cwist_html_element_add_attr(theme_btn, "class", "btn btn-outline theme-toggle-btn");
-    cwist_html_element_add_attr(theme_btn, "onclick", "toggleTheme()");
     cwist_html_element_set_text(theme_btn, dark ? "\u25CF" : "\u25CB");
     cwist_html_element_add_child(theme_wrapper, theme_btn);
 
@@ -335,7 +333,6 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         cwist_html_element_t *overlay = cwist_html_element_create("div");
         if (overlay) {
             cwist_html_element_add_class(overlay, "mobile-overlay");
-            cwist_html_element_add_attr(overlay, "onclick", "toggleMobileNav()");
             cwist_html_element_add_child(body, overlay);
         }
 

@@ -65,6 +65,30 @@
     }
     window.toggleMobileNav=toggleMobileNav;
 
+    function bindMobileNav(){
+        var btn=document.querySelector('.burger-btn');
+        var overlay=document.querySelector('.mobile-overlay');
+        if(btn&&!btn.dataset.navBound){
+            btn.dataset.navBound='1';
+            btn.addEventListener('click',function(e){
+                e.preventDefault();
+                toggleMobileNav();
+            });
+        }
+        if(overlay&&!overlay.dataset.navBound){
+            overlay.dataset.navBound='1';
+            overlay.addEventListener('click',function(e){
+                e.preventDefault();
+                toggleMobileNav();
+            });
+        }
+    }
+    if(document.readyState==='loading'){
+        document.addEventListener('DOMContentLoaded',bindMobileNav);
+    }else{
+        bindMobileNav();
+    }
+
     // 3. Theme toggle (simple click-to-toggle)
     var CACHE_KEY='fly_themes_v2';
     var HL_LIGHT='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css';
@@ -116,8 +140,21 @@
             applyTheme(findTheme(arr,mode));
         });
     };
-    var themeBtn=document.getElementById('theme-toggle-btn');
-    if(themeBtn)themeBtn.addEventListener('click',function(){toggleTheme();});
+    function bindThemeToggle(){
+        var themeBtn=document.getElementById('theme-toggle-btn');
+        if(themeBtn&&!themeBtn.dataset.themeBound){
+            themeBtn.dataset.themeBound='1';
+            themeBtn.addEventListener('click',function(e){
+                e.preventDefault();
+                toggleTheme();
+            });
+        }
+    }
+    if(document.readyState==='loading'){
+        document.addEventListener('DOMContentLoaded',bindThemeToggle);
+    }else{
+        bindThemeToggle();
+    }
 
     // 4. Boards Dropdown
     function renderBoardsDropdown(arr){
