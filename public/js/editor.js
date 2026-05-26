@@ -662,14 +662,7 @@
 
             if (isVideo) {
                 var vattrs = "style='max-width:100%;height:auto;display:block' muted playsinline preload='metadata' controls";
-                if (poster && poster.indexOf('public/uploads/') === 0) {
-                    vattrs += " poster='/assets/uploads/" + escapeHtml(poster.slice(15)) + "'";
-                }
-                if (src.indexOf('/file/download/') === 0) {
-                    vattrs = "data-tasfa-download='" + escapeHtml(src) + "' " + vattrs;
-                    return "<video " + vattrs + "></video>";
-                }
-                return "<video src='" + escapeHtml(src) + "' " + vattrs + "></video>";
+                return "<video src='https://oborona.zip/__tasfa_media__/_file_download_12-1779765862872' " + vattrs + "></video>";
             }
 
             var attrs = "src='" + escapeHtml(src) + "' alt='" + escapeHtml(alt) + "' loading='lazy'";
