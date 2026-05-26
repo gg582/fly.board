@@ -279,6 +279,7 @@ int main(void) {
     cwist_app_post(app, "/api/preview", handler_api_preview);
     cwist_app_post(app, "/api/upload", handler_api_upload);
     cwist_app_get(app, "/api/boards", handler_api_boards_json);
+    cwist_app_get(app, "/api/my-files", handler_api_my_files);
     cwist_app_post(app, "/post/vote", handler_post_vote);
 
     /* Enable io_uring-based async reactor for C10M scale mode.

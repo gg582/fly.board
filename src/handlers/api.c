@@ -200,6 +200,19 @@ void handler_rss_xml(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring_destroy(rss);
 }
 
+/* ---- My Files ---- */
+void handler_api_my_files(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    cJSON *files = db_file_list_by_user(req->db, uid, 200);
+    char *json = files ? cJSON_PrintUnformatted(files) : NULL;
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
+    cwist_sstring_assign(res->body, json ? json : "[]");
+    if (json) free(json);
+    if (files) cJSON_Delete(files);
+}
+
 /* ---- Post vote ---- */
 void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;

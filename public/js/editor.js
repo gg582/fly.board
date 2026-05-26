@@ -658,31 +658,6 @@
                 }
             }
 
-            var isAudio = /\.(mp3|wav|m4a|aac|flac|wma)(\?.*)?$/i.test(src);
-            if (dlMatch) {
-                var fid = parseInt(dlMatch[1]);
-                var asset = AssetRegistry.find(function(a) { return a.fid === fid; });
-                if (asset && asset.mime_type) {
-                    if (asset.mime_type.indexOf('video/') === 0) isVideo = true;
-                    if (asset.mime_type.indexOf('audio/') === 0) isAudio = true;
-                }
-            }
-
-            if (isVideo || isAudio) {
-                var mediaUrl = escapeHtml(src);
-                var mediaTitle = alt;
-                if (dlMatch) {
-                    var fid = parseInt(dlMatch[1]);
-                    var asset = AssetRegistry.find(function(a) { return a.fid === fid; });
-                    mediaUrl = '/file/download/' + fid;
-                    if (!mediaTitle && asset && asset.filename) mediaTitle = asset.filename;
-                }
-                var tag = isAudio ? 'audio' : 'video';
-                var attrs = "data-tasfa-download='" + escapeHtml(mediaUrl) + "' controls playsinline style='max-width:100%;display:block;'";
-                if (mediaTitle) attrs += " title='" + escapeHtml(mediaTitle) + "'";
-                return "<" + tag + " " + attrs + "></" + tag + ">";
-            }
-
             var attrs = "src='" + escapeHtml(src) + "' alt='" + escapeHtml(alt) + "' loading='lazy'";
             if (dlMatch) {
                 attrs = "data-tasfa-download='" + escapeHtml(src) + "' alt='" + escapeHtml(alt) + "' loading='lazy'";
@@ -3017,6 +2992,109 @@
         }
         window._tasfaKeepAlive = setInterval(playSilentBuffer, 30000);
     })();
+
+    /* ---- My Files Browser ---- */
+    function initMyFilesBrowser() {
+        if (!dropzone) return;
+        var browseBtn = document.createElement('button');
+        browseBtn.type = 'button';
+        browseBtn.className = 'btn btn-outline';
+        browseBtn.style.marginTop = '10px';
+        browseBtn.textContent = 'Browse my files';
+        dropzone.appendChild(browseBtn);
+
+        var panel = document.createElement('div');
+        panel.id = 'my-files-panel';
+        panel.style.display = 'none';
+        panel.style.marginTop = '12px';
+        panel.style.maxHeight = '320px';
+        panel.style.overflowY = 'auto';
+        panel.style.border = '1px solid var(--border)';
+        panel.style.background = 'var(--panel)';
+        dropzone.appendChild(panel);
+
+        browseBtn.addEventListener('click', function() {
+            if (panel.style.display === 'block') {
+                panel.style.display = 'none';
+                return;
+            }
+            panel.style.display = 'block';
+            panel.innerHTML = '<div style="padding:12px;color:var(--muted)">Loading...</div>';
+            fetch('/api/my-files', { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(function(r) { return r.json(); })
+                .then(function(files) {
+                    panel.innerHTML = '';
+                    if (!files || !files.length) {
+                        panel.innerHTML = '<div style="padding:12px;color:var(--muted)">No files found.</div>';
+                        return;
+                    }
+                    var grid = document.createElement('div');
+                    grid.style.display = 'grid';
+                    grid.style.gap = '8px';
+                    grid.style.padding = '10px';
+                    files.forEach(function(f) {
+                        var row = document.createElement('div');
+                        row.style.display = 'flex';
+                        row.style.alignItems = 'center';
+                        row.style.gap = '10px';
+                        row.style.padding = '8px';
+                        row.style.borderRadius = '6px';
+                        row.style.cursor = 'pointer';
+                        row.style.transition = 'background 0.15s';
+                        row.addEventListener('mouseenter', function() { row.style.background = 'var(--hover)'; });
+                        row.addEventListener('mouseleave', function() { row.style.background = ''; });
+
+                        var mime = (f.mime_type || '').toLowerCase();
+                        var name = f.filename || 'file';
+                        var id = f.id;
+                        var isImg = mime.indexOf('image/') === 0;
+                        var isVid = mime.indexOf('video/') === 0;
+                        var isAud = mime.indexOf('audio/') === 0;
+
+                        var thumb = document.createElement('div');
+                        thumb.style.width = '40px';
+                        thumb.style.height = '40px';
+                        thumb.style.display = 'flex';
+                        thumb.style.alignItems = 'center';
+                        thumb.style.justifyContent = 'center';
+                        thumb.style.background = 'var(--hover)';
+                        thumb.style.borderRadius = '4px';
+                        thumb.style.fontSize = '11px';
+                        thumb.style.color = 'var(--muted)';
+                        thumb.textContent = isImg ? 'IMG' : (isVid ? 'VID' : (isAud ? 'AUD' : 'FILE'));
+                        row.appendChild(thumb);
+
+                        var info = document.createElement('div');
+                        info.style.flex = '1';
+                        info.style.minWidth = '0';
+                        info.innerHTML = '<div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(name) + '</div>' +
+                            '<div style="font-size:11px;color:var(--muted)">' + escapeHtml(mime) + '</div>';
+                        row.appendChild(info);
+
+                        row.addEventListener('click', function() {
+                            var url = '/file/download/' + id;
+                            if (isImg) {
+                                insertAtCursor('![' + name + '](' + url + ')\n');
+                            } else if (isVid) {
+                                insertAtCursor('<video src="' + url + '" controls playsinline style="max-width:100%;display:block;"></video>\n');
+                            } else if (isAud) {
+                                insertAtCursor('<audio src="' + url + '" controls style="max-width:100%;display:block;"></audio>\n');
+                            } else {
+                                insertAtCursor('[' + name + '](' + url + ')\n');
+                            }
+                            panel.style.display = 'none';
+                        });
+
+                        grid.appendChild(row);
+                    });
+                    panel.appendChild(grid);
+                })
+                .catch(function() {
+                    panel.innerHTML = '<div style="padding:12px;color:var(--muted)">Failed to load files.</div>';
+                });
+        });
+    }
+    initMyFilesBrowser();
 
     bootstrapExistingAssets();
     updateSubmitButtons();

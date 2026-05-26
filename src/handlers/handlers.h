@@ -73,6 +73,7 @@ void handler_admin_files_drop(cwist_http_request *req, cwist_http_response *res)
 void handler_api_preview(cwist_http_request *req, cwist_http_response *res);
 void handler_api_upload(cwist_http_request *req, cwist_http_response *res);
 void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res);
+void handler_api_my_files(cwist_http_request *req, cwist_http_response *res);
 
 void handler_sw_js(cwist_http_request *req, cwist_http_response *res);
 

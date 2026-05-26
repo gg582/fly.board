@@ -63,6 +63,20 @@ cJSON *db_file_list_by_post(cwist_db *db, int post_id) {
     return db_sqlite3_rows_to_json(stmt);
 }
 
+cJSON *db_file_list_by_user(cwist_db *db, int user_id, int limit) {
+    const char *sql =
+        "SELECT id, filename, mime_type, file_path, size, created_at, thumb_path, preview_path "
+        "FROM files "
+        "WHERE user_id = ? "
+        "ORDER BY id DESC "
+        "LIMIT ?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_int(stmt, 1, user_id);
+    sqlite3_bind_int(stmt, 2, limit > 0 ? limit : 200);
+    return db_sqlite3_rows_to_json(stmt);
+}
+
 bool db_file_delete(cwist_db *db, int id) {
     const char *sql = "DELETE FROM files WHERE id=?";
     sqlite3_stmt *stmt = NULL;
