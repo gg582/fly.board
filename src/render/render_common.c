@@ -38,62 +38,10 @@ cwist_sstring *build_form(const char *title, const char *action, const char *met
 }
 
 const char *code_copy_script =
-    "<script>"
-    "(function(){"
-    "function initCopyButtons(){"
-    "document.querySelectorAll('.markdown-body pre').forEach(function(pre){"
-    "if(pre.querySelector('.code-copy'))return;"
-    "var btn=document.createElement('button');"
-    "btn.className='code-copy';"
-    "btn.type='button';"
-    "btn.textContent='Copy';"
-    "btn.addEventListener('click',function(){"
-    "var code=pre.querySelector('code');"
-    "var text=code?code.textContent:pre.textContent;"
-    "navigator.clipboard.writeText(text).then(function(){"
-    "btn.textContent='Copied!';"
-    "setTimeout(function(){btn.textContent='Copy';},1500);"
-    "});"
-    "});"
-    "pre.appendChild(btn);"
-    "});"
-    "}"
-    "if(document.readyState==='loading'){"
-    "document.addEventListener('DOMContentLoaded',initCopyButtons);"
-    "}else{"
-    "initCopyButtons();"
-    "}"
-    "})();"
-    "</script>";
+    "<script src='/assets/js/copy.js'></script>";
 
 const char *login_register_script =
-    "<script>"
-    "(function(){"
-    "async function sha512(str){"
-    "const buf=await crypto.subtle.digest('SHA-512',new TextEncoder().encode(str));"
-    "return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');"
-    "}"
-    "document.querySelectorAll('form[action=\"/login\"],form[action=\"/register\"],form[action=\"/account/password\"]').forEach(function(form){"
-    "var submitting=false;"
-    "form.addEventListener('submit',async function(e){"
-    "if(submitting){e.preventDefault();return;}"
-    "var pws=form.querySelectorAll('input[type=\"password\"]');"
-    "var unhashed=[];"
-    "pws.forEach(function(pw){if(!pw.dataset.hashed)unhashed.push(pw);});"
-    "if(unhashed.length>0){"
-    "e.preventDefault();"
-    "submitting=true;"
-    "for(var i=0;i<unhashed.length;i++){"
-    "var pw=unhashed[i];"
-    "pw.value=await sha512('fly.board'+pw.value);"
-    "pw.dataset.hashed='1';"
-    "}"
-    "form.submit();"
-    "}"
-    "});"
-    "});"
-    "})();"
-    "</script>";
+    "<script src='/assets/js/auth.js'></script>";
 
 char *format_join_date(const char *iso_date) {
     static char buf[128];
