@@ -192,6 +192,35 @@ static void upgrade_markdown_file_links_to_media(cwist_sstring *html, cJSON *fil
                     }
                 }
             }
+        } else if (i + 6 <= len && (strncmp(data + i, "<video", 6) == 0 || strncmp(data + i, "<audio", 6) == 0)) {
+            const char *tag_end = strchr(data + i, '>');
+            if (tag_end) {
+                size_t tag_len = (size_t)(tag_end - (data + i)) + 1;
+                char tag[2048];
+                size_t copy_len = tag_len < sizeof(tag) ? tag_len : sizeof(tag) - 1;
+                memcpy(tag, data + i, copy_len);
+                tag[copy_len] = '\0';
+
+                int fid = 0;
+                if (extract_download_id_from_img_tag(tag, &fid)) {
+                    cJSON *file = find_render_file_by_id(files, fid);
+                    const char *kind = render_file_media_kind(file);
+                    if (kind[0]) {
+                        append_inline_media_from_file(out, file, fid, kind);
+                        /* skip optional closing tag */
+                        const char *close = NULL;
+                        if (strncmp(data + i, "<video", 6) == 0)
+                            close = strstr(tag_end + 1, "</video>");
+                        else
+                            close = strstr(tag_end + 1, "</audio>");
+                        if (close)
+                            i = (size_t)((close + 8) - data);
+                        else
+                            i = (size_t)((tag_end + 1) - data);
+                        continue;
+                    }
+                }
+            }
         }
 
         cwist_sstring_append_len(out, data + i, 1);
