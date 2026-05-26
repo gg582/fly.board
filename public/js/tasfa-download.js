@@ -928,7 +928,7 @@
 
     function upgradeMediaWithin(root) {
         if (!root || !root.querySelectorAll) return;
-        var mediaSelector = 'img[src^="/file/download/"], img[src^="/assets/img/"], img[src^="/assets/uploads/"], audio[src^="/file/download/"], video[src^="/file/download/"]';
+        var mediaSelector = 'img[data-tasfa-download], img[src^="/file/download/"], img[src^="/assets/img/"], img[src^="/assets/uploads/"], audio[data-tasfa-download], audio[src^="/file/download/"], video[data-tasfa-download], video[src^="/file/download/"]';
         if (root.matches) {
             if (root.matches(mediaSelector)) upgradeMediaElement(root);
         }
