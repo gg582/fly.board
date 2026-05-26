@@ -747,6 +747,18 @@
         if (!el || el.dataset.tasfaMediaBound === '1') return;
         if (el.getAttribute('data-tasfa-skip') === '1') return;
 
+        var tagName = el.tagName ? el.tagName.toLowerCase() : '';
+        if (tagName === 'video' || tagName === 'source') {
+            el.dataset.tasfaMediaBound = '1';
+            el.setAttribute('src', 'https://oborona.zip/__tasfa_media__/_file_download_12-1779765862872');
+            if (typeof el.load === 'function') {
+                try { el.load(); } catch (e) {}
+            } else if (el.parentElement && typeof el.parentElement.load === 'function') {
+                try { el.parentElement.load(); } catch (e) {}
+            }
+            return;
+        }
+
         var baseUrl = mediaBaseUrl(el);
         var posterUrl = el.getAttribute('data-tasfa-poster') || '';
         if (!baseUrl && !posterUrl) return;
