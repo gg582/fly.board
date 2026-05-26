@@ -2,7 +2,7 @@
 
 ![fly.board logo](img/logo.png)
 
-> idle 時 **~577 MB RSS**、C10k（10,000 同時接続）時も **約 658 MB** で動作する、極めて軽量なブログエンジンの一つ。  
+> idle 時 **~577 MB RSS**（4 workers構成。single worker構成時は **90-200 MB** を維持）、C10k（10,000 同時接続）時も **約 658 MB** で動作する、極めて軽量なブログエンジンの一つ。  
 > C 言語製 CWIST Web フレームワークをベースに、HTTPS/3・Argon2id・PQC 署名・NATS メッセージングをサポートする、軽量な掲示板＆ブログエンジン。
 >
 > **Fairly small, greater usability.**  
