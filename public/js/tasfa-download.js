@@ -12,7 +12,7 @@
     var DOWNLOAD_CHUNK_STEP_DOWN = 256 * 1024;
     var DOWNLOAD_REQUEST_BYTES_MAX = 64 * 1024 * 1024;
     var DOWNLOAD_CONNECT_TIMEOUT_MS = 3000;
-    /* data: URL은 TASFA 환경에서 수신 불가 — placeholder 미사용 */
+    /* data: URL cannot be received in TASFA environment - no placeholder used */
     var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
     var objectUrls = new WeakMap();
     var videoPlayerModule = null;
@@ -681,8 +681,8 @@
     }
 
     async function createMediaPlaybackUrl(baseUrl, blob, tagName) {
-        /* video/audio: blob: URL은 TASFA 환경에서 동작하지 않으므로 SW cache path만 사용.
-           img 등 나머지는 SW 실패 시 URL.createObjectURL fallback을 허용한다. */
+        /* video/audio: blob: URL does not work in TASFA environment, so only SW cache path is used.
+           Others like img allow URL.createObjectURL fallback on SW failure. */
         if (window.caches && navigator.serviceWorker && await waitForServiceWorkerController(1500)) {
             var url = stableMediaCacheUrl(baseUrl);
             try {
@@ -701,7 +701,7 @@
     }
 
     function setMediaObjectUrl(el, objectUrl) {
-        if (!objectUrl) return; /* SW cache path를 얻지 못한 경우 — 아무것도 하지 않음 */
+        if (!objectUrl) return; /* If SW cache path is not obtained - do nothing */
         objectUrls.set(el, objectUrl);
         el.setAttribute('src', objectUrl);
         if (typeof el.load === 'function') {
@@ -781,44 +781,37 @@
     }
 
     /**
-     * img/audio 엘리먼트가 실제로는 video 또는 audio 파일을 가리킬 때 호출.
-     * 이미 다운로드한 blob을 SW cache에 넣고 web player modal로 연다.
-     * SW cache가 없으면 baseUrl(원본 TASFA 경로)을 플레이어에 전달한다.
+     * Called when img/audio element actually points to a video or audio file.
+     * Replaces the element inline with an embedded player.
      */
-    async function redirectToMediaPlayer(el, baseUrl, blob, isAudio) {
+    function replaceWithEmbeddedPlayer(el, playUrl, isAudio) {
         el.setAttribute('data-tasfa-ready', '1');
         el.removeAttribute('data-tasfa-progress');
         updateProgressUI(el, 100);
 
-        /* SW cache path를 먼저 시도 — 실패하면 원본 TASFA URL 사용 */
-        var playUrl = null;
-        if (window.caches && navigator.serviceWorker && await waitForServiceWorkerController(1500)) {
-            var cacheKey = stableMediaCacheUrl(baseUrl);
-            try {
-                var mc = await caches.open(TASFA_MEDIA_CACHE);
-                await mc.put(cacheKey, new Response(blob, {
-                    headers: {
-                        'Content-Type': blob.type || 'application/octet-stream',
-                        'Cache-Control': 'no-store'
-                    }
-                }));
-                playUrl = cacheKey;
-            } catch (e) {}
-        }
-        if (!playUrl) playUrl = baseUrl;
+        var mediaEl = document.createElement(isAudio ? 'audio' : 'video');
+        mediaEl.setAttribute('controls', '');
+        mediaEl.setAttribute('playsinline', '');
+        mediaEl.src = playUrl;
+        mediaEl.style.maxWidth = '100%';
+        mediaEl.style.display = 'block';
 
-        var title = el.getAttribute('alt') || el.getAttribute('title') || '';
-        (videoPlayerModule || (videoPlayerModule = import('/assets/js/tasfa-video-player.js?v=2')))
-            .then(function(mod) {
-                if (!mod || typeof mod.openTasfaVideoModal !== 'function') {
-                    window.open(playUrl, '_blank', 'noopener,noreferrer');
-                    return;
-                }
-                mod.openTasfaVideoModal(playUrl, title, isAudio);
-            })
-            .catch(function() {
-                window.open(playUrl, '_blank', 'noopener,noreferrer');
-            });
+        if (el.className) mediaEl.className = el.className;
+        if (el.style.cssText) mediaEl.style.cssText = el.style.cssText;
+
+        if (el.parentNode) {
+            el.parentNode.replaceChild(mediaEl, el);
+        }
+
+        var wrap = mediaEl.closest('.tasfa-media-wrap') || mediaEl.closest('.tasfa-inline-media-wrap');
+        if (wrap) {
+            var loader = wrap.querySelector('.tasfa-media-loader');
+            if (loader) loader.remove();
+            if (wrap.classList.contains('tasfa-inline-media-wrap') && wrap.parentElement) {
+                wrap.parentElement.insertBefore(mediaEl, wrap);
+                wrap.remove();
+            }
+        }
     }
 
     function upgradeMediaElement(el) {
@@ -838,12 +831,12 @@
             el.removeAttribute('src');
         }
 
-        /* img용 placeholder: data: URL 불가 환경이므로 src를 비워 둠 (CSS로 처리) */
+        /* placeholder for img: data: URL cannot be used, so src is left empty (handled by CSS) */
 
         /* Parallel upgrade for poster if exists */
         if (posterUrl && isTasfaDownloadUrl(posterUrl)) {
             fetchBlobViaTasfa(posterUrl, { silent: true }).then(async function(result) {
-                /* poster는 이미지로 렌더링되므로 blob: URL 허용 — tagName 없이 호출 */
+                /* poster is rendered as an image, so blob: URL is allowed - called without tagName */
                 var objectUrl = await createMediaPlaybackUrl(posterUrl, result.blob);
                 if (objectUrl) el.setAttribute('poster', objectUrl);
             }).catch(function() {});
@@ -863,10 +856,12 @@
                 var isVideo = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'flv', 'wmv', 'm4v'].indexOf(ext) !== -1 || /^video\//.test(mimeType);
                 var isAudio = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'wma'].indexOf(ext) !== -1 || /^audio\//.test(mimeType);
 
-                /* 클라이언트에서 MIME type 및 파일 확장자 재확인 — video/audio 파일이
-                   img 엘리먼트에 걸린 경우 web player로 라우팅 */
+                /* Double check MIME type and file extension on the client side - if video/audio is inside img, replace with embedded player */
                 if (isVideo || isAudio) {
-                    return redirectToMediaPlayer(el, baseUrl, result.blob, isAudio);
+                    var playUrl = await createMediaPlaybackUrl(baseUrl, result.blob, isAudio ? 'audio' : 'video');
+                    if (!playUrl) playUrl = baseUrl;
+                    replaceWithEmbeddedPlayer(el, playUrl, isAudio);
+                    return;
                 }
                 var objectUrl = await createMediaPlaybackUrl(baseUrl, result.blob, tagName);
                 setMediaObjectUrl(el, objectUrl);
@@ -950,7 +945,7 @@
             }).observe(document.documentElement, { childList: true, subtree: true });
         }
         window.addEventListener('pagehide', function() {
-            /* blob: URL은 더 이상 생성하지 않으므로 revoke 불필요 — WeakMap만 정리 */
+            /* blob: URL is no longer created, so revoke is unnecessary - clean up WeakMap only */
             document.querySelectorAll('[data-tasfa-media-bound="1"]').forEach(function(el) {
                 objectUrls.delete(el);
             });
