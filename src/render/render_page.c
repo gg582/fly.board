@@ -280,6 +280,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(theme_btn, "type", "button");
     cwist_html_element_add_attr(theme_btn, "id", "theme-toggle-btn");
     cwist_html_element_add_attr(theme_btn, "class", "btn btn-outline theme-toggle-btn");
+    cwist_html_element_add_attr(theme_btn, "onclick", "toggleTheme()");
     cwist_html_element_set_text(theme_btn, dark ? "\u25CF" : "\u25CB");
     cwist_html_element_add_child(theme_wrapper, theme_btn);
 
