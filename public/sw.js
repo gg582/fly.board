@@ -1,4 +1,5 @@
 var LOGO_CACHE = 'logo-cache-v1';
+var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
 var LOGO_MAX_AGE = 86400000; // 86400 seconds in milliseconds
 
 self.addEventListener('install', function(e) {
@@ -17,6 +18,17 @@ self.addEventListener('fetch', function(event) {
     var url = event.request.url;
     // Don't intercept cross-origin requests (multi-port)
     if (new URL(url).origin !== self.location.origin) return;
+
+    if (url.indexOf(self.location.origin + '/__tasfa_media__/') === 0 && event.request.method === 'GET') {
+        event.respondWith(
+            caches.open(TASFA_MEDIA_CACHE).then(function(cache) {
+                return cache.match(event.request).then(function(response) {
+                    return response || new Response('Not found', { status: 404 });
+                });
+            })
+        );
+        return;
+    }
 
     // Logo / asset image caching: cache-first with 86400s expiration
     if (event.request.destination === 'image' && isLogoUrl(url)) {

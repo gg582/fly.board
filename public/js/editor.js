@@ -673,6 +673,9 @@
             }
 
             var attrs = "src='" + escapeHtml(src) + "' alt='" + escapeHtml(alt) + "' loading='lazy'";
+            if (src.indexOf('/file/download/') === 0) {
+                attrs = "data-tasfa-download='" + escapeHtml(src) + "' alt='" + escapeHtml(alt) + "' loading='lazy'";
+            }
             if (title) attrs += " title='" + escapeHtml(title) + "'";
             return "<img " + attrs + ">";
         });

@@ -12,6 +12,9 @@
     var DOWNLOAD_CHUNK_STEP_DOWN = 256 * 1024;
     var DOWNLOAD_REQUEST_BYTES_MAX = 64 * 1024 * 1024;
     var DOWNLOAD_CONNECT_TIMEOUT_MS = 3000;
+    var EMPTY_IMAGE_SRC = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+    var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
+    var objectUrls = new WeakMap();
 
     async function getCachedBlob(baseUrl) {
         try {
@@ -598,6 +601,111 @@
         });
     }
 
+    function isTasfaDownloadUrl(url) {
+        var path = normalizeUrl(url);
+        return !!handshakeUrl(path);
+    }
+
+    function mediaBaseUrl(el) {
+        var explicit = el.getAttribute('data-tasfa-download') || el.getAttribute('data-tasfa-src') || '';
+        if (explicit && isTasfaDownloadUrl(explicit)) return explicit;
+        var attrSrc = el.getAttribute('src') || '';
+        if (attrSrc && isTasfaDownloadUrl(attrSrc)) return attrSrc;
+        return '';
+    }
+
+    function stableMediaCacheUrl(baseUrl) {
+        return '/__tasfa_media__/' + encodeURIComponent(baseUrl.replace(/[^a-z0-9_.-]/gi, '_')) + '-' + Date.now();
+    }
+
+    async function waitForServiceWorkerController(timeoutMs) {
+        if (!navigator.serviceWorker) return false;
+        if (navigator.serviceWorker.controller) return true;
+        try { await navigator.serviceWorker.ready; } catch (e) {}
+        if (navigator.serviceWorker.controller) return true;
+        await new Promise(function(resolve) {
+            var done = false;
+            var timer = setTimeout(function() {
+                if (done) return;
+                done = true;
+                navigator.serviceWorker.removeEventListener('controllerchange', onChange);
+                resolve();
+            }, timeoutMs || 1500);
+            function onChange() {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                navigator.serviceWorker.removeEventListener('controllerchange', onChange);
+                resolve();
+            }
+            navigator.serviceWorker.addEventListener('controllerchange', onChange);
+        });
+        return !!navigator.serviceWorker.controller;
+    }
+
+    async function createMediaPlaybackUrl(baseUrl, blob) {
+        var url = stableMediaCacheUrl(baseUrl);
+        if (window.caches && navigator.serviceWorker && await waitForServiceWorkerController(1500)) {
+            try {
+                var cache = await caches.open(TASFA_MEDIA_CACHE);
+                await cache.put(url, new Response(blob, {
+                    headers: {
+                        'Content-Type': blob.type || 'application/octet-stream',
+                        'Cache-Control': 'no-store'
+                    }
+                }));
+                return url;
+            } catch (e) {}
+        }
+        return URL.createObjectURL(blob);
+    }
+
+    function setMediaObjectUrl(el, objectUrl) {
+        var previous = objectUrls.get(el);
+        if (previous && previous !== objectUrl && previous.indexOf('blob:') === 0) {
+            try { URL.revokeObjectURL(previous); } catch (e) {}
+        }
+        objectUrls.set(el, objectUrl);
+        el.setAttribute('src', objectUrl);
+        if (typeof el.load === 'function') {
+            try { el.load(); } catch (e) {}
+        } else if (el.parentElement && typeof el.parentElement.load === 'function') {
+            try { el.parentElement.load(); } catch (e) {}
+        }
+    }
+
+    function upgradeMediaElement(el) {
+        if (!el || el.dataset.tasfaMediaBound === '1') return;
+        if (el.getAttribute('data-tasfa-skip') === '1') return;
+
+        var baseUrl = mediaBaseUrl(el);
+        if (!baseUrl) return;
+
+        el.dataset.tasfaMediaBound = '1';
+        el.setAttribute('data-tasfa-download', baseUrl);
+        if (isTasfaDownloadUrl(el.getAttribute('src') || '')) {
+            el.removeAttribute('src');
+        }
+        if (el.tagName && el.tagName.toLowerCase() === 'img' && !el.getAttribute('src')) {
+            el.setAttribute('src', EMPTY_IMAGE_SRC);
+        }
+
+        fetchBlobViaTasfa(baseUrl, {
+            silent: true,
+            onProgress: function(percent) {
+                el.setAttribute('data-tasfa-progress', String(percent));
+            }
+        }).then(async function(result) {
+            var objectUrl = await createMediaPlaybackUrl(baseUrl, result.blob);
+            setMediaObjectUrl(el, objectUrl);
+            el.setAttribute('data-tasfa-ready', '1');
+            el.removeAttribute('data-tasfa-progress');
+        }).catch(function() {
+            el.dataset.tasfaMediaBound = '0';
+            el.setAttribute('data-tasfa-error', '1');
+        });
+    }
+
     function upgradeDownloadLink(el) {
         var baseUrl = el.getAttribute('data-tasfa-download-link') || el.getAttribute('href') || '';
         if (!/^\/file\/download\//.test(baseUrl)) return;
@@ -614,12 +722,18 @@
 
     function upgradeWithin(root) {
         if (!root || !root.querySelectorAll) return;
+        if (root.matches) {
+            if (root.matches('a[data-tasfa-download-link], a[href^="/file/download/"]')) upgradeDownloadLink(root);
+            if (root.matches('img[data-tasfa-download], video[data-tasfa-download], audio[data-tasfa-download], source[data-tasfa-download], img[src^="/file/download/"], video[src^="/file/download/"], audio[src^="/file/download/"], source[src^="/file/download/"]')) upgradeMediaElement(root);
+        }
         root.querySelectorAll('a[data-tasfa-download-link], a[href^="/file/download/"]').forEach(upgradeDownloadLink);
+        root.querySelectorAll('img[data-tasfa-download], video[data-tasfa-download], audio[data-tasfa-download], source[data-tasfa-download], img[src^="/file/download/"], video[src^="/file/download/"], audio[src^="/file/download/"], source[src^="/file/download/"]').forEach(upgradeMediaElement);
     }
 
     function init() {
         window.fetchBlobViaTasfa = fetchBlobViaTasfa;
         window.openTasfaDownload = triggerDownload;
+        window.upgradeTasfaMedia = upgradeMediaElement;
         window.initMarkdownAffordances = function(root) {
             upgradeWithin(root && root.querySelectorAll ? root : document);
         };
@@ -635,6 +749,15 @@
                 });
             }).observe(document.documentElement, { childList: true, subtree: true });
         }
+        window.addEventListener('pagehide', function() {
+            document.querySelectorAll('[data-tasfa-media-bound="1"]').forEach(function(el) {
+                var objectUrl = objectUrls.get(el);
+                if (objectUrl && objectUrl.indexOf('blob:') === 0) {
+                    try { URL.revokeObjectURL(objectUrl); } catch (e) {}
+                }
+                objectUrls.delete(el);
+            });
+        });
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

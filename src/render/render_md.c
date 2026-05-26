@@ -259,7 +259,7 @@ static void rewrite_tasfa_bootstrap(cwist_sstring *html) {
                                 strncpy(download_path, src, path_len);
                             }
                             
-                            snprintf(rewritten, sizeof(rewritten), "<%s src=\"%s\" data-tasfa-download=\"%s\"", tag_name, download_path, download_path);
+                            snprintf(rewritten, sizeof(rewritten), "<%s data-tasfa-download=\"%s\"", tag_name, download_path);
                             cwist_sstring_append(out, rewritten);
                             
                             const char *after_name = data + i + strlen(tag_name) + 1;

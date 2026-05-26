@@ -388,64 +388,90 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(nav, theme_wrapper);
 
     cwist_html_element_t *shell = cwist_html_element_create("div");
-    cwist_html_element_add_class(shell, "shell fade-in");
+    if (shell) cwist_html_element_add_class(shell, "shell fade-in");
 
     cwist_html_element_t *main_el = cwist_html_element_create("main");
-    cwist_html_element_add_class(main_el, "content");
-    cwist_html_element_set_text(main_el, body_html);
-    cwist_html_element_add_child(shell, main_el);
+    if (main_el) {
+        cwist_html_element_add_class(main_el, "content");
+        /* Use a placeholder to avoid potential memory/escaping issues in the builder for large body_html */
+        cwist_html_element_set_text(main_el, "<!--CWIST_BODY_PLACEHOLDER-->");
+        if (shell) cwist_html_element_add_child(shell, main_el);
+    }
 
     cwist_html_element_t *footer = cwist_html_element_create("footer");
-    cwist_html_element_add_class(footer, "site-footer");
+    if (footer) cwist_html_element_add_class(footer, "site-footer");
 
     cwist_html_element_t *footer_content = cwist_html_element_create("div");
-    cwist_html_element_add_class(footer_content, "footer-content");
+    if (footer_content) cwist_html_element_add_class(footer_content, "footer-content");
 
     cwist_html_element_t *footer_text = cwist_html_element_create("span");
-    cwist_html_element_set_text(footer_text, g_config.brand_footer);
-    cwist_html_element_add_child(footer_content, footer_text);
+    if (footer_text) {
+        cwist_html_element_set_text(footer_text, g_config.brand_footer);
+        if (footer_content) cwist_html_element_add_child(footer_content, footer_text);
+    }
 
     cwist_html_element_t *footer_logo = cwist_html_element_create("img");
-    char footer_logo_path[512];
-    if (g_config.blog_logo[0]) {
-        snprintf(footer_logo_path, sizeof(footer_logo_path), "/assets/img/%s", g_config.blog_logo);
-    } else {
-        strcpy(footer_logo_path, "/assets/img/logo.png");
+    if (footer_logo) {
+        char footer_logo_path[512];
+        if (g_config.blog_logo[0]) {
+            snprintf(footer_logo_path, sizeof(footer_logo_path), "/assets/img/%s", g_config.blog_logo);
+        } else {
+            strcpy(footer_logo_path, "/assets/img/logo.png");
+        }
+        cwist_html_element_add_attr(footer_logo, "src", footer_logo_path);
+        cwist_html_element_add_attr(footer_logo, "alt", "Logo");
+        cwist_html_element_add_attr(footer_logo, "width", "24");
+        cwist_html_element_add_attr(footer_logo, "height", "16");
+        cwist_html_element_add_attr(footer_logo, "data-tasfa-skip", "1");
+        cwist_html_element_add_attr(footer_logo, "fetchpriority", "high");
+        cwist_html_element_add_class(footer_logo, "footer-logo");
+        if (footer_content) cwist_html_element_add_child(footer_content, footer_logo);
     }
-    cwist_html_element_add_attr(footer_logo, "src", footer_logo_path);
-    cwist_html_element_add_attr(footer_logo, "alt", "Logo");
-    cwist_html_element_add_attr(footer_logo, "width", "24");
-    cwist_html_element_add_attr(footer_logo, "height", "16");
-    cwist_html_element_add_attr(footer_logo, "data-tasfa-skip", "1");
-    cwist_html_element_add_attr(footer_logo, "fetchpriority", "high");
-    cwist_html_element_add_class(footer_logo, "footer-logo");
-    cwist_html_element_add_child(footer_content, footer_logo);
 
-    cwist_html_element_add_child(footer, footer_content);
+    if (footer && footer_content) cwist_html_element_add_child(footer, footer_content);
 
-    cwist_html_element_add_child(body, nav);
+    if (body) {
+        if (nav) cwist_html_element_add_child(body, nav);
 
-    cwist_html_element_t *overlay = cwist_html_element_create("div");
-    cwist_html_element_add_class(overlay, "mobile-overlay");
-    cwist_html_element_add_attr(overlay, "onclick", "toggleMobileNav()");
-    cwist_html_element_add_child(body, overlay);
+        cwist_html_element_t *overlay = cwist_html_element_create("div");
+        if (overlay) {
+            cwist_html_element_add_class(overlay, "mobile-overlay");
+            cwist_html_element_add_attr(overlay, "onclick", "toggleMobileNav()");
+            cwist_html_element_add_child(body, overlay);
+        }
 
-    cwist_html_element_add_child(body, shell);
-    cwist_html_element_add_child(body, footer);
+        if (shell) cwist_html_element_add_child(body, shell);
+        if (footer) cwist_html_element_add_child(body, footer);
 
-    cwist_html_element_t *tasfa_script = cwist_html_element_create("script");
-    cwist_html_element_add_attr(tasfa_script, "src", "/assets/js/tasfa-download.js");
-    cwist_html_element_add_child(body, tasfa_script);
+        cwist_html_element_t *tasfa_script = cwist_html_element_create("script");
+        if (tasfa_script) {
+            cwist_html_element_add_attr(tasfa_script, "src", "/assets/js/tasfa-download.js");
+            cwist_html_element_add_child(body, tasfa_script);
+        }
+    }
 
-    cwist_html_element_add_child(html, head);
-    cwist_html_element_add_child(html, body);
+    if (head) cwist_html_element_add_child(html, head);
+    if (body) cwist_html_element_add_child(html, body);
 
     cwist_sstring *out = cwist_html_render(html);
     cwist_html_element_destroy(html);
+
     if (out) {
         cwist_sstring *doc = cwist_sstring_create();
         cwist_sstring_assign(doc, "<!doctype html>");
-        cwist_sstring_append_sstring(doc, out);
+        
+        /* Inject the actual body_html by replacing the placeholder */
+        const char *placeholder = "<!--CWIST_BODY_PLACEHOLDER-->";
+        char *pos = strstr(out->data, placeholder);
+        if (pos) {
+            size_t head_len = (size_t)(pos - out->data);
+            cwist_sstring_append_len(doc, out->data, head_len);
+            cwist_sstring_append(doc, body_html ? body_html : "");
+            cwist_sstring_append(doc, pos + strlen(placeholder));
+        } else {
+            cwist_sstring_append_sstring(doc, out);
+        }
+        
         cwist_sstring_destroy(out);
         return doc;
     }
