@@ -280,10 +280,18 @@ static void rewrite_tasfa_bootstrap(cwist_sstring *html) {
                     const char *href = strstr(tag, "href=\"");
                     if (href) {
                         href += 6;
+                        const char *target = NULL;
                         if (strncmp(href, "/file/download/", 15) == 0) {
+                            target = href;
+                        } else if (strncmp(href, "https://oborona.zip/file/download/", 34) == 0) {
+                            target = href + 19;
+                        } else if (strncmp(href, "http://oborona.zip/file/download/", 33) == 0) {
+                            target = href + 18;
+                        }
+                        if (target) {
                             cwist_sstring_append(out, "<a href=\"#\" data-tasfa-download-link=\"");
-                            const char *value_end = strchr(href, '"');
-                            if (value_end) cwist_sstring_append_len(out, href, (size_t)(value_end - href));
+                            const char *value_end = strchr(target, '"');
+                            if (value_end) cwist_sstring_append_len(out, target, (size_t)(value_end - target));
                             cwist_sstring_append(out, "\"");
                             const char *after_name = data + i + 2;
                             const char *href_pos = strstr(after_name, "href=\"");

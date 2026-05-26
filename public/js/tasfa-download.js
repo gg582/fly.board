@@ -804,13 +804,15 @@
 
     function upgradeDownloadLink(el) {
         var baseUrl = el.getAttribute('data-tasfa-download-link') || el.getAttribute('href') || '';
-        if (!/^\/file\/download\//.test(baseUrl)) return;
+        var match = baseUrl.match(/\/file\/download\/\d+/);
+        if (!match) return;
+        var relativeUrl = match[0];
         if (el.dataset.tasfaDownloadBound === '1') return;
         el.dataset.tasfaDownloadBound = '1';
-        if (!el.getAttribute('data-tasfa-download-link')) el.setAttribute('data-tasfa-download-link', baseUrl);
+        if (!el.getAttribute('data-tasfa-download-link')) el.setAttribute('data-tasfa-download-link', relativeUrl);
         el.addEventListener('click', function(event) {
             event.preventDefault();
-            triggerDownload(baseUrl).catch(function() {
+            triggerDownload(relativeUrl).catch(function() {
                 el.setAttribute('data-tasfa-error', '1');
             });
         });
@@ -818,10 +820,11 @@
 
     function upgradeWithin(root) {
         if (!root || !root.querySelectorAll) return;
+        var selector = 'a[data-tasfa-download-link], a[href^="/file/download/"], a[href*="/file/download/"]';
         if (root.matches) {
-            if (root.matches('a[data-tasfa-download-link], a[href^="/file/download/"]')) upgradeDownloadLink(root);
+            if (root.matches(selector)) upgradeDownloadLink(root);
         }
-        root.querySelectorAll('a[data-tasfa-download-link], a[href^="/file/download/"]').forEach(upgradeDownloadLink);
+        root.querySelectorAll(selector).forEach(upgradeDownloadLink);
     }
 
     function init() {
