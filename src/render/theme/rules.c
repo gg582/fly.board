@@ -1510,7 +1510,6 @@ void rule_markdown(cJSON *rules) {
     cJSON *theme_switch = create_rule(".theme-switch");
     add_decl(theme_switch, "position", "relative");
     add_decl(theme_switch, "display", "inline-flex");
-    add_decl(theme_switch, "flex-direction", "column");
     add_decl(theme_switch, "align-items", "center");
     cJSON_AddItemToArray(rules, theme_switch);
 
@@ -1522,52 +1521,6 @@ void rule_markdown(cJSON *rules) {
     add_decl(theme_btn, "font-size", "18px");
     add_decl(theme_btn, "line-height", "1");
     cJSON_AddItemToArray(rules, theme_btn);
-
-    cJSON *theme_dd = create_rule(".theme-dropdown");
-    add_decl(theme_dd, "position", "absolute");
-    add_decl(theme_dd, "top", "calc(100% + 6px)");
-    add_decl(theme_dd, "right", "0");
-    add_decl(theme_dd, "min-width", "120px");
-    add_decl(theme_dd, "background", "var(--glass-bg)");
-    add_decl(theme_dd, "backdrop-filter", "blur(16px) saturate(150%)");
-    add_decl(theme_dd, "-webkit-backdrop-filter", "blur(16px) saturate(150%)");
-    add_decl(theme_dd, "border", "1px solid var(--glass-border)");
-    add_decl(theme_dd, "box-shadow", "0 10px 26px var(--shadow)");
-    add_decl(theme_dd, "display", "flex");
-    add_decl(theme_dd, "flex-direction", "column");
-    add_decl(theme_dd, "padding", "6px");
-    add_decl(theme_dd, "visibility", "hidden");
-    add_decl(theme_dd, "opacity", "0");
-    add_decl(theme_dd, "pointer-events", "none");
-    add_decl(theme_dd, "transform", "translateY(-16px)");
-    add_decl(theme_dd, "transition", "opacity 0.4s cubic-bezier(0.165, 0.84, 0.44, 1), transform 0.4s cubic-bezier(0.165, 0.84, 0.44, 1), visibility 0.4s");
-    cJSON_AddItemToArray(rules, theme_dd);
-
-    cJSON *theme_dd_open = create_rule(".theme-dropdown.open");
-    add_decl(theme_dd_open, "visibility", "visible");
-    add_decl(theme_dd_open, "opacity", "1");
-    add_decl(theme_dd_open, "pointer-events", "auto");
-    add_decl(theme_dd_open, "transform", "translateY(0)");
-    cJSON_AddItemToArray(rules, theme_dd_open);
-
-    cJSON *theme_opt = create_rule(".theme-option");
-    add_decl(theme_opt, "text-align", "left");
-    add_decl(theme_opt, "padding", "8px 10px");
-    add_decl(theme_opt, "background", "transparent");
-    add_decl(theme_opt, "border", "none");
-    add_decl(theme_opt, "color", "var(--fg)");
-    add_decl(theme_opt, "font", "inherit");
-    add_decl(theme_opt, "cursor", "pointer");
-    cJSON_AddItemToArray(rules, theme_opt);
-
-    cJSON *theme_opt_h = create_rule(".theme-option:hover");
-    add_decl(theme_opt_h, "background", "color-mix(in srgb, var(--hover) 55%, transparent)");
-    cJSON_AddItemToArray(rules, theme_opt_h);
-
-    cJSON *theme_opt_active = create_rule(".theme-option.active");
-    add_decl(theme_opt_active, "color", "var(--accent)");
-    add_decl(theme_opt_active, "font-weight", "700");
-    cJSON_AddItemToArray(rules, theme_opt_active);
 
     cJSON *adv_btn_after = create_rule(".adv-toggle-btn::after");
     add_decl(adv_btn_after, "content", "'▾'");
