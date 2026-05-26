@@ -2647,6 +2647,12 @@
         var blobUrl = URL.createObjectURL(file);
         var placeholderUrl = isEditorMode ? (blobUrl + '#' + clientUuid) : null;
         var mediaType = /^image\//.test(file.type || '') ? 'image' : /^video\//.test(file.type || '') ? 'video' : /^audio\//.test(file.type || '') ? 'audio' : 'file';
+        if (mediaType === 'file' && file.name) {
+            var ext = file.name.split('.').pop().toLowerCase();
+            if (/^(jpg|jpeg|png|gif|webp|svg|bmp|ico)$/.test(ext)) mediaType = 'image';
+            else if (/^(mp4|mov|mkv|webm|avi|m4v|flv)$/.test(ext)) mediaType = 'video';
+            else if (/^(mp3|wav|ogg|aac|flac|m4a|opus)$/.test(ext)) mediaType = 'audio';
+        }
         var ui = createMediaCard(file.name, blobUrl, mediaType);
         var asset = {
             client_uuid: clientUuid,

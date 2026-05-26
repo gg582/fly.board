@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#include "db/sql_escape.h"
 #include <openssl/rand.h>
 
 static bool random_hex_local(char *out, size_t byte_len) {
@@ -227,8 +228,10 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             }
             form_field_t *f;
             if ((f = form_find(files, "title"))) title = (char *)cwist_alloc(f->len+1), memcpy(title, f->data, f->len), title[f->len]=0;
+            if (title) { char *unescaped = sql_unescape(title); cwist_free(title); title = unescaped; }
             if ((f = form_find(files, "content"))) content = (char *)cwist_alloc(f->len+1), memcpy(content, f->data, f->len), content[f->len]=0;
             if ((f = form_find(files, "summary"))) summary = (char *)cwist_alloc(f->len+1), memcpy(summary, f->data, f->len), summary[f->len]=0;
+            if (summary) { char *unescaped = sql_unescape(summary); cwist_free(summary); summary = unescaped; }
             if ((f = form_find(files, "board_id"))) board_id_str = (char *)cwist_alloc(f->len+1), memcpy(board_id_str, f->data, f->len), board_id_str[f->len]=0;
             if ((f = form_find(files, "media_meta"))) media_meta = (char *)cwist_alloc(f->len+1), memcpy(media_meta, f->data, f->len), media_meta[f->len]=0;
             FLY_LOG_DEBUG("multipart parsed: title=%s content_len=%zu board_id=%s", title ? title : "NULL", content ? strlen(content) : 0, board_id_str ? board_id_str : "NULL");
@@ -239,10 +242,12 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
         title = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "title") ? cwist_query_map_get(kv, "title") : "")+1);
         strcpy(title, cwist_query_map_get(kv, "title") ? cwist_query_map_get(kv, "title") : "");
+        if (title) { char *unescaped = sql_unescape(title); cwist_free(title); title = unescaped; }
         content = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "content") ? cwist_query_map_get(kv, "content") : "")+1);
         strcpy(content, cwist_query_map_get(kv, "content") ? cwist_query_map_get(kv, "content") : "");
         summary = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "summary") ? cwist_query_map_get(kv, "summary") : "")+1);
         strcpy(summary, cwist_query_map_get(kv, "summary") ? cwist_query_map_get(kv, "summary") : "");
+        if (summary) { char *unescaped = sql_unescape(summary); cwist_free(summary); summary = unescaped; }
         board_id_str = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0")+1);
         strcpy(board_id_str, cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0");
         media_meta = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "media_meta") ? cwist_query_map_get(kv, "media_meta") : "[]")+1);
@@ -399,8 +404,10 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
             form_field_t *f;
 
             if ((f = form_find(files, "title"))) title = (char *)cwist_alloc(f->len+1), memcpy(title, f->data, f->len), title[f->len]=0;
+            if (title) { char *unescaped = sql_unescape(title); cwist_free(title); title = unescaped; }
             if ((f = form_find(files, "content"))) content = (char *)cwist_alloc(f->len+1), memcpy(content, f->data, f->len), content[f->len]=0;
             if ((f = form_find(files, "summary"))) summary = (char *)cwist_alloc(f->len+1), memcpy(summary, f->data, f->len), summary[f->len]=0;
+            if (summary) { char *unescaped = sql_unescape(summary); cwist_free(summary); summary = unescaped; }
             if ((f = form_find(files, "board_id"))) board_id_str = (char *)cwist_alloc(f->len+1), memcpy(board_id_str, f->data, f->len), board_id_str[f->len]=0;
             if ((f = form_find(files, "media_meta"))) media_meta = (char *)cwist_alloc(f->len+1), memcpy(media_meta, f->data, f->len), media_meta[f->len]=0;
         }
@@ -409,10 +416,12 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
 
         title = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "title") ? cwist_query_map_get(kv, "title") : "")+1);
         strcpy(title, cwist_query_map_get(kv, "title") ? cwist_query_map_get(kv, "title") : "");
+        if (title) { char *unescaped = sql_unescape(title); cwist_free(title); title = unescaped; }
         content = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "content") ? cwist_query_map_get(kv, "content") : "")+1);
         strcpy(content, cwist_query_map_get(kv, "content") ? cwist_query_map_get(kv, "content") : "");
         summary = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "summary") ? cwist_query_map_get(kv, "summary") : "")+1);
         strcpy(summary, cwist_query_map_get(kv, "summary") ? cwist_query_map_get(kv, "summary") : "");
+        if (summary) { char *unescaped = sql_unescape(summary); cwist_free(summary); summary = unescaped; }
         board_id_str = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0")+1);
         strcpy(board_id_str, cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0");
         media_meta = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "media_meta") ? cwist_query_map_get(kv, "media_meta") : "[]")+1);

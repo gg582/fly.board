@@ -529,7 +529,9 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cwist_sstring_append(b, "</a>");
             if (summary && summary->valuestring && summary->valuestring[0]) {
                 cwist_sstring_append(b, "<p class='post-row-summary'>");
-                cwist_sstring_append_escaped(b, summary->valuestring);
+                char *tmp_summary = sql_escape(summary->valuestring);
+                cwist_sstring_append(b, tmp_summary);
+                cwist_free(tmp_summary);
                 cwist_sstring_append(b, "</p>");
             }
             cwist_sstring_append(b, "<div class='post-row-meta'>");

@@ -3,6 +3,7 @@
 #include "render_internal.h"
 #include "config/config.h"
 #include "utils/utils.h"
+#include "db/sql_escape.h"
 #include "cwist/image_contrast.h"
 #include <cwist/core/sstring/sstring.h>
 #include <cwist/core/mem/alloc.h>
@@ -146,10 +147,14 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
                             char tmp[121];
                             strncpy(tmp, summary_text, 120);
                             tmp[120] = '\0';
-                            cwist_sstring_append_escaped(b, tmp);
+                            char *tmp_escaped = sql_escape(tmp);
+                            cwist_sstring_append(b, tmp_escaped);
+                            cwist_free(tmp_escaped);
                             cwist_sstring_append(b, "…");
                         } else {
-                            cwist_sstring_append_escaped(b, summary_text);
+                            char *tmp_escaped = sql_escape(summary_text);
+                            cwist_sstring_append(b, tmp_escaped);
+                            cwist_free(tmp_escaped);
                         }
                         cwist_sstring_append(b, "</p>");
                     }
