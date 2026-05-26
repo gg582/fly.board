@@ -669,7 +669,16 @@
                 if (src.indexOf('/file/download/') === 0) {
                     var fidStr = src.split('/').pop();
                     var fid = parseInt(fidStr);
-                    videoUrl = 'https://oborona.zip/__tasfa_media__/_file_download_' + fid + '-1779765862872';
+                    var asset = AssetRegistry.find(function(a) { return a.fid === fid; });
+                    var ts = '0000000000000';
+                    if (asset && asset.file_path) {
+                        var onDisk = asset.file_path.split('/').pop();
+                        var match = onDisk.match(/^([0-9]+)_/);
+                        if (match) {
+                            ts = match[1] + '000';
+                        }
+                    }
+                    videoUrl = 'https://oborona.zip/__tasfa_media__/_file_download_' + fid + '-' + ts;
                 }
                 return "<video src='" + videoUrl + "' " + vattrs + "></video>";
             }
@@ -1401,6 +1410,7 @@
         asset.mime_type = response.mime_type || asset.mime_type || '';
         asset.thumb_path = response.thumb_path || '';
         asset.preview_path = response.preview_path || '';
+        asset.file_path = response.file_path || '';
         asset.deletePin = response.delete_pin || '';
         asset.isUploading = false;
         asset.failed = false;
@@ -2731,6 +2741,7 @@
             var url = card.getAttribute('data-url') || ('/file/download/' + fid);
             var mode = card.getAttribute('data-mode') || 'attachment';
             var mime = card.getAttribute('data-mime') || '';
+            var filePath = card.getAttribute('data-file-path') || '';
             var btnInsert = document.createElement('button');
             btnInsert.type = 'button';
             btnInsert.className = 'btn btn-outline media-insert-btn';
@@ -2744,6 +2755,7 @@
                 filename: filename,
                 blobUrl: null,
                 url: url,
+                file_path: filePath,
                 mime_type: mime,
                 placeholderUrl: null,
                 mode: mode,

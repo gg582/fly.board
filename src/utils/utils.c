@@ -342,9 +342,11 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
             "<img src=\"%s\" alt=\"%s\" style=\"max-width:100%%\">",
             out->url, out->filename);
     } else if (strncmp(out->mime_type, "video/", 6) == 0) {
+        char ts[32];
+        get_file_timestamp_str(out->file_path, ts, sizeof(ts));
         snprintf(out->html, sizeof(out->html),
-            "<video src=\"https://oborona.zip/__tasfa_media__/_file_download_%d-1779765862872\" style=\"max-width:100%%;height:auto;display:block\" controls preload=\"metadata\"></video>",
-            fid);
+            "<video src=\"https://oborona.zip/__tasfa_media__/_file_download_%d-%s\" style=\"max-width:100%%;height:auto;display:block\" controls preload=\"metadata\"></video>",
+            fid, ts);
     } else if (strncmp(out->mime_type, "audio/", 6) == 0) {
         snprintf(out->html, sizeof(out->html),
             "<audio controls src=\"%s\"></audio>",
@@ -361,4 +363,24 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
     out->file_id = fid;
     out->ok = true;
     return true;
+}
+
+void get_file_timestamp_str(const char *file_path, char *out_ts, size_t max_len) {
+    if (!file_path || strncmp(file_path, "public/uploads/", 15) != 0) {
+        snprintf(out_ts, max_len, "%ld000", (long)time(NULL));
+        return;
+    }
+    const char *p = file_path + 15;
+    size_t i = 0;
+    while (p[i] && p[i] != '_' && p[i] != '.' && i < max_len - 4) {
+        if (!isdigit((unsigned char)p[i])) break;
+        out_ts[i] = p[i];
+        i++;
+    }
+    out_ts[i] = '\0';
+    if (i >= 10) {
+        strcat(out_ts, "000");
+    } else {
+        snprintf(out_ts, max_len, "%ld000", (long)time(NULL));
+    }
 }

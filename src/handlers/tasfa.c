@@ -2565,6 +2565,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     snprintf(url, sizeof(url), "/file/download/%d", fid);
     cJSON_AddStringToObject(obj, "url", url);
     cJSON_AddStringToObject(obj, "blob_url", url);
+    cJSON_AddStringToObject(obj, "file_path", final_path);
     if (thumb_path[0]) {
         cJSON_AddStringToObject(obj, "thumb_path", thumb_path);
     }

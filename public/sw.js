@@ -68,7 +68,7 @@ self.addEventListener('fetch', function(event) {
             caches.open(TASFA_MEDIA_CACHE).then(function(cache) {
                 return cache.match(event.request).then(function(response) {
                     if (!response) {
-                        return new Response('Not found', { status: 404 });
+                        return fetch(event.request);
                     }
                     return handleRangeRequest(event.request, response);
                 });

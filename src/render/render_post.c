@@ -81,6 +81,8 @@ static bool extract_download_id_from_img_tag(const char *tag, int *out_id) {
     return false;
 }
 
+
+
 static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int fid, const char *kind) {
     cJSON *jname = cJSON_GetObjectItem(file, "filename");
     cJSON *jthumb = cJSON_GetObjectItem(file, "thumb_path");
@@ -108,10 +110,17 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
         cwist_sstring_append(out, url);
         cwist_sstring_append(out, "\">Download original</a></div>");
     } else if (strcmp(kind, "video") == 0) {
+        cJSON *jpath = cJSON_GetObjectItem(file, "file_path");
+        const char *file_path = jpath && jpath->valuestring ? jpath->valuestring : "";
+        char ts[32];
+        get_file_timestamp_str(file_path, ts, sizeof(ts));
+
         cwist_sstring_append(out, "<video src=\"https://oborona.zip/__tasfa_media__/_file_download_");
         char fid_buf[32]; snprintf(fid_buf, sizeof(fid_buf), "%d", fid);
         cwist_sstring_append(out, fid_buf);
-        cwist_sstring_append(out, "-1779765862872\" style=\"max-width:100%;height:auto;display:block\" controls preload=\"metadata\"></video>");
+        cwist_sstring_append(out, "-");
+        cwist_sstring_append(out, ts);
+        cwist_sstring_append(out, "\" style=\"max-width:100%;height:auto;display:block\" controls preload=\"metadata\"></video>");
     } else if (strcmp(kind, "audio") == 0) {
         cwist_sstring_append(out, "<audio src=\"");
         cwist_sstring_append(out, url);
@@ -727,10 +736,17 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
 
                 if (is_image || is_video || is_audio) {
                     if (is_video) {
+                        cJSON *jpath = cJSON_GetObjectItem(f, "file_path");
+                        const char *file_path = jpath && jpath->valuestring ? jpath->valuestring : "";
+                        char ts[32];
+                        get_file_timestamp_str(file_path, ts, sizeof(ts));
+
                         cwist_sstring_append(b, "<div class='media-attachment-block' style='margin-bottom:12px'>");
                         cwist_sstring_append(b, "<video src='https://oborona.zip/__tasfa_media__/_file_download_");
                         cwist_sstring_append(b, fid_buf2);
-                        cwist_sstring_append(b, "-1779765862872' style='max-width:100%;height:auto;display:block' controls preload='metadata'></video>");
+                        cwist_sstring_append(b, "-");
+                        cwist_sstring_append(b, ts);
+                        cwist_sstring_append(b, "' style='max-width:100%;height:auto;display:block' controls preload='metadata'></video>");
                         cwist_sstring_append(b, "<div style='margin-top:8px;font-size:13px;color:var(--muted);text-align:center'>");
                         cwist_sstring_append_escaped(b, fname->valuestring);
                         cwist_sstring_append(b, "</div></div>");
