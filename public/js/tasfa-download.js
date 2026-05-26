@@ -238,6 +238,12 @@
                 },
                 signal: controller ? controller.signal : undefined
             });
+        } catch (e) {
+            if (retries < 5) {
+                await new Promise(function(r) { setTimeout(r, 1000); });
+                return fetchJson(url, retries + 1);
+            }
+            throw e;
         } finally {
             if (timeoutId) clearTimeout(timeoutId);
         }
@@ -245,6 +251,10 @@
             var data = await response.json().catch(function() { return {}; });
             var delay = (data.retry_after || 3) * 1000;
             await new Promise(function(r) { setTimeout(r, delay); });
+            return fetchJson(url, retries + 1);
+        }
+        if ((response.status >= 500 || !response.ok) && retries < 5) {
+            await new Promise(function(r) { setTimeout(r, 1000); });
             return fetchJson(url, retries + 1);
         }
         if (!response.ok) throw new Error('handshake:' + response.status);
@@ -554,6 +564,8 @@
                         activeFetches = Math.max(0, activeFetches - 1);
                         var msg = e && e.message ? e.message : 'network';
                         tuneDownloadFailure(session, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
+                        // Add a small delay before retrying to prevent rapid retry exhaustion
+                        await new Promise(function(r) { setTimeout(r, 1000); });
                         var exhausted = false;
                         for (var k = 0; k < claim.span; k++) {
                             var ci = claim.idx + k;
@@ -831,12 +843,8 @@
             el.removeAttribute('src');
         }
 
-        /* placeholder for img: data: URL cannot be used, so src is left empty (handled by CSS) */
-
-        /* Parallel upgrade for poster if exists */
         if (posterUrl && isTasfaDownloadUrl(posterUrl)) {
             fetchBlobViaTasfa(posterUrl, { silent: true }).then(async function(result) {
-                /* poster is rendered as an image, so blob: URL is allowed - called without tagName */
                 var objectUrl = await createMediaPlaybackUrl(posterUrl, result.blob);
                 if (objectUrl) el.setAttribute('poster', objectUrl);
             }).catch(function() {});
@@ -856,7 +864,6 @@
                 var isVideo = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'flv', 'wmv', 'm4v'].indexOf(ext) !== -1 || /^video\//.test(mimeType);
                 var isAudio = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'wma'].indexOf(ext) !== -1 || /^audio\//.test(mimeType);
 
-                /* Double check MIME type and file extension on the client side - if video/audio is inside img, replace with embedded player */
                 if (isVideo || isAudio) {
                     var playUrl = await createMediaPlaybackUrl(baseUrl, result.blob, isAudio ? 'audio' : 'video');
                     if (!playUrl) playUrl = baseUrl;
@@ -945,7 +952,6 @@
             }).observe(document.documentElement, { childList: true, subtree: true });
         }
         window.addEventListener('pagehide', function() {
-            /* blob: URL is no longer created, so revoke is unnecessary - clean up WeakMap only */
             document.querySelectorAll('[data-tasfa-media-bound="1"]').forEach(function(el) {
                 objectUrls.delete(el);
             });

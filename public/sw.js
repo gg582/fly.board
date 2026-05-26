@@ -58,6 +58,25 @@ function handleRangeRequest(request, response) {
     });
 }
 
+function fetchWithRetry(request, retries) {
+    retries = retries || 0;
+    return fetch(request).then(function(response) {
+        if ((response.status >= 500 || !response.ok) && retries < 3) {
+            return new Promise(function(resolve) { setTimeout(resolve, 500); }).then(function() {
+                return fetchWithRetry(request, retries + 1);
+            });
+        }
+        return response;
+    }).catch(function(err) {
+        if (retries < 3) {
+            return new Promise(function(resolve) { setTimeout(resolve, 500); }).then(function() {
+                return fetchWithRetry(request, retries + 1);
+            });
+        }
+        throw err;
+    });
+}
+
 self.addEventListener('fetch', function(event) {
     var url = event.request.url;
     // Don't intercept cross-origin requests (multi-port)
@@ -77,7 +96,7 @@ self.addEventListener('fetch', function(event) {
         return;
     }
 
-    // Logo / asset image / favicon caching: cache-first with 86400s expiration
+    // Logo and favicon caching (cache-first with 24h TTL)
     if ((event.request.destination === 'image' || url.includes('favicon')) && (isLogoUrl(url) || url.includes('favicon'))) {
         event.respondWith(
             caches.open(LOGO_CACHE).then(function(cache) {
@@ -101,7 +120,7 @@ self.addEventListener('fetch', function(event) {
                             });
                             cache.put(event.request, modified);
                         } else if (response && response.ok) {
-                            return response; // Use expired but valid cache if network returns non-200
+                            return response;
                         }
                         return networkResponse;
                     }).catch(function(err) {
@@ -119,7 +138,7 @@ self.addEventListener('fetch', function(event) {
     var isTasfa = url.includes('/tasfa/') || url.includes('/file/upload') || url.includes('/file/download');
     if (!isTasfa || event.request.method !== 'GET') return;
     if (event.request.headers.get('Range') || event.request.destination === 'video' || event.request.destination === 'audio') return;
-    var promise = fetch(event.request).catch(function(err) {
+    var promise = fetchWithRetry(event.request).catch(function(err) {
         return new Response(JSON.stringify({ok:false, error:'network', retry:true}), {
             status: 503,
             headers: {'Content-Type':'application/json'}
