@@ -77,29 +77,38 @@ self.addEventListener('fetch', function(event) {
         return;
     }
 
-    // Logo / asset image caching: cache-first with 86400s expiration
-    if (event.request.destination === 'image' && isLogoUrl(url)) {
+    // Logo / asset image / favicon caching: cache-first with 86400s expiration
+    if ((event.request.destination === 'image' || url.includes('favicon')) && (isLogoUrl(url) || url.includes('favicon'))) {
         event.respondWith(
             caches.open(LOGO_CACHE).then(function(cache) {
                 return cache.match(event.request).then(function(response) {
                     var now = Date.now();
-                    if (response) {
+                    if (response && response.ok) {
                         var fetched = response.headers.get('x-sw-fetched');
                         if (fetched && (now - parseInt(fetched, 10)) < LOGO_MAX_AGE) {
                             return response;
                         }
                     }
                     return fetch(event.request).then(function(networkResponse) {
-                        var clone = networkResponse.clone();
-                        var headers = new Headers(clone.headers);
-                        headers.set('x-sw-fetched', now.toString());
-                        var modified = new Response(clone.body, {
-                            status: clone.status,
-                            statusText: clone.statusText,
-                            headers: headers
-                        });
-                        cache.put(event.request, modified);
+                        if (networkResponse.ok) {
+                            var clone = networkResponse.clone();
+                            var headers = new Headers(clone.headers);
+                            headers.set('x-sw-fetched', now.toString());
+                            var modified = new Response(clone.body, {
+                                status: clone.status,
+                                statusText: clone.statusText,
+                                headers: headers
+                            });
+                            cache.put(event.request, modified);
+                        } else if (response && response.ok) {
+                            return response; // Use expired but valid cache if network returns non-200
+                        }
                         return networkResponse;
+                    }).catch(function(err) {
+                        if (response && response.ok) {
+                            return response;
+                        }
+                        throw err;
                     });
                 });
             })

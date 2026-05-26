@@ -785,7 +785,7 @@
      * 이미 다운로드한 blob을 SW cache에 넣고 web player modal로 연다.
      * SW cache가 없으면 baseUrl(원본 TASFA 경로)을 플레이어에 전달한다.
      */
-    async function redirectToMediaPlayer(el, baseUrl, blob) {
+    async function redirectToMediaPlayer(el, baseUrl, blob, isAudio) {
         el.setAttribute('data-tasfa-ready', '1');
         el.removeAttribute('data-tasfa-progress');
         updateProgressUI(el, 100);
@@ -814,7 +814,7 @@
                     window.open(playUrl, '_blank', 'noopener,noreferrer');
                     return;
                 }
-                mod.openTasfaVideoModal(playUrl, title);
+                mod.openTasfaVideoModal(playUrl, title, isAudio);
             })
             .catch(function() {
                 window.open(playUrl, '_blank', 'noopener,noreferrer');
@@ -858,10 +858,15 @@
                 }
             }).then(async function(result) {
                 var mimeType = result.blob.type || '';
-                /* 클라이언트에서 MIME type 재확인 — video/audio 파일이
+                var filename = result.filename || '';
+                var ext = filename.split('.').pop().toLowerCase();
+                var isVideo = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'flv', 'wmv', 'm4v'].indexOf(ext) !== -1 || /^video\//.test(mimeType);
+                var isAudio = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'wma'].indexOf(ext) !== -1 || /^audio\//.test(mimeType);
+
+                /* 클라이언트에서 MIME type 및 파일 확장자 재확인 — video/audio 파일이
                    img 엘리먼트에 걸린 경우 web player로 라우팅 */
-                if (/^(video|audio)\//.test(mimeType)) {
-                    return redirectToMediaPlayer(el, baseUrl, result.blob);
+                if (isVideo || isAudio) {
+                    return redirectToMediaPlayer(el, baseUrl, result.blob, isAudio);
                 }
                 var objectUrl = await createMediaPlaybackUrl(baseUrl, result.blob, tagName);
                 setMediaObjectUrl(el, objectUrl);

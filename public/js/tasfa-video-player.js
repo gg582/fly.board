@@ -72,14 +72,14 @@ function closeModal() {
     if (!activeModal) return;
     var overlay = activeModal;
     activeModal = null;
-    // Stop the video to release resources
-    var video = overlay.querySelector('video');
-    if (video) { try { video.pause(); video.src = ''; } catch(e){} }
+    // Stop the video/audio to release resources
+    var media = overlay.querySelector('video, audio');
+    if (media) { try { media.pause(); media.src = ''; } catch(e){} }
     overlay.style.animation = 'tasfa-modal-in 0.15s ease reverse forwards';
     setTimeout(function() { if (overlay.parentElement) overlay.remove(); }, 150);
 }
 
-export function openTasfaVideoModal(url, title) {
+export function openTasfaVideoModal(url, title, isAudio) {
     if (!url) return;
     closeModal();
     injectModalStyles();
@@ -94,7 +94,7 @@ export function openTasfaVideoModal(url, title) {
 
     var closeBtn = document.createElement('button');
     closeBtn.className = 'tasfa-video-modal-close';
-    closeBtn.setAttribute('aria-label', 'Close video');
+    closeBtn.setAttribute('aria-label', isAudio ? 'Close audio' : 'Close video');
     closeBtn.innerHTML = '&times;';
     closeBtn.addEventListener('click', closeModal);
 
@@ -105,16 +105,16 @@ export function openTasfaVideoModal(url, title) {
         box.appendChild(titleEl);
     }
 
-    var video = document.createElement('video');
-    video.setAttribute('playsinline', '');
-    video.setAttribute('controls', '');
-    video.preload = 'none';
-    video.src = url;
-    video.style.width = '100%';
-    video.style.display = 'block';
+    var mediaEl = document.createElement(isAudio ? 'audio' : 'video');
+    mediaEl.setAttribute('playsinline', '');
+    mediaEl.setAttribute('controls', '');
+    mediaEl.preload = 'none';
+    mediaEl.src = url;
+    mediaEl.style.width = '100%';
+    mediaEl.style.display = 'block';
 
     box.appendChild(closeBtn);
-    box.appendChild(video);
+    box.appendChild(mediaEl);
     overlay.appendChild(box);
     document.body.appendChild(overlay);
     activeModal = overlay;
@@ -134,15 +134,15 @@ export function openTasfaVideoModal(url, title) {
     loadPlyr().then(function() {
         if (!overlay.parentElement) return; // closed before load
         if (window.Plyr) {
-            new window.Plyr(video, {
+            new window.Plyr(mediaEl, {
                 controls: ['play-large','play','progress','current-time','mute','volume','fullscreen'],
                 hideControls: false
             });
         }
-        try { video.play(); } catch(e) {}
+        try { mediaEl.play(); } catch(e) {}
     }).catch(function() {
         // Plyr failed to load — native controls still work
-        try { video.play(); } catch(e) {}
+        try { mediaEl.play(); } catch(e) {}
     });
 }
 
