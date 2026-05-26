@@ -733,7 +733,9 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 int is_audio = (strncmp(mime, "audio/", 6) == 0);
 
                 if (is_image || is_video || is_audio) {
-                    cwist_sstring_append(b, "<div class='media-attachment-block' style='margin-bottom:12px'>");
+                    cwist_sstring_append(b, "<div class='media-attachment-block");
+                    if (g_config.use_tasfa) cwist_sstring_append(b, " tasfa-media-wrap");
+                    cwist_sstring_append(b, "' style='margin-bottom:12px'>");
                     if (is_image) {
                         if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
                             if (g_config.use_tasfa) {

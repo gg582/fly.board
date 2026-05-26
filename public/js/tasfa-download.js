@@ -710,6 +710,23 @@
         }
     }
 
+    function updateProgressUI(el, percent) {
+        var wrap = el.closest('.tasfa-media-wrap');
+        if (!wrap) return;
+        var loader = wrap.querySelector('.tasfa-media-loader');
+        if (!loader) {
+            loader = document.createElement('div');
+            loader.className = 'tasfa-media-loader';
+            loader.innerHTML = '<div>Loading...</div><div class="tasfa-media-loader-bar"><div class="tasfa-media-loader-inner"></div></div>';
+            wrap.appendChild(loader);
+        }
+        var inner = loader.querySelector('.tasfa-media-loader-inner');
+        if (inner) inner.style.width = percent + '%';
+        if (percent >= 100) {
+            setTimeout(function() { if (loader.parentElement) loader.remove(); }, 600);
+        }
+    }
+
     function upgradeMediaElement(el) {
         if (!el || el.dataset.tasfaMediaBound === '1') return;
         if (el.getAttribute('data-tasfa-skip') === '1') return;
@@ -741,15 +758,22 @@
                 silent: true,
                 onProgress: function(percent) {
                     el.setAttribute('data-tasfa-progress', String(percent));
+                    updateProgressUI(el, percent);
                 }
             }).then(async function(result) {
                 var objectUrl = await createMediaPlaybackUrl(baseUrl, result.blob);
                 setMediaObjectUrl(el, objectUrl);
                 el.setAttribute('data-tasfa-ready', '1');
                 el.removeAttribute('data-tasfa-progress');
+                updateProgressUI(el, 100);
             }).catch(function() {
                 el.dataset.tasfaMediaBound = '0';
                 el.setAttribute('data-tasfa-error', '1');
+                var wrap = el.closest('.tasfa-media-wrap');
+                if (wrap) {
+                    var loader = wrap.querySelector('.tasfa-media-loader');
+                    if (loader) loader.remove();
+                }
             });
         }
     }

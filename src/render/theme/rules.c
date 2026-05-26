@@ -693,12 +693,49 @@ void rule_components(cJSON *rules) {
     cJSON_AddItemToArray(rules, tdpi);
 
     /* Media Loading Wrap */
-    cJSON *mlw = create_rule(".media-loading-wrap");
+    cJSON *mlw = create_rule(".media-loading-wrap, .tasfa-media-wrap");
     add_decl(mlw, "position", "relative");
     add_decl(mlw, "margin", "24px auto");
     add_decl(mlw, "background", "var(--hover)");
     add_decl(mlw, "min-height", "120px");
-    add_decl(mlw, "display", "flex");
+    cJSON_AddItemToArray(rules, mlw);
+
+    cJSON *tml = create_rule(".tasfa-media-loader");
+    add_decl(tml, "position", "absolute");
+    add_decl(tml, "top", "50%");
+    add_decl(tml, "left", "50%");
+    add_decl(tml, "transform", "translate(-50%, -50%)");
+    add_decl(tml, "background", "rgba(0,0,0,0.7)");
+    add_decl(tml, "color", "#fff");
+    add_decl(tml, "padding", "12px 20px");
+    add_decl(tml, "border-radius", "8px");
+    add_decl(tml, "z-index", "100");
+    add_decl(tml, "pointer-events", "none");
+    add_decl(tml, "display", "flex");
+    add_decl(tml, "flex-direction", "column");
+    add_decl(tml, "align-items", "center");
+    add_decl(tml, "gap", "8px");
+    add_decl(tml, "font-family", "inherit");
+    add_decl(tml, "font-weight", "600");
+    add_decl(tml, "font-size", "14px");
+    add_decl(tml, "box-shadow", "0 4px 12px rgba(0,0,0,0.5)");
+    cJSON_AddItemToArray(rules, tml);
+
+    cJSON *tmlb = create_rule(".tasfa-media-loader-bar");
+    add_decl(tmlb, "width", "120px");
+    add_decl(tmlb, "height", "4px");
+    add_decl(tmlb, "background", "rgba(255,255,255,0.2)");
+    add_decl(tmlb, "border-radius", "2px");
+    add_decl(tmlb, "overflow", "hidden");
+    cJSON_AddItemToArray(rules, tmlb);
+
+    cJSON *tmli = create_rule(".tasfa-media-loader-inner");
+    add_decl(tmli, "height", "100%");
+    add_decl(tmli, "background", "#fff");
+    add_decl(tmli, "width", "0%");
+    add_decl(tmli, "transition", "width 0.1s ease");
+    cJSON_AddItemToArray(rules, tmli);
+
     add_decl(mlw, "flex-direction", "column");
     add_decl(mlw, "align-items", "center");
     add_decl(mlw, "justify-content", "center");
