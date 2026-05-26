@@ -715,31 +715,43 @@
         if (el.getAttribute('data-tasfa-skip') === '1') return;
 
         var baseUrl = mediaBaseUrl(el);
-        if (!baseUrl) return;
+        var posterUrl = el.getAttribute('data-tasfa-poster') || '';
+        if (!baseUrl && !posterUrl) return;
 
         el.dataset.tasfaMediaBound = '1';
-        el.setAttribute('data-tasfa-download', baseUrl);
-        if (isTasfaDownloadUrl(el.getAttribute('src') || '')) {
+        if (baseUrl) el.setAttribute('data-tasfa-download', baseUrl);
+
+        if (baseUrl && isTasfaDownloadUrl(el.getAttribute('src') || '')) {
             el.removeAttribute('src');
         }
-        if (el.tagName && el.tagName.toLowerCase() === 'img' && !el.getAttribute('src')) {
+        if (baseUrl && el.tagName && el.tagName.toLowerCase() === 'img' && !el.getAttribute('src')) {
             el.setAttribute('src', EMPTY_IMAGE_SRC);
         }
 
-        fetchBlobViaTasfa(baseUrl, {
-            silent: true,
-            onProgress: function(percent) {
-                el.setAttribute('data-tasfa-progress', String(percent));
-            }
-        }).then(async function(result) {
-            var objectUrl = await createMediaPlaybackUrl(baseUrl, result.blob);
-            setMediaObjectUrl(el, objectUrl);
-            el.setAttribute('data-tasfa-ready', '1');
-            el.removeAttribute('data-tasfa-progress');
-        }).catch(function() {
-            el.dataset.tasfaMediaBound = '0';
-            el.setAttribute('data-tasfa-error', '1');
-        });
+        /* Parallel upgrade for poster if exists */
+        if (posterUrl && isTasfaDownloadUrl(posterUrl)) {
+            fetchBlobViaTasfa(posterUrl, { silent: true }).then(async function(result) {
+                var objectUrl = await createMediaPlaybackUrl(posterUrl, result.blob);
+                el.setAttribute('poster', objectUrl);
+            }).catch(function() {});
+        }
+
+        if (baseUrl) {
+            fetchBlobViaTasfa(baseUrl, {
+                silent: true,
+                onProgress: function(percent) {
+                    el.setAttribute('data-tasfa-progress', String(percent));
+                }
+            }).then(async function(result) {
+                var objectUrl = await createMediaPlaybackUrl(baseUrl, result.blob);
+                setMediaObjectUrl(el, objectUrl);
+                el.setAttribute('data-tasfa-ready', '1');
+                el.removeAttribute('data-tasfa-progress');
+            }).catch(function() {
+                el.dataset.tasfaMediaBound = '0';
+                el.setAttribute('data-tasfa-error', '1');
+            });
+        }
     }
 
     function upgradeDownloadLink(el) {

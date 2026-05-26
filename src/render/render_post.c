@@ -767,7 +767,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                                 cwist_sstring_append(b, "'");
                             }
                         }
-                        cwist_sstring_append(b, " muted playsinline preload='metadata' controls></video>");
+                        cwist_sstring_append(b, " autoplay loop muted playsinline preload='auto' controls></video>");
                     } else if (is_audio) {
                         cwist_sstring_append(b, "<audio data-tasfa-download='/file/download/");
                         cwist_sstring_append(b, fid_buf2);
