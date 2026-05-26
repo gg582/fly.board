@@ -680,9 +680,9 @@
         return !!navigator.serviceWorker.controller;
     }
 
-    async function createMediaPlaybackUrl(baseUrl, blob) {
-        /* blob: URL은 TASFA 환경에서 동작하지 않으므로 Service Worker cache path만 사용.
-           SW가 없거나 cache 저장에 실패하면 null을 반환해 호출부에서 에러 처리로 넘긴다. */
+    async function createMediaPlaybackUrl(baseUrl, blob, tagName) {
+        /* video/audio: blob: URL은 TASFA 환경에서 동작하지 않으므로 SW cache path만 사용.
+           img 등 나머지는 SW 실패 시 URL.createObjectURL fallback을 허용한다. */
         if (window.caches && navigator.serviceWorker && await waitForServiceWorkerController(1500)) {
             var url = stableMediaCacheUrl(baseUrl);
             try {
@@ -696,7 +696,8 @@
                 return url;
             } catch (e) {}
         }
-        return null;
+        if (tagName === 'video' || tagName === 'audio') return null;
+        return URL.createObjectURL(blob);
     }
 
     function setMediaObjectUrl(el, objectUrl) {
@@ -801,6 +802,7 @@
         /* Parallel upgrade for poster if exists */
         if (posterUrl && isTasfaDownloadUrl(posterUrl)) {
             fetchBlobViaTasfa(posterUrl, { silent: true }).then(async function(result) {
+                /* poster는 이미지로 렌더링되므로 blob: URL 허용 — tagName 없이 호출 */
                 var objectUrl = await createMediaPlaybackUrl(posterUrl, result.blob);
                 if (objectUrl) el.setAttribute('poster', objectUrl);
             }).catch(function() {});
@@ -814,7 +816,7 @@
                     updateProgressUI(el, percent);
                 }
             }).then(async function(result) {
-                var objectUrl = await createMediaPlaybackUrl(baseUrl, result.blob);
+                var objectUrl = await createMediaPlaybackUrl(baseUrl, result.blob, tagName);
                 setMediaObjectUrl(el, objectUrl);
                 el.setAttribute('data-tasfa-ready', '1');
                 el.removeAttribute('data-tasfa-progress');
