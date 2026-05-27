@@ -92,9 +92,9 @@ bool db_user_update_password(cwist_db *db, int id, const char *password_hash) {
 
 cJSON *db_user_list(cwist_db *db) {
     const char *sql = "SELECT id, username, email, role, profile_pic, created_at, active FROM users ORDER BY id";
-    cJSON *res = NULL;
-    cwist_db_query(db, sql, &res);
-    return res;
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    return db_sqlite3_rows_to_json(stmt);
 }
 
 bool db_user_delete_with_cascade(cwist_db *db, int id, bool delete_replies) {

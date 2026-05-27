@@ -115,7 +115,7 @@ void handler_unregister_post(cwist_http_request *req, cwist_http_response *res) 
     const char *id_str = cwist_query_map_get(kv, "id");
     if (id_str) {
         int target = atoi(id_str);
-        if (target == uid || strcmp(role, "admin") == 0) {
+        if (target > 0 && (target == uid || strcmp(role, "admin") == 0)) {
             const char *cascade = cwist_query_map_get(kv, "cascade");
             bool cascade_del = cascade && atoi(cascade) == 1;
             db_user_delete_with_cascade(req->db, target, cascade_del);
@@ -167,8 +167,9 @@ void handler_account_settings_get(cwist_http_request *req, cwist_http_response *
         target_uid = atoi(id_str);
     }
 
-    if (target_uid <= 0 && strcmp(role, "admin") == 0 && target_uid == uid) {
-        redirect(res, "/admin/users");
+    if (target_uid <= 0) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        cwist_sstring_assign(res->body, "User not found");
         return;
     }
 
@@ -277,7 +278,8 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
             cwist_free(boundary);
             form_field_t *f;
             if ((f = form_find(fields, "id")) && strcmp(role, "admin") == 0) {
-                target_uid = atoi(f->data);
+                int parsed = atoi(f->data);
+                if (parsed > 0) target_uid = parsed;
             }
             if ((f = form_find(fields, "nickname"))) {
                 nickname = (char *)cwist_alloc(f->len + 1);
@@ -300,7 +302,8 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
         cwist_query_map_parse(kv, req->body->data);
         const char *id_str = cwist_query_map_get(kv, "id");
         if (id_str && strcmp(role, "admin") == 0) {
-            target_uid = atoi(id_str);
+            int parsed = atoi(id_str);
+            if (parsed > 0) target_uid = parsed;
         }
         const char *n = cwist_query_map_get(kv, "nickname");
         const char *b = cwist_query_map_get(kv, "bio");

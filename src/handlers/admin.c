@@ -20,7 +20,7 @@ void handler_admin_user_role(cwist_http_request *req, cwist_http_response *res) 
     const char *role = cwist_query_map_get(kv, "role");
     if (id_str && role) {
         int target_uid = atoi(id_str);
-        if (db_user_update_role(req->db, target_uid, role)) {
+        if (target_uid > 0 && db_user_update_role(req->db, target_uid, role)) {
             CWIST_LOG_INFO("User role updated: uid=%d role='%s'", target_uid, role);
         } else {
             CWIST_LOG_ERROR("User role update failed: uid=%d role='%s'", target_uid, role);
