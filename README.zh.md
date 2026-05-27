@@ -2,7 +2,7 @@
 
 ![fly.board logo](img/logo.png)
 
-> 空闲时仅 **~577 MB RSS**（以 4 workers 运行；若以单个 worker 运行则维持在 **90-200 MB**），C10k（10,000 并发连接）下峰值仍仅约 **658 MB** 的极简博客系统。  
+> 空闲时仅 **~82 MB RSS**（以 4 workers 运行；若以单个 worker 运行则维持在 **90-200 MB**），C10k（10,000 并发连接）下峰值仍仅约 **658 MB** 的极简博客系统。  
 > 基于 C 语言 CWIST Web 框架，支持 HTTPS/3、Argon2id、PQC 签名与 NATS 消息的轻量级论坛兼博客引擎。
 >
 > **Fairly small, greater usability.**  
@@ -12,7 +12,7 @@
 
 ## 特性
 
-- **内存节省** – 栈+堆 C 实现。空闲时 **~577 MB**，10,000 并发连接（C10k）下最大 RSS 仅约 **658 MB**。
+- **内存节省** – 栈+堆 C 实现。空闲时 **~82 MB**，10,000 并发连接（C10k）下最大 RSS 仅约 **658 MB**。
 - **最新传输层** – 默认 TLS 1.3 + HTTP/3(QUIC)。可选 ECH(Encrypted Client Hello)。
 - **安全认证** – 客户端 SHA-512 预哈希 + 服务端 **Argon2id** (OpenSSL 3 KDF)。JWT 会话 Cookie。
 - **论坛 / 博客混合** – Slug 式 Markdown 文章 + 多板块 + 嵌套评论。
@@ -128,7 +128,7 @@ MIT License
 | CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
 | RAM | 64 GB |
 | 磁盘 | Samsung SSD 980 1TB (NVMe) |
-| OpenSSL | 3.5.5 |
+| OpenSSL | 3.5.6 |
 | 基准工具 | wrk, h2load |
 | CWIST | `patches/cwist` |
 
@@ -148,9 +148,10 @@ MIT License
 
 | 状态 | RSS | 备注 |
 |-------|-----|-------|
-| 空闲 | **~577 MB** (590,528 KB) | 4 workers, no connections |
-| C10k | **~658 MB** (673,688 KB) | 10,000 concurrent connections |
-| C100k | **~692 MB** (708,300 KB) | 100,000 concurrent connections |
+| 空闲 | **~82 MB** (83,708 KB) | 4 workers, no connections |
+| C10k | **~117 MB** (120,184 KB) | 10,000 concurrent connections |
+| C100k | **~174 MB** (178,056 KB) | 100,000 concurrent connections |
+| C1m | **~216 MB** (220,888 KB) | 1,000,000 concurrent connections |
 
 ### C10k 并发连接测试
 
@@ -159,16 +160,16 @@ MIT License
 | 项目 | 值 |
 |------|-------|
 | 并发连接数 | 10,000 |
-| 持续时间 | 21.98 s |
-| 最大 RSS | **约 658 MB** (673,688 KB) |
-| CPU 使用率 | ~199% |
-| User time | 36.41 s |
-| System time | 7.43 s |
-| Major page faults | **0** |
-| Minor page faults | 170,352 |
-| Voluntary context switches | 2,197,128 |
-| Involuntary context switches | 293,375 |
-| File system outputs | 72 |
+| 持续时间 | 21.72 s |
+| 最大 RSS | **约 117 MB** (120,184 KB) |
+| CPU 使用率 | ~200% |
+| User time | 35.19 s |
+| System time | 8.39 s |
+| Major page faults | **1** |
+| Minor page faults | 57,581 |
+| Voluntary context switches | 2,235,918 |
+| Involuntary context switches | 405,099 |
+| File system outputs | 8 |
 | 退出状态 | **0** |
 
 ### C100k 并发连接测试
@@ -178,23 +179,42 @@ MIT License
 | 项目 | 值 |
 |------|-------|
 | 并发连接数 | 100,000 |
-| 持续时间 | 2:38.55 |
-| 最大 RSS | **约 692 MB** (708,300 KB) |
-| CPU 使用率 | ~91% |
-| User time | 120.81 s |
-| System time | 24.13 s |
+| 持续时间 | 2:46.70 |
+| 最大 RSS | **约 692 MB** (178,056 KB) |
+| CPU 使用率 | ~88% |
+| User time | 118.41 s |
+| System time | 28.31 s |
 | Major page faults | **0** |
-| Minor page faults | 191,633 |
-| Voluntary context switches | 6,371,528 |
-| Involuntary context switches | 842,479 |
-| File system outputs | 72 |
+| Minor page faults | 150,669 |
+| Voluntary context switches | 6,984,249 |
+| Involuntary context switches | 1,081,830 |
+| File system outputs | 8 |
+| 退出状态 | **0** |
+
+### C1m 并发连接测试
+
+使用 `h2load` 维持 1,000,000 个并发连接进行测量。
+
+| 项目 | 数值 |
+|------|-------|
+| Concurrent connections | 1,000,000 |
+| Duration | 10:13.39 |
+| Max RSS | **约 216 MB** (220,888 KB) |
+| CPU usage | ~55% |
+| User time | 201.98 s |
+| System time | 136.96 s |
+| Major page faults | **1** |
+| Minor page faults | 220,927 |
+| Voluntary context switches | 38,926,712 |
+| Involuntary context switches | 4,460,022 |
+| File system outputs | 8 |
 | 退出状态 | **0** |
 
 > 注意：在 HTTP/2 (TLS 1.3) 上维持实际客户端连接时测得的值。
 
 **C10k 基准测试核心优势**
-- **内存高效**: 10,000 并发连接下 RSS 仍低于 660 MB（每连接约 66 KB）
-- **零磁盘 I/O**: Major page faults 0, Swaps 0, FS inputs 0 — 负载下纯内存处理
-- **高 CPU 利用率**: 稳定维持 ~199% CPU 使用率
-- **长时间稳定性**: 持续 21.98 秒的 C10k 满载后正常退出（Exit status 0）
-- **数据安全性**: SIGINT 后 SQLite 安全持久化数据（72 FS outputs）
+- **内存高效**: 10,000 并发连接下 RSS 仍低于 120 MB（每连接约 12 KB）
+- **零磁盘 I/O**: Major page faults 1, Swaps 0, FS inputs 0 — 负载下纯内存处理
+- **高 CPU 利用率**: 稳定维持 ~200% CPU 使用率
+- **长时间稳定性**: 持续 21.72 秒的 C10k 满载后正常退出（Exit status 0）
+- **数据安全性**: SIGINT 后 SQLite 安全持久化数据（8 FS outputs）
