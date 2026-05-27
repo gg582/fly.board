@@ -2,7 +2,7 @@
 
 ![fly.board logo](img/logo.png)
 
-> 閒置時僅 **~577 MB RSS**（以 4 workers 運作；若以單一 worker 運作則維持於 **90-200 MB**），C10k（10,000 併發連線）下峰值仍僅約 **658 MB** 的極簡部落格系統。  
+> 閒置時僅 **~82 MB RSS**（以 4 workers 運作；若以單一 worker 運作則維持於 **90-200 MB**），C10k（10,000 併發連線）下峰值仍僅約 **658 MB** 的極簡部落格系統。  
 > 基於 C 語言 CWIST Web 框架，支援 HTTPS/3、Argon2id、PQC 簽章與 NATS 訊息的輕量化論壇兼部落格引擎。
 >
 > **Fairly small, greater usability.**  
@@ -12,7 +12,7 @@
 
 ## 特性
 
-- **記憶體節省** – 堆疊+堆積 C 實作。閒置時 **~577 MB**，10,000 併發連線（C10k）下最大 RSS 僅約 **658 MB**。
+- **記憶體節省** – 堆疊+堆積 C 實作。閒置時 **~82 MB**，10,000 併發連線（C10k）下最大 RSS 僅約 **658 MB**。
 - **最新傳輸層** – 預設 TLS 1.3 + HTTP/3（QUIC）。可選 ECH（Encrypted Client Hello）。
 - **安全認證** – 用戶端 SHA-512 預雜湊 + 伺服端 **Argon2id**（OpenSSL 3 KDF）。JWT 工作階段 Cookie。
 - **論壇 / 部落格混合** – Slug 式 Markdown 文章 + 多看板 + 巢狀評論。
@@ -128,7 +128,7 @@ MIT License
 | CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
 | RAM | 64 GB |
 | 磁碟 | Samsung SSD 980 1TB (NVMe) |
-| OpenSSL | 3.5.5 |
+| OpenSSL | 3.5.6 |
 | 基準工具 | wrk, h2load |
 | CWIST | `patches/cwist` |
 
@@ -148,9 +148,10 @@ MIT License
 
 | 狀態 | RSS | 備註 |
 |-------|-----|-------|
-| 閒置 | **~577 MB** (590,528 KB) | 4 workers, no connections |
-| C10k | **~658 MB** (673,688 KB) | 10,000 concurrent connections |
-| C100k | **~692 MB** (708,300 KB) | 100,000 concurrent connections |
+| 閒置 | **~82 MB** (83,708 KB) | 4 workers, no connections |
+| C10k | **~117 MB** (120,184 KB) | 10,000 concurrent connections |
+| C100k | **~174 MB** (178,056 KB) | 100,000 concurrent connections |
+| C1m | **~216 MB** (220,888 KB) | 1,000,000 concurrent connections |
 
 ### C10k 併發連線測試
 
@@ -159,16 +160,16 @@ MIT License
 | 項目 | 值 |
 |------|-------|
 | 併發連線數 | 10,000 |
-| 持續時間 | 21.98 s |
-| 最大 RSS | **約 658 MB** (673,688 KB) |
-| CPU 使用率 | ~199% |
-| User time | 36.41 s |
-| System time | 7.43 s |
-| Major page faults | **0** |
-| Minor page faults | 170,352 |
-| Voluntary context switches | 2,197,128 |
-| Involuntary context switches | 293,375 |
-| File system outputs | 72 |
+| 持續時間 | 21.72 s |
+| 最大 RSS | **約 117 MB** (120,184 KB) |
+| CPU 使用率 | ~200% |
+| User time | 35.19 s |
+| System time | 8.39 s |
+| Major page faults | **1** |
+| Minor page faults | 57,581 |
+| Voluntary context switches | 2,235,918 |
+| Involuntary context switches | 405,099 |
+| File system outputs | 8 |
 | 結束狀態 | **0** |
 
 ### C100k 併發連線測試
@@ -178,23 +179,42 @@ MIT License
 | 項目 | 值 |
 |------|-------|
 | 併發連線數 | 100,000 |
-| 持續時間 | 2:38.55 |
-| 最大 RSS | **約 692 MB** (708,300 KB) |
-| CPU 使用率 | ~91% |
-| User time | 120.81 s |
-| System time | 24.13 s |
+| 持續時間 | 2:46.70 |
+| 最大 RSS | **約 692 MB** (178,056 KB) |
+| CPU 使用率 | ~88% |
+| User time | 118.41 s |
+| System time | 28.31 s |
 | Major page faults | **0** |
-| Minor page faults | 191,633 |
-| Voluntary context switches | 6,371,528 |
-| Involuntary context switches | 842,479 |
-| File system outputs | 72 |
+| Minor page faults | 150,669 |
+| Voluntary context switches | 6,984,249 |
+| Involuntary context switches | 1,081,830 |
+| File system outputs | 8 |
+| 結束狀態 | **0** |
+
+### C1m 併發連線測試
+
+使用 `h2load` 維持 1,000,000 個併發連線進行測量。
+
+| 項目 | 數值 |
+|------|-------|
+| Concurrent connections | 1,000,000 |
+| Duration | 10:13.39 |
+| Max RSS | **約 216 MB** (220,888 KB) |
+| CPU usage | ~55% |
+| User time | 201.98 s |
+| System time | 136.96 s |
+| Major page faults | **1** |
+| Minor page faults | 220,927 |
+| Voluntary context switches | 38,926,712 |
+| Involuntary context switches | 4,460,022 |
+| File system outputs | 8 |
 | 結束狀態 | **0** |
 
 > 注意：在 HTTP/2 (TLS 1.3) 上維持實際客戶端連線時測得的值。
 
 **C10k 基準測試核心優勢**
-- **記憶體高效**: 10,000 併發連線下 RSS 仍低於 660 MB（每連線約 66 KB）
-- **零磁碟 I/O**: Major page faults 0, Swaps 0, FS inputs 0 — 負載下純記憶體處理
-- **高 CPU 利用率**: 穩定維持 ~199% CPU 使用率
-- **長時間穩定性**: 持續 21.98 秒的 C10k 滿載後正常結束（Exit status 0）
-- **資料安全性**: SIGINT 後 SQLite 安全持久化資料（72 FS outputs）
+- **記憶體高效**: 10,000 併發連線下 RSS 仍低於 120 MB（每連線約 12 KB）
+- **零磁碟 I/O**: Major page faults 1, Swaps 0, FS inputs 0 — 負載下純記憶體處理
+- **高 CPU 利用率**: 穩定維持 ~200% CPU 使用率
+- **長時間穩定性**: 持續 21.72 秒的 C10k 滿載後正常結束（Exit status 0）
+- **資料安全性**: SIGINT 後 SQLite 安全持久化資料（8 FS outputs）

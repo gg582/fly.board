@@ -2,7 +2,7 @@
 
 ![fly.board logo](img/logo.png)
 
-> idle 시 **~577 MB RSS**(4 workers 기준, single worker 구동 시 **90-200 MB** 유지), C10k(10,000 동시 연결)에서도 **약 658 MB**로 동작하는 몇 안 되는 심플 블로그 계통.  
+> idle 시 **~82 MB RSS**(4 workers 기준, single worker 구동 시 **90-200 MB** 유지), C10k(10,000 동시 연결)에서도 **약 117 MB**로 동작하는 몇 안 되는 심플 블로그 계통.  
 > C 기반 CWIST 웹 프레임워크 위에 HTTPS/3, Argon2id, PQC 서명, NATS 메시징을 올린 가벼운 게시판 겸 블로그 엔진입니다.
 >
 > **Fairly small, greater usability.**  
@@ -12,7 +12,7 @@
 
 ## 특징
 
-- **메모리 절약** – 스택+힙 기반 C 구현. idle 시 **~577 MB**, 10,000 동시 연결(C10k)에서도 최대 RSS **약 658 MB**에 머무릅니다.
+- **메모리 절약** – 스택+힙 기반 C 구현. idle 시 **~82 MB**, 10,000 동시 연결(C10k)에서도 최대 RSS **약 117 MB**에 머무릅니다.
 - **최신 전송 계층** – TLS 1.3 + HTTP/3(QUIC) 기본 지원. 선택적 ECH(Encrypted Client Hello).
 - **안전한 인증** – 클라이언트 사이드 SHA-512 프리해시 + 서버 사이드 **Argon2id** (OpenSSL 3 KDF). JWT 세션 쿠키.
 - **게시판 / 블로그 하이브리드** – 슬러그 기반 마크다운 포스트 + 다중 게시판(Board) + 댓글(계층형).
@@ -128,7 +128,7 @@ MIT License
 | CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
 | RAM | 64 GB |
 | 디스크 | Samsung SSD 980 1TB (NVMe) |
-| OpenSSL | 3.5.5 |
+| OpenSSL | 3.5.6 |
 | 벤치마크 도구 | wrk, h2load |
 | CWIST | `patches/cwist` |
 
@@ -148,9 +148,10 @@ MIT License
 
 | 상태 | RSS | 비고 |
 |-------|-----|-------|
-| Idle | **~577 MB** (590,528 KB) | 4 workers, no connections |
-| C10k | **~658 MB** (673,688 KB) | 10,000 concurrent connections |
-| C100k | **~692 MB** (708,300 KB) | 100,000 concurrent connections |
+| Idle | **~82 MB** (83,708 KB) | 4 workers, no connections |
+| C10k | **~117 MB** (120,184 KB) | 10,000 concurrent connections |
+| C100k | **~174 MB** (178,056 KB) | 100,000 concurrent connections |
+| C1m | **~216 MB** (220,888 KB) | 1,000,000 concurrent connections |
 
 ### C10k 동시 연결 테스트
 
@@ -159,16 +160,16 @@ MIT License
 | 항목 | 값 |
 |------|-------|
 | 동시 연결 수 | 10,000 |
-| 지속 시간 | 21.98 s |
-| 최대 RSS | **약 658 MB** (673,688 KB) |
-| CPU 사용량 | ~199% |
-| User time | 36.41 s |
-| System time | 7.43 s |
-| Major page faults | **0** |
-| Minor page faults | 170,352 |
-| Voluntary context switches | 2,197,128 |
-| Involuntary context switches | 293,375 |
-| File system outputs | 72 |
+| 지속 시간 | 21.72 s |
+| 최대 RSS | **약 117 MB** (120,184 KB) |
+| CPU 사용량 | ~200% |
+| User time | 35.19 s |
+| System time | 8.39 s |
+| Major page faults | **1** |
+| Minor page faults | 57,581 |
+| Voluntary context switches | 2,235,918 |
+| Involuntary context switches | 405,099 |
+| File system outputs | 8 |
 | 종료 상태 | **0** |
 
 ### C100k 동시 연결 테스트
@@ -178,23 +179,42 @@ MIT License
 | 항목 | 값 |
 |------|-------|
 | 동시 연결 수 | 100,000 |
-| 지속 시간 | 2:38.55 |
-| 최대 RSS | **약 692 MB** (708,300 KB) |
-| CPU 사용량 | ~91% |
-| User time | 120.81 s |
-| System time | 24.13 s |
+| 지속 시간 | 2:46.70 |
+| 최대 RSS | **약 174 MB** (178,056 KB) |
+| CPU 사용량 | ~88% |
+| User time | 118.41 s |
+| System time | 28.31 s |
 | Major page faults | **0** |
-| Minor page faults | 191,633 |
-| Voluntary context switches | 6,371,528 |
-| Involuntary context switches | 842,479 |
-| File system outputs | 72 |
+| Minor page faults | 150,669 |
+| Voluntary context switches | 6,984,249 |
+| Involuntary context switches | 1,081,830 |
+| File system outputs | 8 |
+| 종료 상태 | **0** |
+
+### C1m 동시 연결 테스트
+
+`h2load`로 1,000,000개 동시 연결을 유지하며 측정.
+
+| 항목 | 값 |
+|------|-------|
+| 동시 연결 수 | 1,000,000 |
+| 지속 시간 | 10:13.39 |
+| 최대 RSS | **약 216 MB** (220,888 KB) |
+| CPU 사용량 | ~55% |
+| User time | 201.98 s |
+| System time | 136.96 s |
+| Major page faults | **1** |
+| Minor page faults | 220,927 |
+| Voluntary context switches | 38,926,712 |
+| Involuntary context switches | 4,460,022 |
+| File system outputs | 8 |
 | 종료 상태 | **0** |
 
 > 참고: HTTP/2 (TLS 1.3) 상에서 실제 클라이언트 연결을 유지하며 측정한 값입니다.
 
 **C10k 벤치마크 주요 장점**
-- **메모리 효율**: 10,000 동시 연결에서도 RSS가 660 MB 미만 (연결당 약 66 KB)
-- **I/O 프리**: Major page faults 0, Swaps 0, FS inputs 0 — 디스크 I/O 부하 없이 순수 메모리 기반 처리
-- **CPU 활용**: ~199% CPU 사용률로 안정적
-- **장시간 안정성**: 21.98초 동안 C10k 부하를 지속하며 정상 종료 (Exit status 0)
-- **데이터 안전성**: SIGINT 수신 후에도 SQLite가 데이터를 안전하게 저장 (72 FS outputs)
+- **메모리 효율**: 10,000 동시 연결에서도 RSS가 120 MB 미만 (연결당 약 12 KB)
+- **I/O 프리**: Major page faults 1, Swaps 0, FS inputs 0 — 디스크 I/O 부하 없이 순수 메모리 기반 처리
+- **CPU 활용**: ~200% CPU 사용률로 안정적
+- **장시간 안정성**: 21.72초 동안 C10k 부하를 지속하며 정상 종료 (Exit status 0)
+- **데이터 안전성**: SIGINT 수신 후에도 SQLite가 데이터를 안전하게 저장 (8 FS outputs)

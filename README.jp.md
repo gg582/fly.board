@@ -2,7 +2,7 @@
 
 ![fly.board logo](img/logo.png)
 
-> idle 時 **~577 MB RSS**（4 workers構成。single worker構成時は **90-200 MB** を維持）、C10k（10,000 同時接続）時も **約 658 MB** で動作する、極めて軽量なブログエンジンの一つ。  
+> idle 時 **~82 MB RSS**（4 workers構成。single worker構成時は **90-200 MB** を維持）、C10k（10,000 同時接続）時も **約 117 MB** で動作する、極めて軽量なブログエンジンの一つ。  
 > C 言語製 CWIST Web フレームワークをベースに、HTTPS/3・Argon2id・PQC 署名・NATS メッセージングをサポートする、軽量な掲示板＆ブログエンジン。
 >
 > **Fairly small, greater usability.**  
@@ -12,7 +12,7 @@
 
 ## 機能
 
-- **メモリ効率** – スタック＋ヒープの C 実装。idle 時は **~577 MB**、10,000 同時接続（C10k）時の最大 RSS も **約 658 MB** に抑えられる。
+- **メモリ効率** – スタック＋ヒープの C 実装。idle 時は **~82 MB**、10,000 同時接続（C10k）時の最大 RSS も **約 117 MB** に抑えられる。
 - **最新トランスポート** – デフォルトで TLS 1.3 + HTTP/3（QUIC）。オプションで ECH（Encrypted Client Hello）も利用可能。
 - **安全な認証** – クライアント側 SHA-512 プリハッシュ + サーバー側 **Argon2id**（OpenSSL 3 KDF）。JWT セッション Cookie。
 - **掲示板 / ブログ ハイブリッド** – Slug ベースの Markdown 投稿 + 複数掲示板 + 入れ子コメント。
@@ -128,7 +128,7 @@ MIT License
 | CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
 | RAM | 64 GB |
 | ディスク | Samsung SSD 980 1TB (NVMe) |
-| OpenSSL | 3.5.5 |
+| OpenSSL | 3.5.6 |
 | ベンチマークツール | wrk, h2load |
 | CWIST | `patches/cwist` |
 
@@ -148,9 +148,10 @@ MIT License
 
 | 状態 | RSS | 備考 |
 |-------|-----|-------|
-| Idle | **~577 MB** (590,528 KB) | 4 workers, no connections |
-| C10k | **~658 MB** (673,688 KB) | 10,000 concurrent connections |
-| C100k | **~692 MB** (708,300 KB) | 100,000 concurrent connections |
+| Idle | **~82 MB** (83,708 KB) | 4 workers, no connections |
+| C10k | **~117 MB** (120,184 KB) | 10,000 concurrent connections |
+| C100k | **~174 MB** (178,056 KB) | 100,000 concurrent connections |
+| C1m | **~216 MB** (220,888 KB) | 1,000,000 concurrent connections |
 
 ### C10k 同時接続テスト
 
@@ -159,16 +160,16 @@ MIT License
 | 項目 | 値 |
 |------|-------|
 | 同時接続数 | 10,000 |
-| 継続時間 | 21.98 s |
-| 最大 RSS | **約 658 MB** (673,688 KB) |
-| CPU 使用率 | ~199% |
-| User time | 36.41 s |
-| System time | 7.43 s |
-| Major page faults | **0** |
-| Minor page faults | 170,352 |
-| Voluntary context switches | 2,197,128 |
-| Involuntary context switches | 293,375 |
-| File system outputs | 72 |
+| 継続時間 | 21.72 s |
+| 最大 RSS | **約 117 MB** (120,184 KB) |
+| CPU 使用率 | ~200% |
+| User time | 35.19 s |
+| System time | 8.39 s |
+| Major page faults | **1** |
+| Minor page faults | 57,581 |
+| Voluntary context switches | 2,235,918 |
+| Involuntary context switches | 405,099 |
+| File system outputs | 8 |
 | 終了ステータス | **0** |
 
 ### C100k 同時接続テスト
@@ -178,23 +179,42 @@ MIT License
 | 項目 | 値 |
 |------|-------|
 | 同時接続数 | 100,000 |
-| 継続時間 | 2:38.55 |
-| 最大 RSS | **約 692 MB** (708,300 KB) |
-| CPU 使用率 | ~91% |
-| User time | 120.81 s |
-| System time | 24.13 s |
+| 継続時間 | 2:46.70 |
+| 最大 RSS | **約 692 MB** (178,056 KB) |
+| CPU 使用率 | ~88% |
+| User time | 118.41 s |
+| System time | 28.31 s |
 | Major page faults | **0** |
-| Minor page faults | 191,633 |
-| Voluntary context switches | 6,371,528 |
-| Involuntary context switches | 842,479 |
-| File system outputs | 72 |
+| Minor page faults | 150,669 |
+| Voluntary context switches | 6,984,249 |
+| Involuntary context switches | 1,081,830 |
+| File system outputs | 8 |
+| 終了ステータス | **0** |
+
+### C1m 同時接続テスト
+
+`h2load` で 1,000,000 個の同時接続を維持しながら測定。
+
+| 項目 | 値 |
+|------|-------|
+| Concurrent connections | 1,000,000 |
+| Duration | 10:13.39 |
+| Max RSS | **約 216 MB** (220,888 KB) |
+| CPU usage | ~55% |
+| User time | 201.98 s |
+| System time | 136.96 s |
+| Major page faults | **1** |
+| Minor page faults | 220,927 |
+| Voluntary context switches | 38,926,712 |
+| Involuntary context switches | 4,460,022 |
+| File system outputs | 8 |
 | 終了ステータス | **0** |
 
 > 注記: HTTP/2 (TLS 1.3) 上で実際のクライアント接続を維持しながら測定した値です。
 
 **C10k ベンチマークの主な強み**
-- **メモリ効率**: 10,000 同時接続でも RSS が 660 MB 未満（接続あたり約 66 KB）
-- **ゼロディスク I/O**: Major page faults 0, Swaps 0, FS inputs 0 — 負荷時も純メモリ処理
-- **高い CPU 利用率**: ~199% CPU 使用率を安定的に維持
-- **長時間安定性**: 21.98 s 間の継続的な C10k 負荷の後も正常終了（Exit status 0）
-- **データ安全性**: SIGINT 受信後も SQLite がデータを安全に保存（72 FS outputs）
+- **メモリ効率**: 10,000 同時接続でも RSS が 120 MB 未満（接続あたり約 12 KB）
+- **ゼロディスク I/O**: Major page faults 1, Swaps 0, FS inputs 0 — 負荷時も純メモリ処理
+- **高い CPU 利用率**: ~200% CPU 使用率を安定的に維持
+- **長時間安定性**: 21.72 s 間の継続的な C10k 負荷の後も正常終了（Exit status 0）
+- **データ安全性**: SIGINT 受信後も SQLite がデータを安全に保存（8 FS outputs）
