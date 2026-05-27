@@ -287,7 +287,7 @@ int main(void) {
     cwist_app_get(app, "/api/my-files", handler_api_my_files);
     cwist_app_post(app, "/post/vote", handler_post_vote);
 
-    /* Enable io_uring-based async reactor for C10M scale mode.
+    /* Enable io_uring-based async reactor for C1M scale mode.
      * cwist_reactor will use Linux io_uring direct syscalls on Linux,
      * falling back to epoll/kqueue on other platforms. */
     setenv("CWIST_C1M_MODE", "1", 1);
