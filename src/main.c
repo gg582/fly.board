@@ -196,9 +196,14 @@ int main(void) {
 
     const char *ech_key = getenv("BLOG_ECH_KEY");
     const char *ech_dir = getenv("BLOG_ECH_DIR");
-    cwist_error_t ech = cwist_app_use_ech(app, ech_key, ech_dir);
-    if (ech.errtype != CWIST_ERR_INT16 || ech.error.err_i16 != 0) {
-        FLY_LOG_ERROR("ECH init failed");
+    if (ech_key || ech_dir) {
+        cwist_error_t ech = cwist_app_use_ech(app, ech_key, ech_dir);
+        if (ech.errtype != CWIST_ERR_INT16 || ech.error.err_i16 != 0) {
+            FLY_LOG_ERROR("ECH init failed");
+            cwist_app_destroy(app);
+            return 1;
+        }
+        CWIST_LOG_INFO("ECH initialized");
     }
 
     cwist_app_use(app, global_middleware);
