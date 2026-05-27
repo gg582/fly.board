@@ -1,0 +1,28 @@
+[Unit]
+Description=Fly Board Service
+After=network.target
+
+[Service]
+Type=simple
+
+# The absolute path to the executable that starts the daemon
+Environment=CWIST_WORKERS=1
+Environment=MALLOC_ARENA_MAX=2
+Environment=MALLOC_TRIM_THRESHOLD_=131072
+Environment=MALLOC_MMAP_THRESHOLD_=65536
+Environment=BLOG_ECH_KEY=/root/fly.board/ech/server.ech
+ExecStart=/root/fly.board/fly_board
+
+# Automatically restart the service if it crashes
+Restart=on-failure
+
+# Run the service with root privileges as requested by the path
+User=root
+Group=root
+
+# Set the working directory for the process
+WorkingDirectory=/root/fly.board/
+
+[Install]
+# Enable the service to start during boot
+WantedBy=multi-user.target
