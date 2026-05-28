@@ -2,7 +2,7 @@
 
 ![fly.board logo](img/logo.png)
 
-> 閒置時僅 **~82 MB RSS**（以 4 workers 運作；若以單一 worker 運作則維持於 **90-200 MB**），C10k（10,000 併發連線）下峰值仍僅約 **658 MB** 的極簡部落格系統。  
+> 閒置時僅 **~82 MB RSS**（以 4 workers 運作；若以單一 worker 在實際運營伺服器上運作則維持於 **90-200 MB**），C10k（10,000 併發連線）下峰值仍僅約 **658 MB** 的極簡部落格系統。  
 > 基於 C 語言 CWIST Web 框架，支援 HTTPS/3、Argon2id、PQC 簽章與 NATS 訊息的輕量化論壇兼部落格引擎。
 >
 > **Fairly small, greater usability.**  
