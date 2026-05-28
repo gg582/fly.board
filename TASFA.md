@@ -30,6 +30,7 @@ The browser negotiates an upload session first, then sends **chunks** (default `
 - `X-TASFA-Upload-Token`
 - `X-TASFA-Chunk-Index`
 - `X-TASFA-Hash-Tag`
+- `X-TASFA-Raw-Scalar`
 - `X-TASFA-Magic-Scalar`
 
 The server writes each chunk directly to the preallocated temp file at `chunk_index * chunk_size`. There are no transport blocks anymore.
@@ -48,8 +49,22 @@ The `init` endpoint returns, among other fields:
 - `current_parallel_chunks` — the server-approved active upload window
 - `max_parallel_chunks` — how many chunks the client may upload concurrently
 - `dispatch_pacing_ms` — a small pacing delay only when the measured link is poor
+- `upload_secret` — a secondary server-secret for encrypted stream verification
+- `stream_key_hex`, `stream_iv_seed_hex`, `stream_mode` — session encryption keys (`aes-256-gcm`)
+- `modulus_M` — the HTP modulus used for this session
+- `group_count` — number of complete 6-slot HTP groups
+- `client_stripes` — fixed value `32`, used by the client worker scheduler
 
 The client treats `chunk_size` as a session contract because it defines each chunk's file offset. During an active upload it tunes concurrency and retry behavior, while the learned chunk-size hint is applied to the next TASFA session: good links raise the next hint gradually, and degraded links reduce it in small `512 KiB` steps.
+
+### Upload chunk response
+
+When a chunk is accepted, the server responds with `204 No Content` and headers:
+
+- `X-TASFA-Accepted: 1`
+- `X-TASFA-Chunk-Complete: 1`
+
+If the chunk index is already marked complete in `state.bin` **and** the index is not in the server's `retry_targets`, the server returns `204` with the same headers but the chunk body is discarded.
 
 ## HTP Server-Authoritative Recovery Lattice
 
@@ -113,7 +128,7 @@ The hexagonal lattice has two degrees of freedom. Fixing `v0,v1,v2,v4` and adjus
 
 During `POST /file/upload/complete` the server:
 
-1. Loads all per-chunk `magic_scalars` from `htp.bin`.
+1. Loads all per-chunk records from `htp.bin` (hash tag, raw scalar, and balanced scalar).
 2. Validates only **complete 6-slot groups** (partial groups are skipped).
 3. For every failing group, computes **suspicion scores** per slot by analyzing which line equations each slot participates in.
 
@@ -207,10 +222,11 @@ This prevents browser connection pool exhaustion and keeps stall detection relia
 - adaptive upload chunk-size hint: `4 MiB` minimum, up to `48 MiB` desktop / `24 MiB` mobile
 - download chunk size: `2 MiB` desktop, `1 MiB` mobile, up to `16 MiB` when the client hints a larger session
 - default browser upload parallelism: `16`
-- max browser upload parallelism: `max_upload_parallel_chunks` in `blog.settings`
-- max concurrent upload sessions: `max_total_parallel_uploads` in `blog.settings`
+- max browser upload parallelism: `max_upload_parallel_chunks` in `blog.settings`, capped at `40`
+- max concurrent upload sessions: `max_total_parallel_uploads` in `blog.settings`, capped at `64`
 - max upload size: `max_upload_size` in `blog.settings`
 - max browser download sessions: server-defined, currently up to `48` chunk requests per session
+- download coalesce (span group size): up to `16` chunks on good links
 - upload xhr timeout: adaptive by chunk size, at least `180 s`
 - upload session fetch timeout: `30 s`
 
@@ -250,13 +266,13 @@ Each upload session preallocates one temporary file:
 - fast binary meta: `data/tasfa/uploads/<upload_id>/meta.bin`
 - state: `data/tasfa/uploads/<upload_id>/state.json`, `data/tasfa/uploads/<upload_id>/state.bin`
 - HTP level-0: `data/tasfa/uploads/<upload_id>/htp.bin`
+- session lock: `data/tasfa/uploads/<upload_id>/session.lock`
 
 The server no longer maintains `blocks.bin` or `chunk_counts.bin`. Chunk completion is a single bitmap write.
 
 Session metadata also stores per-vertex arrays:
 
 - `hash_tags` — array of SHA-512 hex strings, one per chunk
-- `raw_scalars` — array of raw scalars (unmodified SHA-512 digest mod M), one per chunk
 - `magic_scalars` — array of balanced scalars, one per chunk
 - `htp_retry_targets` — current server-issued retry target list
 - `htp_suspicion_scores` — current suspicion ranking
@@ -266,20 +282,27 @@ These are updated on every chunk upload and validated at completion.
 
 ## Delete PIN
 
-Completed uploads receive a one-time delete PIN. The clear PIN is returned once; only its hash is stored.
+Completed uploads receive a one-time delete PIN. The clear PIN is a 12-character hex string (6 random bytes); it is returned once and only its hash is stored.
 
 ## Download Protocol
 
 1. Client requests a handshake via `GET /.../handshake`.
 2. Server returns `session_id`, `session_token`, `chunk_size`, `chunk_count`, concurrency hints, and session encryption keys (`stream_key_hex`, `stream_iv_seed_hex`).
-3. Client fetches chunk groups with an adaptive `span=...`. All chunks are encrypted with **AES-256-GCM**.
+3. Client fetches chunk groups with an adaptive `span=...`. All chunks are encrypted with **AES-256-GCM** when session keys are present.
 4. Client decrypts chunks in the browser using the **Web Crypto API** and the session keys.
 5. Browser assembles the response into one contiguous buffer.
+
+Download chunk responses include:
+
+- `X-TASFA-Chunk-Index` and `X-TASFA-Chunk-Count`
+- `X-TASFA-Predicted-Remaining-Ms` when RTT samples are available
+- `X-TASFA-Stream-Mode: aes-256-gcm` and encrypted payload when encryption is active
+- `X-TASFA-Hash-Tag` and `X-TASFA-Magic-Scalar` when pre-calculated HTP metadata exists
 
 ## Media Processing Integration
 
 Server-generated media (thumbnails, audio previews) are first-class TASFA assets:
-- **HTP Metadata Pre-calculation**: When the server generates a thumbnail or preview, it immediately computes HTP scalars and SHA-256 tags for its chunks and stores them in `data/tasfa/media_htp`.
+- **HTP Metadata Pre-calculation**: When the server generates a thumbnail or preview, it immediately computes HTP scalars and SHA-256 tags for its chunks and stores them in `data/tasfa/media_htp`. Note: the server-side media generator uses **SHA-256** for this purpose, while the upload client still uses **SHA-512** for user-uploaded chunks.
 - **Reliable Media Transfer**: Media is served via the `/assets/tasfa/...` routes, which support the full TASFA protocol including chunk-level integrity verification using the pre-calculated HTP metadata.
 - **Concurrency Control**: Media generation (ffmpeg) is limited to 4 concurrent processes to protect server resources.
 
@@ -296,7 +319,15 @@ Both upload and download state are tracked with a **dense binary bitmap** (one b
 ### Session hardening
 
 - Upload IDs and tokens are 16-byte / 24-byte random hex strings.
-- Session locks (`flock`) prevent racing bitmap updates from concurrent requests.
+- Session locks (`flock` on `session.lock`) prevent racing bitmap updates from concurrent requests.
+
+## Worker Scheduler
+
+The server uses a sticky round-robin worker scheduler. The number of workers equals the CPU count (minimum 2, maximum 64). Chunks belonging to the same `upload_id` are always dispatched to the same worker for cache locality and ordering. Jobs are submitted via a per-worker queue and signalled with condition variables.
+
+## Asynchronous Finalization
+
+`POST /file/upload/complete` is processed asynchronously. The first call returns `202 Accepted` with `{"processing": true}` and starts a background finalize worker. Subsequent calls poll the finalize cache; when the worker finishes, the cached status and body are returned immediately. This prevents long-running HTP validation and media generation from blocking the HTTP connection.
 
 ## Self-Review Checklist
 

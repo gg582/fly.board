@@ -30,6 +30,7 @@ El navegador negocia primero una sesión de carga, luego envía **fragmentos** (
 - `X-TASFA-Upload-Token`
 - `X-TASFA-Chunk-Index`
 - `X-TASFA-Hash-Tag`
+- `X-TASFA-Raw-Scalar`
 - `X-TASFA-Magic-Scalar`
 
 El servidor escribe cada fragmento directamente en el archivo temporal preasignado en el desplazamiento `chunk_index * chunk_size`. Ya no hay bloques de transporte.
@@ -45,7 +46,23 @@ Si el tamaño del archivo no es múltiplo del tamaño del fragmento, el último 
 El endpoint `init` devuelve, entre otros campos:
 
 - `chunk_size` — tamaño de fragmento negociado
+- `current_parallel_chunks` — ventana activa de carga aprobada por el servidor
 - `max_parallel_chunks` — cuántos fragmentos el cliente puede cargar concurrentemente
+- `dispatch_pacing_ms` — pequeño retardo de envío aplicado solo cuando el enlace medido es deficiente
+- `upload_secret` — secreto secundario del servidor para verificación de flujo cifrado
+- `stream_key_hex`, `stream_iv_seed_hex`, `stream_mode` — claves de cifrado de sesión (`aes-256-gcm`)
+- `modulus_M` — módulo HTP utilizado para esta sesión
+- `group_count` — número de grupos HTP completos de 6 ranuras
+- `client_stripes` — valor fijo `32`, utilizado por el planificador de trabajadores del cliente
+
+### Respuesta de fragmento de carga
+
+Cuando se acepta un fragmento, el servidor responde con `204 No Content` y encabezados:
+
+- `X-TASFA-Accepted: 1`
+- `X-TASFA-Chunk-Complete: 1`
+
+Si el índice del fragmento ya está marcado como completo en `state.bin` **y** el índice no está en los `retry_targets` del servidor, el servidor devuelve `204` con los mismos encabezados pero el cuerpo del fragmento se descarta.
 
 ## Retícula de Recuperación HTP con Autoridad del Servidor
 
@@ -90,7 +107,12 @@ v3_balanced = (v3_raw + delta2) mod M
 v5_balanced = (v5_raw + delta3) mod M
 ```
 
-Todos los demás vértices mantienen su escalar en bruto. El cliente envía ambos:\n\n- `X-TASFA-Raw-Scalar` — el `raw_scalar` sin modificar\n- `X-TASFA-Magic-Scalar` — el valor equilibrado (`v3_balanced` o `v5_balanced`; en otros casos, igual que raw)\n\nEl servidor almacena ambos escalares por separado en `htp.bin`, de modo que el análisis puede referenciar la topología original independientemente de las restricciones de equilibrio artificiales.
+Todos los demás vértices mantienen su escalar en bruto. El cliente envía ambos:
+
+- `X-TASFA-Raw-Scalar` — el `raw_scalar` sin modificar
+- `X-TASFA-Magic-Scalar` — el valor equilibrado (`v3_balanced` o `v5_balanced`; en otros casos, igual que raw)
+
+El servidor almacena ambos escalares por separado en `htp.bin`, de modo que el análisis puede referenciar la topología original independientemente de las restricciones de equilibrio artificiales.
 
 ### ¿Por qué solo v3 y v5?
 
@@ -104,7 +126,7 @@ La retícula hexagonal tiene dos grados de libertad. Fijando `v0,v1,v2,v4` y aju
 
 Durante `POST /file/upload/complete`, el servidor:
 
-1. Carga todos los `raw_scalars` y `magic_scalars` por fragmento desde `htp.bin`.
+1. Carga todos los registros por fragmento desde `htp.bin` (etiqueta hash, escalar en bruto y escalar equilibrado).
 2. Valida solo **grupos completos de 6 ranuras** (los grupos parciales se omiten).
 3. Para cada grupo fallido, computa **puntajes de sospecha** por ranura analizando en qué ecuaciones de línea participa cada ranura.
 
@@ -128,7 +150,6 @@ score = in_fail / total_fail
 ```
 
 donde `in_fail` es el número de ecuaciones de línea fallidas en las que participa la ranura, y `total_fail` es el número total de ecuaciones fallidas en ese grupo. No se utilizan constantes de confianza arbitrarias.
-
 
 Si una ranura solo aparece en ecuaciones aprobadas, se **elimina** de la lista de sospechosos.
 
@@ -196,11 +217,14 @@ Esto evita el agotamiento del pool de conexiones del navegador y mantiene confia
 ## Configuración en Tiempo de Ejecución
 
 - tamaño de fragmento de carga: `24 MiB` escritorio, `12 MiB` móvil
+- pista adaptativa de tamaño de fragmento de carga: mínimo `4 MiB`, máximo `48 MiB` escritorio / `24 MiB` móvil
+- tamaño de fragmento de descarga: `2 MiB` escritorio, `1 MiB` móvil, hasta `16 MiB` cuando el cliente indica una sesión mayor
 - paralelismo de carga del navegador predeterminado: `16`
-- paralelismo máximo de carga del navegador: `max_upload_parallel_chunks` en `blog.settings`
-- sesiones de carga concurrentes máximas: `max_total_parallel_uploads` en `blog.settings`
+- paralelismo máximo de carga del navegador: `max_upload_parallel_chunks` en `blog.settings`, límite `40`
+- sesiones de carga concurrentes máximas: `max_total_parallel_uploads` en `blog.settings`, límite `64`
 - tamaño máximo de carga: `max_upload_size` en `blog.settings`
-- sesiones de descarga máximas del navegador: definido por el servidor
+- sesiones de descarga máximas del navegador: definido por el servidor, hasta `48` solicitudes de fragmento por sesión
+- coalescencia de descarga (tamaño de grupo span): hasta `16` fragmentos en enlaces buenos
 - tiempo de espera xhr de carga: al menos `180 s`
 - tiempo de espera fetch de sesión de carga: `30 s`
 
@@ -240,13 +264,14 @@ Cada sesión de carga preasigna un archivo temporal:
 - meta binaria rápida: `data/tasfa/uploads/<upload_id>/meta.bin`
 - estado: `data/tasfa/uploads/<upload_id>/state.json`, `data/tasfa/uploads/<upload_id>/state.bin`
 - HTP nivel 0: `data/tasfa/uploads/<upload_id>/htp.bin`
+- bloqueo de sesión: `data/tasfa/uploads/<upload_id>/session.lock`
 
 El servidor ya no mantiene `blocks.bin` ni `chunk_counts.bin`. La finalización de un fragmento es una sola escritura de bitmap.
 
 Los metadatos de sesión también almacenan arrays por vértice:
 
 - `hash_tags` — array de cadenas hexadecimales SHA-512, uno por fragmento
-- `raw_scalars` — array de escalares raw (digest SHA-512 sin modificar mod M), uno por fragmento\n- `magic_scalars` — array de escalares equilibrados, uno por fragmento
+- `magic_scalars` — array de escalares equilibrados, uno por fragmento
 - `htp_retry_targets` — lista de objetivos de reintento emitida actualmente por el servidor
 - `htp_suspicion_scores` — clasificación de sospecha actual
 - `htp_contraction_level` — número de pasadas de contracción del lado del servidor aplicadas
@@ -255,21 +280,28 @@ Estos se actualizan en cada carga de fragmento y se validan al completar.
 
 ## PIN de Eliminación
 
-Las cargas completadas reciben un PIN de eliminación de un solo uso. El PIN en claro se devuelve una vez; solo se almacena su hash.
+Las cargas completadas reciben un PIN de eliminación de un solo uso. El PIN en claro es una cadena hexadecimal de 12 caracteres (6 bytes aleatorios); se devuelve una vez; solo se almacena su hash.
 
 ## Protocolo de Descarga
 
 1. El cliente solicita un handshake a través de `GET /.../handshake`.
 2. El servidor devuelve `session_id`, `session_token`, `chunk_size`, `chunk_count`, sugerencias de concurrencia y claves de cifrado de sesión (`stream_key_hex`, `stream_iv_seed_hex`).
-3. El cliente obtiene grupos de fragmentos con un `span=...` adaptativo. Todos los fragmentos están cifrados con **AES-256-GCM**.
+3. El cliente obtiene grupos de fragmentos con un `span=...` adaptativo. Cuando hay claves de sesión, todos los fragmentos están cifrados con **AES-256-GCM**.
 4. El cliente descifra los fragmentos en el navegador utilizando la **Web Crypto API** y las claves de sesión.
 5. El navegador ensambla la respuesta en un búfer contiguo.
+
+Las respuestas de fragmentos de descarga incluyen:
+
+- `X-TASFA-Chunk-Index` y `X-TASFA-Chunk-Count`
+- `X-TASFA-Predicted-Remaining-Ms` cuando hay muestras de RTT disponibles
+- `X-TASFA-Stream-Mode: aes-256-gcm` y carga útil cifrada cuando el cifrado está activo
+- `X-TASFA-Hash-Tag` y `X-TASFA-Magic-Scalar` cuando existen metadatos HTP precalculados
 
 ## Integración de Procesamiento de Medios
 
 Los medios generados por el servidor (miniaturas, vistas previas de audio) son activos TASFA de primera clase:
-- **Precalculación de Metadatos HTP**: Cuando el servidor genera una miniatura o vista previa, calcula inmediatamente los escalares HTP y las etiquetas SHA-256 para sus fragmentos y los almacena en `data/tasfa/media_htp`.
-- **Transferencia Confiable de Medios**: Los medios se sirven a través de las rutas `/assets/tasfa/...`, que admiten el protocolo TASFA completo, incluida la verificación de integridad a nivel de fragmento utilizando los metadatos HTP precalculados.
+- **Precalculación de Metadatos HTP**: Cuando el servidor genera una miniatura o vista previa, calcula inmediatamente los escalares HTP y las etiquetas SHA-256 para sus fragmentos y los almacena en `data/tasfa/media_htp`. Nota: el generador de medios del lado del servidor usa **SHA-256** para este propósito, mientras que el cliente de carga todavía usa **SHA-512** para los fragmentos cargados por el usuario.
+- **Transferencia Confiable de Medios**: Los medios se sirven a través de las rutas `/assets/tasfa/...`, que admiten el protocolo TASFA completo, incluida la verificación de integridad a nivel de fragmento utilizando los metаданнos HTP precalculados.
 - **Control de Concurrencia**: La generación de medios (ffmpeg) está limitada a 4 procesos concurrentes para proteger los recursos del servidor.
 
 ## Mitigación DoS vía Bitmap
@@ -285,7 +317,15 @@ Tanto el estado de carga como el de descarga se rastrean con un **bitmap binario
 ### Endurecimiento de sesión
 
 - Los ID de carga y tokens son cadenas hexadecimales aleatorias de 16 y 24 bytes.
-- Los bloqueos de sesión (`flock`) previenen actualizaciones de bitmap competidoras desde solicitudes concurrentes.
+- Los bloqueos de sesión (`flock` en `session.lock`) previenen actualizaciones de bitmap competidoras desde solicitudes concurrentes.
+
+## Planificador de Trabajadores
+
+El servidor usa un planificador de trabajadores de round-robin fijo. El número de trabajadores es igual al recuento de CPU (mínimo 2, máximo 64). Los fragmentos que pertenecen al mismo `upload_id` siempre se despachan al mismo trabajador para la localidad de caché y el ordenamiento. Los trabajos se envían a través de una cola por trabajador y se señalan con variables de condición.
+
+## Finalización Asíncrona
+
+`POST /file/upload/complete` se procesa de forma asíncrona. La primera llamada devuelve `202 Accepted` con `{"processing": true}` e inicia un trabajador de finalización en segundo plano. Las llamadas posteriores sondean la caché de finalización; cuando el trabajador termina, el estado y el cuerpo en caché se devuelven inmediatamente. Esto evita que la validación HTP de larga duración y la generación de medios bloqueen la conexión HTTP.
 
 ## Lista de Verificación de Autorrevisión
 
