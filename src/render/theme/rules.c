@@ -69,56 +69,56 @@ void rule_base(cJSON *rules) {
     add_decl(body, "font-family", g_font_settings.body[0] ? g_font_settings.body : "'Space Grotesk', 'IBM Plex Sans KR', 'Pretendard Variable', 'Pretendard', sans-serif");
     add_decl(body, "font-size", "16px");
     add_decl(body, "line-height", "1.7");
-    add_decl(body, "font-weight", "450");
-    add_decl(body, "letter-spacing", "-0.01em");
+    add_decl(body, "font-weight", g_font_settings.font_weight_body[0] ? g_font_settings.font_weight_body : "450");
+    add_decl(body, "letter-spacing", g_font_settings.letter_spacing_body[0] ? g_font_settings.letter_spacing_body : "-0.01em");
     add_decl(body, "transition", "background 0.5s ease, color 0.5s ease");
     add_decl(body, "-webkit-font-smoothing", "antialiased");
     cJSON_AddItemToArray(rules, body);
 
     cJSON *h1 = create_rule("h1, .hero h1");
     add_decl(h1, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
-    add_decl(h1, "font-weight", "800");
-    add_decl(h1, "letter-spacing", "-0.05em");
+    add_decl(h1, "font-weight", g_font_settings.font_weight_h1[0] ? g_font_settings.font_weight_h1 : "800");
+    add_decl(h1, "letter-spacing", g_font_settings.letter_spacing_h1[0] ? g_font_settings.letter_spacing_h1 : "-0.05em");
     add_decl(h1, "line-height", "1.1");
     add_decl(h1, "color", "var(--fg)");
     cJSON_AddItemToArray(rules, h1);
 
     cJSON *h2 = create_rule("h2, .board-line-title, .board-card h2");
     add_decl(h2, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
-    add_decl(h2, "font-weight", "750");
-    add_decl(h2, "letter-spacing", "-0.04em");
+    add_decl(h2, "font-weight", g_font_settings.font_weight_h2[0] ? g_font_settings.font_weight_h2 : "750");
+    add_decl(h2, "letter-spacing", g_font_settings.letter_spacing_h2[0] ? g_font_settings.letter_spacing_h2 : "-0.04em");
     add_decl(h2, "line-height", "1.15");
     add_decl(h2, "color", "var(--fg)");
     cJSON_AddItemToArray(rules, h2);
 
     cJSON *h3 = create_rule("h3");
     add_decl(h3, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
-    add_decl(h3, "font-weight", "700");
-    add_decl(h3, "letter-spacing", "-0.03em");
+    add_decl(h3, "font-weight", g_font_settings.font_weight_h3[0] ? g_font_settings.font_weight_h3 : "700");
+    add_decl(h3, "letter-spacing", g_font_settings.letter_spacing_h3[0] ? g_font_settings.letter_spacing_h3 : "-0.03em");
     add_decl(h3, "line-height", "1.2");
     add_decl(h3, "color", "var(--fg)");
     cJSON_AddItemToArray(rules, h3);
 
     cJSON *h4 = create_rule("h4");
     add_decl(h4, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
-    add_decl(h4, "font-weight", "600");
-    add_decl(h4, "letter-spacing", "-0.02em");
+    add_decl(h4, "font-weight", g_font_settings.font_weight_h4[0] ? g_font_settings.font_weight_h4 : "600");
+    add_decl(h4, "letter-spacing", g_font_settings.letter_spacing_h4[0] ? g_font_settings.letter_spacing_h4 : "-0.02em");
     add_decl(h4, "line-height", "1.25");
     add_decl(h4, "color", "var(--muted)");
     cJSON_AddItemToArray(rules, h4);
 
     cJSON *h5h6 = create_rule("h5, h6");
     add_decl(h5h6, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
-    add_decl(h5h6, "font-weight", "500");
-    add_decl(h5h6, "letter-spacing", "-0.01em");
+    add_decl(h5h6, "font-weight", g_font_settings.font_weight_h5h6[0] ? g_font_settings.font_weight_h5h6 : "500");
+    add_decl(h5h6, "letter-spacing", g_font_settings.letter_spacing_h5h6[0] ? g_font_settings.letter_spacing_h5h6 : "-0.01em");
     add_decl(h5h6, "line-height", "1.3");
     add_decl(h5h6, "color", "var(--muted)");
     cJSON_AddItemToArray(rules, h5h6);
 
     cJSON *topbar_title = create_rule(".topbar-title");
     add_decl(topbar_title, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
-    add_decl(topbar_title, "font-weight", "800");
-    add_decl(topbar_title, "letter-spacing", "-0.04em");
+    add_decl(topbar_title, "font-weight", g_font_settings.font_weight_topbar_title[0] ? g_font_settings.font_weight_topbar_title : "800");
+    add_decl(topbar_title, "letter-spacing", g_font_settings.letter_spacing_topbar_title[0] ? g_font_settings.letter_spacing_topbar_title : "-0.04em");
     add_decl(topbar_title, "line-height", "1.2");
     cJSON_AddItemToArray(rules, topbar_title);
 
@@ -264,9 +264,9 @@ void rule_layout(cJSON *rules) {
     cJSON_AddItemToArray(rules, brand);
 
     cJSON *brand_title = create_rule(".topbar-title");
-    add_decl(brand_title, "font-weight", "800");
+    add_decl(brand_title, "font-weight", g_font_settings.font_weight_topbar_title[0] ? g_font_settings.font_weight_topbar_title : "800");
     add_decl(brand_title, "font-size", "20px");
-    add_decl(brand_title, "letter-spacing", "-0.04em");
+    add_decl(brand_title, "letter-spacing", g_font_settings.letter_spacing_topbar_title[0] ? g_font_settings.letter_spacing_topbar_title : "-0.04em");
     cJSON_AddItemToArray(rules, brand_title);
 
     cJSON *footer = create_rule(".site-footer");
@@ -390,8 +390,8 @@ void rule_components(cJSON *rules) {
     add_decl(btn, "background", "var(--accent)");
     add_decl(btn, "color", "#fff");
     add_decl(btn, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
-    add_decl(btn, "font-weight", "600");
-    add_decl(btn, "letter-spacing", "0.02em");
+    add_decl(btn, "font-weight", g_font_settings.font_weight_btn[0] ? g_font_settings.font_weight_btn : "600");
+    add_decl(btn, "letter-spacing", g_font_settings.letter_spacing_btn[0] ? g_font_settings.letter_spacing_btn : "0.02em");
     add_decl(btn, "cursor", "pointer");
     add_decl(btn, "transition", "transform 0.15s ease, background 0.5s ease, box-shadow 0.2s ease");
     cJSON_AddItemToArray(rules, btn);
@@ -770,7 +770,7 @@ void rule_components(cJSON *rules) {
     add_decl(mlb, "cursor", "pointer");
     add_decl(mlb, "font-weight", "700");
     add_decl(mlb, "font-size", "14px");
-    add_decl(mlb, "letter-spacing", "0.02em");
+    add_decl(mlb, "letter-spacing", g_font_settings.letter_spacing_btn[0] ? g_font_settings.letter_spacing_btn : "0.02em");
     add_decl(mlb, "text-transform", "uppercase");
     add_decl(mlb, "transition", "opacity 0.2s ease");
     cJSON_AddItemToArray(rules, mlb);
@@ -858,9 +858,9 @@ void rule_home(cJSON *rules) {
     cJSON *hero_h1 = create_rule(".hero h1");
     add_decl(hero_h1, "font-size", "clamp(2.5rem, 6vw, 4.5rem)");
     add_decl(hero_h1, "margin", "0 0 16px");
-    add_decl(hero_h1, "letter-spacing", "-0.05em");
+    add_decl(hero_h1, "letter-spacing", g_font_settings.letter_spacing_hero_h1[0] ? g_font_settings.letter_spacing_hero_h1 : "-0.05em");
     add_decl(hero_h1, "line-height", "1.05");
-    add_decl(hero_h1, "font-weight", "850");
+    add_decl(hero_h1, "font-weight", g_font_settings.font_weight_hero_h1[0] ? g_font_settings.font_weight_hero_h1 : "850");
     add_decl(hero_h1, "text-shadow", "0 2px 16px var(--shadow)");
     cJSON_AddItemToArray(rules, hero_h1);
 
@@ -876,7 +876,7 @@ void rule_home(cJSON *rules) {
     add_decl(hero_p, "max-width", "640px");
     add_decl(hero_p, "margin", "0 auto");
     add_decl(hero_p, "line-height", "1.6");
-    add_decl(hero_p, "letter-spacing", "-0.01em");
+    add_decl(hero_p, "letter-spacing", g_font_settings.letter_spacing_hero_p[0] ? g_font_settings.letter_spacing_hero_p : "-0.01em");
     cJSON_AddItemToArray(rules, hero_p);
 
     cJSON *grid = create_rule(".post-grid");
@@ -992,8 +992,8 @@ void rule_boards(cJSON *rules) {
     add_decl(bline_title, "margin", "0");
     add_decl(bline_title, "font-size", "clamp(1.7rem, 2.8vw, 2.35rem)");
     add_decl(bline_title, "font-family", "var(--font-display)");
-    add_decl(bline_title, "font-weight", "800");
-    add_decl(bline_title, "letter-spacing", "-0.045em");
+    add_decl(bline_title, "font-weight", g_font_settings.font_weight_board_line_title[0] ? g_font_settings.font_weight_board_line_title : "800");
+    add_decl(bline_title, "letter-spacing", g_font_settings.letter_spacing_board_line_title[0] ? g_font_settings.letter_spacing_board_line_title : "-0.045em");
     add_decl(bline_title, "color", "var(--fg)");
     cJSON_AddItemToArray(rules, bline_title);
 
@@ -1028,9 +1028,9 @@ void rule_boards(cJSON *rules) {
     cJSON *ch2 = create_rule(".board-card h2");
     add_decl(ch2, "margin", "0");
     add_decl(ch2, "font-size", "24px");
-    add_decl(ch2, "font-weight", "800");
+    add_decl(ch2, "font-weight", g_font_settings.font_weight_h2[0] ? g_font_settings.font_weight_h2 : "750");
     add_decl(ch2, "color", "var(--fg)");
-    add_decl(ch2, "letter-spacing", "-0.03em");
+    add_decl(ch2, "letter-spacing", g_font_settings.letter_spacing_h2[0] ? g_font_settings.letter_spacing_h2 : "-0.04em");
     cJSON_AddItemToArray(rules, ch2);
 
     cJSON *ch2a = create_rule(".board-card h2 a");
@@ -1339,8 +1339,8 @@ void rule_markdown(cJSON *rules) {
 
     cJSON *md_h1 = create_rule(".markdown-body h1");
     add_decl(md_h1, "font-size", "2.25rem");
-    add_decl(md_h1, "font-weight", "800");
-    add_decl(md_h1, "letter-spacing", "-0.03em");
+    add_decl(md_h1, "font-weight", g_font_settings.font_weight_md_h1[0] ? g_font_settings.font_weight_md_h1 : "800");
+    add_decl(md_h1, "letter-spacing", g_font_settings.letter_spacing_md_h1[0] ? g_font_settings.letter_spacing_md_h1 : "-0.03em");
     add_decl(md_h1, "line-height", "1.2");
     add_decl(md_h1, "margin-top", "48px");
     add_decl(md_h1, "margin-bottom", "20px");
@@ -1348,8 +1348,8 @@ void rule_markdown(cJSON *rules) {
 
     cJSON *md_h2 = create_rule(".markdown-body h2");
     add_decl(md_h2, "font-size", "1.75rem");
-    add_decl(md_h2, "font-weight", "700");
-    add_decl(md_h2, "letter-spacing", "-0.02em");
+    add_decl(md_h2, "font-weight", g_font_settings.font_weight_md_h2[0] ? g_font_settings.font_weight_md_h2 : "700");
+    add_decl(md_h2, "letter-spacing", g_font_settings.letter_spacing_md_h2[0] ? g_font_settings.letter_spacing_md_h2 : "-0.02em");
     add_decl(md_h2, "line-height", "1.25");
     add_decl(md_h2, "margin-top", "40px");
     add_decl(md_h2, "margin-bottom", "16px");
@@ -1357,8 +1357,8 @@ void rule_markdown(cJSON *rules) {
 
     cJSON *md_h3 = create_rule(".markdown-body h3");
     add_decl(md_h3, "font-size", "1.4rem");
-    add_decl(md_h3, "font-weight", "700");
-    add_decl(md_h3, "letter-spacing", "-0.015em");
+    add_decl(md_h3, "font-weight", g_font_settings.font_weight_md_h3[0] ? g_font_settings.font_weight_md_h3 : "700");
+    add_decl(md_h3, "letter-spacing", g_font_settings.letter_spacing_md_h3[0] ? g_font_settings.letter_spacing_md_h3 : "-0.015em");
     add_decl(md_h3, "line-height", "1.3");
     add_decl(md_h3, "margin-top", "32px");
     add_decl(md_h3, "margin-bottom", "14px");

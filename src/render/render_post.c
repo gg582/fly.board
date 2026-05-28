@@ -664,7 +664,12 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         cwist_sstring_append(b, "<span style='color:var(--accent);font-size:13px;font-weight:700'>PQC Verified</span>");
     }
     cwist_sstring_append(b, "</div>");
-    cwist_sstring_append(b, "<h1 style='margin-bottom:6px;font-size:2.25rem;font-weight:800;letter-spacing:-0.03em;line-height:1.2'>");
+    char post_h1_style[256];
+    snprintf(post_h1_style, sizeof(post_h1_style),
+             "<h1 style='margin-bottom:6px;font-size:2.25rem;font-weight:%s;letter-spacing:%s;line-height:1.2'>",
+             g_font_settings.font_weight_post_h1[0] ? g_font_settings.font_weight_post_h1 : "800",
+             g_font_settings.letter_spacing_post_h1[0] ? g_font_settings.letter_spacing_post_h1 : "-0.03em");
+    cwist_sstring_append(b, post_h1_style);
     cwist_sstring_append_escaped(b, title->valuestring);
     cwist_sstring_append(b, "</h1>");
     cwist_sstring_append(b, "<p style='color:var(--muted);font-size:14px'>by ");
