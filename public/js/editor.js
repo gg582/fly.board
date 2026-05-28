@@ -558,7 +558,10 @@
             asset.targetParallel = Math.min(asset.maxParallel || 1, (asset.targetParallel || 1) + (goodLink ? 2 : 1));
         }
         tasfaTrace(asset, 'failure', { kind: kind, floor: floor, predictable: predictable ? 1 : 0, reduced: shouldReduce ? 1 : 0 });
-        if (kind === 'timeout' || predictable || !goodLink) {
+        // Only force a full reconnect if the connection is truly dead (no progress for a long time).
+        // Aggressive reconnects on every timeout or transient failure kill throughput on large files.
+        var reallyStalled = (stats.progressSilenceMs || 0) >= TASFA_HARD_STALL_MS;
+        if (kind === 'timeout' && reallyStalled) {
             forceTasfaReconnect(asset, kind || 'network');
         } else {
             scheduleUploadRenegotiate(asset, true);
@@ -603,7 +606,8 @@
                 stats.fastRecoveryUntil = Date.now() + TASFA_FAST_RECOVERY_MS;
                 setTasfaStatus(asset, 'retrying');
                 tasfaTrace(asset, 'soft-recovery', { idleMs: idleMs });
-                forceTasfaReconnect(asset, 'soft-stall');
+                // Do not force reconnect on soft stall; let chunks keep retrying.
+                // Reconnect only on hard stall to avoid choking large uploads.
             }
             if (idleMs < TASFA_HARD_STALL_MS) {
                 asset.watchdogTimer = setTimeout(tick, 2000);
