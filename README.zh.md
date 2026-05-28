@@ -132,17 +132,19 @@ MIT License
 | 基准工具 | wrk, h2load |
 | CWIST | `patches/cwist` |
 
-### 最大吞吐量 (RPS)
+### 系统调优
 
-`wrk -t4 -c400 -d30s` (TLS 1.3)
-
-| 端点 | 峰值 RPS | 平均延迟 | 说明 |
-|----------|----------|-------------|-------|
-| `/` (Home) | **941.67** | 174.60ms | DB query + markdown rendering |
-| `/login` | **927.08** | 175.83ms | Static form |
-| `/boards` | **920.36** | 178.16ms | DB-driven list |
-
-> 注意：TLS 连接断开时会出现 socket read error，但不影响吞吐量测量。
+| 参数 | 值 |
+|-----------|-------|
+| ulimit -n | 1,050,000 |
+| fs.file-max | 2,097,152 |
+| fs.nr_open | 1,050,000 |
+| net.core.somaxconn | 1,050,000 |
+| net.ipv4.tcp_max_syn_backlog | 1,050,000 |
+| net.ipv4.ip_local_port_range | 1024 65535 |
+| vm.max_map_count | 1,048,576 |
+| kernel.pid_max | 4,194,304 |
+| CPU governor | ecodemand |
 
 ### 内存使用量
 
@@ -170,6 +172,11 @@ MIT License
 | Voluntary context switches | 2,235,918 |
 | Involuntary context switches | 405,099 |
 | File system outputs | 8 |
+| 总请求数 | 20000 |
+| 总成功数 | 20000 |
+| 总失败数 | 0 |
+| 近似总RPS | **1291.35** |
+| 成功率 | **100.00%** |
 | 退出状态 | **0** |
 
 ### C100k 并发连接测试
@@ -189,6 +196,11 @@ MIT License
 | Voluntary context switches | 6,984,249 |
 | Involuntary context switches | 1,081,830 |
 | File system outputs | 8 |
+| 总请求数 | 200000 |
+| 总成功数 | 200000 |
+| 总失败数 | 0 |
+| 近似总RPS | **1244.21** |
+| 成功率 | **100.00%** |
 | 退出状态 | **0** |
 
 ### C1m 并发连接测试
@@ -208,6 +220,11 @@ MIT License
 | Voluntary context switches | 38,926,712 |
 | Involuntary context switches | 4,460,022 |
 | File system outputs | 8 |
+| 总请求数 | 2000000 |
+| 总成功数 | 607048 |
+| 总失败数 | 1392952 |
+| 近似总RPS | **1000.39** |
+| 成功率 | **30.35%** |
 | 退出状态 | **0** |
 
 > 注意：在 HTTP/2 (TLS 1.3) 上维持实际客户端连接时测得的值。
