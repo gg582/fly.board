@@ -132,6 +132,8 @@ int main(void) {
     CWIST_LOG_INFO("Admin settings loaded");
     blog_config_load("blog.settings");
     CWIST_LOG_INFO("Blog config loaded");
+    font_settings_load("fonts.settings");
+    CWIST_LOG_INFO("Font settings loaded");
 
     const char *nats_url = getenv("NATS_URL");
     if (nats_url) {

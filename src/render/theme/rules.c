@@ -1,4 +1,5 @@
 #include "../theme.h"
+#include "../../config/config.h"
 #include <cjson/cJSON.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,6 +36,7 @@ void rule_root(cJSON *vars, theme_color_t *t) {
     cJSON_AddStringToObject(vars, "--code-bg", t->code_bg);
     cJSON_AddStringToObject(vars, "--glass-bg", t->glass_bg);
     cJSON_AddStringToObject(vars, "--glass-border", t->glass_border);
+    cJSON_AddStringToObject(vars, "--font-display", g_font_settings.display[0] ? g_font_settings.display : "'Outfit', sans-serif");
 }
 
 void rule_base(cJSON *rules) {
@@ -49,13 +51,13 @@ void rule_base(cJSON *rules) {
 
     /* Font imports */
     cJSON *ff_outfit = create_rule("@import");
-    add_decl(ff_outfit, "url", "'https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&family=Space+Grotesk:wght@300..700&family=IBM+Plex+Sans+KR:wght@300..700&family=Inter:wght@400..700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap'");
+    add_decl(ff_outfit, "url", g_font_settings.import_url[0] ? g_font_settings.import_url : "'https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&family=Space+Grotesk:wght@300..700&family=IBM+Plex+Sans+KR:wght@300..700&family=Inter:wght@400..700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap'");
     cJSON_AddItemToArray(rules, ff_outfit);
 
     /* JetBrains Mono @font-face for code */
     cJSON *ff = create_rule("@font-face");
-    add_decl(ff, "font-family", "'JetBrains Mono'");
-    add_decl(ff, "src", "url('https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@master/web/websites/JetBrainsMono-Regular.woff2') format('woff2')");
+    add_decl(ff, "font-family", g_font_settings.face_family[0] ? g_font_settings.face_family : "'JetBrains Mono'");
+    add_decl(ff, "src", g_font_settings.face_src[0] ? g_font_settings.face_src : "url('https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@master/web/websites/JetBrainsMono-Regular.woff2') format('woff2')");
     add_decl(ff, "font-weight", "400");
     add_decl(ff, "font-style", "normal");
     add_decl(ff, "font-display", "swap");
@@ -64,7 +66,7 @@ void rule_base(cJSON *rules) {
     cJSON *body = create_rule("body");
     add_decl(body, "background", "var(--bg)");
     add_decl(body, "color", "var(--fg)");
-    add_decl(body, "font-family", "'Space Grotesk', 'IBM Plex Sans KR', 'Pretendard Variable', 'Pretendard', sans-serif");
+    add_decl(body, "font-family", g_font_settings.body[0] ? g_font_settings.body : "'Space Grotesk', 'IBM Plex Sans KR', 'Pretendard Variable', 'Pretendard', sans-serif");
     add_decl(body, "font-size", "16px");
     add_decl(body, "line-height", "1.7");
     add_decl(body, "font-weight", "450");
@@ -74,7 +76,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, body);
 
     cJSON *h1 = create_rule("h1, .hero h1");
-    add_decl(h1, "font-family", "'Outfit', sans-serif");
+    add_decl(h1, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
     add_decl(h1, "font-weight", "800");
     add_decl(h1, "letter-spacing", "-0.05em");
     add_decl(h1, "line-height", "1.1");
@@ -82,7 +84,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h1);
 
     cJSON *h2 = create_rule("h2, .board-line-title, .board-card h2");
-    add_decl(h2, "font-family", "'Outfit', sans-serif");
+    add_decl(h2, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
     add_decl(h2, "font-weight", "750");
     add_decl(h2, "letter-spacing", "-0.04em");
     add_decl(h2, "line-height", "1.15");
@@ -90,7 +92,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h2);
 
     cJSON *h3 = create_rule("h3");
-    add_decl(h3, "font-family", "'Outfit', sans-serif");
+    add_decl(h3, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
     add_decl(h3, "font-weight", "700");
     add_decl(h3, "letter-spacing", "-0.03em");
     add_decl(h3, "line-height", "1.2");
@@ -98,7 +100,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h3);
 
     cJSON *h4 = create_rule("h4");
-    add_decl(h4, "font-family", "'Outfit', sans-serif");
+    add_decl(h4, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
     add_decl(h4, "font-weight", "600");
     add_decl(h4, "letter-spacing", "-0.02em");
     add_decl(h4, "line-height", "1.25");
@@ -106,7 +108,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h4);
 
     cJSON *h5h6 = create_rule("h5, h6");
-    add_decl(h5h6, "font-family", "'Outfit', sans-serif");
+    add_decl(h5h6, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
     add_decl(h5h6, "font-weight", "500");
     add_decl(h5h6, "letter-spacing", "-0.01em");
     add_decl(h5h6, "line-height", "1.3");
@@ -114,7 +116,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h5h6);
 
     cJSON *topbar_title = create_rule(".topbar-title");
-    add_decl(topbar_title, "font-family", "'Outfit', sans-serif");
+    add_decl(topbar_title, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
     add_decl(topbar_title, "font-weight", "800");
     add_decl(topbar_title, "letter-spacing", "-0.04em");
     add_decl(topbar_title, "line-height", "1.2");
@@ -173,7 +175,7 @@ void rule_layout(cJSON *rules) {
     add_decl(navitem, "padding", "8px 10px");
     add_decl(navitem, "border-radius", "0");
     add_decl(navitem, "border-bottom", "1px solid transparent");
-    add_decl(navitem, "font-family", "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(navitem, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
     add_decl(navitem, "font-weight", "500");
     add_decl(navitem, "font-size", "14px");
     add_decl(navitem, "color", "var(--fg)");
@@ -387,7 +389,7 @@ void rule_components(cJSON *rules) {
     add_decl(btn, "border-radius", "0");
     add_decl(btn, "background", "var(--accent)");
     add_decl(btn, "color", "#fff");
-    add_decl(btn, "font-family", "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(btn, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
     add_decl(btn, "font-weight", "600");
     add_decl(btn, "letter-spacing", "0.02em");
     add_decl(btn, "cursor", "pointer");
@@ -637,7 +639,7 @@ void rule_components(cJSON *rules) {
     cJSON *cmeta = create_rule(".comment-meta");
     add_decl(cmeta, "font-size", "13px");
     add_decl(cmeta, "color", "var(--muted)");
-    add_decl(cmeta, "font-family", "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(cmeta, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
     add_decl(cmeta, "font-weight", "500");
     cJSON_AddItemToArray(rules, cmeta);
 
@@ -666,7 +668,7 @@ void rule_components(cJSON *rules) {
     add_decl(tdp, "padding", "16px");
     add_decl(tdp, "z-index", "10000");
     add_decl(tdp, "box-shadow", "0 8px 32px var(--shadow)");
-    add_decl(tdp, "font-family", "'Inter', sans-serif");
+    add_decl(tdp, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', sans-serif");
     cJSON_AddItemToArray(rules, tdp);
 
     cJSON *tdpt = create_rule(".tasfa-download-progress-text");
@@ -890,7 +892,7 @@ void rule_home(cJSON *rules) {
     add_decl(tag, "border-radius", "0");
     add_decl(tag, "background", "var(--hover)");
     add_decl(tag, "border", "1px solid var(--border)");
-    add_decl(tag, "font-family", "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(tag, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
     add_decl(tag, "font-size", "12px");
     add_decl(tag, "font-weight", "600");
     add_decl(tag, "color", "var(--accent)");
@@ -1162,7 +1164,7 @@ void rule_boards(cJSON *rules) {
     add_decl(prow_meta, "justify-content", "flex-start");
     add_decl(prow_meta, "padding", "10px 16px 10px 28px");
     add_decl(prow_meta, "color", "var(--muted)");
-    add_decl(prow_meta, "font-family", "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(prow_meta, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
     add_decl(prow_meta, "font-size", "13px");
     cJSON_AddItemToArray(rules, prow_meta);
 
@@ -1235,7 +1237,7 @@ void rule_boards(cJSON *rules) {
     add_decl(meta, "align-items", "center");
     add_decl(meta, "justify-content", "flex-start");
     add_decl(meta, "padding", "8px 0 0");
-    add_decl(meta, "font-family", "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(meta, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
     add_decl(meta, "font-size", "12px");
     cJSON_AddItemToArray(rules, meta);
 
@@ -1247,7 +1249,7 @@ void rule_boards(cJSON *rules) {
     add_decl(badge, "border-radius", "0");
     add_decl(badge, "background", "color-mix(in srgb, var(--glass-bg) 85%, transparent)");
     add_decl(badge, "border", "1px solid var(--glass-border)");
-    add_decl(badge, "font-family", "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(badge, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
     add_decl(badge, "font-size", "12px");
     add_decl(badge, "color", "var(--muted)");
     add_decl(badge, "font-weight", "600");
@@ -1404,7 +1406,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_pre, "border-radius", "0");
     add_decl(md_pre, "overflow", "auto");
     add_decl(md_pre, "border", "1px solid var(--border)");
-    add_decl(md_pre, "font-family", "'JetBrains Mono', 'Fira Code', 'D2Coding', Consolas, Monaco, 'Courier New', monospace");
+    add_decl(md_pre, "font-family", g_font_settings.code[0] ? g_font_settings.code : "'JetBrains Mono', 'Fira Code', 'D2Coding', Consolas, Monaco, 'Courier New', monospace");
     add_decl(md_pre, "font-size", "14px");
     add_decl(md_pre, "line-height", "1.6");
     add_decl(md_pre, "transition", "background 0.5s ease, border-color 0.5s ease, opacity 0.2s ease");
@@ -1426,7 +1428,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_code, "border-radius", "0");
     add_decl(md_code, "font-size", "0.92em");
     add_decl(md_code, "transition", "background 0.5s ease");
-    add_decl(md_code, "font-family", "'JetBrains Mono', 'Fira Code', 'D2Coding', monospace");
+    add_decl(md_code, "font-family", g_font_settings.code[0] ? g_font_settings.code : "'JetBrains Mono', 'Fira Code', 'D2Coding', monospace");
     add_decl(md_code, "font-feature-settings", "\"liga\" 1, \"calt\" 1");
     add_decl(md_code, "word-break", "break-word");
     add_decl(md_code, "overflow-wrap", "break-word");
@@ -1438,7 +1440,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_blockquote, "padding", "16px 20px");
     add_decl(md_blockquote, "margin", "18px 0");
     add_decl(md_blockquote, "border-radius", "0");
-    add_decl(md_blockquote, "font-family", "'Source Serif 4', 'IBM Plex Sans KR', serif");
+    add_decl(md_blockquote, "font-family", g_font_settings.blockquote[0] ? g_font_settings.blockquote : "'Source Serif 4', 'IBM Plex Sans KR', serif");
     add_decl(md_blockquote, "font-style", "italic");
     add_decl(md_blockquote, "font-size", "1.05rem");
     add_decl(md_blockquote, "line-height", "1.7");
