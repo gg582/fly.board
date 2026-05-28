@@ -1,5 +1,3 @@
-version: '3.'
-
 services:
   flyboard:
     build:
@@ -7,16 +5,32 @@ services:
       dockerfile: Dockerfile
     container_name: flyboard
     ports:
-      - "443:443/tcp"
-      - "443:443/udp"
+      - "${FLYBOARD_PORT:-8888}:8888/tcp"
+      - "${FLYBOARD_PORT:-8888}:8888/udp"
     volumes:
-      - ./data:/app/data
+      - flyboard_data:/app/data
       - ./public:/app/public
       - ./posts:/app/posts
-      - ./blog.settings:/app/blog.settings
-      - ./admin.settings:/app/admin.settings
+      - ./img:/app/img
+      - ./ech:/app/ech
     environment:
-      - NATS_URL=${NATS_URL:-}
-      - BLOG_ECH_KEY=${BLOG_ECH_KEY:-}
-      - BLOG_ECH_DIR=${BLOG_ECH_DIR:-}
+      - BLOG_ROOT=/app
+#      - NATS_URL=${NATS_URL:-}
+      - BLOG_ECH_KEY=${BLOG_ECH_KEY:-/app/ech/server.ech}
+      - BLOG_ECH_DIR=${BLOG_ECH_DIR:-/app/ech}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65535
+        hard: 65535
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1GB
+
+volumes:
+  flyboard_data:
