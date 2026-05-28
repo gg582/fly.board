@@ -148,6 +148,35 @@ static void font_set_default(void) {
     snprintf(g_font_settings.blockquote, sizeof(g_font_settings.blockquote),
              "'Source Serif 4', 'IBM Plex Sans KR', serif");
     snprintf(g_font_settings.display, sizeof(g_font_settings.display), "'Outfit', sans-serif");
+    snprintf(g_font_settings.letter_spacing_body, sizeof(g_font_settings.letter_spacing_body), "-0.01em");
+    snprintf(g_font_settings.letter_spacing_h1, sizeof(g_font_settings.letter_spacing_h1), "-0.05em");
+    snprintf(g_font_settings.letter_spacing_h2, sizeof(g_font_settings.letter_spacing_h2), "-0.04em");
+    snprintf(g_font_settings.letter_spacing_h3, sizeof(g_font_settings.letter_spacing_h3), "-0.03em");
+    snprintf(g_font_settings.letter_spacing_h4, sizeof(g_font_settings.letter_spacing_h4), "-0.02em");
+    snprintf(g_font_settings.letter_spacing_h5h6, sizeof(g_font_settings.letter_spacing_h5h6), "-0.01em");
+    snprintf(g_font_settings.letter_spacing_topbar_title, sizeof(g_font_settings.letter_spacing_topbar_title), "-0.04em");
+    snprintf(g_font_settings.letter_spacing_btn, sizeof(g_font_settings.letter_spacing_btn), "0.02em");
+    snprintf(g_font_settings.letter_spacing_board_line_title, sizeof(g_font_settings.letter_spacing_board_line_title), "-0.045em");
+    snprintf(g_font_settings.letter_spacing_hero_h1, sizeof(g_font_settings.letter_spacing_hero_h1), "-0.05em");
+    snprintf(g_font_settings.letter_spacing_hero_p, sizeof(g_font_settings.letter_spacing_hero_p), "-0.01em");
+    snprintf(g_font_settings.letter_spacing_md_h1, sizeof(g_font_settings.letter_spacing_md_h1), "-0.03em");
+    snprintf(g_font_settings.letter_spacing_md_h2, sizeof(g_font_settings.letter_spacing_md_h2), "-0.02em");
+    snprintf(g_font_settings.letter_spacing_md_h3, sizeof(g_font_settings.letter_spacing_md_h3), "-0.015em");
+    snprintf(g_font_settings.letter_spacing_post_h1, sizeof(g_font_settings.letter_spacing_post_h1), "-0.03em");
+    snprintf(g_font_settings.font_weight_body, sizeof(g_font_settings.font_weight_body), "450");
+    snprintf(g_font_settings.font_weight_h1, sizeof(g_font_settings.font_weight_h1), "800");
+    snprintf(g_font_settings.font_weight_h2, sizeof(g_font_settings.font_weight_h2), "750");
+    snprintf(g_font_settings.font_weight_h3, sizeof(g_font_settings.font_weight_h3), "700");
+    snprintf(g_font_settings.font_weight_h4, sizeof(g_font_settings.font_weight_h4), "600");
+    snprintf(g_font_settings.font_weight_h5h6, sizeof(g_font_settings.font_weight_h5h6), "500");
+    snprintf(g_font_settings.font_weight_topbar_title, sizeof(g_font_settings.font_weight_topbar_title), "800");
+    snprintf(g_font_settings.font_weight_btn, sizeof(g_font_settings.font_weight_btn), "600");
+    snprintf(g_font_settings.font_weight_board_line_title, sizeof(g_font_settings.font_weight_board_line_title), "800");
+    snprintf(g_font_settings.font_weight_hero_h1, sizeof(g_font_settings.font_weight_hero_h1), "850");
+    snprintf(g_font_settings.font_weight_md_h1, sizeof(g_font_settings.font_weight_md_h1), "800");
+    snprintf(g_font_settings.font_weight_md_h2, sizeof(g_font_settings.font_weight_md_h2), "700");
+    snprintf(g_font_settings.font_weight_md_h3, sizeof(g_font_settings.font_weight_md_h3), "700");
+    snprintf(g_font_settings.font_weight_post_h1, sizeof(g_font_settings.font_weight_post_h1), "800");
 }
 
 bool font_settings_load(const char *path) {
@@ -165,6 +194,35 @@ bool font_settings_load(const char *path) {
             fprintf(f, "font_code=%s\n", g_font_settings.code);
             fprintf(f, "font_blockquote=%s\n", g_font_settings.blockquote);
             fprintf(f, "font_display=%s\n", g_font_settings.display);
+            fprintf(f, "letter_spacing_body=%s\n", g_font_settings.letter_spacing_body);
+            fprintf(f, "letter_spacing_h1=%s\n", g_font_settings.letter_spacing_h1);
+            fprintf(f, "letter_spacing_h2=%s\n", g_font_settings.letter_spacing_h2);
+            fprintf(f, "letter_spacing_h3=%s\n", g_font_settings.letter_spacing_h3);
+            fprintf(f, "letter_spacing_h4=%s\n", g_font_settings.letter_spacing_h4);
+            fprintf(f, "letter_spacing_h5h6=%s\n", g_font_settings.letter_spacing_h5h6);
+            fprintf(f, "letter_spacing_topbar_title=%s\n", g_font_settings.letter_spacing_topbar_title);
+            fprintf(f, "letter_spacing_btn=%s\n", g_font_settings.letter_spacing_btn);
+            fprintf(f, "letter_spacing_board_line_title=%s\n", g_font_settings.letter_spacing_board_line_title);
+            fprintf(f, "letter_spacing_hero_h1=%s\n", g_font_settings.letter_spacing_hero_h1);
+            fprintf(f, "letter_spacing_hero_p=%s\n", g_font_settings.letter_spacing_hero_p);
+            fprintf(f, "letter_spacing_md_h1=%s\n", g_font_settings.letter_spacing_md_h1);
+            fprintf(f, "letter_spacing_md_h2=%s\n", g_font_settings.letter_spacing_md_h2);
+            fprintf(f, "letter_spacing_md_h3=%s\n", g_font_settings.letter_spacing_md_h3);
+            fprintf(f, "letter_spacing_post_h1=%s\n", g_font_settings.letter_spacing_post_h1);
+            fprintf(f, "font_weight_body=%s\n", g_font_settings.font_weight_body);
+            fprintf(f, "font_weight_h1=%s\n", g_font_settings.font_weight_h1);
+            fprintf(f, "font_weight_h2=%s\n", g_font_settings.font_weight_h2);
+            fprintf(f, "font_weight_h3=%s\n", g_font_settings.font_weight_h3);
+            fprintf(f, "font_weight_h4=%s\n", g_font_settings.font_weight_h4);
+            fprintf(f, "font_weight_h5h6=%s\n", g_font_settings.font_weight_h5h6);
+            fprintf(f, "font_weight_topbar_title=%s\n", g_font_settings.font_weight_topbar_title);
+            fprintf(f, "font_weight_btn=%s\n", g_font_settings.font_weight_btn);
+            fprintf(f, "font_weight_board_line_title=%s\n", g_font_settings.font_weight_board_line_title);
+            fprintf(f, "font_weight_hero_h1=%s\n", g_font_settings.font_weight_hero_h1);
+            fprintf(f, "font_weight_md_h1=%s\n", g_font_settings.font_weight_md_h1);
+            fprintf(f, "font_weight_md_h2=%s\n", g_font_settings.font_weight_md_h2);
+            fprintf(f, "font_weight_md_h3=%s\n", g_font_settings.font_weight_md_h3);
+            fprintf(f, "font_weight_post_h1=%s\n", g_font_settings.font_weight_post_h1);
             fclose(f);
         }
         return true;
@@ -196,6 +254,64 @@ bool font_settings_load(const char *path) {
             snprintf(g_font_settings.blockquote, sizeof(g_font_settings.blockquote), "%s", val);
         } else if (strcmp(key, "font_display") == 0) {
             snprintf(g_font_settings.display, sizeof(g_font_settings.display), "%s", val);
+        } else if (strcmp(key, "letter_spacing_body") == 0) {
+            snprintf(g_font_settings.letter_spacing_body, sizeof(g_font_settings.letter_spacing_body), "%s", val);
+        } else if (strcmp(key, "letter_spacing_h1") == 0) {
+            snprintf(g_font_settings.letter_spacing_h1, sizeof(g_font_settings.letter_spacing_h1), "%s", val);
+        } else if (strcmp(key, "letter_spacing_h2") == 0) {
+            snprintf(g_font_settings.letter_spacing_h2, sizeof(g_font_settings.letter_spacing_h2), "%s", val);
+        } else if (strcmp(key, "letter_spacing_h3") == 0) {
+            snprintf(g_font_settings.letter_spacing_h3, sizeof(g_font_settings.letter_spacing_h3), "%s", val);
+        } else if (strcmp(key, "letter_spacing_h4") == 0) {
+            snprintf(g_font_settings.letter_spacing_h4, sizeof(g_font_settings.letter_spacing_h4), "%s", val);
+        } else if (strcmp(key, "letter_spacing_h5h6") == 0) {
+            snprintf(g_font_settings.letter_spacing_h5h6, sizeof(g_font_settings.letter_spacing_h5h6), "%s", val);
+        } else if (strcmp(key, "letter_spacing_topbar_title") == 0) {
+            snprintf(g_font_settings.letter_spacing_topbar_title, sizeof(g_font_settings.letter_spacing_topbar_title), "%s", val);
+        } else if (strcmp(key, "letter_spacing_btn") == 0) {
+            snprintf(g_font_settings.letter_spacing_btn, sizeof(g_font_settings.letter_spacing_btn), "%s", val);
+        } else if (strcmp(key, "letter_spacing_board_line_title") == 0) {
+            snprintf(g_font_settings.letter_spacing_board_line_title, sizeof(g_font_settings.letter_spacing_board_line_title), "%s", val);
+        } else if (strcmp(key, "letter_spacing_hero_h1") == 0) {
+            snprintf(g_font_settings.letter_spacing_hero_h1, sizeof(g_font_settings.letter_spacing_hero_h1), "%s", val);
+        } else if (strcmp(key, "letter_spacing_hero_p") == 0) {
+            snprintf(g_font_settings.letter_spacing_hero_p, sizeof(g_font_settings.letter_spacing_hero_p), "%s", val);
+        } else if (strcmp(key, "letter_spacing_md_h1") == 0) {
+            snprintf(g_font_settings.letter_spacing_md_h1, sizeof(g_font_settings.letter_spacing_md_h1), "%s", val);
+        } else if (strcmp(key, "letter_spacing_md_h2") == 0) {
+            snprintf(g_font_settings.letter_spacing_md_h2, sizeof(g_font_settings.letter_spacing_md_h2), "%s", val);
+        } else if (strcmp(key, "letter_spacing_md_h3") == 0) {
+            snprintf(g_font_settings.letter_spacing_md_h3, sizeof(g_font_settings.letter_spacing_md_h3), "%s", val);
+        } else if (strcmp(key, "letter_spacing_post_h1") == 0) {
+            snprintf(g_font_settings.letter_spacing_post_h1, sizeof(g_font_settings.letter_spacing_post_h1), "%s", val);
+        } else if (strcmp(key, "font_weight_body") == 0) {
+            snprintf(g_font_settings.font_weight_body, sizeof(g_font_settings.font_weight_body), "%s", val);
+        } else if (strcmp(key, "font_weight_h1") == 0) {
+            snprintf(g_font_settings.font_weight_h1, sizeof(g_font_settings.font_weight_h1), "%s", val);
+        } else if (strcmp(key, "font_weight_h2") == 0) {
+            snprintf(g_font_settings.font_weight_h2, sizeof(g_font_settings.font_weight_h2), "%s", val);
+        } else if (strcmp(key, "font_weight_h3") == 0) {
+            snprintf(g_font_settings.font_weight_h3, sizeof(g_font_settings.font_weight_h3), "%s", val);
+        } else if (strcmp(key, "font_weight_h4") == 0) {
+            snprintf(g_font_settings.font_weight_h4, sizeof(g_font_settings.font_weight_h4), "%s", val);
+        } else if (strcmp(key, "font_weight_h5h6") == 0) {
+            snprintf(g_font_settings.font_weight_h5h6, sizeof(g_font_settings.font_weight_h5h6), "%s", val);
+        } else if (strcmp(key, "font_weight_topbar_title") == 0) {
+            snprintf(g_font_settings.font_weight_topbar_title, sizeof(g_font_settings.font_weight_topbar_title), "%s", val);
+        } else if (strcmp(key, "font_weight_btn") == 0) {
+            snprintf(g_font_settings.font_weight_btn, sizeof(g_font_settings.font_weight_btn), "%s", val);
+        } else if (strcmp(key, "font_weight_board_line_title") == 0) {
+            snprintf(g_font_settings.font_weight_board_line_title, sizeof(g_font_settings.font_weight_board_line_title), "%s", val);
+        } else if (strcmp(key, "font_weight_hero_h1") == 0) {
+            snprintf(g_font_settings.font_weight_hero_h1, sizeof(g_font_settings.font_weight_hero_h1), "%s", val);
+        } else if (strcmp(key, "font_weight_md_h1") == 0) {
+            snprintf(g_font_settings.font_weight_md_h1, sizeof(g_font_settings.font_weight_md_h1), "%s", val);
+        } else if (strcmp(key, "font_weight_md_h2") == 0) {
+            snprintf(g_font_settings.font_weight_md_h2, sizeof(g_font_settings.font_weight_md_h2), "%s", val);
+        } else if (strcmp(key, "font_weight_md_h3") == 0) {
+            snprintf(g_font_settings.font_weight_md_h3, sizeof(g_font_settings.font_weight_md_h3), "%s", val);
+        } else if (strcmp(key, "font_weight_post_h1") == 0) {
+            snprintf(g_font_settings.font_weight_post_h1, sizeof(g_font_settings.font_weight_post_h1), "%s", val);
         }
     }
     fclose(f);
