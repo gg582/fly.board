@@ -132,17 +132,19 @@ MIT License
 | Benchmark Tool | wrk, h2load |
 | CWIST | `patches/cwist` |
 
-### Max Throughput (RPS)
+### System Tuning
 
-`wrk -t4 -c400 -d30s` (TLS 1.3)
-
-| Endpoint | Peak RPS | Avg Latency | Notes |
-|----------|----------|-------------|-------|
-| `/` (Home) | **941.67** | 174.60ms | DB query + markdown rendering |
-| `/login` | **927.08** | 175.83ms | Static form |
-| `/boards` | **920.36** | 178.16ms | DB-driven list |
-
-> Note: Socket read errors occur during TLS connection teardown but do not affect throughput measurement.
+| Parameter | Value |
+|-----------|-------|
+| ulimit -n | 1,050,000 |
+| fs.file-max | 2,097,152 |
+| fs.nr_open | 1,050,000 |
+| net.core.somaxconn | 1,050,000 |
+| net.ipv4.tcp_max_syn_backlog | 1,050,000 |
+| net.ipv4.ip_local_port_range | 1024 65535 |
+| vm.max_map_count | 1,048,576 |
+| kernel.pid_max | 4,194,304 |
+| CPU governor | ecodemand |
 
 ### Memory Usage
 
@@ -170,6 +172,11 @@ Measured with `h2load` maintaining 10,000 concurrent connections.
 | Voluntary context switches | 2,235,918 |
 | Involuntary context switches | 405,099 |
 | File system outputs | 8 |
+| Total requests | 20000 |
+| Total succeeded | 20000 |
+| Total failed | 0 |
+| Approx total RPS | **1291.35** |
+| Success rate | **100.00%** |
 | Exit status | **0** |
 
 ### C100k Concurrent Connection Test
@@ -189,6 +196,11 @@ Measured with `h2load` maintaining 100,000 concurrent connections.
 | Voluntary context switches | 6,984,249 |
 | Involuntary context switches | 1,081,830 |
 | File system outputs | 8 |
+| Total requests | 200000 |
+| Total succeeded | 200000 |
+| Total failed | 0 |
+| Approx total RPS | **1244.21** |
+| Success rate | **100.00%** |
 | Exit status | **0** |
 
 ### C1m Concurrent Connection Test
@@ -208,6 +220,11 @@ Measured with `h2load` maintaining 1,000,000 concurrent connections.
 | Voluntary context switches | 38,926,712 |
 | Involuntary context switches | 4,460,022 |
 | File system outputs | 8 |
+| Total requests | 2000000 |
+| Total succeeded | 607048 |
+| Total failed | 1392952 |
+| Approx total RPS | **1000.39** |
+| Success rate | **30.35%** |
 | Exit status | **0** |
 
 > Note: Values measured while maintaining actual client connections over HTTP/2 (TLS 1.3).

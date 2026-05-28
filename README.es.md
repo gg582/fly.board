@@ -132,17 +132,19 @@ MIT License
 | Herramienta de Benchmark | wrk, h2load |
 | CWIST | `patches/cwist` |
 
-### Rendimiento Máximo (RPS)
+### Ajuste del Sistema
 
-`wrk -t4 -c400 -d30s` (TLS 1.3)
-
-| Endpoint | RPS Pico | Latencia Media | Notas |
-|----------|----------|-------------|-------|
-| `/` (Home) | **941.67** | 174.60ms | DB query + markdown rendering |
-| `/login` | **927.08** | 175.83ms | Static form |
-| `/boards` | **920.36** | 178.16ms | DB-driven list |
-
-> Nota: Se producen errores de lectura de socket durante el cierre de conexiones TLS, pero no afectan la medición de rendimiento.
+| Parámetro | Valor |
+|-----------|-------|
+| ulimit -n | 1,050,000 |
+| fs.file-max | 2,097,152 |
+| fs.nr_open | 1,050,000 |
+| net.core.somaxconn | 1,050,000 |
+| net.ipv4.tcp_max_syn_backlog | 1,050,000 |
+| net.ipv4.ip_local_port_range | 1024 65535 |
+| vm.max_map_count | 1,048,576 |
+| kernel.pid_max | 4,194,304 |
+| CPU governor | ecodemand |
 
 ### Uso de Memoria
 
@@ -170,6 +172,11 @@ Medido con `h2load` manteniendo 10,000 conexiones simultáneas.
 | Voluntary context switches | 2,235,918 |
 | Involuntary context switches | 405,099 |
 | File system outputs | 8 |
+| Total de peticiones | 20000 |
+| Total exitosas | 20000 |
+| Total fallidas | 0 |
+| RPS total aprox. | **1291.35** |
+| Tasa de éxito | **100.00%** |
 | Estado de salida | **0** |
 
 ### Prueba de Conexiones Simultáneas C100k
@@ -189,6 +196,11 @@ Medido con `h2load` manteniendo 100,000 conexiones simultáneas.
 | Voluntary context switches | 6,984,249 |
 | Involuntary context switches | 1,081,830 |
 | File system outputs | 8 |
+| Total de peticiones | 200000 |
+| Total exitosas | 200000 |
+| Total fallidas | 0 |
+| RPS total aprox. | **1244.21** |
+| Tasa de éxito | **100.00%** |
 | Estado de salida | **0** |
 
 ### Prueba de Conexiones Simultáneas C1m
@@ -208,6 +220,11 @@ Medido con `h2load` manteniendo 1,000,000 conexiones simultáneas.
 | Voluntary context switches | 38,926,712 |
 | Involuntary context switches | 4,460,022 |
 | File system outputs | 8 |
+| Total de peticiones | 2000000 |
+| Total exitosas | 607048 |
+| Total fallidas | 1392952 |
+| RPS total aprox. | **1000.39** |
+| Tasa de éxito | **30.35%** |
 | Estado de salida | **0** |
 
 > Nota: Valores medidos manteniendo conexiones de cliente reales sobre HTTP/2 (TLS 1.3).

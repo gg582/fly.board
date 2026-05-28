@@ -132,17 +132,19 @@ MIT License
 | ベンチマークツール | wrk, h2load |
 | CWIST | `patches/cwist` |
 
-### 最大スループット（RPS）
+### システムチューニング
 
-`wrk -t4 -c400 -d30s` (TLS 1.3)
-
-| エンドポイント | ピーク RPS | 平均レイテンシ | 備考 |
-|----------|----------|-------------|-------|
-| `/` (Home) | **941.67** | 174.60ms | DB query + markdown rendering |
-| `/login` | **927.08** | 175.83ms | Static form |
-| `/boards` | **920.36** | 178.16ms | DB-driven list |
-
-> 注記: TLS 接続終了時にソケット read error が発生しますが、スループット測定には影響しません。
+| パラメータ | 値 |
+|-----------|-------|
+| ulimit -n | 1,050,000 |
+| fs.file-max | 2,097,152 |
+| fs.nr_open | 1,050,000 |
+| net.core.somaxconn | 1,050,000 |
+| net.ipv4.tcp_max_syn_backlog | 1,050,000 |
+| net.ipv4.ip_local_port_range | 1024 65535 |
+| vm.max_map_count | 1,048,576 |
+| kernel.pid_max | 4,194,304 |
+| CPU governor | ecodemand |
 
 ### メモリ使用量
 
@@ -170,6 +172,11 @@ MIT License
 | Voluntary context switches | 2,235,918 |
 | Involuntary context switches | 405,099 |
 | File system outputs | 8 |
+| 総リクエスト数 | 20000 |
+| 成功数 | 20000 |
+| 失敗数 | 0 |
+| 概算合計RPS | **1291.35** |
+| 成功率 | **100.00%** |
 | 終了ステータス | **0** |
 
 ### C100k 同時接続テスト
@@ -189,6 +196,11 @@ MIT License
 | Voluntary context switches | 6,984,249 |
 | Involuntary context switches | 1,081,830 |
 | File system outputs | 8 |
+| 総リクエスト数 | 200000 |
+| 成功数 | 200000 |
+| 失敗数 | 0 |
+| 概算合計RPS | **1244.21** |
+| 成功率 | **100.00%** |
 | 終了ステータス | **0** |
 
 ### C1m 同時接続テスト
@@ -208,6 +220,11 @@ MIT License
 | Voluntary context switches | 38,926,712 |
 | Involuntary context switches | 4,460,022 |
 | File system outputs | 8 |
+| 総リクエスト数 | 2000000 |
+| 成功数 | 607048 |
+| 失敗数 | 1392952 |
+| 概算合計RPS | **1000.39** |
+| 成功率 | **30.35%** |
 | 終了ステータス | **0** |
 
 > 注記: HTTP/2 (TLS 1.3) 上で実際のクライアント接続を維持しながら測定した値です。

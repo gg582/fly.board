@@ -132,17 +132,19 @@ MIT License
 | 벤치마크 도구 | wrk, h2load |
 | CWIST | `patches/cwist` |
 
-### 최대 처리량 (RPS)
+### 시스템 튜닝
 
-`wrk -t4 -c400 -d30s` (TLS 1.3)
-
-| 엔드포인트 | 최고 RPS | 평균 지연시간 | 설명 |
-|----------|----------|-------------|-------|
-| `/` (Home) | **941.67** | 174.60ms | DB query + markdown rendering |
-| `/login` | **927.08** | 175.83ms | Static form |
-| `/boards` | **920.36** | 178.16ms | DB-driven list |
-
-> 참고: TLS 연결 종료 시 소켓 read error가 발생하나 처리량 측정에는 영향을 주지 않습니다.
+| 파라미터 | 값 |
+|-----------|-------|
+| ulimit -n | 1,050,000 |
+| fs.file-max | 2,097,152 |
+| fs.nr_open | 1,050,000 |
+| net.core.somaxconn | 1,050,000 |
+| net.ipv4.tcp_max_syn_backlog | 1,050,000 |
+| net.ipv4.ip_local_port_range | 1024 65535 |
+| vm.max_map_count | 1,048,576 |
+| kernel.pid_max | 4,194,304 |
+| CPU governor | ecodemand |
 
 ### 메모리 사용량
 
@@ -170,6 +172,11 @@ MIT License
 | Voluntary context switches | 2,235,918 |
 | Involuntary context switches | 405,099 |
 | File system outputs | 8 |
+| 총 요청 수 | 20000 |
+| 총 성공 수 | 20000 |
+| 총 실패 수 | 0 |
+| 대략적 총 RPS | **1291.35** |
+| 성공률 | **100.00%** |
 | 종료 상태 | **0** |
 
 ### C100k 동시 연결 테스트
@@ -189,6 +196,11 @@ MIT License
 | Voluntary context switches | 6,984,249 |
 | Involuntary context switches | 1,081,830 |
 | File system outputs | 8 |
+| 총 요청 수 | 200000 |
+| 총 성공 수 | 200000 |
+| 총 실패 수 | 0 |
+| 대략적 총 RPS | **1244.21** |
+| 성공률 | **100.00%** |
 | 종료 상태 | **0** |
 
 ### C1m 동시 연결 테스트
@@ -208,6 +220,11 @@ MIT License
 | Voluntary context switches | 38,926,712 |
 | Involuntary context switches | 4,460,022 |
 | File system outputs | 8 |
+| 총 요청 수 | 2000000 |
+| 총 성공 수 | 607048 |
+| 총 실패 수 | 1392952 |
+| 대략적 총 RPS | **1000.39** |
+| 성공률 | **30.35%** |
 | 종료 상태 | **0** |
 
 > 참고: HTTP/2 (TLS 1.3) 상에서 실제 클라이언트 연결을 유지하며 측정한 값입니다.

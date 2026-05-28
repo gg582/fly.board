@@ -132,17 +132,19 @@ MIT License
 | 基準工具 | wrk, h2load |
 | CWIST | `patches/cwist` |
 
-### 最大吞吐量（RPS）
+### 系統調校
 
-`wrk -t4 -c400 -d30s` (TLS 1.3)
-
-| 端點 | 峰值 RPS | 平均延遲 | 說明 |
-|----------|----------|-------------|-------|
-| `/` (Home) | **941.67** | 174.60ms | DB query + markdown rendering |
-| `/login` | **927.08** | 175.83ms | Static form |
-| `/boards` | **920.36** | 178.16ms | DB-driven list |
-
-> 注意：TLS 連線斷開時會出現 socket read error，但不影響吞吐量測量。
+| 參數 | 值 |
+|-----------|-------|
+| ulimit -n | 1,050,000 |
+| fs.file-max | 2,097,152 |
+| fs.nr_open | 1,050,000 |
+| net.core.somaxconn | 1,050,000 |
+| net.ipv4.tcp_max_syn_backlog | 1,050,000 |
+| net.ipv4.ip_local_port_range | 1024 65535 |
+| vm.max_map_count | 1,048,576 |
+| kernel.pid_max | 4,194,304 |
+| CPU governor | ecodemand |
 
 ### 記憶體使用量
 
@@ -170,6 +172,11 @@ MIT License
 | Voluntary context switches | 2,235,918 |
 | Involuntary context switches | 405,099 |
 | File system outputs | 8 |
+| 總請求數 | 20000 |
+| 總成功數 | 20000 |
+| 總失敗數 | 0 |
+| 近似總RPS | **1291.35** |
+| 成功率 | **100.00%** |
 | 結束狀態 | **0** |
 
 ### C100k 併發連線測試
@@ -189,6 +196,11 @@ MIT License
 | Voluntary context switches | 6,984,249 |
 | Involuntary context switches | 1,081,830 |
 | File system outputs | 8 |
+| 總請求數 | 200000 |
+| 總成功數 | 200000 |
+| 總失敗數 | 0 |
+| 近似總RPS | **1244.21** |
+| 成功率 | **100.00%** |
 | 結束狀態 | **0** |
 
 ### C1m 併發連線測試
@@ -208,6 +220,11 @@ MIT License
 | Voluntary context switches | 38,926,712 |
 | Involuntary context switches | 4,460,022 |
 | File system outputs | 8 |
+| 總請求數 | 2000000 |
+| 總成功數 | 607048 |
+| 總失敗數 | 1392952 |
+| 近似總RPS | **1000.39** |
+| 成功率 | **30.35%** |
 | 結束狀態 | **0** |
 
 > 注意：在 HTTP/2 (TLS 1.3) 上維持實際客戶端連線時測得的值。
