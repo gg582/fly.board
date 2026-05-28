@@ -2042,15 +2042,17 @@
                 var watchdog = armXhrIdleTimeout(xhr, uploadIdleTimeoutMs(size));
                 var chunkStartedAt = Date.now();
                 var tinyProgressFloor = Math.max(1024, Math.min(size - 1, Math.floor(size * 0.01)));
+                var tinyProgressTimeout = Math.min(20000, Math.max(10000, Math.round(uploadIdleTimeoutMs(size) * 0.3)));
+                var stalledTimeout = Math.min(15000, Math.max(5000, Math.round(uploadIdleTimeoutMs(size) * 0.2)));
 
                 xhr.upload.onprogress = function(event) {
                     if (!event.lengthComputable) return;
                     var elapsed = Date.now() - chunkStartedAt;
-                    if (event.loaded > 0 && event.loaded <= 1 && elapsed >= 3000) {
+                    if (event.loaded > 0 && event.loaded <= 1 && elapsed >= stalledTimeout) {
                         try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err) {}
                         return;
                     }
-                    if (event.loaded > 0 && event.loaded < tinyProgressFloor && elapsed >= 5000) {
+                    if (event.loaded > 0 && event.loaded < tinyProgressFloor && elapsed >= tinyProgressTimeout) {
                         try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err2) {}
                         return;
                     }
@@ -2185,14 +2187,16 @@
 	                    var watchdog = armXhrIdleTimeout(xhr, uploadIdleTimeoutMs(enc.size));
 	                    var chunkStartedAt = Date.now();
 	                    var tinyProgressFloor = Math.max(1024, Math.min(enc.size - 1, Math.floor(enc.size * 0.01)));
+                    var tinyProgressTimeout = Math.min(20000, Math.max(10000, Math.round(uploadIdleTimeoutMs(enc.size) * 0.3)));
+                    var stalledTimeout = Math.min(15000, Math.max(5000, Math.round(uploadIdleTimeoutMs(enc.size) * 0.2)));
                     xhr.upload.onprogress = function(event) {
                         if (!event.lengthComputable) return;
                         var elapsed = Date.now() - chunkStartedAt;
-                        if (event.loaded > 0 && event.loaded <= 1 && elapsed >= 3000) {
+                        if (event.loaded > 0 && event.loaded <= 1 && elapsed >= stalledTimeout) {
                             try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err) {}
                             return;
                         }
-                        if (event.loaded > 0 && event.loaded < tinyProgressFloor && elapsed >= 5000) {
+                        if (event.loaded > 0 && event.loaded < tinyProgressFloor && elapsed >= tinyProgressTimeout) {
                             try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err2) {}
                             return;
                         }
