@@ -354,7 +354,7 @@ void handler_file_repo(cwist_http_request *req, cwist_http_response *res) {
         "FROM files a "
         "LEFT JOIN files b ON (a.post_id = b.post_id OR (a.post_id IS NULL AND b.post_id IS NULL)) "
         "AND a.filename = b.filename AND a.id < b.id "
-        "WHERE (a.post_id = 0 OR a.post_id IS NULL) AND b.id IS NULL "
+        "WHERE (a.post_id = 0 OR a.post_id IS NULL) AND b.id IS NULL AND (a.file_path IS NULL OR a.file_path NOT LIKE '%/.thumbs/%') "
         "ORDER BY a.id DESC LIMIT 200";
     cJSON *files = NULL;
     cwist_db_query(req->db, sql, &files);

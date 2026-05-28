@@ -175,13 +175,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             cwist_sstring_append(b, "<div class='file-repo-card-inner'>");
             cwist_sstring_append(b, "<div class='file-repo-thumb'>");
             if (is_image) {
-                if (has_thumb) {
-                    cwist_sstring_append(b, "<img data-tasfa-skip='1' src='/assets/uploads/");
-                    cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
-                    cwist_sstring_append(b, "' class='file-thumb-media' loading='lazy' decoding='async'>");
-                } else {
-                    cwist_sstring_append(b, "<span class='file-thumb-icon'>IMG</span>");
-                }
+                cwist_sstring_append(b, "<span class='file-thumb-icon'>IMG</span>");
             } else if (is_video) {
                 cwist_sstring_append(b, "<button type='button' class='media-load-btn file-video-thumb-link' data-tasfa-video-link='/file/download/");
                 cwist_sstring_append(b, fid_buf);

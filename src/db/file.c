@@ -55,7 +55,7 @@ cJSON *db_file_list_by_post(cwist_db *db, int post_id) {
         "SELECT a.id, a.filename, a.mime_type, a.file_path, a.size, a.created_at, a.thumb_path, a.preview_path "
         "FROM files a "
         "LEFT JOIN files b ON a.post_id = b.post_id AND a.filename = b.filename AND a.id < b.id "
-        "WHERE a.post_id = ? AND b.id IS NULL "
+        "WHERE a.post_id = ? AND b.id IS NULL AND (a.file_path IS NULL OR a.file_path NOT LIKE '%/.thumbs/%') "
         "ORDER BY a.id DESC";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
@@ -67,7 +67,7 @@ cJSON *db_file_list_by_user(cwist_db *db, int user_id, int limit) {
     const char *sql =
         "SELECT id, filename, mime_type, file_path, size, created_at, thumb_path, preview_path "
         "FROM files "
-        "WHERE user_id = ? "
+        "WHERE user_id = ? AND (file_path IS NULL OR file_path NOT LIKE '%/.thumbs/%') "
         "ORDER BY id DESC "
         "LIMIT ?";
     sqlite3_stmt *stmt = NULL;
