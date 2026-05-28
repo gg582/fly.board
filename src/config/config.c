@@ -5,6 +5,7 @@
 #include <strings.h>
 
 blog_config_t g_config = {0};
+font_settings_t g_font_settings = {0};
 
 static long long parse_size_bytes(const char *value, long long def) {
     if (!value || !value[0]) return def;
@@ -128,5 +129,75 @@ bool blog_config_load(const char *path) {
     if (g_config.max_upload_size <= 0) g_config.max_upload_size = 1024LL * 1024LL * 1024LL;
     g_config.max_total_parallel_uploads = clamp_int_config(g_config.max_total_parallel_uploads, 1, 64);
     g_config.max_upload_parallel_chunks = clamp_int_config(g_config.max_upload_parallel_chunks, 1, 64);
+    return true;
+}
+
+static void font_set_default(void) {
+    snprintf(g_font_settings.import_url, sizeof(g_font_settings.import_url),
+             "https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&family=Space+Grotesk:wght@300..700&family=IBM+Plex+Sans+KR:wght@300..700&family=Inter:wght@400..700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap");
+    snprintf(g_font_settings.face_family, sizeof(g_font_settings.face_family), "JetBrains Mono");
+    snprintf(g_font_settings.face_src, sizeof(g_font_settings.face_src),
+             "url('https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@master/web/websites/JetBrainsMono-Regular.woff2') format('woff2')");
+    snprintf(g_font_settings.body, sizeof(g_font_settings.body),
+             "'Space Grotesk', 'IBM Plex Sans KR', 'Pretendard Variable', 'Pretendard', sans-serif");
+    snprintf(g_font_settings.heading, sizeof(g_font_settings.heading), "'Outfit', sans-serif");
+    snprintf(g_font_settings.ui, sizeof(g_font_settings.ui),
+             "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    snprintf(g_font_settings.code, sizeof(g_font_settings.code),
+             "'JetBrains Mono', 'Fira Code', 'D2Coding', Consolas, Monaco, 'Courier New', monospace");
+    snprintf(g_font_settings.blockquote, sizeof(g_font_settings.blockquote),
+             "'Source Serif 4', 'IBM Plex Sans KR', serif");
+    snprintf(g_font_settings.display, sizeof(g_font_settings.display), "'Outfit', sans-serif");
+}
+
+bool font_settings_load(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        font_set_default();
+        f = fopen(path, "w");
+        if (f) {
+            fprintf(f, "font_import_url=%s\n", g_font_settings.import_url);
+            fprintf(f, "font_face_family=%s\n", g_font_settings.face_family);
+            fprintf(f, "font_face_src=%s\n", g_font_settings.face_src);
+            fprintf(f, "font_body=%s\n", g_font_settings.body);
+            fprintf(f, "font_heading=%s\n", g_font_settings.heading);
+            fprintf(f, "font_ui=%s\n", g_font_settings.ui);
+            fprintf(f, "font_code=%s\n", g_font_settings.code);
+            fprintf(f, "font_blockquote=%s\n", g_font_settings.blockquote);
+            fprintf(f, "font_display=%s\n", g_font_settings.display);
+            fclose(f);
+        }
+        return true;
+    }
+    font_set_default();
+    char line[768];
+    while (fgets(line, sizeof(line), f)) {
+        trim_newline(line);
+        char *eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        const char *key = line;
+        const char *val = eq + 1;
+        if (strcmp(key, "font_import_url") == 0) {
+            snprintf(g_font_settings.import_url, sizeof(g_font_settings.import_url), "%s", val);
+        } else if (strcmp(key, "font_face_family") == 0) {
+            snprintf(g_font_settings.face_family, sizeof(g_font_settings.face_family), "%s", val);
+        } else if (strcmp(key, "font_face_src") == 0) {
+            snprintf(g_font_settings.face_src, sizeof(g_font_settings.face_src), "%s", val);
+        } else if (strcmp(key, "font_body") == 0) {
+            snprintf(g_font_settings.body, sizeof(g_font_settings.body), "%s", val);
+        } else if (strcmp(key, "font_heading") == 0) {
+            snprintf(g_font_settings.heading, sizeof(g_font_settings.heading), "%s", val);
+        } else if (strcmp(key, "font_ui") == 0) {
+            snprintf(g_font_settings.ui, sizeof(g_font_settings.ui), "%s", val);
+        } else if (strcmp(key, "font_code") == 0) {
+            snprintf(g_font_settings.code, sizeof(g_font_settings.code), "%s", val);
+        } else if (strcmp(key, "font_blockquote") == 0) {
+            snprintf(g_font_settings.blockquote, sizeof(g_font_settings.blockquote), "%s", val);
+        } else if (strcmp(key, "font_display") == 0) {
+            snprintf(g_font_settings.display, sizeof(g_font_settings.display), "%s", val);
+        }
+    }
+    fclose(f);
     return true;
 }

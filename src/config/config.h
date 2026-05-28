@@ -26,4 +26,20 @@ extern blog_config_t g_config;
 
 bool blog_config_load(const char *path);
 
+typedef struct {
+    char import_url[512];
+    char face_family[64];
+    char face_src[512];
+    char body[256];
+    char heading[256];
+    char ui[256];
+    char code[256];
+    char blockquote[256];
+    char display[256];
+} font_settings_t;
+
+extern font_settings_t g_font_settings;
+
+bool font_settings_load(const char *path);
+
 #endif
