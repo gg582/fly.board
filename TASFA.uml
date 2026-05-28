@@ -17,7 +17,9 @@ box "TASFA Server" #F8F8F8
     participant "Download API" as DownloadAPI
     participant "HTP Engine\nserver-authoritative" as HTP
     participant "Predictor\nRTT + guard signals" as Predictor
-    database "Storage\nupload.bin.part\nmeta.*\nstate.*\nhtp.bin" as Storage
+    participant "Worker Scheduler\nsticky round-robin" as Scheduler
+    participant "Finalize Cache\nasync completion" as FinalizeCache
+    database "Storage\nupload.bin.part\nmeta.*\nstate.*\nhtp.bin\nsession.lock" as Storage
 end box
 
 == Routes ==
@@ -55,8 +57,8 @@ end note
 == Upload Session Init ==
 
 Uploader -> UploadAPI: POST /file/upload/init\n(file metadata, link hints)
-UploadAPI -> Storage: preallocate upload.bin.part\ncreate meta.*, state.*, htp.bin
-UploadAPI --> Uploader: upload_id, token, chunk_size,\ncurrent_parallel_chunks, max_parallel_chunks,\ndispatch_pacing_ms, modulus_M
+UploadAPI -> Storage: preallocate upload.bin.part\ncreate meta.*, state.*, htp.bin, session.lock
+UploadAPI --> Uploader: upload_id, token, chunk_size,\ncurrent_parallel_chunks, max_parallel_chunks,\ndispatch_pacing_ms, modulus_M,\nupload_secret, stream_key_hex,\nstream_iv_seed_hex, group_count,\nclient_stripes
 note right of Uploader
 chunk_size is a session contract because it
 defines chunk_index * chunk_size file offsets.
@@ -101,14 +103,16 @@ loop For each plaintext chunk
       optional X-TASFA-Chunk-RTT
     end note
 
+    UploadAPI -> Scheduler: submit by upload_id hash
+    Scheduler -> UploadAPI: dispatch to same worker
     UploadAPI -> Storage: check dense bitmap state.bin
     alt New chunk or server retry target
         UploadAPI -> Storage: pwrite(chunk, chunk_index * chunk_size)\nwrite one bitmap byte in state.bin
         UploadAPI -> HTP: store hash_tag, raw_scalar,\nand magic_scalar in htp.bin
         UploadAPI -> Predictor: add RTT sample if supplied
-        UploadAPI --> Uploader: 204 Accepted
+        UploadAPI --> Uploader: 204 No Content\nX-TASFA-Accepted: 1\nX-TASFA-Chunk-Complete: 1
     else Duplicate chunk not in retry_targets
-        UploadAPI --> Uploader: reject replay / duplicate
+        UploadAPI --> Uploader: 204 (discarded)\nX-TASFA-Accepted: 1\nX-TASFA-Chunk-Complete: 1
     end
 end
 
@@ -129,8 +133,11 @@ up to 48 MiB desktop or 24 MiB mobile.
 
 Download chunk size: 2 MiB desktop, 1 MiB mobile,
 up to 16 MiB when the client hints a larger session.
+Download coalesce (span group): up to 16 chunks on good links.
 
 Default browser upload parallelism is 16.
+Max upload parallelism capped at 40.
+Max concurrent upload sessions capped at 64.
 Upload and download maximum windows are server-defined
 or backed by blog.settings.
 Upload XHR timeout is adaptive and at least 180s.
@@ -140,12 +147,15 @@ end note
 == Completion and Server-Authoritative HTP ==
 
 Uploader -> UploadAPI: POST /file/upload/complete
-UploadAPI -> Storage: count received chunks from state.bin
+UploadAPI -> FinalizeCache: mark started (202)
+FinalizeCache -> Scheduler: spawn finalize worker
+Scheduler -> UploadAPI: run complete_sync
+UploadAPI -> Storage: flock(session.lock); count received chunks from state.bin
 
 alt Some chunks are still missing
     UploadAPI --> Uploader: not finalized; missing chunks remain
 else All chunks received
-    UploadAPI -> HTP: load magic_scalars from htp.bin
+    UploadAPI -> HTP: load per-chunk records from htp.bin
     HTP -> HTP: validate only complete\n6-slot groups
 
     alt All complete groups pass
@@ -190,6 +200,8 @@ else All chunks received
     end
 end
 
+FinalizeCache -> FinalizeCache: cache result for polling
+
 == Retry Target Retransmission ==
 
 loop For each server-issued retry target
@@ -198,33 +210,28 @@ loop For each server-issued retry target
     UploadAPI -> Storage: overwrite chunk bytes\nand update bitmap
     UploadAPI -> HTP: replace hash_tag, raw_scalar,\nand magic_scalar
     UploadAPI -> Storage: remove chunk from retry_targets
-    UploadAPI --> Uploader: 204 Accepted
+    UploadAPI --> Uploader: 204 No Content\nX-TASFA-Accepted: 1\nX-TASFA-Chunk-Complete: 1
 end
 
 Uploader -> UploadAPI: POST /file/upload/complete
-UploadAPI -> HTP: revalidate current topology
-
-alt Pass
-    HTP --> UploadAPI: validation OK
-    UploadAPI -> Storage: commit file
-    UploadAPI --> Uploader: 200 OK\nfile_id, url, checksum, delete_pin
-else Still failing
-    HTP -> HTP: next contraction pass\nor direct retry escalation
-    HTP --> UploadAPI: retry_targets
-    UploadAPI --> Uploader: 409 needs_retry
+UploadAPI -> FinalizeCache: check cache
+alt Cache hit (done)
+    FinalizeCache --> UploadAPI: cached status + body
+else Cache miss (still running)
+    FinalizeCache --> UploadAPI: 202 processing
 end
 
 == Download Protocol ==
 
 Client -> Downloader: request download
 Downloader -> DownloadAPI: GET .../handshake\npreferred chunk-size hint
-DownloadAPI --> Downloader: session_id, session_token,\nchunk_size, chunk_count,\nconcurrency hints
+DownloadAPI --> Downloader: session_id, session_token,\nchunk_size, chunk_count,\nconcurrency hints,\nstream_key_hex, stream_iv_seed_hex
 
 loop Adaptive chunk groups
     Downloader -> DownloadAPI: GET .../chunk/:chunk_index\n?span=N&chunk_rtt_ms=...
     DownloadAPI -> Storage: read contiguous chunk range
     DownloadAPI -> Predictor: add RTT sample\nestimate remaining time
-    DownloadAPI --> Downloader: chunk bytes\nX-TASFA-Predicted-Remaining-Ms
+    DownloadAPI --> Downloader: chunk bytes\nX-TASFA-Chunk-Index\nX-TASFA-Chunk-Count\nX-TASFA-Predicted-Remaining-Ms
     Downloader -> Downloader: requeue short reads,\ntimeouts, and network errors by chunk index
     Downloader -> Downloader: grow span and parallelism\nafter successful chunk groups
 end
@@ -241,16 +248,18 @@ data/tasfa/uploads/{upload_id}/meta.bin
 data/tasfa/uploads/{upload_id}/state.json
 data/tasfa/uploads/{upload_id}/state.bin
 data/tasfa/uploads/{upload_id}/htp.bin
+data/tasfa/uploads/{upload_id}/session.lock
 
 There is no blocks.bin or chunk_counts.bin.
 Chunk completion is one O(1) bitmap byte per chunk.
 
 Upload IDs and tokens are random hex strings.
-Session locks use flock to prevent racing bitmap writes.
+Session locks use flock on session.lock
+to prevent racing bitmap writes.
 
-Session metadata stores hash_tags, raw_scalars,
-magic_scalars, htp_retry_targets,
-htp_suspicion_scores, and htp_contraction_level.
+Session metadata stores hash_tags, magic_scalars,
+htp_retry_targets, htp_suspicion_scores,
+and htp_contraction_level.
 end note
 
 @enduml

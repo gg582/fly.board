@@ -30,6 +30,7 @@ TASFA 是本项目用于文件上传和下载的传输协议。
 - `X-TASFA-Upload-Token`
 - `X-TASFA-Chunk-Index`
 - `X-TASFA-Hash-Tag`
+- `X-TASFA-Raw-Scalar`
 - `X-TASFA-Magic-Scalar`
 
 服务器将每个分块直接写入预分配临时文件的 `chunk_index * chunk_size` 偏移处。不再有传输块。
@@ -45,7 +46,25 @@ TASFA 是本项目用于文件上传和下载的传输协议。
 `init` 端点返回包含以下字段的响应：
 
 - `chunk_size` — 协商后的分块大小
+- `current_parallel_chunks` — 服务器批准的当前上传窗口
 - `max_parallel_chunks` — 客户端可同时上传的分块数量
+- `dispatch_pacing_ms` — 仅在测量到的链路较差时应用的小发送间隔
+- `upload_secret` — 用于加密流验证的辅助服务器密钥
+- `stream_key_hex`, `stream_iv_seed_hex`, `stream_mode` — 会话加密密钥 (`aes-256-gcm`)
+- `modulus_M` — 本会话使用的 HTP 模数
+- `group_count` — 完整 6 槽 HTP 组的数量
+- `client_stripes` — 客户端工作调度器使用的固定值 `32`
+
+客户端将 `chunk_size` 视为会话契约，因为它定义了每个分块的文件偏移。在活跃上传期间，它调整并发和重试行为，同时学习到的分块大小提示将应用于下一个 TASFA 会话：良好链路逐渐提高提示，降级链路以小至 `512 KiB` 的步长降低。
+
+### 上传分块响应
+
+当分块被接受时，服务器返回 `204 No Content` 和以下标头：
+
+- `X-TASFA-Accepted: 1`
+- `X-TASFA-Chunk-Complete: 1`
+
+如果分块索引已在 `state.bin` 中标记为完成，**并且**该索引不在服务器的 `retry_targets` 中，则服务器返回相同的 `204` 标头，但分块正文将被丢弃。
 
 ## HTP 服务器权威恢复格子
 
@@ -90,7 +109,12 @@ v3_balanced = (v3_raw + delta2) mod M
 v5_balanced = (v5_raw + delta3) mod M
 ```
 
-其余所有顶点保持其原始标量。客户端同时发送两者:\n\n- `X-TASFA-Raw-Scalar` — 未修改的 `raw_scalar`\n- `X-TASFA-Magic-Scalar` — 平衡值 (`v3_balanced` 或 `v5_balanced`，其余与 raw 相同)\n\n服务器将两个标量分别存储在 `htp.bin` 中，从而可以在不受人工平衡约束影响的情况下分析原始拓扑。
+其余所有顶点保持其原始标量。客户端同时发送两者:
+
+- `X-TASFA-Raw-Scalar` — 未修改的 `raw_scalar`
+- `X-TASFA-Magic-Scalar` — 平衡值 (`v3_balanced` 或 `v5_balanced`，其余与 raw 相同)
+
+服务器将两个标量分别存储在 `htp.bin` 中，从而可以在不受人工平衡约束影响的情况下分析原始拓扑。
 
 ### 为什么只有 v3 和 v5？
 
@@ -104,7 +128,7 @@ v5_balanced = (v5_raw + delta3) mod M
 
 在 `POST /file/upload/complete` 期间，服务器执行以下操作：
 
-1. 从 `htp.bin` 加载所有分块级 `raw_scalars` 和 `magic_scalars`。
+1. 从 `htp.bin` 加载所有分块级记录（哈希标签、原始标量和平衡标量）。
 2. 仅验证**完整的 6 槽组**（跳过部分组）。
 3. 对每个失败组，通过分析每个槽位参与的线方程来计算**嫌疑分数（suspicion scores）**。
 
@@ -195,15 +219,18 @@ repair_worthwhile(嫌疑数, 总分块数, 分块大小, rtt_ms):
 ## 运行时设置
 
 - 上传分块大小：桌面 `24 MiB`，移动端 `12 MiB`
+- 自适应上传分块大小提示：最小 `4 MiB`，最大桌面 `48 MiB` / 移动端 `24 MiB`
+- 下载分块大小：桌面 `2 MiB`，移动端 `1 MiB`，客户端提示更大会话时最大 `16 MiB`
 - 默认浏览器上传并行度：`16`
-- 最大浏览器上传并行度：`blog.settings` 中的 `max_upload_parallel_chunks`
-- 最大并发上传会话：`blog.settings` 中的 `max_total_parallel_uploads`
+- 最大浏览器上传并行度：`blog.settings` 中的 `max_upload_parallel_chunks`，上限 `40`
+- 最大并发上传会话：`blog.settings` 中的 `max_total_parallel_uploads`，上限 `64`
 - 最大上传大小：`blog.settings` 中的 `max_upload_size`
-- 最大浏览器下载会话：服务器定义
+- 最大浏览器下载会话：服务器定义，当前每会话最多 `48` 个分块请求
+- 下载合并（span 组大小）：良好链路上最多 `16` 个分块
 - 上传 xhr 超时：至少 `180 s`
 - 上传会话 fetch 超时：`30 s`
 
-浏览器每源 HTTP 连接限制由工作池自然遵守。
+TASFA 针对一般高带宽服务器部署进行调优，而非嵌入式/航空航天低带宽配置文件。浏览器的每源 HTTP 连接限制由工作池自然遵守。
 
 ### 客户端自适应
 
@@ -239,13 +266,14 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 - 快速二进制元数据：`data/tasfa/uploads/<upload_id>/meta.bin`
 - 状态：`data/tasfa/uploads/<upload_id>/state.json`，`data/tasfa/uploads/<upload_id>/state.bin`
 - HTP 0 级：`data/tasfa/uploads/<upload_id>/htp.bin`
+- 会话锁：`data/tasfa/uploads/<upload_id>/session.lock`
 
 服务器不再维护 `blocks.bin` 或 `chunk_counts.bin`。分块完成是单次位图写入。
 
 会话元数据还存储逐顶点数组：
 
 - `hash_tags` — 每个分块的 SHA-512 十六进制字符串数组
-- `raw_scalars` — 每个分块的原始标量（未修改的 SHA-512 摘要 mod M）数组\n- `magic_scalars` — 每个分块的平衡标量数组
+- `magic_scalars` — 每个分块的平衡标量数组
 - `htp_retry_targets` — 当前服务器发出的重试目标列表
 - `htp_suspicion_scores` — 当前嫌疑排序
 - `htp_contraction_level` — 已应用的服务器端收缩遍数
@@ -254,23 +282,29 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 
 ## 删除 PIN
 
-已完成的上传获得一次性删除 PIN。明文 PIN 仅返回一次；仅存储其哈希。
+已完成的上传获得一次性删除 PIN。明文 PIN 是 12 字符十六进制字符串（6 个随机字节）；仅返回一次，仅存储其哈希。
 
 ## 下载协议
 
 1. 客户端通过 `GET /.../handshake` 请求握手。
 2. 服务器返回 `session_id`、`session_token`、`chunk_size`、`chunk_count`、并发提示以及会话加密密钥（`stream_key_hex`、`stream_iv_seed_hex`）。
-3. 客户端使用自适应 `span=...` 获取分块组。所有分块均使用 **AES-256-GCM** 加密。
+3. 客户端使用自适应 `span=...` 获取分块组。存在会话密钥时，所有分块均使用 **AES-256-GCM** 加密。
 4. 客户端在浏览器中使用 **Web Crypto API** 和会话密钥解密分块。
 5. 浏览器将响应组装成一个连续的缓冲区。
+
+下载分块响应包括：
+
+- `X-TASFA-Chunk-Index` 和 `X-TASFA-Chunk-Count`
+- RTT 样本可用时 `X-TASFA-Predicted-Remaining-Ms`
+- 加密激活时 `X-TASFA-Stream-Mode: aes-256-gcm` 和加密载荷
+- 预计算 HTP 元数据存在时 `X-TASFA-Hash-Tag` 和 `X-TASFA-Magic-Scalar`
 
 ## 媒体处理集成
 
 服务器生成的媒体（缩略图、音频预览）是 TASFA 的一等资产：
-- **HTP 元数据预计算**：当服务器生成缩略图或预览时，它会立即计算其分块的 HTP 标量和 SHA-256 标签，并将其存储在 `data/tasfa/media_htp` 中。
+- **HTP 元数据预计算**：当服务器生成缩略图或预览时，它会立即计算其分块的 HTP 标量和 SHA-256 标签，并将其存储在 `data/tasfa/media_htp` 中。注意：服务器端媒体生成器为此目的使用 **SHA-256**，而上传客户端对用户上传的分块仍使用 **SHA-512**。
 - **可靠的媒体传输**：媒体通过 `/assets/tasfa/...` 路由提供，支持完整的 TASFA 协议，包括使用预计算的 HTP 元数据进行分块级完整性验证。
 - **并发控制**：媒体生成（ffmpeg）限制为 4 个并发进程，以保护服务器资源。
-
 
 ## 通过位图的 DoS 缓解
 
@@ -285,7 +319,15 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 ### 会话加固
 
 - 上传 ID 和 Token 分别为 16 字节和 24 字节随机十六进制字符串。
-- 会话锁（`flock`）防止并发请求间的位图更新竞争。
+- 会话锁（`session.lock` 上的 `flock`）防止并发请求间的位图更新竞争。
+
+## 工作调度器
+
+服务器使用固定轮询工作调度器。工作器数量等于 CPU 核心数（最小 2，最大 64）。属于同一 `upload_id` 的分块始终分派到同一工作器以保持缓存局部性和顺序。作业通过每个工作器的队列提交，并通过条件变量发出信号。
+
+## 异步最终化
+
+`POST /file/upload/complete` 是异步处理的。首次调用返回 `202 Accepted` 和 `{"processing": true}` 并启动后台最终化工作器。后续调用轮询最终化缓存；当工作器完成时，缓存的状态和正文立即返回。这防止长时间运行的 HTP 验证和媒体生成阻塞 HTTP 连接。
 
 ## 自查清单
 
