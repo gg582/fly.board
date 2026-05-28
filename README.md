@@ -2,7 +2,7 @@
 
 ![fly.board logo](img/logo.png)
 
-> One of the few simple blog engines running at **~82 MB RSS** at idle (with 4 workers; maintains **90-200 MB** on a real production server with a single worker), and **~117 MB** under C10k (10,000 concurrent connections).  
+> One of the few simple blog engines running at **~82 MB RSS** at idle (with 4 workers; maintains **68-120 MB** on a real production server with a single worker), and **~117 MB** under C10k (10,000 concurrent connections).  
 > A lightweight board-and-blog engine built on the C-based CWIST web framework, supporting HTTPS/3, Argon2id, PQC signatures, and NATS messaging.
 
 ## Features

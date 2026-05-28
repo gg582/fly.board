@@ -2,7 +2,7 @@
 
 ![fly.board logo](img/logo.png)
 
-> idle 시 **~82 MB RSS**(4 workers 기준, single worker 구동 시 실제 운영중인 서버에서 **90-200 MB** 유지), C10k(10,000 동시 연결)에서도 **약 117 MB**로 동작하는 몇 안 되는 심플 블로그 계통.  
+> idle 시 **~82 MB RSS**(4 workers 기준, single worker 구동 시 실제 운영중인 서버에서 **68-120 MB** 유지), C10k(10,000 동시 연결)에서도 **약 117 MB**로 동작하는 몇 안 되는 심플 블로그 계통.  
 > C 기반 CWIST 웹 프레임워크 위에 HTTPS/3, Argon2id, PQC 서명, NATS 메시징을 올린 가벼운 게시판 겸 블로그 엔진입니다.
 >
 > **Fairly small, greater usability.**  
