@@ -711,6 +711,7 @@ typedef struct tasfa_job {
     void (*func)(void *);
     void *arg;
     volatile bool done;
+    bool free_after_done;
     pthread_mutex_t mtx;
     pthread_cond_t cond;
     struct tasfa_job *next;
@@ -758,6 +759,11 @@ static void *tasfa_worker_loop(void *arg) {
         job->done = true;
         pthread_cond_signal(&job->cond);
         pthread_mutex_unlock(&job->mtx);
+        if (job->free_after_done) {
+            pthread_mutex_destroy(&job->mtx);
+            pthread_cond_destroy(&job->cond);
+            free(job);
+        }
     }
     return NULL;
 }
@@ -2585,9 +2591,9 @@ typedef struct {
     char upload_token[49];
 } upload_finalize_job_t;
 
-static void *upload_finalize_worker(void *arg) {
+static void upload_finalize_worker(void *arg) {
     upload_finalize_job_t *job = (upload_finalize_job_t *)arg;
-    if (!job) return NULL;
+    if (!job) return;
 
     cwist_http_request *fake_req = cwist_http_request_create();
     cwist_http_response *fake_res = cwist_http_response_create();
@@ -2606,7 +2612,6 @@ static void *upload_finalize_worker(void *arg) {
     if (fake_res) cwist_http_response_destroy(fake_res);
     if (fake_req) cwist_http_request_destroy(fake_req);
     free(job);
-    return NULL;
 }
 
 void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *res) {
@@ -2681,15 +2686,17 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     job->db = req->db;
     snprintf(job->upload_id, sizeof(job->upload_id), "%s", upload_id);
     snprintf(job->upload_token, sizeof(job->upload_token), "%s", upload_token);
-    pthread_t tid;
-    if (pthread_create(&tid, NULL, upload_finalize_worker, job) != 0) {
+
+    tasfa_job_t *tjob = (tasfa_job_t *)calloc(1, sizeof(tasfa_job_t));
+    if (!tjob) {
         free(job);
         finalize_cache_mark_done(upload_id, 500, "{\"ok\":false,\"error\":\"finalize queue failed\"}");
         cwist_query_map_destroy(kv);
         send_json_response(res, session_error_json("finalize queue failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
     }
-    pthread_detach(tid);
+    tjob->free_after_done = true;
+    tasfa_scheduler_submit(upload_id, upload_finalize_worker, job, tjob);
 
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddBoolToObject(obj, "ok", false);
