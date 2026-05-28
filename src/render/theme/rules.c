@@ -47,6 +47,8 @@ void rule_base(cJSON *rules) {
     cJSON *b = create_rule("html, body");
     add_decl(b, "margin", "0");
     add_decl(b, "padding", "0");
+    add_decl(b, "scrollbar-width", "thin");
+    add_decl(b, "scrollbar-color", "var(--border) transparent");
     cJSON_AddItemToArray(rules, b);
 
     /* Font imports */
@@ -136,6 +138,30 @@ void rule_base(cJSON *rules) {
     add_decl(sel, "background", "var(--fg)");
     add_decl(sel, "color", "var(--bg)");
     cJSON_AddItemToArray(rules, sel);
+
+    /* Scrollbar styling */
+    cJSON *sb = create_rule("::-webkit-scrollbar");
+    add_decl(sb, "width", "8px");
+    add_decl(sb, "height", "8px");
+    cJSON_AddItemToArray(rules, sb);
+
+    cJSON *sb_track = create_rule("::-webkit-scrollbar-track");
+    add_decl(sb_track, "background", "transparent");
+    cJSON_AddItemToArray(rules, sb_track);
+
+    cJSON *sb_thumb = create_rule("::-webkit-scrollbar-thumb");
+    add_decl(sb_thumb, "background", "var(--border)");
+    add_decl(sb_thumb, "border-radius", "0");
+    add_decl(sb_thumb, "border", "none");
+    cJSON_AddItemToArray(rules, sb_thumb);
+
+    cJSON *sb_thumb_h = create_rule("::-webkit-scrollbar-thumb:hover");
+    add_decl(sb_thumb_h, "background", "var(--accent)");
+    cJSON_AddItemToArray(rules, sb_thumb_h);
+
+    cJSON *sb_corner = create_rule("::-webkit-scrollbar-corner");
+    add_decl(sb_corner, "background", "transparent");
+    cJSON_AddItemToArray(rules, sb_corner);
 }
 
 void rule_layout(cJSON *rules) {
