@@ -31,7 +31,7 @@
     var UPLOAD_RENEGOTIATE_ENDPOINT = '/file/upload/renegotiate';
     var UPLOAD_ENDPOINT = '/file/upload';
     var UPLOAD_CHUNK_SIZE = 24 * 1024 * 1024;
-    var UPLOAD_DEFAULT_PARALLEL = 16;
+    var UPLOAD_DEFAULT_PARALLEL = 8;
     var TASFA_UPLOAD_CHUNK_MIN = 4 * 1024 * 1024;
     var TASFA_UPLOAD_CHUNK_MAX = 48 * 1024 * 1024;
     var TASFA_UPLOAD_CHUNK_MOBILE_MAX = 24 * 1024 * 1024;
@@ -39,10 +39,10 @@
     var TASFA_UPLOAD_CHUNK_STEP_DOWN = 512 * 1024;
     var TASFA_UPLOAD_CHUNK_STORE = 'tasfa_upload_chunk_size_v3';
     var TASFA_TRACE_LIMIT = 160;
-    var TASFA_SOFT_STALL_MS = 8000;
-    var TASFA_HARD_STALL_MS = 20000;
+    var TASFA_SOFT_STALL_MS = 15000;
+    var TASFA_HARD_STALL_MS = 45000;
     var TASFA_FAST_RECOVERY_MS = 3000;
-    var TASFA_CONNECT_TIMEOUT_MS = 3000;
+    var TASFA_CONNECT_TIMEOUT_MS = 5000;
     var TASFA_FALLBACK_PREFETCH_MAX_BYTES = 64 * 1024 * 1024;
     var TASFA_MIN_SIZE_BYTES = 4 * 1024 * 1024;
     var FileUploadQueue = [];
@@ -232,6 +232,10 @@
         return next;
     }
 
+    function uploadIdleTimeoutMs(bytes) {
+        return Math.max(15000, Math.min(60000, Math.round(bytes / 1024)));
+    }
+
     function armXhrIdleTimeout(xhr, timeoutMs) {
         var timer = null;
         function clear() {
@@ -341,7 +345,7 @@
         var timeoutRisk = clampNumber((stats.timeoutEvents || 0) / 8, 0, 0.5);
         timeoutRisk += clampNumber((stats.progressSilenceMs || 0) / 90000, 0, 0.3);
         timeoutRisk += signal.value < 0.35 ? (0.35 - signal.value) : 0;
-        var fallbackNeed = clampNumber((retryCount / 12) + ((stats.sameFailureStreak || 0) / 12) + (1 - signal.value) * 0.25, 0, 1);
+        var fallbackNeed = clampNumber((retryCount / 24) + ((stats.sameFailureStreak || 0) / 24) + (1 - signal.value) * 0.25, 0, 1);
         var recoveryChance = clampNumber(signal.value + ((stats.retryFreeStreak || 0) * 0.04) + ((stats.throughputSlope || 0) > 0 ? 0.12 : 0), 0, 1);
         return {
             timeoutRisk: clampNumber(timeoutRisk, 0, 1),
@@ -354,7 +358,7 @@
     function hasPredictableTasfaErrorPattern(asset, chunkIndex) {
         var stats = ensureTasfaStats(asset);
         var retryCount = asset.retryCounts ? Number(asset.retryCounts[chunkIndex] || 0) : 0;
-        return retryCount >= 5 || (stats.consecutiveFailures || 0) >= 5 || (stats.sameFailureStreak || 0) >= 5 || (stats.timeoutEvents || 0) >= 4;
+        return retryCount >= 10 || (stats.consecutiveFailures || 0) >= 10 || (stats.sameFailureStreak || 0) >= 10 || (stats.timeoutEvents || 0) >= 8;
     }
 
     function predictUploadRule(asset, chunkIndex) {
@@ -363,8 +367,8 @@
         var predicted = signal.value;
         var outlook = predictedTasfaOutlook(asset, chunkIndex);
         var predictable = hasPredictableTasfaErrorPattern(asset, chunkIndex);
-        if (retryCount >= 10 || (predictable && outlook.fallbackNeed >= 0.75 && predicted < 0.24 && signal.confidence >= 0.6)) return 'fallback';
-        if (predictable && retryCount >= 5) return 'guarded';
+        if (retryCount >= 20 || (predictable && outlook.fallbackNeed >= 0.85 && predicted < 0.2 && signal.confidence >= 0.6)) return 'fallback';
+        if (predictable && retryCount >= 10) return 'guarded';
         if (predictable && outlook.timeoutRisk >= 0.55 && predicted < 0.3 && signal.confidence >= 0.75) return 'guarded';
         return 'normal';
     }
@@ -1560,18 +1564,18 @@
 
         xhr.open('POST', PLAIN_UPLOAD_ENDPOINT + '?post_id=' + encodeURIComponent(window.POST_ID || 0), true);
         xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        var watchdog = armXhrIdleTimeout(xhr, TASFA_CONNECT_TIMEOUT_MS);
+        var watchdog = armXhrIdleTimeout(xhr, uploadIdleTimeoutMs(file.size));
         var uploadStartedAt = Date.now();
         var tinyProgressFloor = Math.max(1024, Math.min(file.size - 1, Math.floor(file.size * 0.01)));
 
         xhr.upload.onprogress = function(event) {
             if (!event.lengthComputable) return;
             var elapsed = Date.now() - uploadStartedAt;
-            if (event.loaded > 0 && event.loaded <= 1 && elapsed >= 500) {
+            if (event.loaded > 0 && event.loaded <= 1 && elapsed >= 3000) {
                 try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err) {}
                 return;
             }
-            if (event.loaded > 0 && event.loaded < tinyProgressFloor && elapsed >= 1500) {
+            if (event.loaded > 0 && event.loaded < tinyProgressFloor && elapsed >= 5000) {
                 try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err2) {}
                 return;
             }
@@ -2035,18 +2039,18 @@
 	                var rttHint = Math.round((stats.lastChunkMs || stats.ewmaMs || 0));
 	                if (rttHint > 0) xhr.setRequestHeader('X-TASFA-Chunk-RTT', String(rttHint));
 
-                var watchdog = armXhrIdleTimeout(xhr, TASFA_CONNECT_TIMEOUT_MS);
+                var watchdog = armXhrIdleTimeout(xhr, uploadIdleTimeoutMs(size));
                 var chunkStartedAt = Date.now();
                 var tinyProgressFloor = Math.max(1024, Math.min(size - 1, Math.floor(size * 0.01)));
 
                 xhr.upload.onprogress = function(event) {
                     if (!event.lengthComputable) return;
                     var elapsed = Date.now() - chunkStartedAt;
-                    if (event.loaded > 0 && event.loaded <= 1 && elapsed >= 500) {
+                    if (event.loaded > 0 && event.loaded <= 1 && elapsed >= 3000) {
                         try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err) {}
                         return;
                     }
-                    if (event.loaded > 0 && event.loaded < tinyProgressFloor && elapsed >= 1500) {
+                    if (event.loaded > 0 && event.loaded < tinyProgressFloor && elapsed >= 5000) {
                         try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err2) {}
                         return;
                     }
@@ -2178,17 +2182,17 @@
 	                    var stats = ensureTasfaStats(asset);
 	                    var rttHint = Math.round((stats.lastChunkMs || stats.ewmaMs || 0));
 	                    if (rttHint > 0) xhr.setRequestHeader('X-TASFA-Chunk-RTT', String(rttHint));
-	                    var watchdog = armXhrIdleTimeout(xhr, TASFA_CONNECT_TIMEOUT_MS);
+	                    var watchdog = armXhrIdleTimeout(xhr, uploadIdleTimeoutMs(enc.size));
 	                    var chunkStartedAt = Date.now();
 	                    var tinyProgressFloor = Math.max(1024, Math.min(enc.size - 1, Math.floor(enc.size * 0.01)));
                     xhr.upload.onprogress = function(event) {
                         if (!event.lengthComputable) return;
                         var elapsed = Date.now() - chunkStartedAt;
-                        if (event.loaded > 0 && event.loaded <= 1 && elapsed >= 500) {
+                        if (event.loaded > 0 && event.loaded <= 1 && elapsed >= 3000) {
                             try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err) {}
                             return;
                         }
-                        if (event.loaded > 0 && event.loaded < tinyProgressFloor && elapsed >= 1500) {
+                        if (event.loaded > 0 && event.loaded < tinyProgressFloor && elapsed >= 5000) {
                             try { xhr._tasfaTinyProgress = true; xhr.abort(); } catch (err2) {}
                             return;
                         }
@@ -2311,7 +2315,7 @@
                             asset.retryCounts[chunkIndex] = (asset.retryCounts[chunkIndex] || 0) + 1;
                             recordTasfaFailure(asset, 'busy');
                             tasfaTrace(asset, 'chunk-retry', { chunkIndex: chunkIndex, mode: predictedRule, delay: result.delay || 3000 });
-                            if (asset.retryCounts[chunkIndex] < 20) {
+                            if (asset.retryCounts[chunkIndex] < 40) {
                                 setTimeout(function() {
                                     pending.push(chunkIndex);
                                     next();
@@ -2335,7 +2339,7 @@
                             }).catch(function() {
                                 if (runId !== asset.uploadRunId) { resolve(); return; }
                                 asset.retryCounts[chunkIndex] = (asset.retryCounts[chunkIndex] || 0) + 1;
-                                if (asset.retryCounts[chunkIndex] < 40) {
+                                if (asset.retryCounts[chunkIndex] < 80) {
                                     pending.push(chunkIndex);
                                     setTimeout(next, Math.min(30000, 500 * asset.retryCounts[chunkIndex]));
                                 } else {
@@ -2369,7 +2373,7 @@
                         recordTasfaFailure(asset, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
                         tasfaTrace(asset, 'chunk-error', { chunkIndex: chunkIndex, mode: predictedRule, message: msg });
                         asset.retryCounts[chunkIndex] = (asset.retryCounts[chunkIndex] || 0) + 1;
-                        if (asset.retryCounts[chunkIndex] < 12) {
+                        if (asset.retryCounts[chunkIndex] < 24) {
                             pending.push(chunkIndex);
                             next();
                         } else {
@@ -2390,7 +2394,7 @@
                             }).catch(function() {
                                 if (runId !== asset.uploadRunId) { resolve(); return; }
                                 asset.retryCounts[chunkIndex] = (asset.retryCounts[chunkIndex] || 0) + 1;
-                                if (asset.retryCounts[chunkIndex] < 40) {
+                                if (asset.retryCounts[chunkIndex] < 80) {
                                     pending.push(chunkIndex);
                                     setTimeout(next, Math.min(30000, 500 * asset.retryCounts[chunkIndex]));
                                 } else {
