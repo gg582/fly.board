@@ -325,7 +325,7 @@ static bool random_hex(char *out, size_t bytes_len) {
     return true;
 }
 
-static bool secure_str_eq(const char *a, const char *b) {
+bool secure_str_eq(const char *a, const char *b) {
     if (!a || !b) return false;
     size_t a_len = strlen(a);
     size_t b_len = strlen(b);
@@ -982,7 +982,7 @@ static bool load_upload_session_meta_bin_cached(const char *upload_id, tasfa_met
     return false;
 }
 
-static cJSON *load_download_session_cached(const char *session_id) {
+cJSON *load_download_session_cached(const char *session_id) {
     unsigned int idx = cache_hash(session_id);
     pthread_mutex_lock(&g_tasfa_cache_mtx);
     for (int i = 0; i < TASFA_CACHE_SLOTS; i++) {

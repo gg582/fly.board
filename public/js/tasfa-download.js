@@ -301,6 +301,15 @@
         if (!session || !session.sessionId || !session.sessionToken) {
             throw new Error((session && session.error) || 'invalid handshake');
         }
+        // Register session with Service Worker for range-request support
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({
+                type: 'TASFA_SESSION',
+                url: baseUrl,
+                sessionId: session.sessionId,
+                sessionToken: session.sessionToken
+            });
+        }
         return session;
     }
 
@@ -479,9 +488,26 @@
 
         var silent = options && options.silent;
         var onProgress = options && options.onProgress;
+        var range = options && options.range;
+        var handshakeOnly = options && options.handshakeOnly;
 
         var promise = (async function() {
             var session = await fetchDownloadSession(baseUrl);
+
+            if (range) {
+                var rangeHeaders = {
+                    'X-TASFA-Session-ID': session.sessionId,
+                    'X-TASFA-Session-Token': session.sessionToken,
+                    'Range': 'bytes=' + range.start + '-' + range.end
+                };
+                var rangeResponse = await fetch(baseUrl, { headers: rangeHeaders });
+                if (!rangeResponse.ok) throw new Error('range fetch failed: ' + rangeResponse.status);
+                return { blob: await rangeResponse.blob(), filename: session.filename };
+            }
+
+            if (handshakeOnly) {
+                return { filename: session.filename };
+            }
 
             if (session.totalSize <= SMALL_FILE_THRESHOLD) {
                 var cachedBlob = await getCachedBlob(baseUrl);
@@ -607,7 +633,7 @@
             return result;
         })();
 
-        if (!silent) {
+        if (!silent && !handshakeOnly) {
             createDownloadProgress(baseUrl);
             var progressInterval = setInterval(function() {
                 var state = downloadStates[baseUrl];
@@ -624,20 +650,24 @@
             }, 150);
         }
 
-        cache.set(baseUrl, promise);
+        if (!handshakeOnly) {
+            cache.set(baseUrl, promise);
+        }
         try {
             var result = await promise;
-            if (!silent) {
+            if (!silent && !handshakeOnly) {
                 updateDownloadProgress(baseUrl, 100, result.filename);
                 setTimeout(function() { removeDownloadProgress(baseUrl); delete downloadStates[baseUrl]; }, 800);
             }
             return result;
         } catch (error) {
-            if (!silent) {
+            if (!silent && !handshakeOnly) {
                 removeDownloadProgress(baseUrl);
                 delete downloadStates[baseUrl];
             }
-            cache.delete(baseUrl);
+            if (!handshakeOnly) {
+                cache.delete(baseUrl);
+            }
             throw error;
         }
     }
@@ -823,6 +853,19 @@
 
         el.dataset.tasfaMediaBound = '1';
         if (baseUrl) el.setAttribute('data-tasfa-download', baseUrl);
+
+        // Wrap in loader container so the user sees "Loading..." instead of empty space
+        var wrap = document.createElement('div');
+        wrap.className = 'tasfa-media-wrap';
+        if (el.parentNode) {
+            el.parentNode.insertBefore(wrap, el);
+            wrap.appendChild(el);
+        }
+
+        var loader = document.createElement('div');
+        loader.className = 'tasfa-media-loader';
+        loader.innerHTML = '<div class="tasfa-media-loader-spinner"></div><span>Loading...</span>';
+        wrap.appendChild(loader);
 
         if (baseUrl && isTasfaDownloadUrl(el.getAttribute('src') || '')) {
             // Swap the original src with a 1x1 transparent pixel so the browser

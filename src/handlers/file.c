@@ -418,10 +418,25 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     }
 
     if (g_config.use_tasfa && !is_image) {
-        cJSON_Delete(file);
-        res->status_code = CWIST_HTTP_FORBIDDEN;
-        cwist_sstring_assign(res->body, "Direct download disabled; use the reliable transfer path.");
-        return;
+        bool has_valid_session = false;
+        const char *session_id = cwist_http_header_get(req->headers, "X-TASFA-Session-ID");
+        const char *session_token = cwist_http_header_get(req->headers, "X-TASFA-Session-Token");
+        if (session_id && session_token) {
+            cJSON *meta = load_download_session_cached(session_id);
+            if (meta) {
+                cJSON *tok = cJSON_GetObjectItem(meta, "session_token");
+                if (tok && cJSON_IsString(tok) && tok->valuestring && secure_str_eq(session_token, tok->valuestring)) {
+                    has_valid_session = true;
+                }
+                cJSON_Delete(meta);
+            }
+        }
+        if (!has_valid_session) {
+            cJSON_Delete(file);
+            res->status_code = CWIST_HTTP_FORBIDDEN;
+            cwist_sstring_assign(res->body, "Direct download disabled; use the reliable transfer path.");
+            return;
+        }
     }
 
     char disp[512];
