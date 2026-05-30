@@ -741,20 +741,11 @@
         if (!loader) {
             loader = document.createElement('div');
             loader.className = 'tasfa-media-loader';
-            loader.innerHTML = '<div class="tasfa-media-loader-spinner"></div><div class="tasfa-media-loader-bar"><div class="tasfa-media-loader-inner"></div></div>';
+            loader.innerHTML = '<div>Loading...</div><div class="tasfa-media-loader-bar"><div class="tasfa-media-loader-inner"></div></div>';
             wrap.appendChild(loader);
         }
         var inner = loader.querySelector('.tasfa-media-loader-inner');
         if (inner) inner.style.width = percent + '%';
-        if (percent >= 100) {
-            setTimeout(function() {
-                if (loader.parentElement) loader.remove();
-                if (wrap.classList.contains('tasfa-inline-media-wrap') && wrap.parentElement) {
-                    wrap.parentElement.insertBefore(el, wrap);
-                    wrap.remove();
-                }
-            }, 600);
-        }
     }
 
     function upgradeVideoLinkButton(el) {
