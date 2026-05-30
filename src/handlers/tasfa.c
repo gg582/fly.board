@@ -614,16 +614,6 @@ static int open_upload_session_lock(const char *upload_id) {
     return fd;
 }
 
-static int open_upload_session_lock_nb(const char *upload_id) {
-    char lock_path[PATH_MAX];
-    upload_session_dir(lock_path, sizeof(lock_path), upload_id);
-    strncat(lock_path, "/session.lock", sizeof(lock_path) - strlen(lock_path) - 1);
-    int fd = open(lock_path, O_CREAT | O_RDWR, 0644);
-    if (fd < 0) return -1;
-    if (flock(fd, LOCK_EX | LOCK_NB) != 0) { close(fd); return -1; }
-    return fd;
-}
-
 static void close_upload_session_lock(int lock_fd) {
     if (lock_fd < 0) return;
     flock(lock_fd, LOCK_UN);
@@ -700,7 +690,7 @@ static bool mark_chunk_received_in_session_state(const char *upload_id, int chun
     upload_session_state_bin_path(path, sizeof(path), upload_id);
     int fd = open(path, O_RDWR);
     if (fd < 0) return false;
-    if (flock(fd, LOCK_EX | LOCK_NB) != 0) { close(fd); return false; }
+    if (flock(fd, LOCK_EX) != 0) { close(fd); return false; }
     unsigned char val = '1';
     bool ok = (pwrite(fd, &val, 1, (off_t)chunk_index) == 1);
     flock(fd, LOCK_UN);
@@ -713,8 +703,10 @@ static bool is_chunk_already_received(const char *upload_id, int chunk_index) {
     upload_session_state_bin_path(path, sizeof(path), upload_id);
     int fd = open(path, O_RDONLY);
     if (fd < 0) return false;
+    if (flock(fd, LOCK_SH) != 0) { close(fd); return false; }
     unsigned char val = '0';
     bool ok = (pread(fd, &val, 1, (off_t)chunk_index) == 1);
+    flock(fd, LOCK_UN);
     close(fd);
     return ok && val == '1';
 }
