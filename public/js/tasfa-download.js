@@ -741,7 +741,7 @@
         if (!loader) {
             loader = document.createElement('div');
             loader.className = 'tasfa-media-loader';
-            loader.innerHTML = '<div>Loading...</div><div class="tasfa-media-loader-bar"><div class="tasfa-media-loader-inner"></div></div>';
+            loader.innerHTML = '<div class="tasfa-media-loader-spinner"></div><div class="tasfa-media-loader-bar"><div class="tasfa-media-loader-inner"></div></div>';
             wrap.appendChild(loader);
         }
         var inner = loader.querySelector('.tasfa-media-loader-inner');
@@ -795,10 +795,27 @@
         el.removeAttribute('data-tasfa-progress');
         updateProgressUI(el, 100);
 
+        function bindLoaderRemoval(mediaEl) {
+            var wrap = mediaEl.closest('.tasfa-media-wrap') || mediaEl.closest('.tasfa-inline-media-wrap');
+            if (!wrap) return;
+            var loader = wrap.querySelector('.tasfa-media-loader');
+            if (!loader) return;
+            function removeLoader() {
+                if (loader.parentElement) loader.remove();
+                if (wrap.classList.contains('tasfa-inline-media-wrap') && wrap.parentElement) {
+                    wrap.parentElement.insertBefore(mediaEl, wrap);
+                    wrap.remove();
+                }
+            }
+            mediaEl.addEventListener('loadeddata', removeLoader, { once: true });
+            setTimeout(removeLoader, 5000);
+        }
+
         var existingTag = el.tagName ? el.tagName.toLowerCase() : '';
         if (existingTag === 'video' || existingTag === 'audio') {
             el.src = playUrl;
             el.style.opacity = '1';
+            bindLoaderRemoval(el);
             return;
         }
 
@@ -816,15 +833,7 @@
             el.parentNode.replaceChild(mediaEl, el);
         }
 
-        var wrap = mediaEl.closest('.tasfa-media-wrap') || mediaEl.closest('.tasfa-inline-media-wrap');
-        if (wrap) {
-            var loader = wrap.querySelector('.tasfa-media-loader');
-            if (loader) loader.remove();
-            if (wrap.classList.contains('tasfa-inline-media-wrap') && wrap.parentElement) {
-                wrap.parentElement.insertBefore(mediaEl, wrap);
-                wrap.remove();
-            }
-        }
+        bindLoaderRemoval(mediaEl);
     }
 
     function upgradeMediaElement(el) {

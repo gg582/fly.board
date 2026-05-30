@@ -300,9 +300,12 @@ void rule_layout(cJSON *rules) {
     add_decl(footer, "padding", "80px 24px");
     add_decl(footer, "color", "var(--muted)");
     add_decl(footer, "font-size", "13px");
-    add_decl(footer, "border-top", "1px solid var(--border)");
+    add_decl(footer, "border-top", "1px solid var(--glass-border)");
     add_decl(footer, "margin-top", "80px");
-    add_decl(footer, "transition", "border-color 0.5s ease, color 0.5s ease");
+    add_decl(footer, "background", "color-mix(in srgb, var(--panel) 60%, transparent)");
+    add_decl(footer, "backdrop-filter", "blur(8px) saturate(120%)");
+    add_decl(footer, "-webkit-backdrop-filter", "blur(8px) saturate(120%)");
+    add_decl(footer, "transition", "border-color 0.5s ease, color 0.5s ease, background 0.5s ease");
     cJSON_AddItemToArray(rules, footer);
 
     cJSON *fc = create_rule(".footer-content");
@@ -484,10 +487,12 @@ void rule_components(cJSON *rules) {
     cJSON *alert = create_rule(".alert");
     add_decl(alert, "padding", "12px 14px");
     add_decl(alert, "border-radius", "0");
-    add_decl(alert, "background", "rgba(239,68,68,0.08)");
+    add_decl(alert, "background", "color-mix(in srgb, rgba(239,68,68,0.08) 70%, var(--glass-bg))");
     add_decl(alert, "color", "#ef4444");
     add_decl(alert, "border", "1px solid rgba(239,68,68,0.25)");
     add_decl(alert, "margin-bottom", "14px");
+    add_decl(alert, "backdrop-filter", "blur(6px) saturate(120%)");
+    add_decl(alert, "-webkit-backdrop-filter", "blur(6px) saturate(120%)");
     cJSON_AddItemToArray(rules, alert);
 
     cJSON *media_card = create_rule(".media-card");
@@ -689,11 +694,13 @@ void rule_components(cJSON *rules) {
     add_decl(tdp, "bottom", "24px");
     add_decl(tdp, "right", "24px");
     add_decl(tdp, "width", "320px");
-    add_decl(tdp, "background", "var(--panel)");
-    add_decl(tdp, "border", "1px solid var(--border)");
+    add_decl(tdp, "background", "var(--glass-bg)");
+    add_decl(tdp, "border", "1px solid var(--glass-border)");
     add_decl(tdp, "padding", "16px");
     add_decl(tdp, "z-index", "10000");
     add_decl(tdp, "box-shadow", "0 8px 32px var(--shadow)");
+    add_decl(tdp, "backdrop-filter", "blur(12px) saturate(140%)");
+    add_decl(tdp, "-webkit-backdrop-filter", "blur(12px) saturate(140%)");
     add_decl(tdp, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', sans-serif");
     cJSON_AddItemToArray(rules, tdp);
 
@@ -763,6 +770,15 @@ void rule_components(cJSON *rules) {
     add_decl(tmli, "width", "0%");
     add_decl(tmli, "transition", "width 0.1s ease");
     cJSON_AddItemToArray(rules, tmli);
+
+    cJSON *tmls = create_rule(".tasfa-media-loader-spinner");
+    add_decl(tmls, "width", "28px");
+    add_decl(tmls, "height", "28px");
+    add_decl(tmls, "border", "3px solid rgba(255,255,255,0.3)");
+    add_decl(tmls, "border-top-color", "#fff");
+    add_decl(tmls, "border-radius", "50%");
+    add_decl(tmls, "animation", "tasfa-spin 0.8s linear infinite");
+    cJSON_AddItemToArray(rules, tmls);
 
     add_decl(mlw, "flex-direction", "column");
     add_decl(mlw, "align-items", "center");
@@ -1127,6 +1143,8 @@ void rule_boards(cJSON *rules) {
     add_decl(prow, "text-align", "left");
     add_decl(prow, "overflow", "hidden");
     add_decl(prow, "box-shadow", "0 2px 8px var(--shadow)");
+    add_decl(prow, "backdrop-filter", "blur(6px) saturate(120%)");
+    add_decl(prow, "-webkit-backdrop-filter", "blur(6px) saturate(120%)");
     add_decl(prow, "transition", "background 0.2s ease, border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease");
     cJSON_AddItemToArray(rules, prow);
 
@@ -1427,14 +1445,16 @@ void rule_markdown(cJSON *rules) {
     cJSON_AddItemToArray(rules, md_fig);
 
     cJSON *md_pre = create_rule(".markdown-body pre");
-    add_decl(md_pre, "background", "var(--code-bg)");
+    add_decl(md_pre, "background", "color-mix(in srgb, var(--code-bg) 92%, transparent)");
     add_decl(md_pre, "padding", "16px");
     add_decl(md_pre, "border-radius", "0");
     add_decl(md_pre, "overflow", "auto");
-    add_decl(md_pre, "border", "1px solid var(--border)");
+    add_decl(md_pre, "border", "1px solid var(--glass-border)");
     add_decl(md_pre, "font-family", g_font_settings.code[0] ? g_font_settings.code : "'JetBrains Mono', 'Fira Code', 'D2Coding', Consolas, Monaco, 'Courier New', monospace");
     add_decl(md_pre, "font-size", "14px");
     add_decl(md_pre, "line-height", "1.6");
+    add_decl(md_pre, "backdrop-filter", "blur(4px) saturate(110%)");
+    add_decl(md_pre, "-webkit-backdrop-filter", "blur(4px) saturate(110%)");
     add_decl(md_pre, "transition", "background 0.5s ease, border-color 0.5s ease, opacity 0.2s ease");
     add_decl(md_pre, "font-feature-settings", "\"liga\" 1, \"calt\" 1");
     cJSON_AddItemToArray(rules, md_pre);
@@ -1462,10 +1482,15 @@ void rule_markdown(cJSON *rules) {
 
     cJSON *md_blockquote = create_rule(".markdown-body blockquote");
     add_decl(md_blockquote, "border-left", "4px solid var(--accent)");
-    add_decl(md_blockquote, "background", "var(--hover)");
+    add_decl(md_blockquote, "background", "color-mix(in srgb, var(--glass-bg) 92%, transparent)");
     add_decl(md_blockquote, "padding", "16px 20px");
     add_decl(md_blockquote, "margin", "18px 0");
     add_decl(md_blockquote, "border-radius", "0");
+    add_decl(md_blockquote, "border", "1px solid var(--glass-border)");
+    add_decl(md_blockquote, "border-left-width", "4px");
+    add_decl(md_blockquote, "border-left-color", "var(--accent)");
+    add_decl(md_blockquote, "backdrop-filter", "blur(4px) saturate(120%)");
+    add_decl(md_blockquote, "-webkit-backdrop-filter", "blur(4px) saturate(120%)");
     add_decl(md_blockquote, "font-family", g_font_settings.blockquote[0] ? g_font_settings.blockquote : "'Source Serif 4', 'IBM Plex Sans KR', serif");
     add_decl(md_blockquote, "font-style", "italic");
     add_decl(md_blockquote, "font-size", "1.05rem");
@@ -1618,6 +1643,10 @@ void rule_animations(cJSON *rules) {
     add_decl(shimmer, "background-size", "200% 100%");
     add_decl(shimmer, "animation", "shimmer 1.5s infinite");
     cJSON_AddItemToArray(rules, shimmer);
+
+    cJSON *spin_kf = create_rule("@keyframes tasfa-spin");
+    add_decl(spin_kf, "to", "transform: rotate(360deg)");
+    cJSON_AddItemToArray(rules, spin_kf);
 
     /* Stagger children */
     cJSON *stagger = create_rule(".stagger > *");
