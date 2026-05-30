@@ -127,6 +127,12 @@ static int normalize_chunk_size_hint(int requested, int fallback, int min_value,
     int quantum = 128 * 1024;
     requested = (requested / quantum) * quantum;
     if (requested < quantum) requested = quantum;
+    if (requested < min_value) {
+        while (requested < min_value && requested > 0) requested *= 2;
+    }
+    if (requested > max_value) {
+        while (requested > max_value) requested /= 2;
+    }
     if (requested < min_value) return min_value;
     if (requested > max_value) return max_value;
     return requested;
