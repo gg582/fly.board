@@ -428,8 +428,10 @@
             stats.throughputSlope = stats.throughputSlope ? (stats.throughputSlope * 0.6 + (mbps - previousMbps) * 0.4) : (mbps - previousMbps);
             stats.progressSilenceMs = 0;
             pushTasfaQualityFromMetrics(asset, { mbps: mbps });
-            if (stats.fastStreak >= 6 && (stats.ewmaMbps >= 25 || durationMs < 12000)) {
-                rememberUploadChunkSize(preferredUploadChunkSize(asset.fileSize) * 2);
+            if (stats.fastStreak >= 3 && (stats.ewmaMbps >= 8 || durationMs < 30000)) {
+                var current = preferredUploadChunkSize(asset.fileSize);
+                var next = Math.min(current * 2, TASFA_UPLOAD_CHUNK_MAX);
+                asset._sessionChunkHint = next;
                 stats.fastStreak = 0;
             }
         } else {
@@ -437,7 +439,9 @@
             stats.consecutiveFailures = (stats.consecutiveFailures || 0) + 1;
             stats.retryFreeStreak = 0;
             pushTasfaQualityFromMetrics(asset, { failure: true });
-            rememberUploadChunkSize(preferredUploadChunkSize(asset.fileSize) / 2);
+            var current = preferredUploadChunkSize(asset.fileSize);
+            var next = Math.max(TASFA_UPLOAD_CHUNK_MIN, Math.round(current * 0.75));
+            asset._sessionChunkHint = next;
         }
     }
 
@@ -454,7 +458,9 @@
         if (asset.renegotiateTimer) clearTimeout(asset.renegotiateTimer);
         asset.renegotiateTimer = setTimeout(function() {
             asset.renegotiateTimer = null;
-            var suggested = Math.max(1, Math.min(asset.targetParallel || asset.maxParallel || UPLOAD_DEFAULT_PARALLEL, asset.maxParallel || UPLOAD_DEFAULT_PARALLEL));
+            // After a failure (immediate), blast more aggressively than current target
+            var base = immediate ? (asset.maxParallel || UPLOAD_DEFAULT_PARALLEL) : (asset.targetParallel || asset.maxParallel || UPLOAD_DEFAULT_PARALLEL);
+            var suggested = Math.max(1, Math.min(base, asset.maxParallel || UPLOAD_DEFAULT_PARALLEL));
             var values = tasfaLinkFormValues(asset, {
                 upload_id: asset.uploadId,
                 upload_token: asset.uploadToken,
@@ -528,12 +534,11 @@
         maybeTuneUploadChunkHint(asset, true, durationMs, bytes);
         if (asset.maxParallel && (asset.targetParallel || 1) < asset.maxParallel) {
             var stats = ensureTasfaStats(asset);
-            if (stats.successEvents % 2 === 0 || Date.now() < (stats.fastRecoveryUntil || 0)) {
-                var mult = Date.now() < (stats.fastRecoveryUntil || 0) ? 1.4 : 1.2;
-                asset.targetParallel = Math.min(asset.maxParallel, Math.max(1, Math.round((asset.targetParallel || 1) * mult)));
-                tasfaTrace(asset, 'success-ramp', { durationMs: Math.round(durationMs || 0), mbps: bytes && durationMs ? (((bytes * 8) / durationMs / 1000).toFixed(2)) : '0' });
-                scheduleUploadRenegotiate(asset, false);
-            }
+            // Ramp up on every success after aggressive restart, taper gently
+            var mult = Date.now() < (stats.fastRecoveryUntil || 0) ? 1.3 : 1.15;
+            asset.targetParallel = Math.min(asset.maxParallel, Math.max(1, Math.round((asset.targetParallel || 1) * mult)));
+            tasfaTrace(asset, 'success-ramp', { durationMs: Math.round(durationMs || 0), mbps: bytes && durationMs ? (((bytes * 8) / durationMs / 1000).toFixed(2)) : '0' });
+            scheduleUploadRenegotiate(asset, false);
         }
     }
 
@@ -548,14 +553,13 @@
         maybeTuneUploadChunkHint(asset, false, 0, 0);
         var goodLink = isGoodTasfaLink();
         var floor = Math.min(asset.maxParallel || UPLOAD_DEFAULT_PARALLEL, goodLink ? (isLikelyMobile() ? 4 : 8) : (isLikelyMobile() ? 2 : 4));
-        var predictable = (stats.consecutiveFailures || 0) >= 5 || (stats.sameFailureStreak || 0) >= 5 || (kind === 'timeout' && (stats.timeoutEvents || 0) >= 4);
-        var shouldReduce = predictable && ((kind === 'timeout' && !goodLink) || stats.failureEvents % 5 === 0 || (stats.consecutiveFailures || 0) >= 6);
+        // Relaxed thresholds for quicker gentle reduction
+        var predictable = (stats.consecutiveFailures || 0) >= 3 || (stats.sameFailureStreak || 0) >= 3 || (kind === 'timeout' && (stats.timeoutEvents || 0) >= 2);
+        var shouldReduce = predictable && ((kind === 'timeout' && !goodLink) || stats.failureEvents % 3 === 0 || (stats.consecutiveFailures || 0) >= 4);
         if (shouldReduce && (asset.targetParallel || 1) > floor) {
-            asset.targetParallel = Math.max(floor, Math.round((asset.targetParallel || 1) * 0.8));
+            asset.targetParallel = Math.max(floor, Math.round((asset.targetParallel || 1) * 0.85));
             stats.lastDropAt = Date.now();
             stats.fastRecoveryUntil = Date.now() + TASFA_FAST_RECOVERY_MS;
-        } else if ((asset.targetParallel || 1) < (asset.maxParallel || 1)) {
-            asset.targetParallel = Math.min(asset.maxParallel || 1, Math.max(1, Math.round((asset.targetParallel || 1) * 1.2)));
         }
         tasfaTrace(asset, 'failure', { kind: kind, floor: floor, predictable: predictable ? 1 : 0, reduced: shouldReduce ? 1 : 0 });
         // Only force a full reconnect if the connection is truly dead (no progress for a long time).
@@ -1835,6 +1839,9 @@
             retries = retries || 0;
             var controller = new AbortController();
             var timeoutId = setTimeout(function() { controller.abort(); }, TASFA_CONNECT_TIMEOUT_MS);
+            if (asset._sessionChunkHint && asset._sessionChunkHint >= TASFA_UPLOAD_CHUNK_MIN) {
+                asset.chunkSize = asset._sessionChunkHint;
+            }
             var chunkCount = Math.max(1, Math.ceil(file.size / asset.chunkSize));
             var values = tasfaLinkFormValues(asset, {
                 filename: file.name,
@@ -2017,7 +2024,9 @@
             for (var i = 0; i < asset.totalChunks; i++) pending.push(i);
         }
         asset.pendingChunks = null;
-        asset.targetParallel = Math.max(1, Math.min(asset.targetParallel || asset.maxParallel || UPLOAD_DEFAULT_PARALLEL, asset.maxParallel || UPLOAD_DEFAULT_PARALLEL));
+        // Aggressive restart after stall: blast at max then taper based on feedback
+        asset.targetParallel = Math.max(1, asset.maxParallel || UPLOAD_DEFAULT_PARALLEL);
+        asset.dispatchPacingMs = 0;
         asset.activeChunkPosts = 0;
         var poolFailed = false;
 
