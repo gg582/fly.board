@@ -183,6 +183,18 @@ static void tasfa_queue_leave(queue_slot_t *slots, int max_slots, const char *id
     pthread_mutex_unlock(&g_tasfa_queue_mtx);
 }
 
+static void tasfa_queue_touch(queue_slot_t *slots, int max_slots, const char *id) {
+    if (!id || !id[0]) return;
+    pthread_mutex_lock(&g_tasfa_queue_mtx);
+    for (int i = 0; i < max_slots; i++) {
+        if (strcmp(slots[i].id, id) == 0) {
+            slots[i].ts = time(NULL);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_tasfa_queue_mtx);
+}
+
 static void tasfa_queue_sweep(queue_slot_t *slots, int max_slots, int ttl) {
     time_t now = time(NULL);
     pthread_mutex_lock(&g_tasfa_queue_mtx);
@@ -1452,7 +1464,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     int chunk_size = choose_chunk_size_upload(mobile, requested_chunk_size);
     chunk_count = (int)((total_size + chunk_size - 1) / chunk_size);
     if (chunk_count < 1) chunk_count = 1;
-    tasfa_queue_sweep(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, 3600);
+    tasfa_queue_sweep(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, 600);
     char upload_id[33];
     if (!random_hex(upload_id, 16)) {
         cwist_query_map_destroy(kv);
@@ -2078,10 +2090,12 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     }
 
     tasfa_meta_bin_t mbin;
+    tasfa_queue_sweep(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, 600);
     if (!load_upload_session_meta_bin_cached(upload_id, &mbin)) {
         send_json_response(res, session_error_json("upload session not found"), CWIST_HTTP_NOT_FOUND);
         return;
     }
+    tasfa_queue_touch(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
     if (!secure_str_eq(upload_token, mbin.upload_token)) {
         send_json_response(res, session_error_json("upload chunk rejected"), CWIST_HTTP_FORBIDDEN);
         return;
@@ -2262,6 +2276,14 @@ static bool tasfa_generate_htp_metadata_for_file(const char *file_path, int chun
     return true;
 }
 
+static bool is_client_connected(cwist_http_request *req) {
+    if (!req || req->client_fd < 0) return true; /* background worker: no fd, assume ok */
+    int err = 0;
+    socklen_t len = sizeof(err);
+    if (getsockopt(req->client_fd, SOL_SOCKET, SO_ERROR, &err, &len) < 0) return false;
+    return err == 0;
+}
+
 static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -2307,6 +2329,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     const char *filename = json_string(meta, "filename", "upload.bin");
     int post_id = json_int(meta, "post_id", 0);
     int owner_uid = json_int(meta, "uid", uid);
+    bool media_acquired = false;
 
     /* === Server-Authoritative HTP Recovery === */
     uint64_t modulus_M = (uint64_t)json_long_long(meta, "modulus_M", 0);
@@ -2479,14 +2502,17 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
         pthread_mutex_lock(&g_media_mtx);
         if (g_media_concurrency < TASFA_MAX_MEDIA_CONCURRENCY) {
             g_media_concurrency++;
+            media_acquired = true;
             pthread_mutex_unlock(&g_media_mtx);
             break;
         }
         pthread_mutex_unlock(&g_media_mtx);
+        if (!is_client_connected(req)) goto client_disconnect;
         usleep(100000);
     }
 
     /* Post-quantum checksum (SHA-256 of final file) */
+    if (!is_client_connected(req)) goto client_disconnect;
     unsigned char checksum[32];
     if (!sha256_file(temp_path, checksum)) {
         pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_mutex_unlock(&g_media_mtx);
@@ -2496,6 +2522,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
         send_json_response(res, session_error_json("checksum compute failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
     }
+    if (!is_client_connected(req)) goto client_disconnect;
 
     char final_path[PATH_MAX];
     snprintf(final_path, sizeof(final_path), "public/uploads/%ld_%s", (long)time(NULL), filename);
@@ -2521,6 +2548,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
         send_json_response(res, session_error_json("db insert failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
     }
+    if (!is_client_connected(req)) goto client_disconnect;
 
     /* Generate thumbnails/previews via ffmpeg */
     char thumb_path[PATH_MAX] = {0};
@@ -2545,6 +2573,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
         } else preview_path[0] = '\0';
     }
     pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_mutex_unlock(&g_media_mtx);
+    media_acquired = false;
 
     if (thumb_path[0] || preview_path[0]) {
         db_file_set_preview_paths(req->db, fid, thumb_path[0] ? thumb_path : "", preview_path[0] ? preview_path : "");
@@ -2563,6 +2592,22 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     tasfa_queue_leave(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
     cwist_query_map_destroy(kv);
     cJSON *obj = cJSON_CreateObject();
+
+goto skip_disconnect;
+
+client_disconnect:
+    if (media_acquired) {
+        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_mutex_unlock(&g_media_mtx);
+    }
+    cJSON_Delete(meta);
+    close_upload_session_lock(lock_fd);
+    cleanup_upload_session(upload_id);
+    tasfa_queue_leave(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
+    cwist_query_map_destroy(kv);
+    send_json_response(res, session_error_json("client disconnected"), CWIST_HTTP_BAD_REQUEST);
+    return;
+
+skip_disconnect:
     cJSON_AddBoolToObject(obj, "ok", true);
     cJSON_AddNumberToObject(obj, "id", fid);
     cJSON_AddNumberToObject(obj, "fid", fid);
@@ -2789,6 +2834,13 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
         send_queued_json(res, "too many concurrent downloads", 3);
         return;
     }
+    if (!is_client_connected(req)) {
+        tasfa_queue_leave(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, session_id);
+        cleanup_download_session(session_id);
+        cJSON_Delete(obj);
+        cJSON_Delete(file);
+        return;
+    }
     cJSON_Delete(file);
     send_json_response(res, obj, CWIST_HTTP_OK);
 }
@@ -2801,9 +2853,17 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
         send_json_response(res, session_error_json("invalid download chunk payload"), CWIST_HTTP_BAD_REQUEST);
         return;
     }
+    tasfa_queue_sweep(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, 300);
+    tasfa_queue_touch(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, session_id);
     cJSON *meta = load_download_session_cached(session_id);
     if (!meta) {
         send_json_response(res, session_error_json("download session not found"), CWIST_HTTP_NOT_FOUND);
+        return;
+    }
+    if (!is_client_connected(req)) {
+        cJSON_Delete(meta);
+        tasfa_queue_leave(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, session_id);
+        cleanup_download_session(session_id);
         return;
     }
     if (!secure_str_eq(session_token, json_string(meta, "session_token", ""))) {
@@ -2873,7 +2933,7 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
     bool mobile = is_mobile_request(req);
     int requested_chunk_size = atoi(cwist_query_map_get(req->query_params, "chunk_size") ? cwist_query_map_get(req->query_params, "chunk_size") : "0");
     int chunk_size = choose_chunk_size_download(mobile, requested_chunk_size);
-    tasfa_queue_sweep(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, 3600);
+    tasfa_queue_sweep(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, 300);
     int score = link_score_from_inputs(
         cwist_query_map_get(req->query_params, "link_stability_score"),
         cwist_query_map_get(req->query_params, "link_effective_type"),
@@ -2903,6 +2963,12 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
         cleanup_download_session(session_id);
         cJSON_Delete(obj);
         send_queued_json(res, "too many concurrent downloads", 3);
+        return;
+    }
+    if (!is_client_connected(req)) {
+        tasfa_queue_leave(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, session_id);
+        cleanup_download_session(session_id);
+        cJSON_Delete(obj);
         return;
     }
     send_json_response(res, obj, CWIST_HTTP_OK);
