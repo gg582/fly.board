@@ -725,27 +725,7 @@
     }
 
     function updateProgressUI(el, percent) {
-        var wrap = el.closest('.tasfa-media-wrap') || el.closest('.tasfa-inline-media-wrap');
-        if (!wrap && el.parentNode) {
-            wrap = document.createElement('div');
-            wrap.className = 'tasfa-inline-media-wrap';
-            wrap.style.position = 'relative';
-            wrap.style.display = el.style.display === 'block' ? 'block' : 'inline-block';
-            wrap.style.maxWidth = '100%';
-            if (el.style.width) wrap.style.width = el.style.width;
-            el.parentNode.insertBefore(wrap, el);
-            wrap.appendChild(el);
-        }
-        if (!wrap) return;
-        var loader = wrap.querySelector('.tasfa-media-loader');
-        if (!loader) {
-            loader = document.createElement('div');
-            loader.className = 'tasfa-media-loader';
-            loader.innerHTML = '<div>Loading...</div><div class="tasfa-media-loader-bar"><div class="tasfa-media-loader-inner"></div></div>';
-            wrap.appendChild(loader);
-        }
-        var inner = loader.querySelector('.tasfa-media-loader-inner');
-        if (inner) inner.style.width = percent + '%';
+        /* Loading UI removed; keep function signature for compatibility */
     }
 
     function upgradeVideoLinkButton(el) {
@@ -784,7 +764,6 @@
     function replaceWithEmbeddedPlayer(el, playUrl, isAudio) {
         el.setAttribute('data-tasfa-ready', '1');
         el.removeAttribute('data-tasfa-progress');
-        updateProgressUI(el, 100);
 
         function bindLoaderRemoval(mediaEl) {
             var wrap = mediaEl.closest('.tasfa-media-wrap') || mediaEl.closest('.tasfa-inline-media-wrap');
@@ -862,7 +841,6 @@
                 silent: true,
                 onProgress: function(percent) {
                     el.setAttribute('data-tasfa-progress', String(percent));
-                    updateProgressUI(el, percent);
                 }
             }).then(async function(result) {
                 var mimeType = result.blob.type || '';
@@ -881,19 +859,9 @@
                 setMediaObjectUrl(el, objectUrl);
                 el.setAttribute('data-tasfa-ready', '1');
                 el.removeAttribute('data-tasfa-progress');
-                updateProgressUI(el, 100);
             }).catch(function() {
                 el.dataset.tasfaMediaBound = '0';
                 el.setAttribute('data-tasfa-error', '1');
-                var wrap = el.closest('.tasfa-media-wrap') || el.closest('.tasfa-inline-media-wrap');
-                if (wrap) {
-                    var loader = wrap.querySelector('.tasfa-media-loader');
-                    if (loader) loader.remove();
-                    if (wrap.classList.contains('tasfa-inline-media-wrap') && wrap.parentElement) {
-                        wrap.parentElement.insertBefore(el, wrap);
-                        wrap.remove();
-                    }
-                }
             });
         }
     }
