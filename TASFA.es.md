@@ -128,7 +128,7 @@ Durante `POST /file/upload/complete`, el servidor:
 
 1. Carga todos los registros por fragmento desde `htp.bin` (etiqueta hash, escalar en bruto y escalar equilibrado).
 2. Valida solo **grupos completos de 6 ranuras** (los grupos parciales se omiten).
-3. Si dos ranuras en un grupo tienen sus escalares equilibrados intercambiados (fuera de orden), el servidor intercambia sus registros `htp.bin` in-situ para reparar el grupo sin requerir retransmisión.
+3. Si el orden escalar dentro de un grupo de 6 ranuras está permutado (fuera de orden), el servidor busca las 720 permutaciones, encuentra una que restaure el invariante, y reordena los registros `htp.bin` en consecuencia sin requerir retransmisión.
 4. Para cada grupo fallido, computa **puntajes de sospecha** por ranura analizando en qué ecuaciones de línea participa cada ranura.
 
 ### Puntuación de confianza de sospecha (por grupo)
@@ -338,4 +338,4 @@ El servidor usa un planificador de trabajadores de round-robin fijo. El número 
 | Q4: ¿La respuesta contiene puntajes de sospecha, no solo banderas binarias? | **Sí.** Cada respuesta `needs_retry` incluye `suspicion_scores` como objetos `{chunk_index, score}`. |
 | Q5: ¿La contracción preserva la topología de grupo original? | **Sí.** `htp_contract_groups` trata cada grupo original completo como un único vértice de nivel superior; los sospechosos nunca se reordenan entre grupos. |
 | Q6: ¿Se borran los objetivos de reintento al retransmitir exitosamente? | **Sí.** `handler_file_upload` elimina el fragmento de `htp_retry_targets` después de aceptar una retransmisión de reintento. |
-| Q7: ¿El servidor repara escalares fuera de orden intercambiándolos? | **Sí.** `htp_try_swap_repair` prueba cada par de ranuras en un grupo de 6 ranuras; si intercambiarlos restaura el invariante, sus registros `htp.bin` se intercambian inmediatamente y el grupo pasa sin retransmisión. |
+| Q7: ¿El servidor repara escalares fuera de orden intercambiándolos? | **Sí.** `htp_try_swap_repair` fuerza bruta las 720 permutaciones de un grupo de 6 ranuras; si alguna restaura el invariante, los registros `htp.bin` se reordenan inmediatamente y el grupo pasa sin retransmisión. |
