@@ -218,7 +218,7 @@ Esto evita el agotamiento del pool de conexiones del navegador y mantiene confia
 
 - tamaño de fragmento de carga: `24 MiB` escritorio, `12 MiB` móvil
 - pista adaptativa de tamaño de fragmento de carga: mínimo `4 MiB`, máximo `48 MiB` escritorio / `24 MiB` móvil
-- tamaño de fragmento de descarga: `2 MiB` escritorio, `1 MiB` móvil, hasta `16 MiB` cuando el cliente indica una sesión mayor
+- tamaño de fragmento de descarga: `8 MiB` escritorio, `4 MiB` móvil, hasta `32 MiB` cuando el cliente indica una sesión mayor
 - paralelismo de carga del navegador predeterminado: `16`
 - paralelismo máximo de carga del navegador: `max_upload_parallel_chunks` en `blog.settings`, límite `40`
 - sesiones de carga concurrentes máximas: `max_total_parallel_uploads` en `blog.settings`, límite `64`
