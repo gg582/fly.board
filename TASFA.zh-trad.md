@@ -220,7 +220,7 @@ repair_worthwhile(嫌疑數, 總分塊數, 分塊大小, rtt_ms):
 
 - 上傳分塊大小：桌面 `24 MiB`，行動裝置 `12 MiB`
 - 自適應上傳分塊大小提示：最小 `4 MiB`，最大桌面 `48 MiB` / 行動裝置 `24 MiB`
-- 下載分塊大小：桌面 `2 MiB`，行動裝置 `1 MiB`，用戶端提示更大工作階段時最大 `16 MiB`
+- 下載分塊大小：桌面 `8 MiB`，行動裝置 `4 MiB`，用戶端提示更大工作階段時最大 `32 MiB`
 - 預設瀏覽器上傳並行度：`16`
 - 最大瀏覽器上傳並行度：`blog.settings` 中的 `max_upload_parallel_chunks`，上限 `40`
 - 最大並發上傳工作階段：`blog.settings` 中的 `max_total_parallel_uploads`，上限 `64`

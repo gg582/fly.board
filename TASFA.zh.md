@@ -220,7 +220,7 @@ repair_worthwhile(嫌疑数, 总分块数, 分块大小, rtt_ms):
 
 - 上传分块大小：桌面 `24 MiB`，移动端 `12 MiB`
 - 自适应上传分块大小提示：最小 `4 MiB`，最大桌面 `48 MiB` / 移动端 `24 MiB`
-- 下载分块大小：桌面 `2 MiB`，移动端 `1 MiB`，客户端提示更大会话时最大 `16 MiB`
+- 下载分块大小：桌面 `8 MiB`，移动端 `4 MiB`，客户端提示更大会话时最大 `32 MiB`
 - 默认浏览器上传并行度：`16`
 - 最大浏览器上传并行度：`blog.settings` 中的 `max_upload_parallel_chunks`，上限 `40`
 - 最大并发上传会话：`blog.settings` 中的 `max_total_parallel_uploads`，上限 `64`

@@ -220,7 +220,7 @@ This prevents browser connection pool exhaustion and keeps stall detection relia
 
 - upload chunk size: `24 MiB` desktop, `12 MiB` mobile
 - adaptive upload chunk-size hint: `4 MiB` minimum, up to `48 MiB` desktop / `24 MiB` mobile
-- download chunk size: `2 MiB` desktop, `1 MiB` mobile, up to `16 MiB` when the client hints a larger session
+- download chunk size: `8 MiB` desktop, `4 MiB` mobile, up to `32 MiB` when the client hints a larger session
 - default browser upload parallelism: `16`
 - max browser upload parallelism: `max_upload_parallel_chunks` in `blog.settings`, capped at `40`
 - max concurrent upload sessions: `max_total_parallel_uploads` in `blog.settings`, capped at `64`
