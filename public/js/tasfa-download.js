@@ -394,7 +394,7 @@
         }
     }
 
-    function fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries) {
+    function fetchChunk(baseUrl, session, parts, chunkIndex, span, retries) {
         retries = retries || 0;
         return new Promise(function(resolve, reject) {
             var startedAt = Date.now();
@@ -447,7 +447,7 @@
                             size = data.byteLength - offset;
                         }
                         if (size > 0) {
-                            allBytes.set(data.subarray(offset, offset + size), idx * session.chunkSize);
+                            parts[idx] = new Uint8Array(data.subarray(offset, offset + size));
                         }
                         offset += size;
                         totalReceived += size;
@@ -493,7 +493,7 @@
                 }
             }
 
-            var allBytes = new Uint8Array(session.totalSize);
+            var parts = new Array(session.chunkCount);
             var sharedState = {
                 chunkCount: session.chunkCount,
                 totalSize: session.totalSize,
@@ -543,7 +543,7 @@
                     if (!claim) break;
                     activeFetches += 1;
                     try {
-                        var received = await fetchChunk(baseUrl, session, allBytes, claim.idx, claim.span);
+                        var received = await fetchChunk(baseUrl, session, parts, claim.idx, claim.span);
                         releaseSpan(claim.idx, claim.span);
                         activeFetches = Math.max(0, activeFetches - 1);
                         tuneDownloadSuccess(session, received.bytes || 0, received.durationMs || 0);
@@ -587,8 +587,14 @@
 
             if (sharedState.failed) throw sharedState.failed;
 
+            var missing = 0;
+            for (var p = 0; p < session.chunkCount; p++) {
+                if (!parts[p]) missing++;
+            }
+            if (missing > 0) throw new Error('incomplete download: ' + missing + ' chunks missing');
+
             var result = {
-                blob: new Blob([allBytes.buffer], { type: session.mimeType }),
+                blob: new Blob(parts, { type: session.mimeType }),
                 filename: session.filename
             };
 
