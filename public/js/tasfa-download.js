@@ -138,23 +138,22 @@
             session.fastStreak = 0;
         }
         if (session.currentSpan < session.maxSpan && session.successEvents % 2 === 0) {
-            session.currentSpan += 1;
+            session.currentSpan = Math.min(session.maxSpan, Math.max(1, Math.round(session.currentSpan * 1.2)));
         }
         if (session.targetParallel < session.maxParallel && session.successEvents % 3 === 0) {
-            session.targetParallel += 1;
+            session.targetParallel = Math.min(session.maxParallel, Math.max(1, Math.round(session.targetParallel * 1.2)));
         }
     }
 
     function tuneDownloadFailure(session, kind) {
         session.failureEvents = (session.failureEvents || 0) + 1;
         session.fastStreak = 0;
-        session.currentSpan = 1;
+        session.currentSpan = Math.max(1, Math.round(session.currentSpan * 0.8));
         pushDownloadQuality(session, kind === 'timeout' ? 0.05 : 0.15);
         rememberDownloadChunkSize(preferredDownloadChunkSize() / 2);
-        if (session.currentSpan > 1) session.currentSpan -= 1;
         var floor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 2 : 4);
         if ((kind === 'timeout' || session.failureEvents % 4 === 0) && session.targetParallel > floor) {
-            session.targetParallel -= 1;
+            session.targetParallel = Math.max(floor, Math.round(session.targetParallel * 0.8));
         }
     }
 

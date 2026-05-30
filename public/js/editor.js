@@ -381,7 +381,7 @@
             stats.lastGuardedAt = now;
             var floor = Math.min(asset.maxParallel || UPLOAD_DEFAULT_PARALLEL, isGoodTasfaLink() ? (isLikelyMobile() ? 4 : 8) : (isLikelyMobile() ? 2 : 4));
             if ((asset.targetParallel || 1) <= floor) return;
-            asset.targetParallel = Math.max(floor, (asset.targetParallel || 1) - 1);
+            asset.targetParallel = Math.max(floor, Math.round((asset.targetParallel || 1) * 0.8));
             stats.lastDropAt = now;
             stats.fastRecoveryUntil = now + TASFA_FAST_RECOVERY_MS;
             tasfaTrace(asset, 'guarded', { predicted: predictedTasfaQuality(asset).toFixed(3) });
@@ -529,8 +529,8 @@
         if (asset.maxParallel && (asset.targetParallel || 1) < asset.maxParallel) {
             var stats = ensureTasfaStats(asset);
             if (stats.successEvents % 2 === 0 || Date.now() < (stats.fastRecoveryUntil || 0)) {
-                var step = Date.now() < (stats.fastRecoveryUntil || 0) ? (isGoodTasfaLink() ? 4 : 2) : 1;
-                asset.targetParallel = Math.min(asset.maxParallel, (asset.targetParallel || 1) + step);
+                var mult = Date.now() < (stats.fastRecoveryUntil || 0) ? 1.4 : 1.2;
+                asset.targetParallel = Math.min(asset.maxParallel, Math.max(1, Math.round((asset.targetParallel || 1) * mult)));
                 tasfaTrace(asset, 'success-ramp', { durationMs: Math.round(durationMs || 0), mbps: bytes && durationMs ? (((bytes * 8) / durationMs / 1000).toFixed(2)) : '0' });
                 scheduleUploadRenegotiate(asset, false);
             }
@@ -551,11 +551,11 @@
         var predictable = (stats.consecutiveFailures || 0) >= 5 || (stats.sameFailureStreak || 0) >= 5 || (kind === 'timeout' && (stats.timeoutEvents || 0) >= 4);
         var shouldReduce = predictable && ((kind === 'timeout' && !goodLink) || stats.failureEvents % 5 === 0 || (stats.consecutiveFailures || 0) >= 6);
         if (shouldReduce && (asset.targetParallel || 1) > floor) {
-            asset.targetParallel = Math.max(floor, (asset.targetParallel || 1) - 1);
+            asset.targetParallel = Math.max(floor, Math.round((asset.targetParallel || 1) * 0.8));
             stats.lastDropAt = Date.now();
             stats.fastRecoveryUntil = Date.now() + TASFA_FAST_RECOVERY_MS;
         } else if ((asset.targetParallel || 1) < (asset.maxParallel || 1)) {
-            asset.targetParallel = Math.min(asset.maxParallel || 1, (asset.targetParallel || 1) + (goodLink ? 2 : 1));
+            asset.targetParallel = Math.min(asset.maxParallel || 1, Math.max(1, Math.round((asset.targetParallel || 1) * 1.2)));
         }
         tasfaTrace(asset, 'failure', { kind: kind, floor: floor, predictable: predictable ? 1 : 0, reduced: shouldReduce ? 1 : 0 });
         // Only force a full reconnect if the connection is truly dead (no progress for a long time).
