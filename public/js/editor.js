@@ -914,9 +914,13 @@
         var url = asset.url || (asset.fid !== null ? ('/file/download/' + asset.fid) : '');
         if (!url) return;
         var name = asset.filename || 'file';
-        var isMedia = /^image\//.test(asset.mime_type || '') || /^video\//.test(asset.mime_type || '') || /^audio\//.test(asset.mime_type || '');
-        if (isMedia) {
+        var mime = (asset.mime_type || '').toLowerCase();
+        if (mime.indexOf('image/') === 0) {
             insertAtCursor('![' + name + '](' + url + ')\n');
+        } else if (mime.indexOf('video/') === 0) {
+            insertAtCursor('<video src="' + url + '" controls playsinline style="max-width:100%;display:block;"></video>\n');
+        } else if (mime.indexOf('audio/') === 0) {
+            insertAtCursor('<audio src="' + url + '" controls style="max-width:100%;display:block;"></audio>\n');
         } else {
             insertAtCursor('[' + name + '](' + url + ')\n');
         }
@@ -3090,16 +3094,7 @@
                         row.appendChild(info);
 
                         row.addEventListener('click', function() {
-                            var url = '/file/download/' + id;
-                            if (isImg) {
-                                insertAtCursor('![' + name + '](' + url + ')\n');
-                            } else if (isVid) {
-                                insertAtCursor('<video src="' + url + '" controls playsinline style="max-width:100%;display:block;"></video>\n');
-                            } else if (isAud) {
-                                insertAtCursor('<audio src="' + url + '" controls style="max-width:100%;display:block;"></audio>\n');
-                            } else {
-                                insertAtCursor('[' + name + '](' + url + ')\n');
-                            }
+                            insertAssetMarkdown({url: '/file/download/' + id, filename: name, mime_type: mime});
                             panel.style.display = 'none';
                         });
 
