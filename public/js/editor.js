@@ -429,7 +429,7 @@
             stats.progressSilenceMs = 0;
             pushTasfaQualityFromMetrics(asset, { mbps: mbps });
             if (stats.fastStreak >= 6 && (stats.ewmaMbps >= 25 || durationMs < 12000)) {
-                rememberUploadChunkSize(preferredUploadChunkSize(asset.fileSize) + TASFA_UPLOAD_CHUNK_STEP_UP);
+                rememberUploadChunkSize(preferredUploadChunkSize(asset.fileSize) * 2);
                 stats.fastStreak = 0;
             }
         } else {
@@ -437,7 +437,7 @@
             stats.consecutiveFailures = (stats.consecutiveFailures || 0) + 1;
             stats.retryFreeStreak = 0;
             pushTasfaQualityFromMetrics(asset, { failure: true });
-            rememberUploadChunkSize(preferredUploadChunkSize(asset.fileSize) - TASFA_UPLOAD_CHUNK_STEP_DOWN);
+            rememberUploadChunkSize(preferredUploadChunkSize(asset.fileSize) / 2);
         }
     }
 

@@ -134,7 +134,7 @@
         session.ewmaMbps = session.ewmaMbps ? (session.ewmaMbps * 0.75 + mbps * 0.25) : mbps;
         pushDownloadQuality(session, clampNumber(mbps / 25, 0.1, 1));
         if (session.fastStreak >= 6 && (session.ewmaMbps >= 25 || durationMs < 10000)) {
-            rememberDownloadChunkSize(preferredDownloadChunkSize() + DOWNLOAD_CHUNK_STEP_UP);
+            rememberDownloadChunkSize(preferredDownloadChunkSize() * 2);
             session.fastStreak = 0;
         }
         if (session.currentSpan < session.maxSpan && session.successEvents % 2 === 0) {
@@ -150,7 +150,7 @@
         session.fastStreak = 0;
         session.currentSpan = 1;
         pushDownloadQuality(session, kind === 'timeout' ? 0.05 : 0.15);
-        rememberDownloadChunkSize(preferredDownloadChunkSize() - DOWNLOAD_CHUNK_STEP_DOWN);
+        rememberDownloadChunkSize(preferredDownloadChunkSize() / 2);
         if (session.currentSpan > 1) session.currentSpan -= 1;
         var floor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 2 : 4);
         if ((kind === 'timeout' || session.failureEvents % 4 === 0) && session.targetParallel > floor) {
