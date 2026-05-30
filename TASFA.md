@@ -130,7 +130,7 @@ During `POST /file/upload/complete` the server:
 
 1. Loads all per-chunk records from `htp.bin` (hash tag, raw scalar, and balanced scalar).
 2. Validates only **complete 6-slot groups** (partial groups are skipped).
-3. If two slots in a group have their balanced scalars swapped (out-of-order), the server swaps their `htp.bin` records in-place to repair the group without requiring retransmission.
+3. If the scalar order inside a 6-slot group is permuted (out-of-order), the server searches all 720 permutations, finds one that restores the invariant, and reorders the `htp.bin` records accordingly without requiring retransmission.
 4. For every failing group, computes **suspicion scores** per slot by analyzing which line equations each slot participates in.
 
 ### Suspect confidence scoring (per group)
@@ -340,4 +340,4 @@ The server uses a sticky round-robin worker scheduler. The number of workers equ
 | Q4: Does the response contain suspicion scores, not just binary flags? | **Yes.** Every `needs_retry` response includes `suspicion_scores` as `{chunk_index, score}` objects. |
 | Q5: Does contraction preserve original group topology? | **Yes.** `htp_contract_groups` treats each original complete group as a single higher-level vertex; suspects are never reshuffled across groups. |
 | Q6: Are retry targets cleared on successful retransmission? | **Yes.** `handler_file_upload` removes the chunk from `htp_retry_targets` after accepting a retry retransmission. |
-| Q7: Does the server repair out-of-order scalars by swapping? | **Yes.** `htp_try_swap_repair` tests every pair of slots in a 6-slot group; if swapping them restores the invariant, their `htp.bin` records are exchanged immediately and the group passes without retransmission. |
+| Q7: Does the server repair out-of-order scalars by swapping? | **Yes.** `htp_try_swap_repair` brute-forces all 720 permutations of a 6-slot group; if any permutation restores the invariant, the `htp.bin` records are reordered immediately and the group passes without retransmission. |

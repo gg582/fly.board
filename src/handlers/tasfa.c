@@ -1923,52 +1923,72 @@ static void htp_analyze_group(uint64_t v[6], uint64_t modulus_M, int group_start
 #define HTP_REPAIR_CPU_PER_SUSPECT  2048.0
 #define HTP_REPAIR_CPU_PER_L0_GROUP 512.0
 
-/* If two slots in a group are swapped (out-of-order scalars), try swapping
- * their balanced values and see if the invariant holds. If so, swap their
- * htp.bin records in-place so the server recovers without retransmission. */
+/* Try every permutation of a 6-slot group's balanced scalars.
+ * If any permutation restores L1==L2==L3, apply it to memory and htp.bin
+ * so the server recovers without retransmission. */
+static bool next_permutation_int(int *a, int n) {
+    int i = n - 2;
+    while (i >= 0 && a[i] >= a[i + 1]) i--;
+    if (i < 0) return false;
+    int j = n - 1;
+    while (a[j] <= a[i]) j--;
+    int tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+    for (int l = i + 1, r = n - 1; l < r; l++, r--) {
+        tmp = a[l]; a[l] = a[r]; a[r] = tmp;
+    }
+    return true;
+}
+
 static bool htp_try_swap_repair(const char *upload_id, uint64_t *balanced_scalars,
                                 uint64_t *raw_scalars, char *tags,
                                 int group_start, uint64_t modulus_M) {
     uint64_t v[6];
     for (int i = 0; i < 6; i++) v[i] = balanced_scalars[group_start + i];
 
-    for (int i = 0; i < 6; i++) {
-        for (int j = i + 1; j < 6; j++) {
-            uint64_t tmp = v[i]; v[i] = v[j]; v[j] = tmp;
-            htp_line_sums_t sums = htp_line_sums(v, modulus_M);
-            bool ok = (sums.l1 == sums.l2 && sums.l2 == sums.l3);
-            tmp = v[i]; v[i] = v[j]; v[j] = tmp;
+    htp_line_sums_t sums0 = htp_line_sums(v, modulus_M);
+    if (sums0.l1 == sums0.l2 && sums0.l2 == sums0.l3) return false;
 
-            if (ok) {
-                int a = group_start + i;
-                int b = group_start + j;
-
-                uint64_t t = balanced_scalars[a]; balanced_scalars[a] = balanced_scalars[b]; balanced_scalars[b] = t;
-                t = raw_scalars[a]; raw_scalars[a] = raw_scalars[b]; raw_scalars[b] = t;
-
-                char tag_tmp[HTP_TAG_LEN];
-                memcpy(tag_tmp, tags + (a * HTP_TAG_LEN), HTP_TAG_LEN);
-                memcpy(tags + (a * HTP_TAG_LEN), tags + (b * HTP_TAG_LEN), HTP_TAG_LEN);
-                memcpy(tags + (b * HTP_TAG_LEN), tag_tmp, HTP_TAG_LEN);
-
-                char path[PATH_MAX];
-                upload_session_dir(path, sizeof(path), upload_id);
-                strncat(path, "/htp.bin", sizeof(path) - strlen(path) - 1);
-                int fd = open(path, O_RDWR);
-                if (fd >= 0) {
-                    off_t off_a = (off_t)a * HTP_RECORD_SIZE;
-                    off_t off_b = (off_t)b * HTP_RECORD_SIZE;
-                    char rec_a[HTP_RECORD_SIZE];
-                    char rec_b[HTP_RECORD_SIZE];
-                    if (pread(fd, rec_a, HTP_RECORD_SIZE, off_a) == HTP_RECORD_SIZE &&
-                        pread(fd, rec_b, HTP_RECORD_SIZE, off_b) == HTP_RECORD_SIZE) {
-                        pwrite(fd, rec_b, HTP_RECORD_SIZE, off_a);
-                        pwrite(fd, rec_a, HTP_RECORD_SIZE, off_b);
-                    }
-                    close(fd);
-                }
-                return true;
+    int perm[6] = {0, 1, 2, 3, 4, 5};
+    while (next_permutation_int(perm, 6)) {
+        uint64_t p[6];
+        for (int i = 0; i < 6; i++) p[i] = v[perm[i]];
+        htp_line_sums_t sums = htp_line_sums(p, modulus_M);
+        if (sums.l1 == sums.l2 && sums.l2 == sums.l3) {
+            uint64_t new_balanced[6], new_raw[6];
+            char new_tags[6][HTP_TAG_LEN];
+            for (int i = 0; i < 6; i++) {
+                int src = group_start + perm[i];
+                new_balanced[i] = balanced_scalars[src];
+                new_raw[i] = raw_scalars[src];
+                memcpy(new_tags[i], tags + (src * HTP_TAG_LEN), HTP_TAG_LEN);
             }
+            for (int i = 0; i < 6; i++) {
+                int dst = group_start + i;
+                balanced_scalars[dst] = new_balanced[i];
+                raw_scalars[dst] = new_raw[i];
+                memcpy(tags + (dst * HTP_TAG_LEN), new_tags[i], HTP_TAG_LEN);
+            }
+
+            char path[PATH_MAX];
+            upload_session_dir(path, sizeof(path), upload_id);
+            strncat(path, "/htp.bin", sizeof(path) - strlen(path) - 1);
+            int fd = open(path, O_RDWR);
+            if (fd >= 0) {
+                char recs[6][HTP_RECORD_SIZE];
+                bool ok = true;
+                for (int i = 0; i < 6; i++) {
+                    off_t off = (off_t)(group_start + i) * HTP_RECORD_SIZE;
+                    if (pread(fd, recs[i], HTP_RECORD_SIZE, off) != HTP_RECORD_SIZE) ok = false;
+                }
+                if (ok) {
+                    for (int i = 0; i < 6; i++) {
+                        off_t off = (off_t)(group_start + i) * HTP_RECORD_SIZE;
+                        pwrite(fd, recs[perm[i]], HTP_RECORD_SIZE, off);
+                    }
+                }
+                close(fd);
+            }
+            return true;
         }
     }
     return false;
