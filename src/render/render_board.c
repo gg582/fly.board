@@ -45,12 +45,13 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     cwist_sstring_append(b, "><img class='hero-logo' data-tasfa-skip='1' src='/assets/img/");
     if (g_config.blog_logo[0]) cwist_sstring_append_escaped(b, g_config.blog_logo);
     else cwist_sstring_append(b, "logo.png");
-    cwist_sstring_append(b, "' alt='Logo' style='height:120px");
+    cwist_sstring_append(b, "' alt='Logo'");
     if (has_boards_bg) {
-        cwist_sstring_append(b, ";filter:");
+        cwist_sstring_append(b, " style='filter:");
         cwist_sstring_append(b, logo_filter);
+        cwist_sstring_append(b, "'");
     }
-    cwist_sstring_append(b, "' fetchpriority='high'><h1>");
+    cwist_sstring_append(b, " fetchpriority='high'><h1>");
     cwist_sstring_append_escaped(b, g_config.title);
     cwist_sstring_append(b, "</h1><p");
     if (has_boards_bg) cwist_sstring_append(b, " style='opacity:0.85'");

@@ -516,8 +516,8 @@ static int link_score_from_inputs(const char *score_str, const char *effective_t
         else score -= 18;
     }
     bool good_mobile = effective_type && strcmp(effective_type, "4g") == 0 && (downlink >= 8.0 || downlink <= 0.0) && (rtt <= 220.0 || rtt <= 0.0);
-    score -= retries * (good_mobile ? 3 : 5);
-    score -= timeouts * (good_mobile ? 8 : 12);
+    score -= retries * (good_mobile ? 2 : 3);
+    score -= timeouts * (good_mobile ? 5 : 6);
     if (save_data_str && (!strcmp(save_data_str, "1") || !strcasecmp(save_data_str, "true"))) score -= 10;
     return clamp_int(score, 10, 100);
 }
@@ -1688,7 +1688,8 @@ void handler_file_upload_renegotiate(cwist_http_request *req, cwist_http_respons
     if (current_max < configured_max && max_parallel < current_max) max_parallel = current_max;
     if (max_parallel > configured_max) max_parallel = configured_max;
     if (suggested > 0) initial_parallel = clamp_int(suggested, 1, max_parallel);
-    if (initial_parallel < current_parallel - 1) initial_parallel = current_parallel - 1;
+    // Trust client's aggressive recovery suggestion; only cap extreme drops
+    if (initial_parallel < current_parallel / 3) initial_parallel = current_parallel / 3;
     if (initial_parallel > max_parallel) initial_parallel = max_parallel;
     double rtt_ms = atof(cwist_query_map_get(kv, "link_rtt_ms") ? cwist_query_map_get(kv, "link_rtt_ms") : "0");
     cJSON_DeleteItemFromObject(meta, "link_rtt_ms");
