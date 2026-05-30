@@ -111,14 +111,14 @@ function _openModal(blobUrl, title, isAudio) {
 export function openTasfaVideoModal(url, title, isAudio) {
     if (!url) return;
 
-    // TASFA-protected videos must be fetched as a blob first because
-    // direct GET to /file/download/... returns 403 for non-images.
+    // For TASFA-protected videos, register the download session with the
+    // Service Worker so the browser can stream via native range requests.
     if (window.fetchBlobViaTasfa && /\/file\/download\/\d+/.test(url)) {
-        window.fetchBlobViaTasfa(url, { silent: false }).then(function(result) {
-            var blobUrl = URL.createObjectURL(result.blob);
-            _openModal(blobUrl, title, isAudio);
+        window.fetchBlobViaTasfa(url, { silent: true, handshakeOnly: true }).then(function() {
+            // Session registered; browser will handle range requests through SW.
+            _openModal(url, title, isAudio);
         }).catch(function() {
-            // Download failed — do not open anything so the user never sees a broken player.
+            // Failed — do not open a broken player.
         });
         return;
     }

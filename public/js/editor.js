@@ -919,6 +919,12 @@
         if (!url) return;
         var name = asset.filename || 'file';
         var mime = (asset.mime_type || '').toLowerCase();
+        // Infer mime from filename extension when server omits it
+        if (!mime && name) {
+            var ext = name.split('.').pop().toLowerCase();
+            if (/^(mp4|mov|mkv|webm|avi|m4v|flv)$/.test(ext)) mime = 'video/' + ext;
+            else if (/^(mp3|wav|ogg|aac|flac|m4a|opus)$/.test(ext)) mime = 'audio/' + ext;
+        }
         if (mime.indexOf('image/') === 0) {
             insertAtCursor('![' + name + '](' + url + ')\n');
         } else if (mime.indexOf('video/') === 0) {

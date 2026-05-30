@@ -36,4 +36,7 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
                                const char *path, const char *mime,
                                const char *cache_control, bool *not_modified);
 
+bool secure_str_eq(const char *a, const char *b);
+cJSON *load_download_session_cached(const char *session_id);
+
 #endif

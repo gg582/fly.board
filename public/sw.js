@@ -1,6 +1,16 @@
 var LOGO_CACHE = 'logo-cache-v1';
 var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
 var LOGO_MAX_AGE = 86400000; // 86400 seconds in milliseconds
+var tasfaSessions = {};
+
+self.addEventListener('message', function(event) {
+    if (event.data && event.data.type === 'TASFA_SESSION') {
+        tasfaSessions[event.data.url] = {
+            sessionId: event.data.sessionId,
+            sessionToken: event.data.sessionToken
+        };
+    }
+});
 
 self.addEventListener('install', function(e) {
     self.skipWaiting();
@@ -81,6 +91,24 @@ self.addEventListener('fetch', function(event) {
     var url = event.request.url;
     // Don't intercept cross-origin requests (multi-port)
     if (new URL(url).origin !== self.location.origin) return;
+
+    if (url.indexOf(self.location.origin + '/file/download/') === 0 && event.request.method === 'GET') {
+        var session = tasfaSessions[url];
+        if (session) {
+            var headers = new Headers(event.request.headers);
+            headers.set('X-TASFA-Session-ID', session.sessionId);
+            headers.set('X-TASFA-Session-Token', session.sessionToken);
+            event.respondWith(
+                fetch(new Request(url, { headers: headers })).then(function(response) {
+                    if (event.request.headers.get('Range')) {
+                        return handleRangeRequest(event.request, response);
+                    }
+                    return response;
+                })
+            );
+            return;
+        }
+    }
 
     if (url.indexOf(self.location.origin + '/__tasfa_media__/') === 0 && event.request.method === 'GET') {
         event.respondWith(
