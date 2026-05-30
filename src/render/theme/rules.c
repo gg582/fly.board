@@ -1698,12 +1698,14 @@ void rule_media(cJSON *rules) {
     add_decl(mq4, "left", "0");
     add_decl(mq4, "width", "100%");
     add_decl(mq4, "flex-direction", "column");
-    add_decl(mq4, "background", "var(--panel)");
+    add_decl(mq4, "background", "color-mix(in srgb, var(--glass-bg) 92%, transparent)");
     add_decl(mq4, "align-items", "stretch");
     add_decl(mq4, "gap", "0");
     add_decl(mq4, "padding", "16px 0");
     add_decl(mq4, "z-index", "101");
-    add_decl(mq4, "border-bottom", "1px solid var(--border)");
+    add_decl(mq4, "border-bottom", "1px solid var(--glass-border)");
+    add_decl(mq4, "backdrop-filter", "blur(16px) saturate(140%)");
+    add_decl(mq4, "-webkit-backdrop-filter", "blur(16px) saturate(140%)");
     cJSON_AddItemToArray(rules, mq4);
 
     cJSON *mq5 = create_mobile_rule(".nav-links.open");
@@ -1759,8 +1761,10 @@ void rule_media(cJSON *rules) {
     add_decl(mq10, "transform", "translateY(0)");
     add_decl(mq10, "max-height", "300px");
     add_decl(mq10, "padding", "4px 0");
-    add_decl(mq10, "background", "color-mix(in srgb, var(--hover) 70%, transparent)");
+    add_decl(mq10, "background", "color-mix(in srgb, var(--glass-bg) 90%, transparent)");
     add_decl(mq10, "border-left", "3px solid var(--accent)");
+    add_decl(mq10, "backdrop-filter", "blur(12px) saturate(140%)");
+    add_decl(mq10, "-webkit-backdrop-filter", "blur(12px) saturate(140%)");
     cJSON_AddItemToArray(rules, mq10);
 
     cJSON *mq11 = create_mobile_rule(".nav-board-menu-list");
@@ -1808,6 +1812,8 @@ void rule_media(cJSON *rules) {
 
     cJSON *mq20 = create_mobile_rule(".mobile-overlay");
     add_decl(mq20, "display", "block");
+    add_decl(mq20, "backdrop-filter", "blur(4px)");
+    add_decl(mq20, "-webkit-backdrop-filter", "blur(4px)");
     cJSON_AddItemToArray(rules, mq20);
 
     cJSON *mq21 = create_mobile_rule(".hero-logo");
