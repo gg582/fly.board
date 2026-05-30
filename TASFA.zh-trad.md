@@ -17,6 +17,7 @@ TASFA 是本專案用於檔案上傳與下載的傳輸協定。
 下載:
 - `GET /file/download/:id/handshake`
 - `GET /file/download/:id/chunk/:chunk_index`
+- `GET /file/download/:id` — 支援帶 TASFA 工作階段認證（`X-TASFA-Session-ID`、`X-TASFA-Session-Token`）的 `Range` 標頭，用於原生媒體串流傳輸
 - `GET /assets/tasfa/img/:filename/handshake`
 - `GET /assets/tasfa/img/:filename/chunk/:chunk_index`
 - `GET /assets/tasfa/uploads/:filename/handshake`
@@ -227,7 +228,7 @@ repair_worthwhile(嫌疑數, 總分塊數, 分塊大小, rtt_ms):
 - 最大並發上傳工作階段：`blog.settings` 中的 `max_total_parallel_uploads`，上限 `64`
 - 最大上傳大小：`blog.settings` 中的 `max_upload_size`
 - 最大瀏覽器下載工作階段：伺服器定義，目前每工作階段最多 `48` 個分塊請求
-- 下載合併（span 組大小）：成功時 `*1.2`，失敗時 `*0.8`，最多 `16` 個分塊
+- 下載合併（span 組大小）：成功時 `*1.15`，失敗時 `*0.85`，最多 `16` 個分塊
 - 上傳 xhr 逾時：至少 `180 s`
 - 上傳工作階段 fetch 逾時：`30 s`
 
@@ -235,7 +236,9 @@ repair_worthwhile(嫌疑數, 總分塊數, 分塊大小, rtt_ms):
 
 ### 客戶端自適應
 
-上傳客戶端測量區塊完成時間、重試、逾時，以及可用時的 Network Information API 提示。它將這些輸入傳送到 `/file/upload/init` 和 `/file/upload/renegotiate`；伺服器傳回目前並行視窗和最大視窗。乾淨的完成會迅速將活動視窗提升到協商的最大值，而暫時性失敗不再崩潰到很小的並行度下限以下。AES-GCM 後援也在自適應視窗內執行。看門狗會中止停滯的上傳並從伺服器位元圖中恢復，而不是讓傳輸卡住。
+上傳客戶端測量區塊完成時間、重試、逾時，以及可用時的 Network Information API 提示。它將這些輸入傳送到 `/file/upload/init` 和 `/file/upload/renegotiate`；伺服器傳回目前並行視窗和最大視窗。乾淨的完成會將活動視窗以 `*1.15` 提升到協商的最大值，而暫時性失敗以 `*0.85` 降低。AES-GCM 後援也在自適應視窗內執行。
+
+每個分塊設定絕對逾時，以防止連線接收部分資料但永不關閉導致的停滯。如果看門狗偵測到上傳停滯（逾時內無分塊完成），客戶端將執行**激進重啟（aggressive restart）**：將 `targetParallel` 重設為 `maxParallel`，將 `dispatchPacingMs` 設為 `0`，然後從伺服器位元圖恢復上傳。學習到的分塊大小提示僅在**工作階段本地**保持，不會立即持久化到 `localStorage`；僅套用於下一個 TASFA 工作階段。
 
 下載也使用相同的高吞吐量偏向：握手攜帶客戶端的首選區塊大小提示，活動下載在成功的區塊群組之後增加 `span` 和並行度。短回應、逾時和網路錯誤按區塊索引重新排隊；在相同區塊耗盡高重試預算之前，整個下載不會失敗。
 
@@ -293,6 +296,18 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 4. 用戶端在瀏覽器中使用 **Web Crypto API** 和工作階段金鑰解密分塊。
 5. 瀏覽器將回應組裝為單個連續緩衝區。
 
+### Range-Request 串流傳輸
+
+對於大型媒體檔案，用戶端可以繞過完整的逐塊下載，直接從 `GET /file/download/:id` 請求位元組範圍，傳送以下標頭：
+
+- `Range: bytes=<start>-<end>`
+- `X-TASFA-Session-ID: <session_id>`
+- `X-TASFA-Session-Token: <session_token>`
+
+伺服器驗證工作階段權杖並回傳帶有 `Content-Range`、`Content-Length` 和 `Accept-Ranges` 標頭的 `206 Partial Content`。Service Worker 快取完整回應，後續範圍請求可從快取直接提供，無需存取伺服器。
+
+對於影片/音訊播放，用戶端可以執行**僅交握註冊**（`fetchBlobViaTasfa(url, {handshakeOnly: true})`），然後將媒體元素的 `src` 設為直接下載 URL。瀏覽器為搜尋操作發出原生 `Range` 請求；Service Worker 攔截這些請求，新增 TASFA 工作階段標頭，並在快取可用時提供 `206` 回應。
+
 下載區塊回應包括：
 
 - `X-TASFA-Chunk-Index` 和 `X-TASFA-Chunk-Count`
@@ -306,6 +321,7 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 - **HTP 元資料預計算**：當伺服器產生縮圖或預覽時，它會立即計算其分塊的 HTP 純量和 SHA-256 標籤，並將其儲存在 `data/tasfa/media_htp` 中。注意：伺服器端媒體產生器為此目的使用 **SHA-256**，而上傳客戶端對使用者上傳的分塊仍使用 **SHA-512**。
 - **可靠的媒體傳輸**：媒體透過 `/assets/tasfa/...` 路由提供，支援完整的 TASFA 協定，包括使用預先計算的 HTP 元資料進行分塊級完整性驗證。
 - **並行控制**：媒體產生（ffmpeg）限制為 4 個並行程序，以保護伺服器資源。
+- **統一媒體插入**：自動插入和檔案瀏覽器插入均使用帶有 `controls` 和 `playsinline` 屬性的原生 HTML `<video>` 或 `<audio>` 標籤。客戶端透過 MIME 類型或檔案副檔名偵測媒體類型，當 MIME 類型為通用類型（`application/octet-stream`）時回退到基於副檔名的偵測。
 
 ## 透過點陣圖的 DoS 緩解
 

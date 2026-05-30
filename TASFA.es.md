@@ -17,6 +17,7 @@ Carga:
 Descarga:
 - `GET /file/download/:id/handshake`
 - `GET /file/download/:id/chunk/:chunk_index`
+- `GET /file/download/:id` — admite el encabezado `Range` con autenticación de sesión TASFA (`X-TASFA-Session-ID`, `X-TASFA-Session-Token`) para streaming nativo de medios
 - `GET /assets/tasfa/img/:filename/handshake`
 - `GET /assets/tasfa/img/:filename/chunk/:chunk_index`
 - `GET /assets/tasfa/uploads/:filename/handshake`
@@ -233,7 +234,9 @@ El límite de conexiones HTTP por origen del navegador se respeta naturalmente p
 
 ### Adaptación del Cliente
 
-El cliente de carga mide el tiempo de finalización del fragmento, reintentos, tiempos de espera, y pistas de la API de Información de Red cuando están disponibles. Envía esas entradas a `/file/upload/init` y `/file/upload/renegotiate`; el servidor responde con una ventana paralela actual y una ventana máxima. Las finalizaciones limpias aumentan la ventana activa exponencialmente por `*1.2` hasta el máximo negociado, mientras que los fallos transitorios la reducen por `*0.8`. El respaldo AES-GCM también se ejecuta dentro de la ventana adaptativa. Un watchdog aborta y reanuda una carga bloqueada desde el bitmap del servidor en lugar de dejar la transferencia atascada.
+El cliente de carga mide el tiempo de finalización del fragmento, reintentos, tiempos de espera, y pistas de la API de Información de Red cuando están disponibles. Envía esas entradas a `/file/upload/init` y `/file/upload/renegotiate`; el servidor responde con una ventana paralela actual y una ventana máxima. Las finalizaciones limpias aumentan la ventana activa por `*1.15` hasta el máximo negociado, mientras que los fallos transitorios la reducen por `*0.85`. El respaldo AES-GCM también se ejecuta dentro de la ventana adaptativa.
+
+Un tiempo de espera absoluto por fragmento previene bloqueos causados por conexiones que reciben datos parciales pero nunca cierran. Si un watchdog detecta una carga bloqueada (sin finalización de fragmento dentro del tiempo de espera), el cliente realiza un **reinicio agresivo**: `targetParallel` se restablece a `maxParallel`, `dispatchPacingMs` se pone a `0`, y la carga se reanuda desde el bitmap del servidor. La pista aprendida del tamaño de fragmento se mantiene **local a la sesión** y no se persiste inmediatamente en `localStorage`; solo se aplica a la siguiente sesión TASFA.
 
 La descarga usa el mismo sesgo de alto rendimiento: el handshake lleva la pista de tamaño de fragmento preferida del cliente, y las descargas activas aumentan el `span` y el paralelismo después de grupos de fragmentos exitosos. Las lecturas cortas, tiempos de espera y errores de red se reencolan por índice de fragmento; un grupo fallido no falla toda la descarga hasta que el mismo fragmento haya agotado un alto presupuesto de reintentos.
 
@@ -291,6 +294,18 @@ Las cargas completadas reciben un PIN de eliminación de un solo uso. El PIN en 
 4. El cliente descifra los fragmentos en el navegador utilizando la **Web Crypto API** y las claves de sesión.
 5. El navegador ensambla la respuesta en un búfer contiguo.
 
+### Streaming por Range-Request
+
+Para archivos multimedia grandes, el cliente puede omitir la descarga completa fragmento por fragmento y solicitar directamente un rango de bytes a `GET /file/download/:id` enviando:
+
+- `Range: bytes=<start>-<end>`
+- `X-TASFA-Session-ID: <session_id>`
+- `X-TASFA-Session-Token: <session_token>`
+
+El servidor valida el token de sesión y devuelve `206 Partial Content` con los encabezados `Content-Range`, `Content-Length` y `Accept-Ranges`. El Service Worker almacena en caché la respuesta completa y puede servir solicitudes de rango posteriores desde la caché sin llegar al servidor.
+
+Para reproducción de video/audio, el cliente puede realizar un **registro solo de handshake** (`fetchBlobViaTasfa(url, {handshakeOnly: true})`) y luego establecer el `src` del elemento multimedia en la URL de descarga directa. El navegador emite solicitudes `Range` nativas para las operaciones de seek; el Service Worker las intercepta, añade los encabezados de sesión TASFA y sirve respuestas `206` desde la caché cuando está disponible.
+
 Las respuestas de fragmentos de descarga incluyen:
 
 - `X-TASFA-Chunk-Index` y `X-TASFA-Chunk-Count`
@@ -304,6 +319,7 @@ Los medios generados por el servidor (miniaturas, vistas previas de audio) son a
 - **Precalculación de Metadatos HTP**: Cuando el servidor genera una miniatura o vista previa, calcula inmediatamente los escalares HTP y las etiquetas SHA-256 para sus fragmentos y los almacena en `data/tasfa/media_htp`. Nota: el generador de medios del lado del servidor usa **SHA-256** para este propósito, mientras que el cliente de carga todavía usa **SHA-512** para los fragmentos cargados por el usuario.
 - **Transferencia Confiable de Medios**: Los medios se sirven a través de las rutas `/assets/tasfa/...`, que admiten el protocolo TASFA completo, incluida la verificación de integridad a nivel de fragmento utilizando los metаданнos HTP precalculados.
 - **Control de Concurrencia**: La generación de medios (ffmpeg) está limitada a 4 procesos concurrentes para proteger los recursos del servidor.
+- **Inserción Unificada de Medios**: Tanto la inserción automática como la del explorador de archivos usan etiquetas HTML nativas `<video>` o `<audio>` con los atributos `controls` y `playsinline`. El cliente detecta el tipo de medio por el tipo MIME o la extensión del archivo, y recurre a la detección por extensión cuando el tipo MIME es genérico (`application/octet-stream`).
 
 ## Mitigación DoS vía Bitmap
 
