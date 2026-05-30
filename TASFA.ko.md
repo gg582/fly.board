@@ -17,6 +17,7 @@ TASFA는 이 프로젝트에서 파일 업로드와 다운로드에 사용하는
 다운로드:
 - `GET /file/download/:id/handshake`
 - `GET /file/download/:id/chunk/:chunk_index`
+- `GET /file/download/:id` — `Range` 헤더와 TASFA 세션 인증(`X-TASFA-Session-ID`, `X-TASFA-Session-Token`)을 지원하여 네이티브 미디어 스트리밍 가능
 - `GET /assets/tasfa/img/:filename/handshake`
 - `GET /assets/tasfa/img/:filename/chunk/:chunk_index`
 - `GET /assets/tasfa/uploads/:filename/handshake`
@@ -219,9 +220,9 @@ HTP 실패 시 서버가 복구 또는 재시도를 결정하면, `complete` 엔
 ## 런타임 설정
 
 - 업로드 청크 크기: 데스크톱 `24 MiB`, 모바일 `12 MiB`
-- 적응형 업로드 청크 크기 힌트: 최소 `4 MiB`, 최대 데스크톱 `48 MiB` / 모바일 `24 MiB`; 성공 시 `*2`, 실패 시 `/2`
+- 적응형 업로드 청크 크기 힌트: 최소 `4 MiB`, 최대 데스크톱 `48 MiB` / 모바일 `24 MiB`; 성공 시 `*2`, 실패 시 `*0.75`
 - 다운로드 청크 크기: 데스크톱 `8 MiB`, 모바일 `4 MiB`, 클라이언트가 더 큰 세션을 힌트하면 최대 `32 MiB`
-- 기본 브라우저 업로드 병렬성: `16`, 성공 시 `*1.2`, 실패 시 `*0.8`
+- 기본 브라우저 업로드 병렬성: `16`, 성공 시 `*1.15`, 실패 시 `*0.85`
 - 최대 브라우저 업로드 병렬성: `blog.settings`의 `max_upload_parallel_chunks`, 상한 `40`
 - 최대 동시 업로드 세션: `blog.settings`의 `max_total_parallel_uploads`, 상한 `64`
 - 최대 업로드 크기: `blog.settings`의 `max_upload_size`
@@ -292,6 +293,18 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 4. 클라이언트는 브라우저에서 **Web Crypto API**와 세션 키를 사용하여 청크를 복호화한다.
 5. 브라우저는 응답을 하나의 연속 버퍼로 조립한다.
 
+### Range-Request 스트리밍
+
+큰 미디어 파일의 경우 클라이언트는 전체 청크 단위 다운로드를 우회하고 `GET /file/download/:id`에 다음 헤더와 함께 바이트 범위를 직접 요청할 수 있다:
+
+- `Range: bytes=<start>-<end>`
+- `X-TASFA-Session-ID: <session_id>`
+- `X-TASFA-Session-Token: <session_token>`
+
+서버는 세션 토큰을 검증하고 `Content-Range`, `Content-Length`, `Accept-Ranges` 헤더와 함께 `206 Partial Content`를 반환한다. Service Worker는 전체 응답을 캐싱하고 이후 범위 요청을 서버에 도달하지 않고 캐시에서 제공할 수 있다.
+
+비디오/오디오 재생의 경우 클라이언트는 **핸드셰이크 전용 등록**(`fetchBlobViaTasfa(url, {handshakeOnly: true})`)을 수행한 후 미디어 요소의 `src`를 직접 다운로드 URL로 설정한다. 브라우저는 탐색(seek)을 위해 네이티브 `Range` 요청을 보내고, Service Worker는 이를 가로채 TASFA 세션 헤더를 추가한 뒤 캐시가 있으면 `206` 응답을 제공한다.
+
 다운로드 청크 응답은 다음을 포함한다:
 
 - `X-TASFA-Chunk-Index` 및 `X-TASFA-Chunk-Count`
@@ -305,6 +318,7 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 - **HTP 메타데이터 사전 계산**: 서버가 썸네일이나 미리보기를 생성할 때, 즉시 해당 청크에 대한 HTP 스칼라와 SHA-256 태그를 계산하여 `data/tasfa/media_htp`에 저장한다. 참고: 서버 측 미디어 생성기는 이 목적으로 **SHA-256**을 사용하며, 사용자 업로드 청크의 클라이언트는 여전히 **SHA-512**를 사용한다.
 - **신뢰할 수 있는 미디어 전송**: 미디어는 `/assets/tasfa/...` 라우트를 통해 제공되며, 사전 계산된 HTP 메타데이터를 사용하여 청크 단위 무결성 검증을 포함한 전체 TASFA 프로토콜을 지원한다.
 - **동시성 제어**: 서버 자원 보호를 위해 미디어 생성(ffmpeg)은 동시에 최대 4개로 제한된다.
+- **통일된 미디어 삽입**: 자동 삽입과 파일 브라우저 삽입 모두 `controls`와 `playsinline` 속성을 가진 네이티브 HTML `<video>` 또는 `<audio>` 태그를 사용한다. 클라이언트는 MIME 타입이나 파일 확장자로 미디어 유형을 감지하며, MIME 타입이 일반적일 때(`application/octet-stream`) 확장자 기반 감지로 폴백한다.
 
 ## 비트맵을 통한 DoS 완화
 

@@ -17,6 +17,7 @@ Upload:
 Download:
 - `GET /file/download/:id/handshake`
 - `GET /file/download/:id/chunk/:chunk_index`
+- `GET /file/download/:id` — supports `Range` header with TASFA session authentication (`X-TASFA-Session-ID`, `X-TASFA-Session-Token`) for native media streaming
 - `GET /assets/tasfa/img/:filename/handshake`
 - `GET /assets/tasfa/img/:filename/chunk/:chunk_index`
 - `GET /assets/tasfa/uploads/:filename/handshake`
@@ -220,9 +221,9 @@ This prevents browser connection pool exhaustion and keeps stall detection relia
 ## Runtime Settings
 
 - upload chunk size: `24 MiB` desktop, `12 MiB` mobile
-- adaptive upload chunk-size hint: `4 MiB` minimum, up to `48 MiB` desktop / `24 MiB` mobile; success `*2`, failure `/2`
+- adaptive upload chunk-size hint: `4 MiB` minimum, up to `48 MiB` desktop / `24 MiB` mobile; success `*2`, failure `*0.75`
 - download chunk size: `8 MiB` desktop, `4 MiB` mobile, up to `32 MiB` when the client hints a larger session
-- default browser upload parallelism: `16`, success `*1.2`, failure `*0.8`
+- default browser upload parallelism: `16`, success `*1.15`, failure `*0.85`
 - max browser upload parallelism: `max_upload_parallel_chunks` in `blog.settings`, capped at `40`
 - max concurrent upload sessions: `max_total_parallel_uploads` in `blog.settings`, capped at `64`
 - max upload size: `max_upload_size` in `blog.settings`
@@ -235,7 +236,9 @@ TASFA is tuned for general high-bandwidth server deployments, not an embedded/ae
 
 ### Client adaptation
 
-The upload client measures chunk completion time, retries, timeouts, and Network Information API hints when available. It sends those inputs to `/file/upload/init` and `/file/upload/renegotiate`; the server answers with a current parallel window and max window. Clean completions increase the active window exponentially by `*1.2` up to the negotiated max, while transient failures reduce it by `*0.8`. AES-GCM fallback also runs inside the adaptive window. A watchdog aborts and resumes a stalled upload from the server bitmap instead of leaving the transfer stuck.
+The upload client measures chunk completion time, retries, timeouts, and Network Information API hints when available. It sends those inputs to `/file/upload/init` and `/file/upload/renegotiate`; the server answers with a current parallel window and max window. Clean completions increase the active window by `*1.15` up to the negotiated max, while transient failures reduce it by `*0.85`. AES-GCM fallback also runs inside the adaptive window.
+
+A per-chunk absolute timeout prevents stalls caused by connections that receive partial data but never close. If a watchdog detects a stalled upload (no chunk completion within the timeout), the client performs an **aggressive restart**: `targetParallel` is reset to `maxParallel`, `dispatchPacingMs` is set to `0`, and the upload resumes from the server bitmap. The learned chunk-size hint is kept **session-local** and is not immediately persisted to `localStorage`; it is only applied to the next TASFA session.
 
 Download uses the same high-throughput bias: the handshake carries the client's preferred chunk-size hint, and active downloads grow `span` and parallelism by `*1.2` after successful chunk groups. On failure both are reduced by `*0.8`. Short reads, timeouts, and network errors are requeued by chunk index; a failed group does not fail the whole download until the same chunk has exhausted a high retry budget.
 
@@ -293,6 +296,18 @@ Completed uploads receive a one-time delete PIN. The clear PIN is a 12-character
 4. Client decrypts chunks in the browser using the **Web Crypto API** and the session keys.
 5. Browser assembles the response into one contiguous buffer.
 
+### Range-Request Streaming
+
+For large media files the client may bypass the full chunk-by-chunk download and request a byte range directly from `GET /file/download/:id` by sending:
+
+- `Range: bytes=<start>-<end>`
+- `X-TASFA-Session-ID: <session_id>`
+- `X-TASFA-Session-Token: <session_token>`
+
+The server validates the session token and returns `206 Partial Content` with `Content-Range`, `Content-Length`, and `Accept-Ranges` headers. The Service Worker caches the full response and can serve subsequent range requests from the cache without hitting the server.
+
+For video/audio playback the client may perform a **handshake-only registration** (`fetchBlobViaTasfa(url, {handshakeOnly: true})`) and then set the media element's `src` to the direct download URL. The browser issues native `Range` requests for seek operations; the Service Worker intercepts them, adds the TASFA session headers, and serves `206` responses from cache when available.
+
 Download chunk responses include:
 
 - `X-TASFA-Chunk-Index` and `X-TASFA-Chunk-Count`
@@ -306,6 +321,7 @@ Server-generated media (thumbnails, audio previews) are first-class TASFA assets
 - **HTP Metadata Pre-calculation**: When the server generates a thumbnail or preview, it immediately computes HTP scalars and SHA-256 tags for its chunks and stores them in `data/tasfa/media_htp`. Note: the server-side media generator uses **SHA-256** for this purpose, while the upload client still uses **SHA-512** for user-uploaded chunks.
 - **Reliable Media Transfer**: Media is served via the `/assets/tasfa/...` routes, which support the full TASFA protocol including chunk-level integrity verification using the pre-calculated HTP metadata.
 - **Concurrency Control**: Media generation (ffmpeg) is limited to 4 concurrent processes to protect server resources.
+- **Unified Media Insertion**: Both auto-insert and file-browser insertion use native HTML `<video>` or `<audio>` tags with `controls` and `playsinline` attributes. The client detects media type by MIME type or file extension and falls back to extension-based detection when the MIME type is generic (`application/octet-stream`).
 
 ## DoS Mitigation via Bitmap
 
