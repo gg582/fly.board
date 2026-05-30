@@ -55,7 +55,7 @@ The `init` endpoint returns, among other fields:
 - `group_count` — number of complete 6-slot HTP groups
 - `client_stripes` — fixed value `32`, used by the client worker scheduler
 
-The client treats `chunk_size` as a session contract because it defines each chunk's file offset. During an active upload it tunes concurrency and retry behavior, while the learned chunk-size hint is applied to the next TASFA session: good links raise the next hint gradually, and degraded links reduce it in small `512 KiB` steps.
+The client treats `chunk_size` as a session contract because it defines each chunk's file offset. During an active upload it tunes concurrency and retry behavior, while the learned chunk-size hint is applied to the next TASFA session: good links multiply the next hint by `2`, and degraded links halve it (`/2`).
 
 ### Upload chunk response
 
@@ -130,7 +130,8 @@ During `POST /file/upload/complete` the server:
 
 1. Loads all per-chunk records from `htp.bin` (hash tag, raw scalar, and balanced scalar).
 2. Validates only **complete 6-slot groups** (partial groups are skipped).
-3. For every failing group, computes **suspicion scores** per slot by analyzing which line equations each slot participates in.
+3. If two slots in a group have their balanced scalars swapped (out-of-order), the server swaps their `htp.bin` records in-place to repair the group without requiring retransmission.
+4. For every failing group, computes **suspicion scores** per slot by analyzing which line equations each slot participates in.
 
 ### Suspect confidence scoring (per group)
 
@@ -219,14 +220,14 @@ This prevents browser connection pool exhaustion and keeps stall detection relia
 ## Runtime Settings
 
 - upload chunk size: `24 MiB` desktop, `12 MiB` mobile
-- adaptive upload chunk-size hint: `4 MiB` minimum, up to `48 MiB` desktop / `24 MiB` mobile
+- adaptive upload chunk-size hint: `4 MiB` minimum, up to `48 MiB` desktop / `24 MiB` mobile; success `*2`, failure `/2`
 - download chunk size: `8 MiB` desktop, `4 MiB` mobile, up to `32 MiB` when the client hints a larger session
-- default browser upload parallelism: `16`
+- default browser upload parallelism: `16`, success `*1.2`, failure `*0.8`
 - max browser upload parallelism: `max_upload_parallel_chunks` in `blog.settings`, capped at `40`
 - max concurrent upload sessions: `max_total_parallel_uploads` in `blog.settings`, capped at `64`
 - max upload size: `max_upload_size` in `blog.settings`
 - max browser download sessions: server-defined, currently up to `48` chunk requests per session
-- download coalesce (span group size): up to `16` chunks on good links
+- download coalesce (span group size): success `*1.2`, failure `*0.8`, up to `16` chunks
 - upload xhr timeout: adaptive by chunk size, at least `180 s`
 - upload session fetch timeout: `30 s`
 
@@ -234,9 +235,9 @@ TASFA is tuned for general high-bandwidth server deployments, not an embedded/ae
 
 ### Client adaptation
 
-The upload client measures chunk completion time, retries, timeouts, and Network Information API hints when available. It sends those inputs to `/file/upload/init` and `/file/upload/renegotiate`; the server answers with a current parallel window and max window. Clean completions increase the active window quickly up to the negotiated max, while transient failures no longer collapse below a small parallelism floor. AES-GCM fallback also runs inside the adaptive window. A watchdog aborts and resumes a stalled upload from the server bitmap instead of leaving the transfer stuck.
+The upload client measures chunk completion time, retries, timeouts, and Network Information API hints when available. It sends those inputs to `/file/upload/init` and `/file/upload/renegotiate`; the server answers with a current parallel window and max window. Clean completions increase the active window exponentially by `*1.2` up to the negotiated max, while transient failures reduce it by `*0.8`. AES-GCM fallback also runs inside the adaptive window. A watchdog aborts and resumes a stalled upload from the server bitmap instead of leaving the transfer stuck.
 
-Download uses the same high-throughput bias: the handshake carries the client's preferred chunk-size hint, and active downloads grow `span` and parallelism after successful chunk groups. Short reads, timeouts, and network errors are requeued by chunk index; a failed group does not fail the whole download until the same chunk has exhausted a high retry budget.
+Download uses the same high-throughput bias: the handshake carries the client's preferred chunk-size hint, and active downloads grow `span` and parallelism by `*1.2` after successful chunk groups. On failure both are reduced by `*0.8`. Short reads, timeouts, and network errors are requeued by chunk index; a failed group does not fail the whole download until the same chunk has exhausted a high retry budget.
 
 ### Tail RTT Prediction (Lagrange Extrapolation)
 
@@ -339,3 +340,4 @@ The server uses a sticky round-robin worker scheduler. The number of workers equ
 | Q4: Does the response contain suspicion scores, not just binary flags? | **Yes.** Every `needs_retry` response includes `suspicion_scores` as `{chunk_index, score}` objects. |
 | Q5: Does contraction preserve original group topology? | **Yes.** `htp_contract_groups` treats each original complete group as a single higher-level vertex; suspects are never reshuffled across groups. |
 | Q6: Are retry targets cleared on successful retransmission? | **Yes.** `handler_file_upload` removes the chunk from `htp_retry_targets` after accepting a retry retransmission. |
+| Q7: Does the server repair out-of-order scalars by swapping? | **Yes.** `htp_try_swap_repair` tests every pair of slots in a 6-slot group; if swapping them restores the invariant, their `htp.bin` records are exchanged immediately and the group passes without retransmission. |

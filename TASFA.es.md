@@ -128,7 +128,8 @@ Durante `POST /file/upload/complete`, el servidor:
 
 1. Carga todos los registros por fragmento desde `htp.bin` (etiqueta hash, escalar en bruto y escalar equilibrado).
 2. Valida solo **grupos completos de 6 ranuras** (los grupos parciales se omiten).
-3. Para cada grupo fallido, computa **puntajes de sospecha** por ranura analizando en qué ecuaciones de línea participa cada ranura.
+3. Si dos ranuras en un grupo tienen sus escalares equilibrados intercambiados (fuera de orden), el servidor intercambia sus registros `htp.bin` in-situ para reparar el grupo sin requerir retransmisión.
+4. Para cada grupo fallido, computa **puntajes de sospecha** por ranura analizando en qué ecuaciones de línea participa cada ranura.
 
 ### Puntuación de confianza de sospecha (por grupo)
 
@@ -224,7 +225,7 @@ Esto evita el agotamiento del pool de conexiones del navegador y mantiene confia
 - sesiones de carga concurrentes máximas: `max_total_parallel_uploads` en `blog.settings`, límite `64`
 - tamaño máximo de carga: `max_upload_size` en `blog.settings`
 - sesiones de descarga máximas del navegador: definido por el servidor, hasta `48` solicitudes de fragmento por sesión
-- coalescencia de descarga (tamaño de grupo span): hasta `16` fragmentos en enlaces buenos
+- coalescencia de descarga (tamaño de grupo span): éxito `*1.2`, fracaso `*0.8`, hasta `16` fragmentos
 - tiempo de espera xhr de carga: al menos `180 s`
 - tiempo de espera fetch de sesión de carga: `30 s`
 
@@ -232,7 +233,7 @@ El límite de conexiones HTTP por origen del navegador se respeta naturalmente p
 
 ### Adaptación del Cliente
 
-El cliente de carga mide el tiempo de finalización del fragmento, reintentos, tiempos de espera, y pistas de la API de Información de Red cuando están disponibles. Envía esas entradas a `/file/upload/init` y `/file/upload/renegotiate`; el servidor responde con una ventana paralela actual y una ventana máxima. Las finalizaciones limpias aumentan la ventana activa rápidamente hasta el máximo negociado, mientras que los fallos transitorios ya no colapsan por debajo de un piso de paralelismo pequeño. El respaldo AES-GCM también se ejecuta dentro de la ventana adaptativa. Un watchdog aborta y reanuda una carga bloqueada desde el bitmap del servidor en lugar de dejar la transferencia atascada.
+El cliente de carga mide el tiempo de finalización del fragmento, reintentos, tiempos de espera, y pistas de la API de Información de Red cuando están disponibles. Envía esas entradas a `/file/upload/init` y `/file/upload/renegotiate`; el servidor responde con una ventana paralela actual y una ventana máxima. Las finalizaciones limpias aumentan la ventana activa exponencialmente por `*1.2` hasta el máximo negociado, mientras que los fallos transitorios la reducen por `*0.8`. El respaldo AES-GCM también se ejecuta dentro de la ventana adaptativa. Un watchdog aborta y reanuda una carga bloqueada desde el bitmap del servidor en lugar de dejar la transferencia atascada.
 
 La descarga usa el mismo sesgo de alto rendimiento: el handshake lleva la pista de tamaño de fragmento preferida del cliente, y las descargas activas aumentan el `span` y el paralelismo después de grupos de fragmentos exitosos. Las lecturas cortas, tiempos de espera y errores de red se reencolan por índice de fragmento; un grupo fallido no falla toda la descarga hasta que el mismo fragmento haya agotado un alto presupuesto de reintentos.
 
@@ -337,3 +338,4 @@ El servidor usa un planificador de trabajadores de round-robin fijo. El número 
 | Q4: ¿La respuesta contiene puntajes de sospecha, no solo banderas binarias? | **Sí.** Cada respuesta `needs_retry` incluye `suspicion_scores` como objetos `{chunk_index, score}`. |
 | Q5: ¿La contracción preserva la topología de grupo original? | **Sí.** `htp_contract_groups` trata cada grupo original completo como un único vértice de nivel superior; los sospechosos nunca se reordenan entre grupos. |
 | Q6: ¿Se borran los objetivos de reintento al retransmitir exitosamente? | **Sí.** `handler_file_upload` elimina el fragmento de `htp_retry_targets` después de aceptar una retransmisión de reintento. |
+| Q7: ¿El servidor repara escalares fuera de orden intercambiándolos? | **Sí.** `htp_try_swap_repair` prueba cada par de ranuras en un grupo de 6 ranuras; si intercambiarlos restaura el invariante, sus registros `htp.bin` se intercambian inmediatamente y el grupo pasa sin retransmisión. |
