@@ -223,11 +223,11 @@ static void send_queued_json(cwist_http_response *res, const char *msg, int retr
     cJSON_AddBoolToObject(obj, "ok", false);
     cJSON_AddBoolToObject(obj, "queued", true);
     cJSON_AddStringToObject(obj, "error", msg ? msg : "server busy");
-    cJSON_AddNumberToObject(obj, "retry_after", retry_after > 0 ? retry_after : 1);
+    cJSON_AddNumberToObject(obj, "retry_after", retry_after > 0 ? retry_after : 0);
     res->status_code = (cwist_http_status_t)429;
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
     char retry_buf[16];
-    snprintf(retry_buf, sizeof(retry_buf), "%d", retry_after > 0 ? retry_after : 1);
+    snprintf(retry_buf, sizeof(retry_buf), "%d", retry_after > 0 ? retry_after : 0);
     cwist_http_header_add(&res->headers, "Retry-After", retry_buf);
     add_keepalive_headers(res);
     char *json = cJSON_PrintUnformatted(obj);
@@ -516,8 +516,7 @@ static int link_score_from_inputs(const char *score_str, const char *effective_t
         else score -= 18;
     }
     bool good_mobile = effective_type && strcmp(effective_type, "4g") == 0 && (downlink >= 8.0 || downlink <= 0.0) && (rtt <= 220.0 || rtt <= 0.0);
-    score -= retries * (good_mobile ? 1 : 1);
-    score -= timeouts * (good_mobile ? 2 : 3);
+    (void)good_mobile; (void)retries; (void)timeouts; /* aggressive: ignore transient loss events */
     if (save_data_str && (!strcmp(save_data_str, "1") || !strcasecmp(save_data_str, "true"))) score -= 10;
     return clamp_int(score, 10, 100);
 }
@@ -526,9 +525,9 @@ static void choose_upload_window(bool mobile, int score, int *initial_parallel, 
     int initial_value = TASFA_UPLOAD_DEFAULT_PARALLEL;
     int max_value = TASFA_UPLOAD_MAX_PARALLEL;
     int pace = 0;
-    if (score >= 75) { initial_value = 32; max_value = 40; }
-    else if (score >= 55) { initial_value = 24; max_value = 32; }
-    else if (score >= 35) { initial_value = 16; max_value = 24; pace = 2; }
+    if (score >= 45) { initial_value = 32; max_value = 40; }
+    else if (score >= 25) { initial_value = 24; max_value = 32; pace = 1; }
+    else if (score >= 10) { initial_value = 16; max_value = 24; pace = 3; }
     else { initial_value = 10; max_value = 16; pace = 6; }
 
     int floor = mobile ? 4 : 8;
@@ -544,9 +543,9 @@ static void choose_upload_window(bool mobile, int score, int *initial_parallel, 
 
 static void choose_download_profile(int score, int *initial_parallel, int *max_parallel, int *pacing_ms, int *coalesce_chunks) {
     int initial_value = 18, max_value = 36, pace = 0, coalesce = 12;
-    if (score < 35) { initial_value = 10; max_value = 18; pace = 4; coalesce = 4; }
-    else if (score < 55) { initial_value = 14; max_value = 28; pace = 1; coalesce = 8; }
-    else if (score < 75) { initial_value = 18; max_value = 36; pace = 0; coalesce = 12; }
+    if (score < 25) { initial_value = 10; max_value = 18; pace = 4; coalesce = 4; }
+    else if (score < 45) { initial_value = 14; max_value = 28; pace = 1; coalesce = 8; }
+    else if (score < 65) { initial_value = 18; max_value = 36; pace = 0; coalesce = 12; }
     else { initial_value = 24; max_value = 48; coalesce = 16; }
     if (max_value > TASFA_DOWNLOAD_MAX_PARALLEL) max_value = TASFA_DOWNLOAD_MAX_PARALLEL;
     if (initial_value > max_value) initial_value = max_value;
@@ -1680,8 +1679,8 @@ void handler_file_upload_renegotiate(cwist_http_request *req, cwist_http_respons
     if (current_max < configured_max && max_parallel < current_max) max_parallel = current_max;
     if (max_parallel > configured_max) max_parallel = configured_max;
     if (suggested > 0) initial_parallel = clamp_int(suggested, 1, max_parallel);
-    // Trust client's aggressive recovery suggestion; only cap extreme drops
-    if (initial_parallel < current_parallel * 2 / 3) initial_parallel = current_parallel * 2 / 3;
+    // Only allow tiny drops on renegotiate; wireless loss is normal, don't panic
+    if (initial_parallel < current_parallel * 9 / 10) initial_parallel = current_parallel * 9 / 10;
     if (initial_parallel > max_parallel) initial_parallel = max_parallel;
     double rtt_ms = atof(cwist_query_map_get(kv, "link_rtt_ms") ? cwist_query_map_get(kv, "link_rtt_ms") : "0");
     cJSON_DeleteItemFromObject(meta, "link_rtt_ms");
@@ -1988,7 +1987,8 @@ static bool htp_try_swap_repair(const char *upload_id, uint64_t *balanced_scalar
 }
 
 static bool htp_repair_worthwhile(int suspect_count, int total_chunks, int chunk_size, double rtt_ms) {
-    if (suspect_count < 6) return false;
+    (void)total_chunks; (void)chunk_size; (void)rtt_ms;
+    if (suspect_count < 12) return false;
     long long retry_bytes = (long long)suspect_count * chunk_size;
     double rtt_factor = (rtt_ms <= 0.0) ? 1.0 : (rtt_ms / 100.0);
     double retry_cost = (double)retry_bytes * rtt_factor;
