@@ -891,6 +891,41 @@ void rule_components(cJSON *rules) {
     add_decl(mab, "margin", "0 auto");
     add_decl(mab, "box-shadow", "0 4px 20px var(--shadow)");
     cJSON_AddItemToArray(rules, mab);
+
+    cJSON *imgWrap = create_rule(".tasfa-image-wrap");
+    add_decl(imgWrap, "position", "relative");
+    add_decl(imgWrap, "display", "inline-block");
+    cJSON_AddItemToArray(rules, imgWrap);
+
+    cJSON *imgDlBtn = create_rule(".tasfa-image-dl-btn");
+    add_decl(imgDlBtn, "position", "absolute");
+    add_decl(imgDlBtn, "top", "8px");
+    add_decl(imgDlBtn, "right", "8px");
+    add_decl(imgDlBtn, "z-index", "10");
+    add_decl(imgDlBtn, "display", "none");
+    add_decl(imgDlBtn, "padding", "6px 12px");
+    add_decl(imgDlBtn, "background", "color-mix(in srgb, var(--shadow-base) 70%, transparent)");
+    add_decl(imgDlBtn, "color", "var(--panel)");
+    add_decl(imgDlBtn, "border-radius", "4px");
+    add_decl(imgDlBtn, "font-size", "12px");
+    add_decl(imgDlBtn, "font-weight", "600");
+    add_decl(imgDlBtn, "text-decoration", "none");
+    add_decl(imgDlBtn, "cursor", "pointer");
+    add_decl(imgDlBtn, "backdrop-filter", "blur(8px) saturate(120%)");
+    add_decl(imgDlBtn, "-webkit-backdrop-filter", "blur(8px) saturate(120%)");
+    add_decl(imgDlBtn, "border", "1px solid var(--glass-border)");
+    add_decl(imgDlBtn, "transition", "opacity 0.2s ease, background 0.2s ease");
+    cJSON_AddItemToArray(rules, imgDlBtn);
+
+    cJSON *imgWrapHover = create_rule(".tasfa-image-wrap:hover .tasfa-image-dl-btn");
+    add_decl(imgWrapHover, "display", "inline-flex");
+    cJSON_AddItemToArray(rules, imgWrapHover);
+
+    cJSON *imgDlBtnHover = create_rule(".tasfa-image-dl-btn:hover");
+    add_decl(imgDlBtnHover, "background", "var(--accent)");
+    add_decl(imgDlBtnHover, "color", "var(--panel)");
+    add_decl(imgDlBtnHover, "border-color", "var(--accent)");
+    cJSON_AddItemToArray(rules, imgDlBtnHover);
 }
 
 void rule_home(cJSON *rules) {

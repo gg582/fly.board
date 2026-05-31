@@ -854,6 +854,63 @@
         el.dataset.tasfaMediaBound = '1';
         if (baseUrl) el.setAttribute('data-tasfa-download', baseUrl);
 
+        if (tagName === 'img') {
+            var wrap = document.createElement('div');
+            wrap.className = 'tasfa-image-wrap';
+            if (el.parentNode) {
+                el.parentNode.insertBefore(wrap, el);
+                wrap.appendChild(el);
+            }
+
+            if (baseUrl) {
+                var dlBtn = document.createElement('a');
+                dlBtn.className = 'tasfa-image-dl-btn';
+                dlBtn.textContent = 'Download';
+                dlBtn.href = 'javascript:void(0);';
+                dlBtn.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    triggerDownload(baseUrl).catch(function(){});
+                });
+                wrap.appendChild(dlBtn);
+            }
+
+            function setImageSrc(url) {
+                el.src = url;
+                el.style.opacity = '1';
+                el.setAttribute('data-tasfa-ready', '1');
+            }
+
+            if (baseUrl) {
+                var thumbUrl = null;
+                if (baseUrl.indexOf('/assets/uploads/') === 0) {
+                    var filename = baseUrl.slice('/assets/uploads/'.length);
+                    thumbUrl = '/assets/uploads/.thumbs/' + filename;
+                }
+
+                if (thumbUrl) {
+                    var testImg = new Image();
+                    testImg.onload = function() {
+                        setImageSrc(thumbUrl);
+                    };
+                    testImg.onerror = function() {
+                        setImageSrc(baseUrl);
+                    };
+                    testImg.src = thumbUrl;
+                } else {
+                    setImageSrc(baseUrl);
+                }
+            }
+
+            if (posterUrl && isTasfaDownloadUrl(posterUrl)) {
+                fetchBlobViaTasfa(posterUrl, { silent: true }).then(async function(result) {
+                    var objectUrl = await createMediaPlaybackUrl(posterUrl, result.blob);
+                    if (objectUrl) el.setAttribute('poster', objectUrl);
+                }).catch(function() {});
+            }
+
+            return;
+        }
+
         // Wrap in loader container so the user sees "Loading..." instead of empty space
         var wrap = document.createElement('div');
         wrap.className = 'tasfa-media-wrap';
