@@ -44,13 +44,20 @@ function injectModalStyles() {
         '}',
         '.tasfa-video-modal-box video,.tasfa-video-modal-box audio{',
         '  width:100%;display:block;background:#000;',
-        '}'
+        '}',
+        '.tasfa-video-modal-loading{',
+        '  padding:48px 20px;text-align:center;color:rgba(255,255,255,0.65);font-size:14px;letter-spacing:0.02em;',
+        '}',
+        '.tasfa-video-modal-loading::after{',
+        "  content:'';display:block;width:28px;height:28px;margin:12px auto 0;border:2px solid rgba(255,255,255,0.15);border-top-color:rgba(255,255,255,0.7);border-radius:50%;animation:tasfa-spin 1s linear infinite;",
+        '}',
+        '@keyframes tasfa-spin{to{transform:rotate(360deg)}}'
     ].join('\n');
     document.head.appendChild(style);
 }
 
-function _openModal(blobUrl, title, isAudio) {
-    if (!blobUrl) return;
+function _openModal(blobUrl, title, isAudio, isLoading) {
+    if (!blobUrl && !isLoading) return;
     closeModal();
     injectModalStyles();
 
@@ -79,15 +86,25 @@ function _openModal(blobUrl, title, isAudio) {
     mediaEl.setAttribute('playsinline', '');
     mediaEl.setAttribute('controls', '');
     mediaEl.setAttribute('preload', 'auto');
-    mediaEl.src = blobUrl;
+    if (blobUrl) {
+        mediaEl.src = blobUrl;
+    } else {
+        mediaEl.style.display = 'none';
+    }
+
+    var loadingEl = document.createElement('div');
+    loadingEl.className = 'tasfa-video-modal-loading';
+    loadingEl.textContent = isLoading ? 'Buffering…' : '';
+    if (!isLoading) loadingEl.style.display = 'none';
 
     // If the video fails to decode or the blob is invalid, close the modal
     // immediately so the user never sees a broken player or icon.
     mediaEl.addEventListener('error', function() {
-        closeModal();
+        if (!isLoading) closeModal();
     });
 
     box.appendChild(closeBtn);
+    box.appendChild(loadingEl);
     box.appendChild(mediaEl);
     overlay.appendChild(box);
     document.body.appendChild(overlay);
@@ -112,16 +129,29 @@ export function openTasfaVideoModal(url, title, isAudio) {
     if (!url) return;
 
     // For TASFA-protected videos, use progressive chunk-by-chunk streaming.
-    // The first few chunks are fetched sequentially; once enough data is
-    // buffered the player opens immediately, and the rest follows in the
-    // background through the Service Worker stream.
+    // Open the modal immediately with a loading indicator so the user gets
+    // instant feedback; the player starts once the initial buffer threshold
+    // is reached and the Service Worker stream is ready.
     if (window.fetchVideoProgressive && /\/file\/download\/\d+/.test(url)) {
+        _openModal(null, title, isAudio, true);
         window.fetchVideoProgressive(url, {
             onReady: function(streamUrl) {
-                _openModal(streamUrl, title, isAudio);
+                var media = activeModal && activeModal.querySelector('video, audio');
+                var loading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
+                if (media) {
+                    media.style.display = 'block';
+                    media.src = streamUrl;
+                    try { media.play(); } catch(e) {}
+                }
+                if (loading) loading.style.display = 'none';
             }
         }).catch(function() {
-            // Failed — do not open a broken player.
+            var loading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
+            if (loading) {
+                loading.textContent = 'Failed to load media';
+                loading.style.color = '#ff6b6b';
+            }
+            setTimeout(closeModal, 2000);
         });
         return;
     }

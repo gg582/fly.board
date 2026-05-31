@@ -177,7 +177,6 @@ self.addEventListener('fetch', function(event) {
             if (entry.headers.contentLength) {
                 headers.set('Content-Length', entry.headers.contentLength);
             }
-            headers.set('Accept-Ranges', 'bytes');
             event.respondWith(new Response(entry.stream, {
                 status: 200,
                 headers: headers
