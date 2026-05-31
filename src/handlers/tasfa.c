@@ -17,11 +17,11 @@
 
 #define TASFA_UPLOAD_DIR "data/tasfa/uploads"
 #define TASFA_DOWNLOAD_DIR "data/tasfa/downloads"
-#define TASFA_UPLOAD_CHUNK_SIZE_DEFAULT (24 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE  (12 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MIN     (4 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MAX     (48 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE_MAX (24 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_DEFAULT (8 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE  (8 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MIN     (2 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MAX     (8 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE_MAX (8 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT (2 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_MIN     (512 * 1024)
@@ -689,10 +689,8 @@ static bool mark_chunk_received_in_session_state(const char *upload_id, int chun
     upload_session_state_bin_path(path, sizeof(path), upload_id);
     int fd = open(path, O_RDWR);
     if (fd < 0) return false;
-    if (flock(fd, LOCK_EX) != 0) { close(fd); return false; }
     unsigned char val = '1';
     bool ok = (pwrite(fd, &val, 1, (off_t)chunk_index) == 1);
-    flock(fd, LOCK_UN);
     close(fd);
     return ok;
 }
@@ -702,10 +700,8 @@ static bool is_chunk_already_received(const char *upload_id, int chunk_index) {
     upload_session_state_bin_path(path, sizeof(path), upload_id);
     int fd = open(path, O_RDONLY);
     if (fd < 0) return false;
-    if (flock(fd, LOCK_SH) != 0) { close(fd); return false; }
     unsigned char val = '0';
     bool ok = (pread(fd, &val, 1, (off_t)chunk_index) == 1);
-    flock(fd, LOCK_UN);
     close(fd);
     return ok && val == '1';
 }
