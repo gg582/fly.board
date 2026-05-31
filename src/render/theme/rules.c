@@ -530,6 +530,14 @@ void rule_components(cJSON *rules) {
     add_decl(media_thumb_asset, "display", "block");
     cJSON_AddItemToArray(rules, media_thumb_asset);
 
+    cJSON *file_repo_thumb = create_rule(".file-repo-thumb img");
+    add_decl(file_repo_thumb, "width", "100%");
+    add_decl(file_repo_thumb, "height", "100%");
+    add_decl(file_repo_thumb, "object-fit", "cover");
+    add_decl(file_repo_thumb, "display", "block");
+    add_decl(file_repo_thumb, "max-width", "100%");
+    cJSON_AddItemToArray(rules, file_repo_thumb);
+
     cJSON *media_info = create_rule(".media-info");
     add_decl(media_info, "min-width", "0");
     cJSON_AddItemToArray(rules, media_info);

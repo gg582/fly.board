@@ -880,11 +880,25 @@
                 el.setAttribute('data-tasfa-ready', '1');
             }
 
-            if (baseUrl) {
+            var currentSrc = el.getAttribute('src') || '';
+            var alreadyThumb = currentSrc.indexOf('/assets/uploads/') === 0;
+
+            if (alreadyThumb) {
+                var testImg = new Image();
+                testImg.onload = function() {
+                    setImageSrc(currentSrc);
+                };
+                testImg.onerror = function() {
+                    setImageSrc(baseUrl || currentSrc);
+                };
+                testImg.src = currentSrc;
+            } else if (baseUrl) {
                 var thumbUrl = null;
                 if (baseUrl.indexOf('/assets/uploads/') === 0) {
                     var filename = baseUrl.slice('/assets/uploads/'.length);
-                    thumbUrl = '/assets/uploads/.thumbs/' + filename;
+                    if (filename.indexOf('.thumbs/') !== 0) {
+                        thumbUrl = '/assets/uploads/.thumbs/' + filename;
+                    }
                 }
 
                 if (thumbUrl) {

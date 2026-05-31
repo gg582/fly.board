@@ -339,8 +339,8 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
 
     if (strncmp(out->mime_type, "image/", 6) == 0) {
         snprintf(out->html, sizeof(out->html),
-            "<img src=\"%s\" alt=\"%s\" style=\"max-width:100%%\">",
-            out->url, out->filename);
+            "<img src=\"%s\" data-tasfa-download=\"%s\" alt=\"%s\" style=\"max-width:100%%;height:auto;display:block\">",
+            out->url, out->url, out->filename);
     } else if (strncmp(out->mime_type, "video/", 6) == 0) {
         snprintf(out->html, sizeof(out->html),
             "<div class=\"media-video-placeholder\"><div class=\"media-video-title\">%s</div><div class=\"media-video-frame\"><button type=\"button\" class=\"media-load-btn media-video-open\" data-tasfa-video-link=\"%s\">Click to Load</button></div></div>",
