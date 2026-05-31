@@ -308,6 +308,30 @@ The server validates the session token and returns `206 Partial Content` with `C
 
 For video/audio playback the client may perform a **handshake-only registration** (`fetchBlobViaTasfa(url, {handshakeOnly: true})`) and then set the media element's `src` to the direct download URL. The browser issues native `Range` requests for seek operations; the Service Worker intercepts them, adds the TASFA session headers, and serves `206` responses from cache when available.
 
+### Progressive Chunk Streaming
+
+For video and audio playback the TASFA protocol supports **progressive chunk
+streaming** without changing any URL format. The client:
+
+1. Performs a normal handshake (`GET /.../handshake`) to obtain the session
+   keys, chunk size, and chunk count.
+2. Opens a `ReadableStream` in the Service Worker via `TASFA_STREAM_OPEN`.
+   The stream is exposed at `/__tasfa_stream__/<streamId>`.
+3. Downloads chunks **sequentially** starting from index 0 with `span=1`.
+   Each decrypted chunk is pushed into the SW stream via
+   `TASFA_STREAM_CHUNK`.
+4. Once the initial threshold is reached (by default the first 2 chunks or
+   at least 2 MiB, whichever is larger), the client starts the media player
+   pointing at the SW stream URL.
+5. Remaining chunks continue to download in the background and are fed into
+   the stream. When the final chunk is pushed, the client sends
+   `TASFA_STREAM_CLOSE` so the browser sees an EOF.
+
+The server advertises support via `supports_progressive_streaming: true` in
+the handshake response. Existing clients that do not implement progressive
+streaming can ignore the field and continue to use full download or range
+request streaming.
+
 Download chunk responses include:
 
 - `X-TASFA-Chunk-Index` and `X-TASFA-Chunk-Count`
