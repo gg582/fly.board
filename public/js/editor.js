@@ -30,19 +30,19 @@
     var UPLOAD_STATUS_ENDPOINT = '/file/upload/status';
     var UPLOAD_RENEGOTIATE_ENDPOINT = '/file/upload/renegotiate';
     var UPLOAD_ENDPOINT = '/file/upload';
-    var UPLOAD_CHUNK_SIZE = 24 * 1024 * 1024;
+    var UPLOAD_CHUNK_SIZE = 32 * 1024 * 1024;
     var UPLOAD_DEFAULT_PARALLEL = 8;
-    var TASFA_UPLOAD_CHUNK_MIN = 4 * 1024 * 1024;
-    var TASFA_UPLOAD_CHUNK_MAX = 48 * 1024 * 1024;
-    var TASFA_UPLOAD_CHUNK_MOBILE_MAX = 24 * 1024 * 1024;
-    var TASFA_UPLOAD_CHUNK_STEP_UP = 2 * 1024 * 1024;
-    var TASFA_UPLOAD_CHUNK_STEP_DOWN = 512 * 1024;
+    var TASFA_UPLOAD_CHUNK_MIN = 8 * 1024 * 1024;
+    var TASFA_UPLOAD_CHUNK_MAX = 64 * 1024 * 1024;
+    var TASFA_UPLOAD_CHUNK_MOBILE_MAX = 32 * 1024 * 1024;
+    var TASFA_UPLOAD_CHUNK_STEP_UP = 4 * 1024 * 1024;
+    var TASFA_UPLOAD_CHUNK_STEP_DOWN = 1024 * 1024;
     var TASFA_UPLOAD_CHUNK_STORE = 'tasfa_upload_chunk_size_v3';
     var TASFA_TRACE_LIMIT = 160;
-    var TASFA_SOFT_STALL_MS = 15000;
-    var TASFA_HARD_STALL_MS = 45000;
-    var TASFA_FAST_RECOVERY_MS = 3000;
-    var TASFA_CONNECT_TIMEOUT_MS = 5000;
+    var TASFA_SOFT_STALL_MS = 30000;
+    var TASFA_HARD_STALL_MS = 90000;
+    var TASFA_FAST_RECOVERY_MS = 5000;
+    var TASFA_CONNECT_TIMEOUT_MS = 15000;
     var TASFA_FALLBACK_PREFETCH_MAX_BYTES = 64 * 1024 * 1024;
     var TASFA_MIN_SIZE_BYTES = 4 * 1024 * 1024;
     var FileUploadQueue = [];
@@ -233,7 +233,7 @@
     }
 
     function uploadIdleTimeoutMs(bytes) {
-        return Math.max(15000, Math.min(60000, Math.round(bytes / 1024)));
+        return Math.max(30000, Math.min(120000, Math.round(bytes / 512)));
     }
 
     function armXhrIdleTimeout(xhr, timeoutMs) {

@@ -4,14 +4,14 @@
     var CACHE_NAME = 'tasfa-small-files-v1';
     var SMALL_FILE_THRESHOLD = 100 * 1024 * 1024; // 100MB
     var DOWNLOAD_CHUNK_STORE = 'tasfa_download_chunk_size_v3';
-    var DOWNLOAD_CHUNK_MIN = 512 * 1024;
-    var DOWNLOAD_CHUNK_DEFAULT = 2 * 1024 * 1024;
-    var DOWNLOAD_CHUNK_MOBILE_DEFAULT = 1024 * 1024;
-    var DOWNLOAD_CHUNK_MAX = 16 * 1024 * 1024;
-    var DOWNLOAD_CHUNK_STEP_UP = 512 * 1024;
-    var DOWNLOAD_CHUNK_STEP_DOWN = 256 * 1024;
-    var DOWNLOAD_REQUEST_BYTES_MAX = 64 * 1024 * 1024;
-    var DOWNLOAD_CONNECT_TIMEOUT_MS = 10000;
+    var DOWNLOAD_CHUNK_MIN = 2 * 1024 * 1024;
+    var DOWNLOAD_CHUNK_DEFAULT = 8 * 1024 * 1024;
+    var DOWNLOAD_CHUNK_MOBILE_DEFAULT = 4 * 1024 * 1024;
+    var DOWNLOAD_CHUNK_MAX = 32 * 1024 * 1024;
+    var DOWNLOAD_CHUNK_STEP_UP = 1024 * 1024;
+    var DOWNLOAD_CHUNK_STEP_DOWN = 512 * 1024;
+    var DOWNLOAD_REQUEST_BYTES_MAX = 128 * 1024 * 1024;
+    var DOWNLOAD_CONNECT_TIMEOUT_MS = 20000;
     /* data: URL cannot be received in TASFA environment - no placeholder used */
     var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
     var objectUrls = new WeakMap();
