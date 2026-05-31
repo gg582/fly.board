@@ -1300,6 +1300,7 @@ static bool init_download_session(const char *filename, const char *mime, const 
     cJSON_AddNumberToObject(meta, "max_parallel_chunks", max_parallel);
     cJSON_AddNumberToObject(meta, "dispatch_pacing_ms", pacing_ms);
     cJSON_AddNumberToObject(meta, "coalesce_chunks", coalesce);
+    cJSON_AddBoolToObject(meta, "supports_progressive_streaming", true);
     cJSON_AddNumberToObject(meta, "file_id", file_id);
     cJSON_AddNumberToObject(meta, "received_chunks", 0);
     cJSON_AddNumberToObject(meta, "modulus_M", (double)modulus_M);

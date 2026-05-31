@@ -672,6 +672,142 @@
         }
     }
 
+    /* ---------- Progressive Video Streaming ---------- */
+
+    /**
+     * Generates a unique stream identifier for Service Worker progressive streams.
+     */
+    function generateStreamId() {
+        return 'tasfa-stream-' + Math.random().toString(36).slice(2) + '-' + Date.now();
+    }
+
+    /**
+     * Opens a ReadableStream in the Service Worker that the browser media element
+     * can read from. The client later pushes decrypted chunks into this stream.
+     */
+    async function openTasfaStream(session) {
+        if (!navigator.serviceWorker || !navigator.serviceWorker.controller) {
+            throw new Error('Service Worker not available for progressive streaming');
+        }
+        var streamId = generateStreamId();
+        return new Promise(function(resolve, reject) {
+            var channel = new MessageChannel();
+            channel.port1.onmessage = function(event) {
+                if (event.data && event.data.type === 'TASFA_STREAM_READY') {
+                    resolve({ streamUrl: '/__tasfa_stream__/' + streamId, streamId: streamId });
+                } else {
+                    reject(new Error('Failed to open progressive stream'));
+                }
+            };
+            navigator.serviceWorker.controller.postMessage({
+                type: 'TASFA_STREAM_OPEN',
+                streamId: streamId,
+                headers: {
+                    contentType: session.mimeType,
+                    contentLength: String(session.totalSize)
+                }
+            }, [channel.port2]);
+        });
+    }
+
+    /**
+     * Pushes a decrypted chunk into the Service Worker stream.
+     * The ArrayBuffer is transferred (not copied) for efficiency.
+     */
+    function feedTasfaStream(streamId, buffer) {
+        if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return;
+        navigator.serviceWorker.controller.postMessage({
+            type: 'TASFA_STREAM_CHUNK',
+            streamId: streamId,
+            chunk: buffer
+        }, [buffer]);
+    }
+
+    /**
+     * Closes the Service Worker stream once every chunk has been fed.
+     */
+    function closeTasfaStream(streamId) {
+        if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return;
+        navigator.serviceWorker.controller.postMessage({
+            type: 'TASFA_STREAM_CLOSE',
+            streamId: streamId
+        });
+    }
+
+    /**
+     * Progressive video download through the TASFA protocol.
+     *
+     * The handshake and chunk URL formats are kept exactly as-is.
+     * Chunks are downloaded sequentially starting from index 0.
+     * As soon as the initial threshold is reached (first few chunks),
+     * the onReady callback fires so the player can start immediately.
+     * Remaining chunks continue to download and are fed into the
+     * Service Worker stream in the background.
+     */
+    async function fetchVideoProgressive(baseUrl, options) {
+        var onReady = options && options.onReady;
+        var onProgress = options && options.onProgress;
+
+        var session = await fetchDownloadSession(baseUrl);
+        var streamInfo = await openTasfaStream(session);
+
+        var bitmap = new Array(session.chunkCount).fill(0);
+        var completedChunks = 0;
+        var downloadedBytes = 0;
+        var readyFired = false;
+
+        /* Heuristic: first 2 chunks usually cover the container header
+           (ftyp/moov for mp4, or webm init) and a few seconds of media. */
+        var initialChunkThreshold = Math.min(2, session.chunkCount);
+        if (session.totalSize > 0 && session.chunkSize > 0) {
+            var minBytesForStart = 2 * 1024 * 1024; /* 2 MiB minimum */
+            var chunksForMinBytes = Math.ceil(minBytesForStart / session.chunkSize);
+            initialChunkThreshold = Math.max(initialChunkThreshold,
+                Math.min(chunksForMinBytes, session.chunkCount));
+        }
+
+        /* Temporary holder reused by fetchChunk. Only index 0 is used
+           because we force span=1 for sequential streaming. */
+        var parts = new Array(session.chunkCount);
+
+        async function downloadSequentialChunk(index) {
+            var result = await fetchChunk(baseUrl, session, parts, index, 1);
+            bitmap[index] = 1;
+            completedChunks += 1;
+            var thisSize = chunkByteSize(session, index);
+            downloadedBytes += thisSize;
+
+            /* Feed the decrypted chunk bytes into the SW stream.
+               Transfer the ArrayBuffer to avoid copying large blocks. */
+            if (parts[index] && parts[index].buffer) {
+                feedTasfaStream(streamInfo.streamId, parts[index].buffer);
+            }
+
+            if (!readyFired && completedChunks >= initialChunkThreshold) {
+                readyFired = true;
+                if (onReady) onReady(streamInfo.streamUrl);
+            }
+            if (onProgress) {
+                onProgress(Math.round((downloadedBytes / session.totalSize) * 100));
+            }
+        }
+
+        for (var i = 0; i < session.chunkCount; i++) {
+            if (bitmap[i]) continue;
+            try {
+                await downloadSequentialChunk(i);
+            } catch (e) {
+                /* One retry before surfacing the error. */
+                await new Promise(function(r) { setTimeout(r, 800); });
+                await downloadSequentialChunk(i);
+            }
+        }
+
+        closeTasfaStream(streamInfo.streamId);
+        await notifyDownloadComplete(session.sessionId, session.sessionToken);
+        if (onProgress) onProgress(100);
+    }
+
     function triggerDownload(baseUrl) {
         return fetchBlobViaTasfa(baseUrl).then(function(result) {
             var objectUrl = URL.createObjectURL(result.blob);
@@ -1024,6 +1160,7 @@
 
     function init() {
         window.fetchBlobViaTasfa = fetchBlobViaTasfa;
+        window.fetchVideoProgressive = fetchVideoProgressive;
         window.openTasfaDownload = triggerDownload;
         window.upgradeTasfaMedia = upgradeMediaElement;
         window.initMarkdownAffordances = function(root) {

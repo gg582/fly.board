@@ -111,12 +111,15 @@ function _openModal(blobUrl, title, isAudio) {
 export function openTasfaVideoModal(url, title, isAudio) {
     if (!url) return;
 
-    // For TASFA-protected videos, register the download session with the
-    // Service Worker so the browser can stream via native range requests.
-    if (window.fetchBlobViaTasfa && /\/file\/download\/\d+/.test(url)) {
-        window.fetchBlobViaTasfa(url, { silent: true, handshakeOnly: true }).then(function() {
-            // Session registered; browser will handle range requests through SW.
-            _openModal(url, title, isAudio);
+    // For TASFA-protected videos, use progressive chunk-by-chunk streaming.
+    // The first few chunks are fetched sequentially; once enough data is
+    // buffered the player opens immediately, and the rest follows in the
+    // background through the Service Worker stream.
+    if (window.fetchVideoProgressive && /\/file\/download\/\d+/.test(url)) {
+        window.fetchVideoProgressive(url, {
+            onReady: function(streamUrl) {
+                _openModal(streamUrl, title, isAudio);
+            }
         }).catch(function() {
             // Failed — do not open a broken player.
         });

@@ -3,12 +3,53 @@ var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
 var LOGO_MAX_AGE = 86400000; // 86400 seconds in milliseconds
 var tasfaSessions = {};
 
+/* Progressive video streaming streams managed by the Service Worker */
+var tasfaStreams = {};
+
 self.addEventListener('message', function(event) {
-    if (event.data && event.data.type === 'TASFA_SESSION') {
+    if (!event.data) return;
+
+    if (event.data.type === 'TASFA_SESSION') {
         tasfaSessions[event.data.url] = {
             sessionId: event.data.sessionId,
             sessionToken: event.data.sessionToken
         };
+    } else if (event.data.type === 'TASFA_STREAM_OPEN') {
+        /* Client opens a progressive video stream. Create a ReadableStream
+           that will be consumed by the browser's media element. */
+        var streamId = event.data.streamId;
+        var streamController = null;
+        var stream = new ReadableStream({
+            start: function(controller) {
+                streamController = controller;
+            }
+        });
+        tasfaStreams[streamId] = {
+            controller: streamController,
+            stream: stream,
+            headers: event.data.headers || {}
+        };
+        if (event.ports && event.ports[0]) {
+            event.ports[0].postMessage({ type: 'TASFA_STREAM_READY', streamId: streamId });
+        }
+    } else if (event.data.type === 'TASFA_STREAM_CHUNK') {
+        /* Push a decrypted chunk into the progressive stream. */
+        var entry = tasfaStreams[event.data.streamId];
+        if (entry && entry.controller) {
+            var chunk = event.data.chunk;
+            if (chunk instanceof ArrayBuffer) {
+                entry.controller.enqueue(new Uint8Array(chunk));
+            } else if (ArrayBuffer.isView(chunk)) {
+                entry.controller.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+            }
+        }
+    } else if (event.data.type === 'TASFA_STREAM_CLOSE') {
+        /* Close the progressive stream when all chunks have been fed. */
+        var entry = tasfaStreams[event.data.streamId];
+        if (entry && entry.controller) {
+            try { entry.controller.close(); } catch (e) {}
+        }
+        delete tasfaStreams[event.data.streamId];
     }
 });
 
@@ -121,6 +162,29 @@ self.addEventListener('fetch', function(event) {
                 });
             })
         );
+        return;
+    }
+
+    /* Progressive TASFA video stream: the client feeds chunks through
+       postMessage and the media element reads from this URL. */
+    if (url.indexOf(self.location.origin + '/__tasfa_stream__/') === 0 && event.request.method === 'GET') {
+        var pathParts = new URL(url).pathname.split('/');
+        var streamId = pathParts[pathParts.length - 1];
+        var entry = tasfaStreams[streamId];
+        if (entry) {
+            var headers = new Headers();
+            headers.set('Content-Type', entry.headers.contentType || 'application/octet-stream');
+            if (entry.headers.contentLength) {
+                headers.set('Content-Length', entry.headers.contentLength);
+            }
+            headers.set('Accept-Ranges', 'bytes');
+            event.respondWith(new Response(entry.stream, {
+                status: 200,
+                headers: headers
+            }));
+        } else {
+            event.respondWith(new Response('Stream not found', { status: 404 }));
+        }
         return;
     }
 
