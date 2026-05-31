@@ -368,6 +368,8 @@ static void inject_img_attrs(cwist_sstring *html) {
                     snprintf(path, sizeof(path), "public/img/%s", src + 12);
                 } else if (strncmp(src, "/assets/uploads/", 16) == 0) {
                     snprintf(path, sizeof(path), "public/uploads/%s", src + 16);
+                } else if (strncmp(src, "/assets/profile/", 16) == 0) {
+                    snprintf(path, sizeof(path), "public/profile/%s", src + 16);
                 }
 
                 if (path[0]) {

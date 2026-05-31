@@ -175,7 +175,15 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             cwist_sstring_append(b, "<div class='file-repo-card-inner'>");
             cwist_sstring_append(b, "<div class='file-repo-thumb'>");
             if (is_image) {
-                cwist_sstring_append(b, "<span class='file-thumb-icon'>IMG</span>");
+                if (has_thumb) {
+                    cwist_sstring_append(b, "<img src='/assets/uploads/");
+                    cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
+                    cwist_sstring_append(b, "' data-tasfa-download='/file/download/");
+                    cwist_sstring_append(b, fid_buf);
+                    cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block;object-fit:cover'>");
+                } else {
+                    cwist_sstring_append(b, "<span class='file-thumb-icon'>IMG</span>");
+                }
             } else if (is_video) {
                 cwist_sstring_append(b, "<button type='button' class='media-load-btn file-video-thumb-link' data-tasfa-video-link='/file/download/");
                 cwist_sstring_append(b, fid_buf);
