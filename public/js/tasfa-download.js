@@ -11,7 +11,7 @@
     var DOWNLOAD_CHUNK_STEP_UP = 512 * 1024;
     var DOWNLOAD_CHUNK_STEP_DOWN = 256 * 1024;
     var DOWNLOAD_REQUEST_BYTES_MAX = 64 * 1024 * 1024;
-    var DOWNLOAD_CONNECT_TIMEOUT_MS = 60000;
+    var DOWNLOAD_CONNECT_TIMEOUT_MS = 10000;
     /* data: URL cannot be received in TASFA environment - no placeholder used */
     var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
     var objectUrls = new WeakMap();
