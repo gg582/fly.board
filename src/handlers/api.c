@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#include "cwist/board_tree.h"
 
 void handler_api_preview(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring *html = render_markdown_to_html(req->body->data);
@@ -75,6 +76,7 @@ void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res) 
     bool is_admin = strcmp(role, "admin") == 0;
 
     cJSON *boards = db_board_list(req->db);
+    cJSON *roots = db_board_tree_get_roots();
     cJSON *out = cJSON_CreateArray();
     if (boards && out) {
         int n = cJSON_GetArraySize(boards);
@@ -83,6 +85,17 @@ void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res) 
             if (!bo) continue;
             int bid = json_int(bo, "id", 0);
             if (bid <= 0 || !db_board_can_user_access(req->db, bid, uid, is_admin)) continue;
+            /* dropdown shows only root-level boards (1-depth) */
+            bool is_root = true;
+            if (roots) {
+                is_root = false;
+                int rn = cJSON_GetArraySize(roots);
+                for (int j = 0; j < rn; j++) {
+                    cJSON *r = cJSON_GetArrayItem(roots, j);
+                    if (r && r->valueint == bid) { is_root = true; break; }
+                }
+            }
+            if (!is_root) continue;
             cJSON *slug = cJSON_GetObjectItem(bo, "slug");
             cJSON *name = cJSON_GetObjectItem(bo, "name");
             if (!slug || !slug->valuestring || !slug->valuestring[0] ||
@@ -96,6 +109,7 @@ void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res) 
             cJSON_AddItemToArray(out, item);
         }
     }
+    if (roots) cJSON_Delete(roots);
 
     char *json = out ? cJSON_PrintUnformatted(out) : NULL;
     cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");

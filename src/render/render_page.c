@@ -196,7 +196,27 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(navlinks, boards_wrap);
     cwist_html_element_add_child(navlinks, nav_link("/files", "Files"));
     if (user_role && strcmp(user_role, "admin") == 0) {
-        cwist_html_element_add_child(navlinks, nav_link("/admin/users", "Admin"));
+        cwist_html_element_t *admin_wrap = cwist_html_element_create("div");
+        cwist_html_element_add_class(admin_wrap, "nav-admin-dropdown");
+        cwist_html_element_t *admin_trigger = cwist_html_element_create("a");
+        cwist_html_element_add_attr(admin_trigger, "href", "/admin");
+        cwist_html_element_add_attr(admin_trigger, "class", "nav-item nav-admin-trigger");
+        cwist_html_element_set_text(admin_trigger, "Dashboard");
+        cwist_html_element_add_child(admin_wrap, admin_trigger);
+        cwist_html_element_t *admin_menu = cwist_html_element_create("div");
+        cwist_html_element_add_attr(admin_menu, "class", "nav-admin-menu");
+        cwist_html_element_t *admin_users = cwist_html_element_create("a");
+        cwist_html_element_add_attr(admin_users, "href", "/admin/users");
+        cwist_html_element_add_attr(admin_users, "class", "nav-admin-subitem");
+        cwist_html_element_set_text(admin_users, "Users");
+        cwist_html_element_add_child(admin_menu, admin_users);
+        cwist_html_element_t *admin_boards = cwist_html_element_create("a");
+        cwist_html_element_add_attr(admin_boards, "href", "/admin/boards");
+        cwist_html_element_add_attr(admin_boards, "class", "nav-admin-subitem");
+        cwist_html_element_set_text(admin_boards, "Manage Boards");
+        cwist_html_element_add_child(admin_menu, admin_boards);
+        cwist_html_element_add_child(admin_wrap, admin_menu);
+        cwist_html_element_add_child(navlinks, admin_wrap);
     }
     /* Mobile account header (first in navlinks) */
     cwist_html_element_t *mobile_acct = cwist_html_element_create("div");

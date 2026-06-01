@@ -3,6 +3,7 @@
 #include "auth/auth.h"
 #include "crypto/fly_crypto.h"
 #include "db/db.h"
+#include "cwist/board_tree.h"
 #include "nats/fly_nats.h"
 #include "config/config.h"
 #include <cwist/sys/app/app.h>
@@ -175,6 +176,12 @@ int main(void) {
         return 1;
     }
     CWIST_LOG_INFO("Comments database initialized");
+    if (!db_board_tree_init("data/board_tree.db")) {
+        FLY_LOG_ERROR("Failed to initialize board tree database");
+        cwist_app_destroy(app);
+        return 1;
+    }
+    CWIST_LOG_INFO("Board tree database initialized");
 
     db_file_cleanup_duplicates(db);
     db_cleanup_orphaned_files(db);
@@ -279,9 +286,12 @@ int main(void) {
     cwist_app_post(app, "/comment/edit", handler_comment_edit_post);
     cwist_app_get(app, "/comment/:id/delete", handler_comment_delete_get);
 
+    cwist_app_get(app, "/admin", handler_admin_dashboard);
     cwist_app_get(app, "/admin/users", handler_admin_users);
     cwist_app_post(app, "/admin/user/role", handler_admin_user_role);
     cwist_app_post(app, "/admin/files/drop", handler_admin_files_drop);
+    cwist_app_get(app, "/admin/boards", handler_admin_boards_get);
+    cwist_app_post(app, "/admin/board/tree", handler_admin_boards_post);
 
     cwist_app_post(app, "/api/preview", handler_api_preview);
     cwist_app_post(app, "/api/upload", handler_api_upload);
@@ -300,6 +310,7 @@ int main(void) {
     g_nats_running = false;
     fly_nats_close();
     db_comment_close();
+    db_board_tree_close();
     cwist_app_destroy(app);
     fly_crypto_cleanup();
     return rc;

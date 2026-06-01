@@ -191,6 +191,32 @@
         loadBoardsDropdown();
     }
 
-    // 5. Service Worker
+    // 5. Boards Dropdown hover helper (desktop)
+    function bindBoardsDropdown(){
+        var dd=document.querySelector('.nav-board-dropdown');
+        var menu=document.getElementById('boards-dropdown');
+        if(!dd||!menu||dd.dataset.ddBound)return;
+        dd.dataset.ddBound='1';
+        dd.addEventListener('mouseenter',function(){
+            menu.classList.add('open');
+        });
+        dd.addEventListener('mouseleave',function(e){
+            if(!menu.contains(e.relatedTarget)){
+                menu.classList.remove('open');
+            }
+        });
+        menu.addEventListener('mouseleave',function(e){
+            if(!dd.contains(e.relatedTarget)){
+                menu.classList.remove('open');
+            }
+        });
+    }
+    if(document.readyState==='loading'){
+        document.addEventListener('DOMContentLoaded',bindBoardsDropdown);
+    }else{
+        bindBoardsDropdown();
+    }
+
+    // 6. Service Worker
     if('serviceWorker'in navigator){navigator.serviceWorker.register('/sw.js');}
 })();

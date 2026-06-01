@@ -281,18 +281,24 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
 
     if (can_edit_comment && !(deleted && deleted->valueint)) {
         cwist_sstring_append(b, "<div style='margin-top:6px;display:flex;gap:8px;flex-wrap:wrap'>");
+        cwist_sstring_append(b, "<button type='button' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick=\"var el=document.getElementById('edit-");
+        cwist_sstring_append(b, cid_buf);
+        cwist_sstring_append(b, "');el.style.display=el.style.display==='none'?'block':'none';\">Edit</button>");
+        cwist_sstring_append(b, "<a href='/comment/");
+        cwist_sstring_append(b, cid_buf);
+        cwist_sstring_append(b, "/delete' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete?\")'>Delete</a>");
+        cwist_sstring_append(b, "<div id='edit-");
+        cwist_sstring_append(b, cid_buf);
+        cwist_sstring_append(b, "' style='display:none;margin-top:8px;width:100%'>");
         cwist_sstring_append(b, "<form action='/comment/edit' method='post' style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>");
         cwist_sstring_append(b, "<input type='hidden' name='id' value='");
         cwist_sstring_append(b, cid_buf);
         cwist_sstring_append(b, "'>");
-        cwist_sstring_append(b, "<textarea name='content' rows='2' required style='width:240px;font-family:inherit;font-size:14px'>");
+        cwist_sstring_append(b, "<textarea name='content' rows='2' required style='width:100%;font-family:inherit;font-size:14px'>");
         cwist_sstring_append_escaped(b, content && content->valuestring ? content->valuestring : "");
         cwist_sstring_append(b, "</textarea>");
         cwist_sstring_append(b, "<button type='submit' class='btn' style='font-size:12px;padding:4px 10px'>Update</button>");
-        cwist_sstring_append(b, "</form>");
-        cwist_sstring_append(b, "<a href='/comment/");
-        cwist_sstring_append(b, cid_buf);
-        cwist_sstring_append(b, "/delete' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete?\")'>Delete</a>");
+        cwist_sstring_append(b, "</form></div>");
         cwist_sstring_append(b, "</div>");
     }
 

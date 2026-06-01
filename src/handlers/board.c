@@ -1,5 +1,56 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#include "cwist/board_tree.h"
+
+static int board_depth(int board_id, cJSON *tree) {
+    int depth = 0;
+    int current = board_id;
+    while (current > 0 && tree) {
+        int n = cJSON_GetArraySize(tree);
+        int parent = 0;
+        for (int i = 0; i < n; i++) {
+            cJSON *node = cJSON_GetArrayItem(tree, i);
+            if (json_int(node, "board_id", 0) == current) {
+                parent = json_int(node, "parent_board_id", 0);
+                break;
+            }
+        }
+        if (parent <= 0) break;
+        depth++;
+        if (parent == current) break;
+        current = parent;
+    }
+    return depth;
+}
+
+static void append_boards_flat(cJSON *out, cJSON *boards, cJSON *tree, int parent_id, int max_depth) {
+    if (!boards || !out) return;
+    int n = cJSON_GetArraySize(boards);
+    for (int i = 0; i < n; i++) {
+        cJSON *bo = cJSON_GetArrayItem(boards, i);
+        int bid = json_int(bo, "id", 0);
+        int pid = 0;
+        if (tree) {
+            int tn = cJSON_GetArraySize(tree);
+            for (int j = 0; j < tn; j++) {
+                cJSON *node = cJSON_GetArrayItem(tree, j);
+                if (json_int(node, "board_id", 0) == bid) {
+                    pid = json_int(node, "parent_board_id", 0);
+                    break;
+                }
+            }
+        }
+        if (pid != parent_id) continue;
+        int depth = board_depth(bid, tree);
+        if (depth > max_depth) continue;
+        cJSON *copy = cJSON_Duplicate(bo, 1);
+        if (copy) {
+            cJSON_AddNumberToObject(copy, "depth", depth);
+            cJSON_AddItemToArray(out, copy);
+        }
+        append_boards_flat(out, boards, tree, bid, max_depth);
+    }
+}
 
 void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
     bool dark = is_dark(req);
@@ -8,6 +59,7 @@ void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *boards = db_board_list(req->db);
+    cJSON *tree = db_board_tree_get_all();
     if (boards) {
         int n = cJSON_GetArraySize(boards);
         for (int i = 0; i < n; i++) {
@@ -21,8 +73,12 @@ void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
             }
         }
     }
-    cwist_sstring *page = render_board_list(boards, dark, role, pp, is_mobile_request(req));
+    cJSON *ordered = cJSON_CreateArray();
+    append_boards_flat(ordered, boards, tree, 0, 2);
+    cwist_sstring *page = render_board_list(ordered, dark, role, pp, is_mobile_request(req));
+    cJSON_Delete(ordered);
     if (boards) cJSON_Delete(boards);
+    if (tree) cJSON_Delete(tree);
     send_html_res(res, page);
     free(pp);
 }
@@ -32,7 +88,9 @@ void handler_board_new_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0; char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
-    send_html_res(res, render_board_form(NULL, is_dark(req), NULL, pp, is_mobile_request(req)));
+    cJSON *boards = db_board_list(req->db);
+    send_html_res(res, render_board_form(NULL, boards, is_dark(req), NULL, pp, is_mobile_request(req)));
+    if (boards) cJSON_Delete(boards);
     free(pp);
 }
 
@@ -43,6 +101,7 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
     const char *slug = cwist_query_map_get(kv, "slug");
     const char *desc = cwist_query_map_get(kv, "description");
     const char *ao = cwist_query_map_get(kv, "admin_only");
+    const char *parent_id_str = cwist_query_map_get(kv, "parent_id");
     const char *error = NULL;
     if (!name || !slug) {
         error = "Name and slug are required.";
@@ -67,7 +126,9 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
         int uid = 0; char role[32] = {0};
         auth_is_logged_in(req, &uid, role, sizeof(role));
         char *pp = get_profile_pic(req->db, uid, role);
-        cwist_sstring *page = render_board_form(NULL, is_dark(req), error, pp, is_mobile_request(req));
+        cJSON *boards = db_board_list(req->db);
+        cwist_sstring *page = render_board_form(NULL, boards, is_dark(req), error, pp, is_mobile_request(req));
+        if (boards) cJSON_Delete(boards);
         send_html_res(res, page);
         free(pp);
         cwist_query_map_destroy(kv);
@@ -75,6 +136,17 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     if (db_board_create(req->db, name, slug, desc ? desc : "", ao != NULL, 0, 0, 0)) {
+        cJSON *created = db_board_get_by_slug(req->db, slug);
+        if (created) {
+            int bid = json_int(created, "id", 0);
+            int parent_id = parent_id_str ? atoi(parent_id_str) : 0;
+            if (bid > 0 && parent_id > 0) {
+                db_board_tree_set_parent(bid, parent_id);
+            } else if (bid > 0) {
+                db_board_tree_set_parent(bid, 0);
+            }
+            cJSON_Delete(created);
+        }
         CWIST_LOG_INFO("Board created: name='%s' slug='%s'", name, slug);
     } else {
         CWIST_LOG_ERROR("Board creation failed: name='%s' slug='%s'", name, slug);
@@ -92,7 +164,12 @@ void handler_board_edit_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0; char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page = render_board_form(board, is_dark(req), NULL, pp, is_mobile_request(req));
+    cJSON *all_boards = db_board_list(req->db);
+    int bid = json_int(board, "id", 0);
+    int parent_id = db_board_tree_get_parent(bid);
+    cJSON_AddNumberToObject(board, "parent_id", parent_id);
+    cwist_sstring *page = render_board_form(board, all_boards, is_dark(req), NULL, pp, is_mobile_request(req));
+    if (all_boards) cJSON_Delete(all_boards);
     cJSON_Delete(board);
     send_html_res(res, page);
     free(pp);
@@ -157,7 +234,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
     }
 
     if (error) {
-        cwist_sstring *page = render_board_form(board, is_dark(req), error, pp, is_mobile_request(req));
+        cwist_sstring *page = render_board_form(board, NULL, is_dark(req), error, pp, is_mobile_request(req));
         if (board) cJSON_Delete(board);
         send_html_res(res, page);
         free(pp);
@@ -165,16 +242,22 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
         return;
     }
 
+    int parent_id = 0;
+    const char *parent_id_str = cwist_query_map_get(kv, "parent_id");
+    if (parent_id_str) parent_id = atoi(parent_id_str);
+    if (parent_id > 0 && parent_id == bid) parent_id = 0;
+
     if (!db_board_update(req->db, bid, name, slug, desc ? desc : "", ao != NULL, 0, 0, 0)) {
         CWIST_LOG_ERROR("Board update failed: bid=%d", bid);
-        cwist_sstring *page = render_board_form(board, is_dark(req), "Failed to update board.", pp, is_mobile_request(req));
+        cwist_sstring *page = render_board_form(board, NULL, is_dark(req), "Failed to update board.", pp, is_mobile_request(req));
         send_html_res(res, page);
         cJSON_Delete(board);
         free(pp);
         cwist_query_map_destroy(kv);
         return;
     }
-    CWIST_LOG_INFO("Board updated: bid=%d name='%s' slug='%s'", bid, name, slug);
+    db_board_tree_set_parent(bid, parent_id);
+    CWIST_LOG_INFO("Board updated: bid=%d name='%s' slug='%s' parent=%d", bid, name, slug, parent_id);
 
     cJSON *slug_obj = cJSON_GetObjectItem(board, "slug");
     char redirect_url[128];
@@ -194,7 +277,9 @@ void handler_board_delete(cwist_http_request *req, cwist_http_response *res) {
     const char *id_str = cwist_query_map_get(req->path_params, "id");
     if (id_str) {
         int bid = atoi(id_str);
+        db_board_tree_promote_children(bid);
         db_board_delete(req->db, bid);
+        db_board_tree_remove(bid);
         CWIST_LOG_INFO("Board deleted: bid=%d", bid);
     }
     redirect(res, "/boards");

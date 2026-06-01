@@ -38,6 +38,7 @@ static void set_default(void) {
     g_config.port = 8443;
     g_config.use_tasfa = true;
     g_config.use_rss = false;
+    g_config.roundness = 0.0f;
     g_config.max_upload_size = 1024LL * 1024LL * 1024LL;
     g_config.max_total_parallel_uploads = 8;
     g_config.max_upload_parallel_chunks = 32;
@@ -70,6 +71,7 @@ bool blog_config_load(const char *path) {
             fprintf(f, "root_url=%s\n", g_config.root_url);
             fprintf(f, "use_tasfa=%s\n", g_config.use_tasfa ? "true" : "false");
             fprintf(f, "use_rss=%s\n", g_config.use_rss ? "true" : "false");
+            fprintf(f, "roundness=%.2f\n", g_config.roundness);
             fprintf(f, "max_upload_size=1G\n");
             fprintf(f, "max_total_parallel_uploads=%d\n", g_config.max_total_parallel_uploads);
             fprintf(f, "max_upload_parallel_chunks=%d\n", g_config.max_upload_parallel_chunks);
@@ -112,6 +114,10 @@ bool blog_config_load(const char *path) {
             g_config.use_tasfa = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "use_rss") == 0) {
             g_config.use_rss = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
+        } else if (strcmp(key, "roundness") == 0) {
+            g_config.roundness = strtof(val, NULL);
+            if (g_config.roundness < 0.0f) g_config.roundness = 0.0f;
+            if (g_config.roundness > 1.0f) g_config.roundness = 1.0f;
         } else if (strcmp(key, "max_upload_size") == 0) {
             g_config.max_upload_size = parse_size_bytes(val, g_config.max_upload_size);
         } else if (strcmp(key, "max_total_parallel_uploads") == 0) {
