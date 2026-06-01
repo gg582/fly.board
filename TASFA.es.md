@@ -17,7 +17,7 @@ Carga:
 Descarga:
 - `GET /file/download/:id/handshake`
 - `GET /file/download/:id/chunk/:chunk_index`
-- `GET /file/download/:id` — admite el encabezado `Range` con autenticación de sesión TASFA (`X-TASFA-Session-ID`, `X-TASFA-Session-Token`) para streaming nativo de medios
+- `GET /file/download/:id`
 - `GET /assets/tasfa/img/:filename/handshake`
 - `GET /assets/tasfa/img/:filename/chunk/:chunk_index`
 - `GET /assets/tasfa/uploads/:filename/handshake`
@@ -25,7 +25,7 @@ Descarga:
 
 ## Protocolo de Carga
 
-El navegador negocia primero una sesión de carga, luego envía **fragmentos** (predeterminado `24 MiB`, móvil `12 MiB`) con encabezados TASFA:
+El navegador negocia primero una sesión de carga, luego envía **fragmentos** (predeterminado `16 MiB`, móvil `8 MiB`) con encabezados TASFA:
 
 - `X-TASFA-Upload-ID`
 - `X-TASFA-Upload-Token`
@@ -218,8 +218,8 @@ Esto evita el agotamiento del pool de conexiones del navegador y mantiene confia
 
 ## Configuración en Tiempo de Ejecución
 
-- tamaño de fragmento de carga: `24 MiB` escritorio, `12 MiB` móvil
-- pista adaptativa de tamaño de fragmento de carga: mínimo `4 MiB`, máximo `48 MiB` escritorio / `24 MiB` móvil
+- tamaño de fragmento de carga: `16 MiB` escritorio, `8 MiB` móvil
+- pista adaptativa de tamaño de fragmento de carga: mínimo `8 MiB`, máximo `32 MiB` escritorio / `16 MiB` móvil
 - tamaño de fragmento de descarga: `8 MiB` escritorio, `4 MiB` móvil, hasta `32 MiB` cuando el cliente indica una sesión mayor
 - paralelismo de carga del navegador predeterminado: `16`
 - paralelismo máximo de carga del navegador: `max_upload_parallel_chunks` en `blog.settings`, límite `40`
@@ -294,33 +294,6 @@ Las cargas completadas reciben un PIN de eliminación de un solo uso. El PIN en 
 4. El cliente descifra los fragmentos en el navegador utilizando la **Web Crypto API** y las claves de sesión.
 5. El navegador ensambla la respuesta en un búfer contiguo.
 
-### Streaming por Range-Request
-
-Para archivos multimedia grandes, el cliente puede omitir la descarga completa fragmento por fragmento y solicitar directamente un rango de bytes a `GET /file/download/:id` enviando:
-
-- `Range: bytes=<start>-<end>`
-- `X-TASFA-Session-ID: <session_id>`
-- `X-TASFA-Session-Token: <session_token>`
-
-El servidor valida el token de sesión y devuelve `206 Partial Content` con los encabezados `Content-Range`, `Content-Length` y `Accept-Ranges`. El Service Worker almacena en caché la respuesta completa y puede servir solicitudes de rango posteriores desde la caché sin llegar al servidor.
-
-Para reproducción de video/audio, el cliente puede realizar un **registro solo de handshake** (`fetchBlobViaTasfa(url, {handshakeOnly: true})`) y luego establecer el `src` del elemento multimedia en la URL de descarga directa. El navegador emite solicitudes `Range` nativas para las operaciones de seek; el Service Worker las intercepta, añade los encabezados de sesión TASFA y sirve respuestas `206` desde la caché cuando está disponible.
-
-Las respuestas de fragmentos de descarga incluyen:
-
-- `X-TASFA-Chunk-Index` y `X-TASFA-Chunk-Count`
-- `X-TASFA-Predicted-Remaining-Ms` cuando hay muestras de RTT disponibles
-- `X-TASFA-Stream-Mode: aes-256-gcm` y carga útil cifrada cuando el cifrado está activo
-- `X-TASFA-Hash-Tag` y `X-TASFA-Magic-Scalar` cuando existen metadatos HTP precalculados
-
-## Integración de Procesamiento de Medios
-
-Los medios generados por el servidor (miniaturas, vistas previas de audio) son activos TASFA de primera clase:
-- **Precalculación de Metadatos HTP**: Cuando el servidor genera una miniatura o vista previa, calcula inmediatamente los escalares HTP y las etiquetas SHA-256 para sus fragmentos y los almacena en `data/tasfa/media_htp`. Nota: el generador de medios del lado del servidor usa **SHA-256** para este propósito, mientras que el cliente de carga todavía usa **SHA-512** para los fragmentos cargados por el usuario.
-- **Transferencia Confiable de Medios**: Los medios se sirven a través de las rutas `/assets/tasfa/...`, que admiten el protocolo TASFA completo, incluida la verificación de integridad a nivel de fragmento utilizando los metаданнos HTP precalculados.
-- **Control de Concurrencia**: La generación de medios (ffmpeg) está limitada a 4 procesos concurrentes para proteger los recursos del servidor.
-- **Inserción Unificada de Medios**: Tanto la inserción automática como la del explorador de archivos usan etiquetas HTML nativas `<video>` o `<audio>` con los atributos `controls` y `playsinline`. El cliente detecta el tipo de medio por el tipo MIME o la extensión del archivo, y recurre a la detección por extensión cuando el tipo MIME es genérico (`application/octet-stream`).
-
 ## Mitigación DoS vía Bitmap
 
 Tanto el estado de carga como el de descarga se rastrean con un **bitmap binario denso** (un byte por fragmento, `'0'` / `'1'`).
@@ -342,7 +315,7 @@ El servidor usa un planificador de trabajadores de round-robin fijo. El número 
 
 ## Finalización Asíncrona
 
-`POST /file/upload/complete` se procesa de forma asíncrona. La primera llamada devuelve `202 Accepted` con `{"processing": true}` e inicia un trabajador de finalización en segundo plano. Las llamadas posteriores sondean la caché de finalización; cuando el trabajador termina, el estado y el cuerpo en caché se devuelven inmediatamente. Esto evita que la validación HTP de larga duración y la generación de medios bloqueen la conexión HTTP.
+`POST /file/upload/complete` se procesa de forma asíncrona. La primera llamada devuelve `202 Accepted` con `{"processing": true}` e inicia un trabajador de finalización en segundo plano. Las llamadas posteriores sondean la caché de finalización; cuando el trabajador termina, el estado y el cuerpo en caché se devuelven inmediatamente. Esto evita que la trabajo de finalización de larga duración bloqueen la conexión HTTP.
 
 ## Lista de Verificación de Autorrevisión
 

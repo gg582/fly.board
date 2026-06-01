@@ -17,7 +17,7 @@ Upload:
 Download:
 - `GET /file/download/:id/handshake`
 - `GET /file/download/:id/chunk/:chunk_index`
-- `GET /file/download/:id` — supports `Range` header with TASFA session authentication (`X-TASFA-Session-ID`, `X-TASFA-Session-Token`) for native media streaming
+- `GET /file/download/:id`
 - `GET /assets/tasfa/img/:filename/handshake`
 - `GET /assets/tasfa/img/:filename/chunk/:chunk_index`
 - `GET /assets/tasfa/uploads/:filename/handshake`
@@ -25,7 +25,7 @@ Download:
 
 ## Upload Protocol
 
-The browser negotiates an upload session first, then sends **chunks** (default `24 MiB`, mobile `12 MiB`) with TASFA headers:
+The browser negotiates an upload session first, then sends **chunks** (default `16 MiB`, mobile `8 MiB`) with TASFA headers:
 
 - `X-TASFA-Upload-ID`
 - `X-TASFA-Upload-Token`
@@ -220,8 +220,8 @@ This prevents browser connection pool exhaustion and keeps stall detection relia
 
 ## Runtime Settings
 
-- upload chunk size: `24 MiB` desktop, `12 MiB` mobile
-- adaptive upload chunk-size hint: `4 MiB` minimum, up to `48 MiB` desktop / `24 MiB` mobile; success `*2`, failure `*0.75`
+- upload chunk size: `16 MiB` desktop, `8 MiB` mobile
+- adaptive upload chunk-size hint: `8 MiB` minimum, up to `32 MiB` desktop / `16 MiB` mobile; success `*2`, failure `/2`
 - download chunk size: `8 MiB` desktop, `4 MiB` mobile, up to `32 MiB` when the client hints a larger session
 - default browser upload parallelism: `16`, success `*1.15`, failure `*0.85`
 - max browser upload parallelism: `max_upload_parallel_chunks` in `blog.settings`, capped at `40`
@@ -296,33 +296,6 @@ Completed uploads receive a one-time delete PIN. The clear PIN is a 12-character
 4. Client decrypts chunks in the browser using the **Web Crypto API** and the session keys.
 5. Browser assembles the response into one contiguous buffer.
 
-### Range-Request Streaming
-
-For large media files the client may bypass the full chunk-by-chunk download and request a byte range directly from `GET /file/download/:id` by sending:
-
-- `Range: bytes=<start>-<end>`
-- `X-TASFA-Session-ID: <session_id>`
-- `X-TASFA-Session-Token: <session_token>`
-
-The server validates the session token and returns `206 Partial Content` with `Content-Range`, `Content-Length`, and `Accept-Ranges` headers. The Service Worker caches the full response and can serve subsequent range requests from the cache without hitting the server.
-
-For video/audio playback the client may perform a **handshake-only registration** (`fetchBlobViaTasfa(url, {handshakeOnly: true})`) and then set the media element's `src` to the direct download URL. The browser issues native `Range` requests for seek operations; the Service Worker intercepts them, adds the TASFA session headers, and serves `206` responses from cache when available.
-
-Download chunk responses include:
-
-- `X-TASFA-Chunk-Index` and `X-TASFA-Chunk-Count`
-- `X-TASFA-Predicted-Remaining-Ms` when RTT samples are available
-- `X-TASFA-Stream-Mode: aes-256-gcm` and encrypted payload when encryption is active
-- `X-TASFA-Hash-Tag` and `X-TASFA-Magic-Scalar` when pre-calculated HTP metadata exists
-
-## Media Processing Integration
-
-Server-generated media (thumbnails, audio previews) are first-class TASFA assets:
-- **HTP Metadata Pre-calculation**: When the server generates a thumbnail or preview, it immediately computes HTP scalars and SHA-256 tags for its chunks and stores them in `data/tasfa/media_htp`. Note: the server-side media generator uses **SHA-256** for this purpose, while the upload client still uses **SHA-512** for user-uploaded chunks.
-- **Reliable Media Transfer**: Media is served via the `/assets/tasfa/...` routes, which support the full TASFA protocol including chunk-level integrity verification using the pre-calculated HTP metadata.
-- **Concurrency Control**: Media generation (ffmpeg) is limited to 4 concurrent processes to protect server resources.
-- **Unified Media Insertion**: Both auto-insert and file-browser insertion use native HTML `<video>` or `<audio>` tags with `controls` and `playsinline` attributes. The client detects media type by MIME type or file extension and falls back to extension-based detection when the MIME type is generic (`application/octet-stream`).
-
 ## DoS Mitigation via Bitmap
 
 Both upload and download state are tracked with a **dense binary bitmap** (one byte per chunk, `'0'` / `'1'`).
@@ -344,7 +317,7 @@ The server uses a sticky round-robin worker scheduler. The number of workers equ
 
 ## Asynchronous Finalization
 
-`POST /file/upload/complete` is processed asynchronously. The first call returns `202 Accepted` with `{"processing": true}` and starts a background finalize worker. Subsequent calls poll the finalize cache; when the worker finishes, the cached status and body are returned immediately. This prevents long-running HTP validation and media generation from blocking the HTTP connection.
+`POST /file/upload/complete` is processed asynchronously. The first call returns `202 Accepted` with `{"processing": true}` and starts a background finalize worker. Subsequent calls poll the finalize cache; when the worker finishes, the cached status and body are returned immediately. This prevents long-running finalization work from blocking the HTTP connection.
 
 ## Self-Review Checklist
 

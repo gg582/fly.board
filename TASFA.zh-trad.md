@@ -17,7 +17,7 @@ TASFA 是本專案用於檔案上傳與下載的傳輸協定。
 下載:
 - `GET /file/download/:id/handshake`
 - `GET /file/download/:id/chunk/:chunk_index`
-- `GET /file/download/:id` — 支援帶 TASFA 工作階段認證（`X-TASFA-Session-ID`、`X-TASFA-Session-Token`）的 `Range` 標頭，用於原生媒體串流傳輸
+- `GET /file/download/:id`
 - `GET /assets/tasfa/img/:filename/handshake`
 - `GET /assets/tasfa/img/:filename/chunk/:chunk_index`
 - `GET /assets/tasfa/uploads/:filename/handshake`
@@ -25,7 +25,7 @@ TASFA 是本專案用於檔案上傳與下載的傳輸協定。
 
 ## 上傳協定
 
-瀏覽器先協商上傳工作階段，然後傳送帶有 TASFA 標頭的**分塊**（預設 `24 MiB`，行動裝置 `12 MiB`）：
+瀏覽器先協商上傳工作階段，然後傳送帶有 TASFA 標頭的**分塊**（預設 `16 MiB`，行動裝置 `8 MiB`）：
 
 - `X-TASFA-Upload-ID`
 - `X-TASFA-Upload-Token`
@@ -220,8 +220,8 @@ repair_worthwhile(嫌疑數, 總分塊數, 分塊大小, rtt_ms):
 
 ## 執行階段設定
 
-- 上傳分塊大小：桌面 `24 MiB`，行動裝置 `12 MiB`
-- 自適應上傳分塊大小提示：最小 `4 MiB`，最大桌面 `48 MiB` / 行動裝置 `24 MiB`
+- 上傳分塊大小：桌面 `16 MiB`，行動裝置 `8 MiB`
+- 自適應上傳分塊大小提示：最小 `8 MiB`，最大桌面 `32 MiB` / 行動裝置 `16 MiB`
 - 下載分塊大小：桌面 `8 MiB`，行動裝置 `4 MiB`，用戶端提示更大工作階段時最大 `32 MiB`
 - 預設瀏覽器上傳並行度：`16`
 - 最大瀏覽器上傳並行度：`blog.settings` 中的 `max_upload_parallel_chunks`，上限 `40`
@@ -296,33 +296,6 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 4. 用戶端在瀏覽器中使用 **Web Crypto API** 和工作階段金鑰解密分塊。
 5. 瀏覽器將回應組裝為單個連續緩衝區。
 
-### Range-Request 串流傳輸
-
-對於大型媒體檔案，用戶端可以繞過完整的逐塊下載，直接從 `GET /file/download/:id` 請求位元組範圍，傳送以下標頭：
-
-- `Range: bytes=<start>-<end>`
-- `X-TASFA-Session-ID: <session_id>`
-- `X-TASFA-Session-Token: <session_token>`
-
-伺服器驗證工作階段權杖並回傳帶有 `Content-Range`、`Content-Length` 和 `Accept-Ranges` 標頭的 `206 Partial Content`。Service Worker 快取完整回應，後續範圍請求可從快取直接提供，無需存取伺服器。
-
-對於影片/音訊播放，用戶端可以執行**僅交握註冊**（`fetchBlobViaTasfa(url, {handshakeOnly: true})`），然後將媒體元素的 `src` 設為直接下載 URL。瀏覽器為搜尋操作發出原生 `Range` 請求；Service Worker 攔截這些請求，新增 TASFA 工作階段標頭，並在快取可用時提供 `206` 回應。
-
-下載區塊回應包括：
-
-- `X-TASFA-Chunk-Index` 和 `X-TASFA-Chunk-Count`
-- RTT 樣本可用時 `X-TASFA-Predicted-Remaining-Ms`
-- 加密啟動時 `X-TASFA-Stream-Mode: aes-256-gcm` 和加密承載
-- 預先計算的 HTP 中繼資料存在時 `X-TASFA-Hash-Tag` 和 `X-TASFA-Magic-Scalar`
-
-## 媒體處理整合
-
-伺服器產生的媒體（縮圖、音訊預覽）是 TASFA 的一等資產：
-- **HTP 元資料預計算**：當伺服器產生縮圖或預覽時，它會立即計算其分塊的 HTP 純量和 SHA-256 標籤，並將其儲存在 `data/tasfa/media_htp` 中。注意：伺服器端媒體產生器為此目的使用 **SHA-256**，而上傳客戶端對使用者上傳的分塊仍使用 **SHA-512**。
-- **可靠的媒體傳輸**：媒體透過 `/assets/tasfa/...` 路由提供，支援完整的 TASFA 協定，包括使用預先計算的 HTP 元資料進行分塊級完整性驗證。
-- **並行控制**：媒體產生（ffmpeg）限制為 4 個並行程序，以保護伺服器資源。
-- **統一媒體插入**：自動插入和檔案瀏覽器插入均使用帶有 `controls` 和 `playsinline` 屬性的原生 HTML `<video>` 或 `<audio>` 標籤。客戶端透過 MIME 類型或檔案副檔名偵測媒體類型，當 MIME 類型為通用類型（`application/octet-stream`）時回退到基於副檔名的偵測。
-
 ## 透過點陣圖的 DoS 緩解
 
 上傳和下載狀態均透過**稠密二進位點陣圖**追蹤（每個分塊 1 位元組，`'0'` / `'1'`）。
@@ -344,7 +317,7 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 
 ## 非同步最終化
 
-`POST /file/upload/complete` 是非同步處理的。首次呼叫傳回 `202 Accepted` 和 `{"processing": true}` 並啟動背景最終化工作器。後續呼叫輪詢最終化快取；當工作器完成時，快取的狀態和內文立即傳回。這防止長時間執行的 HTP 驗證和媒體產生阻塞 HTTP 連線。
+`POST /file/upload/complete` 是非同步處理的。首次呼叫傳回 `202 Accepted` 和 `{"processing": true}` 並啟動背景最終化工作器。後續呼叫輪詢最終化快取；當工作器完成時，快取的狀態和內文立即傳回。這防止長時間執行的最終化工作阻塞 HTTP 連線。
 
 ## 自查清單
 

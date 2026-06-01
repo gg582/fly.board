@@ -76,7 +76,12 @@ self.addEventListener('message', function(event) {
         if (entry && entry.controller) {
             try { entry.controller.close(); } catch (e) {}
         }
-        delete tasfaStreams[event.data.streamId];
+        /* Delay deletion so that any late range/re-buffer requests from the
+           media element do not immediately hit "Stream not found". */
+        var closeStreamId = event.data.streamId;
+        setTimeout(function() {
+            delete tasfaStreams[closeStreamId];
+        }, 60000);
     }
 });
 

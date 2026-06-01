@@ -1,0 +1,92 @@
+@startuml TASFA_Media_Extensions
+
+skinparam backgroundColor #FEFEFE
+skinparam sequenceArrowThickness 2
+skinparam sequenceParticipantBorderThickness 2
+skinparam BoxBorderThickness 2
+skinparam MaxMessageSize 120
+hide footbox
+
+actor "Browser Client" as Client
+participant "Service Worker" as SW
+participant "Media Player\n<video>/<audio>" as Player
+participant "Media Generator\nffmpeg" as FFmpeg
+
+box "TASFA Server" #F8F8F8
+    participant "Download API" as DownloadAPI
+    participant "Upload API" as UploadAPI
+    database "Storage\nmedia_htp\nassets/..." as Storage
+end box
+
+== Media Routes ==
+
+note over Client,DownloadAPI
+GET /file/download/:id
+  (with Range + X-TASFA-Session-ID/Token)
+GET /assets/tasfa/img/:filename/handshake
+GET /assets/tasfa/img/:filename/chunk/:chunk_index
+GET /assets/tasfa/uploads/:filename/handshake
+GET /assets/tasfa/uploads/:filename/chunk/:chunk_index
+end note
+
+== Range-Request Streaming ==
+
+Client -> SW: fetchBlobViaTasfa(url, {handshakeOnly: true})
+SW -> DownloadAPI: GET /file/download/:id/handshake
+DownloadAPI --> SW: session_id, session_token
+
+Client -> Player: set src = direct download URL
+Player -> SW: native Range: bytes=<start>-<end>
+
+SW -> DownloadAPI: GET /file/download/:id\nRange + X-TASFA-Session-ID/Token
+DownloadAPI --> SW: 206 Partial Content\nContent-Range, Content-Length, Accept-Ranges
+
+alt Response cached
+    SW -> SW: serve subsequent ranges from cache
+    SW --> Player: 206 (cached)
+else Server fetch
+    SW --> Player: 206 (from server)
+end
+
+== Progressive Chunk Streaming ==
+
+Client -> SW: GET /.../handshake
+SW -> DownloadAPI: handshake
+DownloadAPI --> SW: session keys, chunk_size, chunk_count,\nsupports_progressive_streaming: true
+
+Client -> SW: TASFA_STREAM_OPEN\nReadableStream at /__tasfa_stream__/<streamId>
+
+loop Sequential chunks, span=1
+    SW -> DownloadAPI: GET .../chunk/:chunk_index
+    DownloadAPI --> SW: chunk bytes\nX-TASFA-Chunk-Index\nX-TASFA-Chunk-Count
+    SW -> SW: decrypt (Web Crypto API)\npush to stream via TASFA_STREAM_CHUNK
+end
+
+alt Initial threshold reached\n(first 2 chunks or >= 2 MiB)
+    SW -> Player: src = /__tasfa_stream__/<streamId>
+end
+
+SW -> SW: TASFA_STREAM_CLOSE (EOF)
+
+== Media Processing Integration ==
+
+UploadAPI -> FFmpeg: generate thumbnail / audio preview
+FFmpeg -> Storage: output media file
+
+UploadAPI -> Storage: compute HTP scalars & SHA-256 tags\nstore in data/tasfa/media_htp
+
+Client -> DownloadAPI: GET /assets/tasfa/img/.../handshake
+DownloadAPI --> Client: session_id, session_token, chunk_size,\npre-calculated HTP metadata hints
+
+loop Adaptive chunk groups
+    Client -> DownloadAPI: GET /assets/tasfa/img/.../chunk/:i
+    DownloadAPI -> Storage: read chunk + verify with pre-calculated HTP
+    DownloadAPI --> Client: chunk bytes
+end
+
+note over FFmpeg
+Concurrency limit: 4 concurrent
+ffmpeg processes max.
+end note
+
+@enduml

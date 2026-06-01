@@ -455,10 +455,11 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Content-Disposition", disp);
 
     db_file_increment_download(req->db, atoi(id_str));
-    cJSON_Delete(file);
 
     bool not_modified = false;
-    if (!send_cached_file_response(req, res, path, mime, is_image ? IMAGE_CACHE_CONTROL : FILE_CACHE_CONTROL, &not_modified)) {
+    bool ok = send_cached_file_response(req, res, path, mime, is_image ? IMAGE_CACHE_CONTROL : FILE_CACHE_CONTROL, &not_modified);
+    cJSON_Delete(file);
+    if (!ok) {
         send_upload_not_found(res);
         return;
     }
