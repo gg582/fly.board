@@ -76,10 +76,16 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
             snprintf(delay_buf, sizeof(delay_buf), "%.2fs", i * 0.05);
             cJSON *score = cJSON_GetObjectItem(bo, "score");
             bool is_hot = (score && score->valuedouble > 0.0 && i < 3);
+            int depth = json_int(bo, "depth", 0);
             cwist_sstring_append(b, "<section class='board-line ");
             if (is_hot) cwist_sstring_append(b, "board-line-hot ");
             cwist_sstring_append(b, "fade-in' style='animation-delay:");
             cwist_sstring_append(b, delay_buf);
+            if (depth > 0) {
+                char depth_style[64];
+                snprintf(depth_style, sizeof(depth_style), ";margin-left:%dpx", depth * 28);
+                cwist_sstring_append(b, depth_style);
+            }
             cwist_sstring_append(b, "'>");
             cwist_sstring_append(b, "<div class='board-line-head'>");
             cwist_sstring_append(b, "<a href='/board/");
@@ -189,32 +195,48 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     return page;
 }
 
-cwist_sstring *render_board_form(cJSON *board, bool dark, const char *error, const char *profile_pic, bool is_mobile) {
+cwist_sstring *render_board_form(cJSON *board, cJSON *all_boards, bool dark, const char *error, const char *profile_pic, bool is_mobile) {
     cwist_sstring *fields = cwist_sstring_create();
     cwist_sstring_assign(fields, "<label>Name</label><input name='name' value='");
     if (board) {
         cJSON *n = cJSON_GetObjectItem(board, "name");
         cwist_sstring_append_escaped(fields, n->valuestring);
-         
-         
     }
     cwist_sstring_append(fields, "' required>");
     cwist_sstring_append(fields, "<label>Slug</label><input name='slug' pattern='[A-Za-z0-9_-]+' title='Only letters, numbers, hyphens and underscores are allowed' value='");
     if (board) {
         cJSON *s = cJSON_GetObjectItem(board, "slug");
         cwist_sstring_append_escaped(fields, s->valuestring);
-         
-         
     }
     cwist_sstring_append(fields, "' required>");
     cwist_sstring_append(fields, "<label>Description</label><input name='description' value='");
     if (board) {
         cJSON *d = cJSON_GetObjectItem(board, "description");
         cwist_sstring_append_escaped(fields, d && d->valuestring[0] ? d->valuestring : "");
-         
-         
     }
     cwist_sstring_append(fields, "'>");
+    cwist_sstring_append(fields, "<label>Parent Board</label><select name='parent_id'><option value='0'>(None - top level)</option>");
+    int current_parent = board ? json_int(board, "parent_id", 0) : 0;
+    if (all_boards) {
+        int self_id = board ? json_int(board, "id", 0) : 0;
+        int n = cJSON_GetArraySize(all_boards);
+        for (int i = 0; i < n; i++) {
+            cJSON *bo = cJSON_GetArrayItem(all_boards, i);
+            int bid = json_int(bo, "id", 0);
+            if (bid <= 0 || bid == self_id) continue;
+            cJSON *bname = cJSON_GetObjectItem(bo, "name");
+            char bid_buf[32];
+            snprintf(bid_buf, sizeof(bid_buf), "%d", bid);
+            cwist_sstring_append(fields, "<option value='");
+            cwist_sstring_append(fields, bid_buf);
+            cwist_sstring_append(fields, "'");
+            if (bid == current_parent) cwist_sstring_append(fields, " selected");
+            cwist_sstring_append(fields, ">");
+            if (bname && bname->valuestring) cwist_sstring_append_escaped(fields, bname->valuestring);
+            cwist_sstring_append(fields, "</option>");
+        }
+    }
+    cwist_sstring_append(fields, "</select>");
     cwist_sstring_append(fields, "<label><input type='checkbox' name='admin_only' value='1' ");
     if (board) {
         if (json_int(board, "admin_only", 0)) cwist_sstring_append(fields, "checked");

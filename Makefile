@@ -12,7 +12,7 @@ LIBMAGIC_DIR := third_party/file
 LIBMAGIC_A := $(LIBMAGIC_DIR)/src/.libs/libmagic.a
 
 SRCS := src/main.c \
-        src/db/db.c src/db/user.c src/db/board.c src/db/post.c src/db/file.c src/db/comment.c src/db/vote.c src/db/tag.c src/db/sql_escape.c src/db/orm.c \
+        src/db/db.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/vote.c src/db/tag.c src/db/sql_escape.c src/db/orm.c \
         src/auth/auth.c \
         src/crypto/fly_crypto.c \
         src/render/theme/theme.c src/render/theme/rules.c src/render/theme/json.c src/render/theme/css.c \

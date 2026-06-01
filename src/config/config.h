@@ -17,6 +17,7 @@ typedef struct {
     char root_url[256];
     bool use_tasfa;
     bool use_rss;
+    float roundness;
     long long max_upload_size;
     int max_total_parallel_uploads;
     int max_upload_parallel_chunks;

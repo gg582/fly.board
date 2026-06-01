@@ -23,6 +23,20 @@ static void add_decl(cJSON *r, const char *p, const char *v) {
     if (decls) cJSON_AddStringToObject(decls, p, v);
 }
 
+static const char *radius_str(float base) {
+    static char buf_pool[32][16];
+    static int idx = 0;
+    if (base <= 0 || g_config.roundness <= 0.0f) return "0";
+    idx = (idx + 1) % 32;
+    char *buf = buf_pool[idx];
+    if (base >= 50.0f) {
+        snprintf(buf, 16, "%.1f%%", base * g_config.roundness);
+    } else {
+        snprintf(buf, 16, "%.1fpx", base * g_config.roundness);
+    }
+    return buf;
+}
+
 void rule_root(cJSON *vars, theme_color_t *t) {
     cJSON_AddStringToObject(vars, "--bg", t->bg);
     cJSON_AddStringToObject(vars, "--fg", t->fg);
@@ -153,7 +167,7 @@ void rule_base(cJSON *rules) {
 
     cJSON *sb_thumb = create_rule("::-webkit-scrollbar-thumb");
     add_decl(sb_thumb, "background", "var(--border)");
-    add_decl(sb_thumb, "border-radius", "0");
+    add_decl(sb_thumb, "border-radius", radius_str(0));
     add_decl(sb_thumb, "border", "none");
     cJSON_AddItemToArray(rules, sb_thumb);
 
@@ -201,7 +215,7 @@ void rule_layout(cJSON *rules) {
 
     cJSON *navitem = create_rule(".nav-item");
     add_decl(navitem, "padding", "8px 10px");
-    add_decl(navitem, "border-radius", "0");
+    add_decl(navitem, "border-radius", radius_str(8));
     add_decl(navitem, "border-bottom", "1px solid transparent");
     add_decl(navitem, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
     add_decl(navitem, "font-weight", "500");
@@ -216,20 +230,20 @@ void rule_layout(cJSON *rules) {
     add_decl(navitemh, "border-bottom-color", "var(--accent)");
     cJSON_AddItemToArray(rules, navitemh);
 
-    cJSON *board_dd = create_rule(".nav-board-dropdown");
+    cJSON *board_dd = create_rule(".nav-board-dropdown, .nav-admin-dropdown");
     add_decl(board_dd, "position", "relative");
     add_decl(board_dd, "display", "inline-flex");
     add_decl(board_dd, "align-items", "center");
-    add_decl(board_dd, "padding-bottom", "6px");
-    add_decl(board_dd, "margin-bottom", "-6px");
+    add_decl(board_dd, "padding-bottom", "20px");
+    add_decl(board_dd, "margin-bottom", "-20px");
     cJSON_AddItemToArray(rules, board_dd);
 
-    cJSON *board_menu = create_rule(".nav-board-menu");
+    cJSON *board_menu = create_rule(".nav-board-menu, .nav-admin-menu");
     add_decl(board_menu, "position", "absolute");
     add_decl(board_menu, "top", "100%");
     add_decl(board_menu, "left", "0");
     add_decl(board_menu, "min-width", "220px");
-    add_decl(board_menu, "max-height", "320px");
+    add_decl(board_menu, "max-height", "420px");
     add_decl(board_menu, "overflow-y", "auto");
     add_decl(board_menu, "background", "var(--glass-bg)");
     add_decl(board_menu, "backdrop-filter", "blur(16px) saturate(150%)");
@@ -241,11 +255,12 @@ void rule_layout(cJSON *rules) {
     add_decl(board_menu, "visibility", "hidden");
     add_decl(board_menu, "opacity", "0");
     add_decl(board_menu, "pointer-events", "none");
-    add_decl(board_menu, "transform", "translateY(-16px)");
-    add_decl(board_menu, "transition", "opacity 0.4s cubic-bezier(0.165, 0.84, 0.44, 1), transform 0.4s cubic-bezier(0.165, 0.84, 0.44, 1), visibility 0.4s");
+    add_decl(board_menu, "z-index", "200");
+    add_decl(board_menu, "transform", "translateY(-8px)");
+    add_decl(board_menu, "transition", "opacity 0.2s ease, transform 0.2s ease, visibility 0.2s");
     cJSON_AddItemToArray(rules, board_menu);
 
-    cJSON *board_menu_open = create_rule(".nav-board-dropdown:hover .nav-board-menu");
+    cJSON *board_menu_open = create_rule(".nav-board-dropdown:hover .nav-board-menu, .nav-board-menu.open");
     add_decl(board_menu_open, "visibility", "visible");
     add_decl(board_menu_open, "opacity", "1");
     add_decl(board_menu_open, "pointer-events", "auto");
@@ -257,7 +272,7 @@ void rule_layout(cJSON *rules) {
     add_decl(board_menu_list, "flex-direction", "column");
     cJSON_AddItemToArray(rules, board_menu_list);
 
-    cJSON *board_sub = create_rule(".nav-board-subitem");
+    cJSON *board_sub = create_rule(".nav-board-subitem, .nav-admin-subitem");
     add_decl(board_sub, "display", "block");
     add_decl(board_sub, "padding", "8px 10px");
     add_decl(board_sub, "color", "var(--fg)");
@@ -265,7 +280,7 @@ void rule_layout(cJSON *rules) {
     add_decl(board_sub, "font-weight", "500");
     cJSON_AddItemToArray(rules, board_sub);
 
-    cJSON *board_sub_h = create_rule(".nav-board-subitem:hover");
+    cJSON *board_sub_h = create_rule(".nav-board-subitem:hover, .nav-admin-subitem:hover");
     add_decl(board_sub_h, "background", "color-mix(in srgb, var(--hover) 70%, transparent)");
     add_decl(board_sub_h, "color", "var(--accent)");
     cJSON_AddItemToArray(rules, board_sub_h);
@@ -326,7 +341,7 @@ void rule_layout(cJSON *rules) {
     cJSON *pp = create_rule(".profile-pic");
     add_decl(pp, "width", "40px");
     add_decl(pp, "height", "40px");
-    add_decl(pp, "border-radius", "0");
+    add_decl(pp, "border-radius", radius_str(50));
     add_decl(pp, "object-fit", "cover");
     add_decl(pp, "border", "1px solid var(--border)");
     cJSON_AddItemToArray(rules, pp);
@@ -334,7 +349,7 @@ void rule_layout(cJSON *rules) {
     cJSON *pp_s = create_rule(".profile-pic-small");
     add_decl(pp_s, "width", "24px");
     add_decl(pp_s, "height", "24px");
-    add_decl(pp_s, "border-radius", "0");
+    add_decl(pp_s, "border-radius", radius_str(50));
     add_decl(pp_s, "object-fit", "cover");
     cJSON_AddItemToArray(rules, pp_s);
 
@@ -351,7 +366,7 @@ void rule_layout(cJSON *rules) {
     add_decl(burger, "padding", "0");
     add_decl(burger, "width", "40px");
     add_decl(burger, "height", "40px");
-    add_decl(burger, "border-radius", "0");
+    add_decl(burger, "border-radius", radius_str(8));
     add_decl(burger, "position", "relative");
     add_decl(burger, "z-index", "102");
     add_decl(burger, "transition", "color 0.2s ease, background 0.2s ease");
@@ -398,7 +413,7 @@ void rule_components(cJSON *rules) {
     add_decl(card, "backdrop-filter", "blur(12px) saturate(140%)");
     add_decl(card, "-webkit-backdrop-filter", "blur(12px) saturate(140%)");
     add_decl(card, "border", "1px solid var(--glass-border)");
-    add_decl(card, "border-radius", "0");
+    add_decl(card, "border-radius", radius_str(8));
     add_decl(card, "padding", "24px");
     add_decl(card, "box-shadow", "0 4px 16px var(--shadow)");
     add_decl(card, "transition", "transform 0.25s ease, box-shadow 0.25s ease, background 0.5s ease, border-color 0.5s ease");
@@ -417,7 +432,7 @@ void rule_components(cJSON *rules) {
     add_decl(btn, "gap", "8px");
     add_decl(btn, "padding", "10px 20px");
     add_decl(btn, "border", "none");
-    add_decl(btn, "border-radius", "0");
+    add_decl(btn, "border-radius", radius_str(8));
     add_decl(btn, "background", "var(--accent)");
     add_decl(btn, "color", "var(--panel)");
     add_decl(btn, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
@@ -461,7 +476,7 @@ void rule_components(cJSON *rules) {
     add_decl(input, "width", "100%");
     add_decl(input, "padding", "12px 14px");
     add_decl(input, "border", "1px solid var(--border)");
-    add_decl(input, "border-radius", "0");
+    add_decl(input, "border-radius", radius_str(8));
     add_decl(input, "background", "color-mix(in srgb, var(--panel) 92%, transparent)");
     add_decl(input, "color", "var(--fg)");
     add_decl(input, "font", "inherit");
@@ -488,7 +503,7 @@ void rule_components(cJSON *rules) {
 
     cJSON *alert = create_rule(".alert");
     add_decl(alert, "padding", "12px 14px");
-    add_decl(alert, "border-radius", "0");
+    add_decl(alert, "border-radius", radius_str(8));
     add_decl(alert, "background", "color-mix(in srgb, var(--accent) 8%, var(--glass-bg))");
     add_decl(alert, "color", "var(--accent2)");
     add_decl(alert, "border", "1px solid color-mix(in srgb, var(--accent) 25%, transparent)");
@@ -627,7 +642,7 @@ void rule_components(cJSON *rules) {
     add_decl(code_copy, "padding", "4px 10px");
     add_decl(code_copy, "font-size", "12px");
     add_decl(code_copy, "font-weight", "600");
-    add_decl(code_copy, "border-radius", "0");
+    add_decl(code_copy, "border-radius", radius_str(4));
     add_decl(code_copy, "border", "1px solid var(--glass-border)");
     add_decl(code_copy, "background", "var(--glass-bg)");
     add_decl(code_copy, "backdrop-filter", "blur(8px) saturate(120%)");
@@ -666,7 +681,7 @@ void rule_components(cJSON *rules) {
     cJSON *cavatar = create_rule(".comment-avatar");
     add_decl(cavatar, "width", "28px");
     add_decl(cavatar, "height", "28px");
-    add_decl(cavatar, "border-radius", "0");
+    add_decl(cavatar, "border-radius", radius_str(50));
     add_decl(cavatar, "background", "var(--accent)");
     add_decl(cavatar, "color", "var(--panel)");
     add_decl(cavatar, "display", "flex");
@@ -727,7 +742,7 @@ void rule_components(cJSON *rules) {
     add_decl(tdpb, "height", "6px");
     add_decl(tdpb, "background", "var(--hover)");
     add_decl(tdpb, "overflow", "hidden");
-    add_decl(tdpb, "border-radius", "0");
+    add_decl(tdpb, "border-radius", radius_str(4));
     cJSON_AddItemToArray(rules, tdpb);
 
     cJSON *tdpi = create_rule(".tasfa-download-progress-inner");
@@ -753,7 +768,7 @@ void rule_components(cJSON *rules) {
     add_decl(tml, "background", "color-mix(in srgb, var(--shadow-base) 70%, transparent)");
     add_decl(tml, "color", "var(--panel)");
     add_decl(tml, "padding", "12px 20px");
-    add_decl(tml, "border-radius", "8px");
+    add_decl(tml, "border-radius", radius_str(8));
     add_decl(tml, "z-index", "100");
     add_decl(tml, "pointer-events", "none");
     add_decl(tml, "display", "flex");
@@ -770,7 +785,7 @@ void rule_components(cJSON *rules) {
     add_decl(tmlb, "width", "120px");
     add_decl(tmlb, "height", "4px");
     add_decl(tmlb, "background", "color-mix(in srgb, var(--panel) 20%, transparent)");
-    add_decl(tmlb, "border-radius", "2px");
+    add_decl(tmlb, "border-radius", radius_str(2));
     add_decl(tmlb, "overflow", "hidden");
     cJSON_AddItemToArray(rules, tmlb);
 
@@ -786,7 +801,7 @@ void rule_components(cJSON *rules) {
     add_decl(tmls, "height", "28px");
     add_decl(tmls, "border", "3px solid color-mix(in srgb, var(--panel) 30%, transparent)");
     add_decl(tmls, "border-top-color", "var(--panel)");
-    add_decl(tmls, "border-radius", "50%");
+    add_decl(tmls, "border-radius", radius_str(50));
     add_decl(tmls, "animation", "tasfa-spin 0.8s linear infinite");
     cJSON_AddItemToArray(rules, tmls);
 
@@ -914,7 +929,7 @@ void rule_components(cJSON *rules) {
     add_decl(imgDlBtn, "padding", "6px 12px");
     add_decl(imgDlBtn, "background", "color-mix(in srgb, var(--shadow-base) 70%, transparent)");
     add_decl(imgDlBtn, "color", "var(--panel)");
-    add_decl(imgDlBtn, "border-radius", "4px");
+    add_decl(imgDlBtn, "border-radius", radius_str(4));
     add_decl(imgDlBtn, "font-size", "12px");
     add_decl(imgDlBtn, "font-weight", "600");
     add_decl(imgDlBtn, "text-decoration", "none");
@@ -977,7 +992,7 @@ void rule_home(cJSON *rules) {
     cJSON *tag = create_rule(".tag");
     add_decl(tag, "display", "inline-block");
     add_decl(tag, "padding", "6px 14px");
-    add_decl(tag, "border-radius", "0");
+    add_decl(tag, "border-radius", radius_str(4));
     add_decl(tag, "background", "var(--hover)");
     add_decl(tag, "border", "1px solid var(--border)");
     add_decl(tag, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
@@ -1031,7 +1046,7 @@ void rule_home(cJSON *rules) {
 
     cJSON *search_adv_select = create_rule(".search-adv-select");
     add_decl(search_adv_select, "padding", "6px 10px");
-    add_decl(search_adv_select, "border-radius", "0");
+    add_decl(search_adv_select, "border-radius", radius_str(8));
     add_decl(search_adv_select, "border", "1px solid var(--border)");
     add_decl(search_adv_select, "background", "var(--panel)");
     add_decl(search_adv_select, "color", "var(--fg)");
@@ -1043,7 +1058,7 @@ void rule_home(cJSON *rules) {
     add_decl(board_sec, "backdrop-filter", "blur(12px) saturate(140%)");
     add_decl(board_sec, "-webkit-backdrop-filter", "blur(12px) saturate(140%)");
     add_decl(board_sec, "border", "1px solid var(--glass-border)");
-    add_decl(board_sec, "border-radius", "0");
+    add_decl(board_sec, "border-radius", radius_str(8));
     add_decl(board_sec, "padding", "20px");
     add_decl(board_sec, "box-shadow", "0 2px 4px color-mix(in srgb, var(--shadow-base) 4%, transparent), 0 8px 20px var(--shadow)");
     add_decl(board_sec, "transition", "background 0.5s ease, border-color 0.5s ease");
@@ -1075,7 +1090,7 @@ void rule_boards(cJSON *rules) {
     add_decl(bline, "padding", "36px");
     add_decl(bline, "background", "color-mix(in srgb, var(--glass-bg) 88%, transparent)");
     add_decl(bline, "border", "1px solid var(--glass-border)");
-    add_decl(bline, "border-radius", "0");
+    add_decl(bline, "border-radius", radius_str(8));
     add_decl(bline, "backdrop-filter", "blur(18px) saturate(155%)");
     add_decl(bline, "-webkit-backdrop-filter", "blur(18px) saturate(155%)");
     add_decl(bline, "box-shadow", "0 4px 18px color-mix(in srgb, var(--shadow) 28%, transparent)");
@@ -1134,7 +1149,7 @@ void rule_boards(cJSON *rules) {
     add_decl(card, "backdrop-filter", "blur(20px) saturate(180%)");
     add_decl(card, "-webkit-backdrop-filter", "blur(20px) saturate(180%)");
     add_decl(card, "border", "1px solid var(--glass-border)");
-    add_decl(card, "border-radius", "0");
+    add_decl(card, "border-radius", radius_str(8));
     add_decl(card, "padding", "28px");
     add_decl(card, "box-shadow", "0 8px 32px var(--shadow)");
     add_decl(card, "transition", "transform 0.35s ease, box-shadow 0.35s ease, background 0.5s ease, border-color 0.5s ease");
@@ -1229,7 +1244,7 @@ void rule_boards(cJSON *rules) {
     cJSON *prow = create_rule(".post-row");
     add_decl(prow, "background", "color-mix(in srgb, var(--panel) 88%, transparent)");
     add_decl(prow, "border", "1px solid var(--glass-border)");
-    add_decl(prow, "border-radius", "0");
+    add_decl(prow, "border-radius", radius_str(8));
     add_decl(prow, "text-align", "left");
     add_decl(prow, "overflow", "hidden");
     add_decl(prow, "box-shadow", "0 2px 8px var(--shadow)");
@@ -1306,7 +1321,7 @@ void rule_boards(cJSON *rules) {
     add_decl(dot, "width", "4px");
     add_decl(dot, "height", "4px");
     add_decl(dot, "background", "var(--muted)");
-    add_decl(dot, "border-radius", "0");
+    add_decl(dot, "border-radius", radius_str(50));
     add_decl(dot, "display", "inline-block");
     cJSON_AddItemToArray(rules, dot);
 
@@ -1380,7 +1395,7 @@ void rule_boards(cJSON *rules) {
     add_decl(badge, "align-items", "center");
     add_decl(badge, "gap", "4px");
     add_decl(badge, "padding", "3px 10px");
-    add_decl(badge, "border-radius", "0");
+    add_decl(badge, "border-radius", radius_str(4));
     add_decl(badge, "background", "color-mix(in srgb, var(--glass-bg) 85%, transparent)");
     add_decl(badge, "border", "1px solid var(--glass-border)");
     add_decl(badge, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
@@ -1403,7 +1418,7 @@ void rule_boards(cJSON *rules) {
     add_decl(empty, "text-align", "left");
     add_decl(empty, "padding", "16px 18px");
     add_decl(empty, "background", "color-mix(in srgb, var(--glass-bg) 85%, transparent)");
-    add_decl(empty, "border-radius", "0");
+    add_decl(empty, "border-radius", radius_str(8));
     add_decl(empty, "border", "1px dashed var(--glass-border)");
     add_decl(empty, "margin", "0");
     cJSON_AddItemToArray(rules, empty);
@@ -1535,7 +1550,7 @@ void rule_markdown(cJSON *rules) {
     cJSON *md_pre = create_rule(".markdown-body pre");
     add_decl(md_pre, "background", "color-mix(in srgb, var(--code-bg) 92%, transparent)");
     add_decl(md_pre, "padding", "16px");
-    add_decl(md_pre, "border-radius", "0");
+    add_decl(md_pre, "border-radius", radius_str(8));
     add_decl(md_pre, "overflow", "auto");
     add_decl(md_pre, "border", "1px solid var(--glass-border)");
     add_decl(md_pre, "font-family", g_font_settings.code[0] ? g_font_settings.code : "'JetBrains Mono', 'Fira Code', 'D2Coding', Consolas, Monaco, 'Courier New', monospace");
@@ -1559,7 +1574,7 @@ void rule_markdown(cJSON *rules) {
     cJSON *md_code = create_rule(".markdown-body code:not(pre code)");
     add_decl(md_code, "background", "var(--code-bg)");
     add_decl(md_code, "padding", "2px 6px");
-    add_decl(md_code, "border-radius", "0");
+    add_decl(md_code, "border-radius", radius_str(4));
     add_decl(md_code, "font-size", "0.92em");
     add_decl(md_code, "transition", "background 0.5s ease");
     add_decl(md_code, "font-family", g_font_settings.code[0] ? g_font_settings.code : "'JetBrains Mono', 'Fira Code', 'D2Coding', monospace");
@@ -1573,7 +1588,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_blockquote, "background", "color-mix(in srgb, var(--glass-bg) 92%, transparent)");
     add_decl(md_blockquote, "padding", "16px 20px");
     add_decl(md_blockquote, "margin", "18px 0");
-    add_decl(md_blockquote, "border-radius", "0");
+    add_decl(md_blockquote, "border-radius", radius_str(8));
     add_decl(md_blockquote, "border", "1px solid var(--glass-border)");
     add_decl(md_blockquote, "border-left-width", "4px");
     add_decl(md_blockquote, "border-left-color", "var(--accent)");
@@ -1624,7 +1639,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(slider, "appearance", "none");
     add_decl(slider, "height", "4px");
     add_decl(slider, "background", "var(--border)");
-    add_decl(slider, "border-radius", "0");
+    add_decl(slider, "border-radius", radius_str(8));
     add_decl(slider, "outline", "none");
     add_decl(slider, "margin", "0");
     cJSON_AddItemToArray(rules, slider);
@@ -1634,7 +1649,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(slider_thumb, "appearance", "none");
     add_decl(slider_thumb, "width", "12px");
     add_decl(slider_thumb, "height", "12px");
-    add_decl(slider_thumb, "border-radius", "0");
+    add_decl(slider_thumb, "border-radius", radius_str(50));
     add_decl(slider_thumb, "background", "var(--accent)");
     add_decl(slider_thumb, "cursor", "pointer");
     cJSON_AddItemToArray(rules, slider_thumb);
@@ -1642,7 +1657,7 @@ void rule_markdown(cJSON *rules) {
     cJSON *slider_thumb_moz = create_rule("#theme-slider::-moz-range-thumb");
     add_decl(slider_thumb_moz, "width", "12px");
     add_decl(slider_thumb_moz, "height", "12px");
-    add_decl(slider_thumb_moz, "border-radius", "0");
+    add_decl(slider_thumb_moz, "border-radius", radius_str(50));
     add_decl(slider_thumb_moz, "background", "var(--accent)");
     add_decl(slider_thumb_moz, "cursor", "pointer");
     add_decl(slider_thumb_moz, "border", "none");
@@ -1690,7 +1705,7 @@ void rule_markdown(cJSON *rules) {
     cJSON *mobile_profile_pic = create_rule(".mobile-profile-pic");
     add_decl(mobile_profile_pic, "width", "48px");
     add_decl(mobile_profile_pic, "height", "48px");
-    add_decl(mobile_profile_pic, "border-radius", "0");
+    add_decl(mobile_profile_pic, "border-radius", radius_str(50));
     add_decl(mobile_profile_pic, "object-fit", "cover");
     add_decl(mobile_profile_pic, "display", "block");
     cJSON_AddItemToArray(rules, mobile_profile_pic);
@@ -1809,7 +1824,7 @@ void rule_media(cJSON *rules) {
     add_decl(mq7, "border-bottom-color", "var(--border)");
     cJSON_AddItemToArray(rules, mq7);
 
-    cJSON *mq8 = create_mobile_rule(".nav-board-dropdown");
+    cJSON *mq8 = create_mobile_rule(".nav-board-dropdown, .nav-admin-dropdown");
     add_decl(mq8, "width", "100%");
     cJSON_AddItemToArray(rules, mq8);
 
@@ -1827,7 +1842,7 @@ void rule_media(cJSON *rules) {
     add_decl(mq_media_actions, "justify-content", "flex-start");
     cJSON_AddItemToArray(rules, mq_media_actions);
 
-    cJSON *mq9 = create_mobile_rule(".nav-board-menu");
+    cJSON *mq9 = create_mobile_rule(".nav-board-menu, .nav-admin-menu");
     add_decl(mq9, "position", "static");
     add_decl(mq9, "display", "none");
     add_decl(mq9, "opacity", "0");
@@ -1859,17 +1874,17 @@ void rule_media(cJSON *rules) {
     add_decl(mq11, "display", "none");
     cJSON_AddItemToArray(rules, mq11);
 
-    cJSON *mq12 = create_mobile_rule(".nav-board-dropdown:hover .nav-board-menu");
+    cJSON *mq12 = create_mobile_rule(".nav-board-dropdown:hover .nav-board-menu, .nav-admin-menu");
     add_decl(mq12, "display", "none !important");
     add_decl(mq12, "opacity", "0");
     add_decl(mq12, "pointer-events", "none");
     cJSON_AddItemToArray(rules, mq12);
 
-    cJSON *mq13 = create_mobile_rule(".nav-board-trigger");
+    cJSON *mq13 = create_mobile_rule(".nav-board-trigger, .nav-admin-trigger");
     add_decl(mq13, "cursor", "pointer");
     cJSON_AddItemToArray(rules, mq13);
 
-    cJSON *mq14 = create_mobile_rule(".nav-board-subitem");
+    cJSON *mq14 = create_mobile_rule(".nav-board-subitem, .nav-admin-subitem");
     add_decl(mq14, "padding", "10px 24px");
     add_decl(mq14, "border-bottom", "1px solid var(--border)");
     add_decl(mq14, "color", "var(--muted)");

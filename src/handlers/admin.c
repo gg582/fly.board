@@ -1,5 +1,16 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#include "cwist/board_tree.h"
+
+void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    int uid = 0; char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    char *pp = get_profile_pic(req->db, uid, role);
+    cwist_sstring *page = render_admin_dashboard(is_dark(req), pp, is_mobile_request(req));
+    send_html_res(res, page);
+    free(pp);
+}
 
 void handler_admin_users(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
@@ -37,6 +48,38 @@ void handler_admin_files_drop(cwist_http_request *req, cwist_http_response *res)
     int count = db_file_drop_all(req->db);
     CWIST_LOG_INFO("Admin dropped all files: count=%d", count);
     redirect(res, "/files");
+}
+
+void handler_admin_boards_get(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    int uid = 0; char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    char *pp = get_profile_pic(req->db, uid, role);
+    cJSON *boards = db_board_list(req->db);
+    cJSON *tree = db_board_tree_get_all();
+    cwist_sstring *page = render_admin_boards(boards, tree, is_dark(req), pp, is_mobile_request(req));
+    if (boards) cJSON_Delete(boards);
+    if (tree) cJSON_Delete(tree);
+    send_html_res(res, page);
+    free(pp);
+}
+
+void handler_admin_boards_post(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    const char *board_id_str = cwist_query_map_get(kv, "board_id");
+    const char *parent_id_str = cwist_query_map_get(kv, "parent_id");
+    if (board_id_str) {
+        int board_id = atoi(board_id_str);
+        int parent_id = parent_id_str ? atoi(parent_id_str) : 0;
+        if (board_id > 0 && parent_id == board_id) parent_id = 0;
+        if (board_id > 0) {
+            db_board_tree_set_parent(board_id, parent_id);
+            CWIST_LOG_INFO("Board tree updated: board_id=%d parent_id=%d", board_id, parent_id);
+        }
+    }
+    cwist_query_map_destroy(kv);
+    redirect(res, "/admin/boards");
 }
 
 /* ---- API ---- */
