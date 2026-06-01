@@ -3053,6 +3053,7 @@
         browseBtn.type = 'button';
         browseBtn.className = 'btn btn-outline';
         browseBtn.style.marginTop = '10px';
+        browseBtn.style.marginLeft = '10px';
         browseBtn.textContent = 'Browse my files';
         dropzone.appendChild(browseBtn);
 
