@@ -128,23 +128,23 @@ function _openModal(blobUrl, title, isAudio, isLoading) {
 export function openTasfaVideoModal(url, title, isAudio) {
     if (!url) return;
 
-    // For TASFA-protected videos, use progressive chunk-by-chunk streaming.
-    // Open the modal immediately with a loading indicator so the user gets
-    // instant feedback; the player starts once the initial buffer threshold
-    // is reached and the Service Worker stream is ready.
-    if (window.fetchVideoProgressive && /\/file\/download\/\d+/.test(url)) {
+    // For TASFA-protected videos/audio, handshake a session and pass
+    // credentials via query parameters so the browser can issue native
+    // Range requests for partial loading (like YouTube).
+    // The original /file/download/[id] path is preserved exactly.
+    if (window.fetchDownloadSession && /\/file\/download\/\d+/.test(url)) {
         _openModal(null, title, isAudio, true);
-        window.fetchVideoProgressive(url, {
-            onReady: function(streamUrl) {
-                var media = activeModal && activeModal.querySelector('video, audio');
-                var loading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
-                if (media) {
-                    media.style.display = 'block';
-                    media.src = streamUrl;
-                    try { media.play(); } catch(e) {}
-                }
-                if (loading) loading.style.display = 'none';
+        window.fetchDownloadSession(url).then(function(session) {
+            var streamUrl = url + '?session_id=' + encodeURIComponent(session.sessionId) +
+                            '&session_token=' + encodeURIComponent(session.sessionToken);
+            var media = activeModal && activeModal.querySelector('video, audio');
+            var loading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
+            if (media) {
+                media.style.display = 'block';
+                media.src = streamUrl;
+                try { media.play(); } catch(e) {}
             }
+            if (loading) loading.style.display = 'none';
         }).catch(function() {
             var loading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
             if (loading) {
