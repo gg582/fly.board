@@ -179,8 +179,21 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     }
     if (uid > 0) user_vote = db_post_user_vote(req->db, post_id, uid);
     char *pp = get_profile_pic(req->db, uid, role);
+    int author_id = json_int(post, "user_id", 0);
+    char *author_pp = NULL;
+    if (author_id > 0) {
+        cJSON *author_user = db_user_get_by_id(req->db, author_id);
+        if (author_user) {
+            cJSON *pic = cJSON_GetObjectItem(author_user, "profile_pic");
+            if (pic && pic->valuestring && pic->valuestring[0]) {
+                author_pp = strdup(pic->valuestring);
+            }
+            cJSON_Delete(author_user);
+        }
+    }
     const char *ephemeral_delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
-    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, uid, ephemeral_delete_pin, is_mobile_request(req));
+    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, author_pp, uid, ephemeral_delete_pin, is_mobile_request(req));
+    if (author_pp) free(author_pp);
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
     if (comments) cJSON_Delete(comments);
