@@ -9,6 +9,7 @@
 #include "../render/render.h"
 #include "../render/theme.h"
 #include "../utils/utils.h"
+#include <cwist/legal.h>
 #include "../config/config.h"
 #include <cwist/core/sstring/sstring.h>
 #include <unistd.h>

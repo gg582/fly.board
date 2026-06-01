@@ -19,6 +19,7 @@ SRCS := src/main.c \
         src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c \
         src/handlers/handlers.c src/handlers/home.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/file.c src/handlers/tasfa.c src/handlers/admin.c src/handlers/api.c \
         src/utils/utils.c \
+        src/utils/legal.c \
         src/utils/image_contrast.c \
         src/utils/image_size.c \
         src/utils/media_preview.c \
