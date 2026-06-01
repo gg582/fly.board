@@ -108,6 +108,7 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     const char *search_type = cwist_query_map_get(req->query_params, "search_type");
     bool empty_search = search && !search[0];
 
+    cJSON *children = NULL;
     if (slug) {
         cJSON *board = db_board_get_by_slug(req->db, slug);
         if (!board) {
@@ -124,6 +125,30 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
             if (page > total_pages) page = total_pages;
             posts = db_post_list_search(req->db, bid, search, search_type, per_page, (page - 1) * per_page);
         }
+        if (bid > 0) {
+            cJSON *child_ids = db_board_tree_get_children(bid);
+            if (child_ids && cJSON_GetArraySize(child_ids) > 0) {
+                children = cJSON_CreateArray();
+                int n = cJSON_GetArraySize(child_ids);
+                for (int i = 0; i < n; i++) {
+                    cJSON *id_item = cJSON_GetArrayItem(child_ids, i);
+                    int cid = id_item->valueint;
+                    cJSON *cboard = db_board_get_by_id(req->db, cid);
+                    if (cboard) {
+                        cJSON *cslug = cJSON_GetObjectItem(cboard, "slug");
+                        cJSON *cname = cJSON_GetObjectItem(cboard, "name");
+                        if (cslug && cslug->valuestring && cname && cname->valuestring) {
+                            cJSON *obj = cJSON_CreateObject();
+                            cJSON_AddStringToObject(obj, "slug", cslug->valuestring);
+                            cJSON_AddStringToObject(obj, "name", cname->valuestring);
+                            cJSON_AddItemToArray(children, obj);
+                        }
+                        cJSON_Delete(cboard);
+                    }
+                }
+            }
+            if (child_ids) cJSON_Delete(child_ids);
+        }
         cJSON_Delete(board);
     } else {
         if (!empty_search) {
@@ -136,8 +161,9 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     }
 
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page_html = render_post_list(posts, NULL, dark, role, page, total_pages, slug, search, search_type, pp, uid, is_mobile_request(req));
+    cwist_sstring *page_html = render_post_list(posts, NULL, dark, role, page, total_pages, slug, search, search_type, pp, uid, is_mobile_request(req), children);
     if (posts) cJSON_Delete(posts);
+    if (children) cJSON_Delete(children);
     send_html_res(res, page_html);
     free(pp);
 }

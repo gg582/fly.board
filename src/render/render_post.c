@@ -340,7 +340,7 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
     }
 }
 
-cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id, bool is_mobile) {
+cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id, bool is_mobile, cJSON *children) {
     cwist_sstring *b = cwist_sstring_create();
     int has_home_bg = g_config.home_img[0];
     char shell_style[768] = {0};
@@ -474,6 +474,23 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     cwist_sstring_append(b, ">Board Name</option>");
     cwist_sstring_append(b, "</select></div>");
     cwist_sstring_append(b, "</form>");
+
+    if (children && cJSON_GetArraySize(children) > 0) {
+        cwist_sstring_append(b, "<div style='display:flex;flex-wrap:wrap;gap:8px;margin:16px 0;justify-content:center'>");
+        int cn = cJSON_GetArraySize(children);
+        for (int i = 0; i < cn; i++) {
+            cJSON *child = cJSON_GetArrayItem(children, i);
+            cJSON *cslug = cJSON_GetObjectItem(child, "slug");
+            cJSON *cname = cJSON_GetObjectItem(child, "name");
+            if (!cslug || !cname) continue;
+            cwist_sstring_append(b, "<a href='/board/");
+            cwist_sstring_append(b, cslug->valuestring);
+            cwist_sstring_append(b, "' class='tag' style='text-decoration:none'>");
+            cwist_sstring_append_escaped(b, cname->valuestring);
+            cwist_sstring_append(b, "</a>");
+        }
+        cwist_sstring_append(b, "</div>");
+    }
 
     cwist_sstring_append(b, "<div class='post-list stagger");
     if (board_slug && board_slug[0]) {
