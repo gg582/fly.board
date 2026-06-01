@@ -1,4 +1,4 @@
-# Privacy Policy
+*Privacy Policy*
 
 We collect minimal personal data required for account operation.
 

@@ -1,4 +1,4 @@
-# Terms of Service
+*Terms of Service*
 
 By using this service, you agree to the following:
 
