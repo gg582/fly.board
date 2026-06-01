@@ -247,7 +247,9 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
     cwist_sstring_append(b, "<div class='comment-node' style='margin-left:");
     char mbuf[32]; snprintf(mbuf, sizeof(mbuf), "%d", margin);
     cwist_sstring_append(b, mbuf);
-    cwist_sstring_append(b, "px;margin-top:12px'>");
+    cwist_sstring_append(b, "px;margin-top:12px");
+    if (deleted && deleted->valueint) cwist_sstring_append(b, ";display:none");
+    cwist_sstring_append(b, "'>");
 
     /* Header: avatar + meta */
     cwist_sstring_append(b, "<div class='comment-header'>");
