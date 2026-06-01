@@ -6,14 +6,41 @@ var tasfaSessions = {};
 /* Progressive video streaming streams managed by the Service Worker */
 var tasfaStreams = {};
 
+function tasfaSessionKeys(rawUrl) {
+    var keys = [];
+    try {
+        var parsed = new URL(rawUrl, self.location.origin);
+        keys.push(parsed.origin + parsed.pathname);
+        keys.push(parsed.pathname);
+    } catch (e) {
+        if (rawUrl) keys.push(String(rawUrl).split(/[?#]/)[0]);
+    }
+    if (rawUrl) keys.push(rawUrl);
+    return keys;
+}
+
+function rememberTasfaSession(rawUrl, session) {
+    tasfaSessionKeys(rawUrl).forEach(function(key) {
+        if (key) tasfaSessions[key] = session;
+    });
+}
+
+function lookupTasfaSession(rawUrl) {
+    var keys = tasfaSessionKeys(rawUrl);
+    for (var i = 0; i < keys.length; i++) {
+        if (tasfaSessions[keys[i]]) return tasfaSessions[keys[i]];
+    }
+    return null;
+}
+
 self.addEventListener('message', function(event) {
     if (!event.data) return;
 
     if (event.data.type === 'TASFA_SESSION') {
-        tasfaSessions[event.data.url] = {
+        rememberTasfaSession(event.data.url, {
             sessionId: event.data.sessionId,
             sessionToken: event.data.sessionToken
-        };
+        });
     } else if (event.data.type === 'TASFA_STREAM_OPEN') {
         /* Client opens a progressive video stream. Create a ReadableStream
            that will be consumed by the browser's media element. */
@@ -134,7 +161,7 @@ self.addEventListener('fetch', function(event) {
     if (new URL(url).origin !== self.location.origin) return;
 
     if (url.indexOf(self.location.origin + '/file/download/') === 0 && event.request.method === 'GET') {
-        var session = tasfaSessions[url];
+        var session = lookupTasfaSession(url);
         if (session) {
             var headers = new Headers(event.request.headers);
             headers.set('X-TASFA-Session-ID', session.sessionId);
@@ -174,11 +201,28 @@ self.addEventListener('fetch', function(event) {
         if (entry) {
             var headers = new Headers();
             headers.set('Content-Type', entry.headers.contentType || 'application/octet-stream');
+            var totalLength = Number(entry.headers.contentLength || 0);
             if (entry.headers.contentLength) {
                 headers.set('Content-Length', entry.headers.contentLength);
             }
+            headers.set('Accept-Ranges', 'bytes');
+            var status = 200;
+            var rangeHeader = event.request.headers.get('Range');
+            if (rangeHeader && totalLength > 0) {
+                var match = rangeHeader.trim().match(/^bytes=(\d+)-(\d+)?$/);
+                var start = match ? parseInt(match[1], 10) : 0;
+                if (start > 0) {
+                    event.respondWith(new Response('', {
+                        status: 416,
+                        headers: { 'Content-Range': 'bytes */' + totalLength }
+                    }));
+                    return;
+                }
+                status = 206;
+                headers.set('Content-Range', 'bytes 0-' + (totalLength - 1) + '/' + totalLength);
+            }
             event.respondWith(new Response(entry.stream, {
-                status: 200,
+                status: status,
                 headers: headers
             }));
         } else {
