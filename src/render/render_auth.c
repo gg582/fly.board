@@ -53,7 +53,7 @@ cwist_sstring *render_register(bool dark, const char *error, bool is_mobile, cJS
             snprintf(checkbox, sizeof(checkbox),
                 "<label style='display:flex;align-items:center;gap:6px;margin-top:6px;font-size:13px;cursor:pointer'>"
                 "<input type='checkbox' name='legal_%s' %s>"
-                "I agree"
+                "Agree"
                 "</label>",
                 name->valuestring,
                 (req && req->valueint) ? "required" : "");
