@@ -363,6 +363,17 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
     return true;
 }
 
+size_t utf8_truncate_len(const char *str, size_t max_bytes) {
+    if (!str) return 0;
+    size_t len = strlen(str);
+    if (len <= max_bytes) return len;
+    size_t i = max_bytes;
+    while (i > 0 && ((unsigned char)str[i] & 0xC0) == 0x80) {
+        i--;
+    }
+    return i;
+}
+
 void get_file_timestamp_str(const char *file_path, char *out_ts, size_t max_len) {
     if (!file_path || strncmp(file_path, "public/uploads/", 15) != 0) {
         snprintf(out_ts, max_len, "%ld000", (long)time(NULL));
