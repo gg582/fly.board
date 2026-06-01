@@ -128,20 +128,53 @@ function _openModal(blobUrl, title, isAudio, isLoading) {
 export function openTasfaVideoModal(url, title, isAudio) {
     if (!url) return;
 
-    // For TASFA-protected videos/audio, handshake a session and pass
-    // credentials via query parameters so the browser can issue native
-    // Range requests for partial loading (like YouTube).
-    // The original /file/download/[id] path is preserved exactly.
+    // For TASFA-protected videos/audio, prefer the TASFA progressive stream:
+    // fetch the first chunks, start playback, then keep feeding chunks while
+    // the media element is already playing. Fall back to native Range only
+    // when the Service Worker stream path is unavailable.
     if (window.fetchDownloadSession && /\/file\/download\/\d+/.test(url)) {
         _openModal(null, title, isAudio, true);
         window.fetchDownloadSession(url).then(function(session) {
-            var streamUrl = url + '?session_id=' + encodeURIComponent(session.sessionId) +
-                            '&session_token=' + encodeURIComponent(session.sessionToken);
-            var media = activeModal && activeModal.querySelector('video, audio');
             var loading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
+            function attachSource(streamUrl) {
+                if (!streamUrl) return;
+                var media = activeModal && activeModal.querySelector('video, audio');
+                var currentLoading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
+                if (media) {
+                    media.style.display = 'block';
+                    media.src = streamUrl;
+                    try { media.load(); } catch(e) {}
+                    try { media.play(); } catch(e) {}
+                }
+                if (currentLoading) currentLoading.style.display = 'none';
+            }
+            if (window.fetchVideoProgressive && session.supportsProgressiveStreaming !== false) {
+                window.fetchVideoProgressive(url, {
+                    session: session,
+                    onReady: attachSource,
+                    onProgress: function(percent) {
+                        if (loading && loading.style.display !== 'none') {
+                            loading.textContent = percent > 0 ? ('Buffering ' + percent + '%') : 'Buffering...';
+                        }
+                    }
+                }).catch(function() {
+                    var fallbackUrl = window.tasfaDirectMediaUrl ?
+                        window.tasfaDirectMediaUrl(url, session) :
+                        (url + '?session_id=' + encodeURIComponent(session.sessionId) +
+                         '&session_token=' + encodeURIComponent(session.sessionToken));
+                    attachSource(fallbackUrl);
+                });
+                return;
+            }
+            var streamUrl = window.tasfaDirectMediaUrl ?
+                window.tasfaDirectMediaUrl(url, session) :
+                (url + '?session_id=' + encodeURIComponent(session.sessionId) +
+                 '&session_token=' + encodeURIComponent(session.sessionToken));
+            var media = activeModal && activeModal.querySelector('video, audio');
             if (media) {
                 media.style.display = 'block';
                 media.src = streamUrl;
+                try { media.load(); } catch(e) {}
                 try { media.play(); } catch(e) {}
             }
             if (loading) loading.style.display = 'none';

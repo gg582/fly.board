@@ -196,6 +196,23 @@
         }
     }
 
+    function absoluteNormalizedUrl(url) {
+        var path = normalizeUrl(url);
+        if (!path) return '';
+        try {
+            return new URL(path, window.location.origin).href;
+        } catch (e) {
+            return path;
+        }
+    }
+
+    function directMediaUrl(baseUrl, session) {
+        var path = normalizeUrl(baseUrl);
+        if (!path || !session) return '';
+        return path + '?session_id=' + encodeURIComponent(session.sessionId) +
+               '&session_token=' + encodeURIComponent(session.sessionToken);
+    }
+
     function handshakeUrl(baseUrl) {
         var path = normalizeUrl(baseUrl);
         if (!path) return null;
@@ -275,6 +292,7 @@
             streamKeyHex: session.stream_key_hex,
             streamIvSeedHex: session.stream_iv_seed_hex,
             streamMode: session.stream_mode,
+            supportsProgressiveStreaming: session.supports_progressive_streaming !== false,
             chunkSize: chunkSize,
             chunkCount: chunkCount,
             totalSize: Math.max(0, Number(session.total_size) || 0),
@@ -305,7 +323,7 @@
         if (navigator.serviceWorker && navigator.serviceWorker.controller) {
             navigator.serviceWorker.controller.postMessage({
                 type: 'TASFA_SESSION',
-                url: baseUrl,
+                url: absoluteNormalizedUrl(baseUrl) || normalizeUrl(baseUrl) || baseUrl,
                 sessionId: session.sessionId,
                 sessionToken: session.sessionToken
             });
@@ -429,7 +447,7 @@
                         if (resp.retry_after) delay = resp.retry_after * 1000;
                     } catch(e) {}
                     setTimeout(function() {
-                        fetchChunk(baseUrl, session, allBytes, chunkIndex, span, retries + 1).then(resolve).catch(reject);
+                        fetchChunk(baseUrl, session, parts, chunkIndex, span, retries + 1).then(resolve).catch(reject);
                     }, delay);
                     return;
                 }
@@ -748,7 +766,7 @@
         var onReady = options && options.onReady;
         var onProgress = options && options.onProgress;
 
-        var session = await fetchDownloadSession(baseUrl);
+        var session = (options && options.session) || await fetchDownloadSession(baseUrl);
         var streamInfo = await openTasfaStream(session);
 
         var bitmap = new Array(session.chunkCount).fill(0);
@@ -1100,9 +1118,23 @@
                 var isAudio = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'wma'].indexOf(ext) !== -1 || /^audio\//.test(mimeType);
 
                 if (isVideo || isAudio) {
-                    var streamUrl = baseUrl + '?session_id=' + encodeURIComponent(session.sessionId) +
-                                    '&session_token=' + encodeURIComponent(session.sessionToken);
-                    replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
+                    if (session.supportsProgressiveStreaming !== false && window.fetchVideoProgressive) {
+                        fetchVideoProgressive(baseUrl, {
+                            session: session,
+                            onReady: function(streamUrl) {
+                                replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
+                            },
+                            onProgress: function(percent) {
+                                el.setAttribute('data-tasfa-progress', String(percent));
+                            }
+                        }).catch(function() {
+                            var fallbackUrl = directMediaUrl(baseUrl, session);
+                            if (fallbackUrl) replaceWithEmbeddedPlayer(el, fallbackUrl, isAudio);
+                        });
+                    } else {
+                        var streamUrl = directMediaUrl(baseUrl, session);
+                        replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
+                    }
                     return;
                 }
 
@@ -1165,6 +1197,8 @@
         window.fetchBlobViaTasfa = fetchBlobViaTasfa;
         window.fetchVideoProgressive = fetchVideoProgressive;
         window.fetchDownloadSession = fetchDownloadSession;
+        window.normalizeTasfaDownloadUrl = normalizeUrl;
+        window.tasfaDirectMediaUrl = directMediaUrl;
         window.openTasfaDownload = triggerDownload;
         window.upgradeTasfaMedia = upgradeMediaElement;
         window.initMarkdownAffordances = function(root) {
