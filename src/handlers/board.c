@@ -84,18 +84,18 @@ void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
 }
 
 void handler_board_new_get(cwist_http_request *req, cwist_http_response *res) {
-    if (!auth_require_admin(req, res)) return;
     int uid = 0; char role[32] = {0};
-    auth_is_logged_in(req, &uid, role, sizeof(role));
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *boards = db_board_list(req->db);
-    send_html_res(res, render_board_form(NULL, boards, is_dark(req), NULL, pp, is_mobile_request(req)));
+    send_html_res(res, render_board_form(NULL, boards, is_dark(req), NULL, pp, is_mobile_request(req), role));
     if (boards) cJSON_Delete(boards);
     free(pp);
 }
 
 void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
-    if (!auth_require_admin(req, res)) return;
+    int uid = 0; char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
     const char *name = cwist_query_map_get(kv, "name");
     const char *slug = cwist_query_map_get(kv, "slug");
@@ -127,7 +127,7 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
         auth_is_logged_in(req, &uid, role, sizeof(role));
         char *pp = get_profile_pic(req->db, uid, role);
         cJSON *boards = db_board_list(req->db);
-        cwist_sstring *page = render_board_form(NULL, boards, is_dark(req), error, pp, is_mobile_request(req));
+        cwist_sstring *page = render_board_form(NULL, boards, is_dark(req), error, pp, is_mobile_request(req), role);
         if (boards) cJSON_Delete(boards);
         send_html_res(res, page);
         free(pp);
@@ -135,7 +135,8 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    if (db_board_create(req->db, name, slug, desc ? desc : "", ao != NULL, 0, 0, 0)) {
+    bool is_admin = (role[0] && strcmp(role, "admin") == 0);
+    if (db_board_create(req->db, name, slug, desc ? desc : "", is_admin && (ao != NULL), 0, 0, 0)) {
         cJSON *created = db_board_get_by_slug(req->db, slug);
         if (created) {
             int bid = json_int(created, "id", 0);
@@ -157,19 +158,24 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
 }
 
 void handler_board_edit_get(cwist_http_request *req, cwist_http_response *res) {
-    if (!auth_require_admin(req, res)) return;
+    int uid = 0; char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     const char *id_str = cwist_query_map_get(req->path_params, "id");
     if (!id_str) { redirect(res, "/boards"); return; }
     cJSON *board = board_by_route_key(req->db, id_str);
     if (!board) { CWIST_LOG_WARN("Board edit GET: board not found id=%s", id_str); redirect(res, "/boards"); return; }
-    int uid = 0; char role[32] = {0};
-    auth_is_logged_in(req, &uid, role, sizeof(role));
+    bool is_admin = (role[0] && strcmp(role, "admin") == 0);
+    int bid = json_int(board, "id", 0);
+    if (!is_admin && json_int(board, "user_id", 0) != uid && json_int(board, "user_id", 0) != 0) {
+        redirect(res, "/boards");
+        cJSON_Delete(board);
+        return;
+    }
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *all_boards = db_board_list(req->db);
-    int bid = json_int(board, "id", 0);
     int parent_id = db_board_tree_get_parent(bid);
     cJSON_AddNumberToObject(board, "parent_id", parent_id);
-    cwist_sstring *page = render_board_form(board, all_boards, is_dark(req), NULL, pp, is_mobile_request(req));
+    cwist_sstring *page = render_board_form(board, all_boards, is_dark(req), NULL, pp, is_mobile_request(req), role);
     if (all_boards) cJSON_Delete(all_boards);
     cJSON_Delete(board);
     send_html_res(res, page);
@@ -177,7 +183,8 @@ void handler_board_edit_get(cwist_http_request *req, cwist_http_response *res) {
 }
 
 void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) {
-    if (!auth_require_admin(req, res)) return;
+    int uid = 0; char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
     const char *id_str = cwist_query_map_get(kv, "id");
     const char *name = cwist_query_map_get(kv, "name");
@@ -185,8 +192,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
     const char *desc = cwist_query_map_get(kv, "description");
     const char *ao = cwist_query_map_get(kv, "admin_only");
 
-    int uid = 0; char role[32] = {0};
-    auth_is_logged_in(req, &uid, role, sizeof(role));
+    bool is_admin = (role[0] && strcmp(role, "admin") == 0);
     char *pp = get_profile_pic(req->db, uid, role);
 
     const char *error = NULL;
@@ -235,7 +241,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
     }
 
     if (error) {
-        cwist_sstring *page = render_board_form(board, NULL, is_dark(req), error, pp, is_mobile_request(req));
+        cwist_sstring *page = render_board_form(board, NULL, is_dark(req), error, pp, is_mobile_request(req), role);
         if (board) cJSON_Delete(board);
         send_html_res(res, page);
         free(pp);
@@ -248,9 +254,10 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
     if (parent_id_str) parent_id = atoi(parent_id_str);
     if (parent_id > 0 && parent_id == bid) parent_id = 0;
 
-    if (!db_board_update(req->db, bid, name, slug, desc ? desc : "", ao != NULL, 0, 0, 0)) {
+    bool admin_only_val = is_admin ? (ao != NULL) : json_int(board, "admin_only", 0);
+    if (!db_board_update(req->db, bid, name, slug, desc ? desc : "", admin_only_val, 0, 0, 0)) {
         CWIST_LOG_ERROR("Board update failed: bid=%d", bid);
-        cwist_sstring *page = render_board_form(board, NULL, is_dark(req), "Failed to update board.", pp, is_mobile_request(req));
+        cwist_sstring *page = render_board_form(board, NULL, is_dark(req), "Failed to update board.", pp, is_mobile_request(req), role);
         send_html_res(res, page);
         cJSON_Delete(board);
         free(pp);
