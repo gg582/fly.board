@@ -502,6 +502,105 @@ void rule_components(cJSON *rules) {
     add_decl(inputf, "box-shadow", "0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent)");
     cJSON_AddItemToArray(rules, inputf);
 
+    cJSON *styled_dd = create_rule(".styled-dropdown");
+    add_decl(styled_dd, "position", "relative");
+    add_decl(styled_dd, "width", "100%");
+    cJSON_AddItemToArray(rules, styled_dd);
+
+    cJSON *styled_trigger = create_rule(".styled-dropdown-trigger");
+    add_decl(styled_trigger, "width", "100%");
+    add_decl(styled_trigger, "padding", "12px 14px");
+    add_decl(styled_trigger, "border", "1px solid var(--border)");
+    add_decl(styled_trigger, "border-radius", radius_str(8));
+    add_decl(styled_trigger, "background", "color-mix(in srgb, var(--panel) 92%, transparent)");
+    add_decl(styled_trigger, "color", "var(--fg)");
+    add_decl(styled_trigger, "font", "inherit");
+    add_decl(styled_trigger, "text-align", "left");
+    add_decl(styled_trigger, "cursor", "pointer");
+    add_decl(styled_trigger, "display", "flex");
+    add_decl(styled_trigger, "justify-content", "space-between");
+    add_decl(styled_trigger, "align-items", "center");
+    add_decl(styled_trigger, "outline", "none");
+    add_decl(styled_trigger, "transition", "border-color 0.2s ease, box-shadow 0.2s ease, background 0.5s ease, color 0.5s ease");
+    cJSON_AddItemToArray(rules, styled_trigger);
+
+    cJSON *styled_trigger_f = create_rule(".styled-dropdown-trigger:hover, .styled-dropdown-trigger:focus");
+    add_decl(styled_trigger_f, "border-color", "var(--accent)");
+    add_decl(styled_trigger_f, "box-shadow", "0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent)");
+    cJSON_AddItemToArray(rules, styled_trigger_f);
+
+    cJSON *styled_arrow = create_rule(".styled-dropdown-arrow");
+    add_decl(styled_arrow, "width", "16px");
+    add_decl(styled_arrow, "height", "16px");
+    add_decl(styled_arrow, "fill", "var(--muted)");
+    add_decl(styled_arrow, "transition", "transform 0.2s ease");
+    add_decl(styled_arrow, "flex-shrink", "0");
+    cJSON_AddItemToArray(rules, styled_arrow);
+
+    cJSON *styled_arrow_open = create_rule(".styled-dropdown.open .styled-dropdown-arrow");
+    add_decl(styled_arrow_open, "transform", "rotate(180deg)");
+    cJSON_AddItemToArray(rules, styled_arrow_open);
+
+    cJSON *styled_menu = create_rule(".styled-dropdown-menu");
+    add_decl(styled_menu, "position", "absolute");
+    add_decl(styled_menu, "top", "calc(100% + 6px)");
+    add_decl(styled_menu, "left", "0");
+    add_decl(styled_menu, "right", "0");
+    add_decl(styled_menu, "max-height", "280px");
+    add_decl(styled_menu, "overflow-y", "auto");
+    add_decl(styled_menu, "background", "var(--glass-bg)");
+    add_decl(styled_menu, "backdrop-filter", "blur(16px) saturate(150%)");
+    add_decl(styled_menu, "-webkit-backdrop-filter", "blur(16px) saturate(150%)");
+    add_decl(styled_menu, "border", "1px solid var(--glass-border)");
+    add_decl(styled_menu, "border-radius", radius_str(8));
+    add_decl(styled_menu, "box-shadow", "0 10px 26px var(--shadow)");
+    add_decl(styled_menu, "padding", "6px");
+    add_decl(styled_menu, "z-index", "100");
+    add_decl(styled_menu, "display", "none");
+    add_decl(styled_menu, "opacity", "0");
+    add_decl(styled_menu, "transform", "translateY(-6px)");
+    add_decl(styled_menu, "transition", "opacity 0.2s ease, transform 0.2s ease");
+    cJSON_AddItemToArray(rules, styled_menu);
+
+    cJSON *styled_menu_open = create_rule(".styled-dropdown.open .styled-dropdown-menu");
+    add_decl(styled_menu_open, "display", "block");
+    add_decl(styled_menu_open, "opacity", "1");
+    add_decl(styled_menu_open, "transform", "translateY(0)");
+    cJSON_AddItemToArray(rules, styled_menu_open);
+
+    cJSON *styled_item = create_rule(".styled-dropdown-item");
+    add_decl(styled_item, "padding", "8px 10px");
+    add_decl(styled_item, "border-radius", radius_str(6));
+    add_decl(styled_item, "cursor", "pointer");
+    add_decl(styled_item, "font-size", "14px");
+    add_decl(styled_item, "color", "var(--fg)");
+    add_decl(styled_item, "transition", "background 0.15s ease, color 0.15s ease");
+    cJSON_AddItemToArray(rules, styled_item);
+
+    cJSON *styled_item_h = create_rule(".styled-dropdown-item:hover");
+    add_decl(styled_item_h, "background", "color-mix(in srgb, var(--hover) 70%, transparent)");
+    add_decl(styled_item_h, "color", "var(--accent)");
+    cJSON_AddItemToArray(rules, styled_item_h);
+
+    cJSON *styled_item_s = create_rule(".styled-dropdown-item.selected");
+    add_decl(styled_item_s, "background", "color-mix(in srgb, var(--accent) 12%, transparent)");
+    add_decl(styled_item_s, "color", "var(--accent)");
+    add_decl(styled_item_s, "font-weight", "600");
+    cJSON_AddItemToArray(rules, styled_item_s);
+
+    cJSON *styled_menu_sb = create_rule(".styled-dropdown-menu::-webkit-scrollbar");
+    add_decl(styled_menu_sb, "width", "4px");
+    cJSON_AddItemToArray(rules, styled_menu_sb);
+
+    cJSON *styled_menu_sb_track = create_rule(".styled-dropdown-menu::-webkit-scrollbar-track");
+    add_decl(styled_menu_sb_track, "background", "transparent");
+    cJSON_AddItemToArray(rules, styled_menu_sb_track);
+
+    cJSON *styled_menu_sb_thumb = create_rule(".styled-dropdown-menu::-webkit-scrollbar-thumb");
+    add_decl(styled_menu_sb_thumb, "background", "var(--accent)");
+    add_decl(styled_menu_sb_thumb, "border-radius", radius_str(2));
+    cJSON_AddItemToArray(rules, styled_menu_sb_thumb);
+
     cJSON *placeholder = create_rule("::placeholder");
     add_decl(placeholder, "color", "var(--muted)");
     add_decl(placeholder, "opacity", "0.55");
