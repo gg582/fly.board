@@ -1092,28 +1092,31 @@
         }
 
         if (baseUrl) {
-            fetchBlobViaTasfa(baseUrl, {
-                silent: true,
-                onProgress: function(percent) {
-                    el.setAttribute('data-tasfa-progress', String(percent));
-                }
-            }).then(async function(result) {
-                var mimeType = result.blob.type || '';
-                var filename = result.filename || '';
+            fetchDownloadSession(baseUrl).then(function(session) {
+                var mimeType = session.mimeType || '';
+                var filename = session.filename || '';
                 var ext = filename.split('.').pop().toLowerCase();
                 var isVideo = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'flv', 'wmv', 'm4v'].indexOf(ext) !== -1 || /^video\//.test(mimeType);
                 var isAudio = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'wma'].indexOf(ext) !== -1 || /^audio\//.test(mimeType);
 
                 if (isVideo || isAudio) {
-                    var playUrl = await createMediaPlaybackUrl(baseUrl, result.blob, isAudio ? 'audio' : 'video');
-                    if (!playUrl) playUrl = baseUrl;
-                    replaceWithEmbeddedPlayer(el, playUrl, isAudio);
+                    var streamUrl = baseUrl + '?session_id=' + encodeURIComponent(session.sessionId) +
+                                    '&session_token=' + encodeURIComponent(session.sessionToken);
+                    replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
                     return;
                 }
-                var objectUrl = await createMediaPlaybackUrl(baseUrl, result.blob, tagName);
-                setMediaObjectUrl(el, objectUrl);
-                el.setAttribute('data-tasfa-ready', '1');
-                el.removeAttribute('data-tasfa-progress');
+
+                return fetchBlobViaTasfa(baseUrl, {
+                    silent: true,
+                    onProgress: function(percent) {
+                        el.setAttribute('data-tasfa-progress', String(percent));
+                    }
+                }).then(async function(result) {
+                    var objectUrl = await createMediaPlaybackUrl(baseUrl, result.blob, tagName);
+                    setMediaObjectUrl(el, objectUrl);
+                    el.setAttribute('data-tasfa-ready', '1');
+                    el.removeAttribute('data-tasfa-progress');
+                });
             }).catch(function() {
                 el.dataset.tasfaMediaBound = '0';
                 el.setAttribute('data-tasfa-error', '1');
@@ -1161,6 +1164,7 @@
     function init() {
         window.fetchBlobViaTasfa = fetchBlobViaTasfa;
         window.fetchVideoProgressive = fetchVideoProgressive;
+        window.fetchDownloadSession = fetchDownloadSession;
         window.openTasfaDownload = triggerDownload;
         window.upgradeTasfaMedia = upgradeMediaElement;
         window.initMarkdownAffordances = function(root) {
