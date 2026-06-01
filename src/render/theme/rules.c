@@ -1857,7 +1857,7 @@ void rule_media(cJSON *rules) {
     add_decl(mq9, "transition", "max-height 0.3s ease, opacity 0.2s ease, transform 0.2s ease");
     cJSON_AddItemToArray(rules, mq9);
 
-    cJSON *mq10 = create_mobile_rule(".nav-board-menu.open");
+    cJSON *mq10 = create_mobile_rule(".nav-board-menu.open, .nav-admin-menu.open");
     add_decl(mq10, "display", "block");
     add_decl(mq10, "opacity", "1");
     add_decl(mq10, "pointer-events", "auto");
@@ -1874,7 +1874,7 @@ void rule_media(cJSON *rules) {
     add_decl(mq11, "display", "none");
     cJSON_AddItemToArray(rules, mq11);
 
-    cJSON *mq12 = create_mobile_rule(".nav-board-dropdown:hover .nav-board-menu, .nav-admin-menu");
+    cJSON *mq12 = create_mobile_rule(".nav-board-dropdown:hover .nav-board-menu, .nav-admin-dropdown:hover .nav-admin-menu");
     add_decl(mq12, "display", "none !important");
     add_decl(mq12, "opacity", "0");
     add_decl(mq12, "pointer-events", "none");

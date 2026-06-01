@@ -64,22 +64,4 @@ void handler_admin_boards_get(cwist_http_request *req, cwist_http_response *res)
     free(pp);
 }
 
-void handler_admin_boards_post(cwist_http_request *req, cwist_http_response *res) {
-    if (!auth_require_admin(req, res)) return;
-    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
-    const char *board_id_str = cwist_query_map_get(kv, "board_id");
-    const char *parent_id_str = cwist_query_map_get(kv, "parent_id");
-    if (board_id_str) {
-        int board_id = atoi(board_id_str);
-        int parent_id = parent_id_str ? atoi(parent_id_str) : 0;
-        if (board_id > 0 && parent_id == board_id) parent_id = 0;
-        if (board_id > 0) {
-            db_board_tree_set_parent(board_id, parent_id);
-            CWIST_LOG_INFO("Board tree updated: board_id=%d parent_id=%d", board_id, parent_id);
-        }
-    }
-    cwist_query_map_destroy(kv);
-    redirect(res, "/admin/boards");
-}
-
 /* ---- API ---- */

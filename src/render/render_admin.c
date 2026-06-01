@@ -118,32 +118,9 @@ cwist_sstring *render_admin_boards(cJSON *boards, cJSON *tree, bool dark, const 
             cwist_sstring_append(b, "</td><td style='padding:8px'>");
             cwist_sstring_append_escaped(b, parent_name);
             cwist_sstring_append(b, "</td><td style='padding:8px'>");
-            cwist_sstring_append(b, "<form action='/admin/board/tree' method='post' style='display:flex;gap:6px;align-items:center'>");
-            cwist_sstring_append(b, "<input type='hidden' name='board_id' value='");
+            cwist_sstring_append(b, "<a href='/board/");
             cwist_sstring_append(b, bid_buf);
-            cwist_sstring_append(b, "'><select name='parent_id' style='font-size:13px'>");
-            cwist_sstring_append(b, "<option value='0' ");
-            if (parent_id == 0) cwist_sstring_append(b, "selected");
-            cwist_sstring_append(b, ">(None)</option>");
-            if (boards) {
-                int bn = cJSON_GetArraySize(boards);
-                for (int j = 0; j < bn; j++) {
-                    cJSON *pbo = cJSON_GetArrayItem(boards, j);
-                    int pbid = json_int(pbo, "id", 0);
-                    if (pbid <= 0 || pbid == bid) continue;
-                    cJSON *pname = cJSON_GetObjectItem(pbo, "name");
-                    char pbid_buf[32];
-                    snprintf(pbid_buf, sizeof(pbid_buf), "%d", pbid);
-                    cwist_sstring_append(b, "<option value='");
-                    cwist_sstring_append(b, pbid_buf);
-                    cwist_sstring_append(b, "' ");
-                    if (pbid == parent_id) cwist_sstring_append(b, "selected");
-                    cwist_sstring_append(b, ">");
-                    if (pname && pname->valuestring) cwist_sstring_append_escaped(b, pname->valuestring);
-                    cwist_sstring_append(b, "</option>");
-                }
-            }
-            cwist_sstring_append(b, "</select><button type='submit' class='btn' style='font-size:12px;padding:4px 10px'>Save</button></form>");
+            cwist_sstring_append(b, "/edit' class='btn btn-outline' style='font-size:12px;padding:4px 10px;text-decoration:none'>Edit</a>");
             cwist_sstring_append(b, "</td></tr>");
         }
     }
