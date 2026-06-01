@@ -61,7 +61,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     if (has_boards_bg) {
         cwist_sstring_append(b, "</div>");
     }
-    if (user_role && strcmp(user_role, "admin") == 0) {
+    if (user_role && user_role[0]) {
         cwist_sstring_append(b, "<div style='text-align:center;margin-bottom:24px'><a href='/board/new' class='btn'>New Board</a></div>");
     }
     if (boards) {
@@ -195,7 +195,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     return page;
 }
 
-cwist_sstring *render_board_form(cJSON *board, cJSON *all_boards, bool dark, const char *error, const char *profile_pic, bool is_mobile) {
+cwist_sstring *render_board_form(cJSON *board, cJSON *all_boards, bool dark, const char *error, const char *profile_pic, bool is_mobile, const char *user_role) {
     cwist_sstring *fields = cwist_sstring_create();
     cwist_sstring_assign(fields, "<label>Name</label><input name='name' value='");
     if (board) {
@@ -237,11 +237,13 @@ cwist_sstring *render_board_form(cJSON *board, cJSON *all_boards, bool dark, con
         }
     }
     cwist_sstring_append(fields, "</select>");
-    cwist_sstring_append(fields, "<label><input type='checkbox' name='admin_only' value='1' ");
-    if (board) {
-        if (json_int(board, "admin_only", 0)) cwist_sstring_append(fields, "checked");
+    if (user_role && strcmp(user_role, "admin") == 0) {
+        cwist_sstring_append(fields, "<label><input type='checkbox' name='admin_only' value='1' ");
+        if (board) {
+            if (json_int(board, "admin_only", 0)) cwist_sstring_append(fields, "checked");
+        }
+        cwist_sstring_append(fields, "> Admin-only board</label>");
     }
-    cwist_sstring_append(fields, "> Admin-only board</label>");
     if (board) {
         char bid_buf[32];
         snprintf(bid_buf, sizeof(bid_buf), "%d", json_int(board, "id", 0));
@@ -250,7 +252,7 @@ cwist_sstring *render_board_form(cJSON *board, cJSON *all_boards, bool dark, con
         cwist_sstring_append(fields, "'>");
     }
     cwist_sstring *body = build_form(board ? "Edit Board" : "New Board", board ? "/board/edit" : "/board/new", "post", fields->data, "Save", error, dark);
-    cwist_sstring *page = render_page(board ? "Edit Board" : "New Board", body->data, dark, "admin", profile_pic, is_mobile);
+    cwist_sstring *page = render_page(board ? "Edit Board" : "New Board", body->data, dark, user_role && user_role[0] ? user_role : "user", profile_pic, is_mobile);
     cwist_sstring_destroy(fields);
     cwist_sstring_destroy(body);
     return page;

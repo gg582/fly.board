@@ -272,6 +272,19 @@ void rule_layout(cJSON *rules) {
     add_decl(board_menu_list, "flex-direction", "column");
     cJSON_AddItemToArray(rules, board_menu_list);
 
+    cJSON *board_menu_sb = create_rule(".nav-board-menu::-webkit-scrollbar");
+    add_decl(board_menu_sb, "width", "4px");
+    cJSON_AddItemToArray(rules, board_menu_sb);
+
+    cJSON *board_menu_sb_track = create_rule(".nav-board-menu::-webkit-scrollbar-track");
+    add_decl(board_menu_sb_track, "background", "transparent");
+    cJSON_AddItemToArray(rules, board_menu_sb_track);
+
+    cJSON *board_menu_sb_thumb = create_rule(".nav-board-menu::-webkit-scrollbar-thumb");
+    add_decl(board_menu_sb_thumb, "background", "var(--accent)");
+    add_decl(board_menu_sb_thumb, "border-radius", radius_str(2));
+    cJSON_AddItemToArray(rules, board_menu_sb_thumb);
+
     cJSON *board_sub = create_rule(".nav-board-subitem, .nav-admin-subitem");
     add_decl(board_sub, "display", "block");
     add_decl(board_sub, "padding", "8px 10px");
