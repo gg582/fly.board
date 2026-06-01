@@ -181,7 +181,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
                     cwist_sstring_append(b, "</li>");
                 }
                 cwist_sstring_append(b, "</ul>");
-            } else {
+            } else if (depth > 0) {
                 cwist_sstring_append(b, "<p class='board-card-empty'>No posts yet.</p>");
             }
             cwist_sstring_append(b, "</section>");
