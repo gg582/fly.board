@@ -42,6 +42,7 @@ static void set_default(void) {
     g_config.max_upload_size = 1024LL * 1024LL * 1024LL;
     g_config.max_total_parallel_uploads = 8;
     g_config.max_upload_parallel_chunks = 32;
+    g_config.max_concurrent_downloads = 128;
 }
 
 static void trim_newline(char *s) {
@@ -75,6 +76,7 @@ bool blog_config_load(const char *path) {
             fprintf(f, "max_upload_size=1G\n");
             fprintf(f, "max_total_parallel_uploads=%d\n", g_config.max_total_parallel_uploads);
             fprintf(f, "max_upload_parallel_chunks=%d\n", g_config.max_upload_parallel_chunks);
+            fprintf(f, "max_concurrent_downloads=%d\n", g_config.max_concurrent_downloads);
             fclose(f);
         }
         return true;
@@ -124,6 +126,8 @@ bool blog_config_load(const char *path) {
             g_config.max_total_parallel_uploads = atoi(val);
         } else if (strcmp(key, "max_upload_parallel_chunks") == 0) {
             g_config.max_upload_parallel_chunks = atoi(val);
+        } else if (strcmp(key, "max_concurrent_downloads") == 0) {
+            g_config.max_concurrent_downloads = atoi(val);
         }
     }
     fclose(f);
@@ -133,8 +137,9 @@ bool blog_config_load(const char *path) {
     if (!g_config.accent[0]) snprintf(g_config.accent, sizeof(g_config.accent), "#3b82f6");
     if (g_config.port <= 0 || g_config.port > 65535) g_config.port = 8443;
     if (g_config.max_upload_size <= 0) g_config.max_upload_size = 1024LL * 1024LL * 1024LL;
-    g_config.max_total_parallel_uploads = clamp_int_config(g_config.max_total_parallel_uploads, 1, 64);
+    g_config.max_total_parallel_uploads = clamp_int_config(g_config.max_total_parallel_uploads, 1, 512);
     g_config.max_upload_parallel_chunks = clamp_int_config(g_config.max_upload_parallel_chunks, 1, 64);
+    g_config.max_concurrent_downloads = clamp_int_config(g_config.max_concurrent_downloads, 1, 512);
     return true;
 }
 
