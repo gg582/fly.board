@@ -72,7 +72,9 @@ void handler_logout(cwist_http_request *req, cwist_http_response *res) {
 }
 
 void handler_register_get(cwist_http_request *req, cwist_http_response *res) {
-    send_html_res(res, render_register(is_dark(req), NULL, is_mobile_request(req)));
+    cJSON *legal = legal_load_docs();
+    send_html_res(res, render_register(is_dark(req), NULL, is_mobile_request(req), legal));
+    if (legal) cJSON_Delete(legal);
 }
 
 void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
@@ -84,24 +86,56 @@ void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
     const char *password = cwist_query_map_get(kv, "password");
     if (!username || !email || !password || strlen(password) < 6) {
         CWIST_LOG_WARN("Registration failed: invalid input username='%s'", username ? username : "NULL");
-        send_html_res(res, render_register(dark, "Invalid input (password min 6 chars)", is_mobile_request(req)));
+        cJSON *legal = legal_load_docs();
+        send_html_res(res, render_register(dark, "Invalid input (password min 6 chars)", is_mobile_request(req), legal));
+        if (legal) cJSON_Delete(legal);
         cwist_query_map_destroy(kv);
         return;
     }
+
+    cJSON *legal = legal_load_docs();
+    if (legal) {
+        bool all_required = true;
+        cJSON *doc;
+        cJSON_ArrayForEach(doc, legal) {
+            cJSON *req_j = cJSON_GetObjectItem(doc, "required");
+            if (!req_j || !req_j->valueint) continue;
+            cJSON *name_j = cJSON_GetObjectItem(doc, "name");
+            if (!name_j || !name_j->valuestring) continue;
+            char field_name[256];
+            snprintf(field_name, sizeof(field_name), "legal_%s", name_j->valuestring);
+            const char *val = cwist_query_map_get(kv, field_name);
+            if (!val || strcmp(val, "on") != 0) {
+                all_required = false;
+                break;
+            }
+        }
+        if (!all_required) {
+            send_html_res(res, render_register(dark, "You must agree to all required terms", is_mobile_request(req), legal));
+            cJSON_Delete(legal);
+            cwist_query_map_destroy(kv);
+            return;
+        }
+    }
+
     char hash[256];
     if (!auth_hash_password(password, hash, sizeof(hash))) {
         CWIST_LOG_ERROR("Registration failed: password hash error username='%s'", username);
-        send_html_res(res, render_register(dark, "Server error", is_mobile_request(req)));
+        send_html_res(res, render_register(dark, "Server error", is_mobile_request(req), legal));
+        if (legal) cJSON_Delete(legal);
         cwist_query_map_destroy(kv);
         return;
     }
     bool ok = db_user_create(req->db, username, email, hash);
-    cwist_query_map_destroy(kv);
     if (!ok) {
         CWIST_LOG_WARN("Registration failed: username or email exists username='%s' email='%s'", username, email);
-        send_html_res(res, render_register(dark, "Username or email already exists", is_mobile_request(req)));
+        send_html_res(res, render_register(dark, "Username or email already exists", is_mobile_request(req), legal));
+        if (legal) cJSON_Delete(legal);
+        cwist_query_map_destroy(kv);
         return;
     }
+    if (legal) cJSON_Delete(legal);
+    cwist_query_map_destroy(kv);
     CWIST_LOG_INFO("User registered: username='%s' email='%s'", username, email);
     redirect(res, "/login");
 }
