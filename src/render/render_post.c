@@ -651,7 +651,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     return page_html;
 }
 
-cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, int user_id, const char *ephemeral_delete_pin, bool is_mobile) {
+cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, const char *author_profile_pic, int user_id, const char *ephemeral_delete_pin, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
     cJSON *title = cJSON_GetObjectItem(post, "title");
     cJSON *content = cJSON_GetObjectItem(post, "content");
@@ -687,6 +687,11 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         if (author_id && author_id->valueint > 0) {
             char uid_buf[32];
             snprintf(uid_buf, sizeof(uid_buf), "%d", author_id->valueint);
+            if (author_profile_pic && author_profile_pic[0]) {
+                cwist_sstring_append(b, "<img src='");
+                cwist_sstring_append(b, author_profile_pic);
+                cwist_sstring_append(b, "' style='width:22px;height:22px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px'>");
+            }
             cwist_sstring_append(b, "<a href='/user/");
             cwist_sstring_append(b, uid_buf);
             cwist_sstring_append(b, "'>");
