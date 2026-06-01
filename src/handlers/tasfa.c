@@ -1569,7 +1569,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     int chunk_size = choose_chunk_size_upload(mobile, requested_chunk_size);
     chunk_count = (int)((total_size + chunk_size - 1) / chunk_size);
     if (chunk_count < 1) chunk_count = 1;
-    tasfa_queue_sweep(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, 600);
+    tasfa_queue_sweep(g_q_uploads, tasfa_upload_session_limit(), 600);
     char upload_id[33];
     if (!random_hex(upload_id, 16)) {
         cwist_query_map_destroy(kv);
@@ -1586,7 +1586,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     upload_session_temp_path(temp_path, sizeof(temp_path), upload_id);
     if (!dir_ensure(dir_path) || !ensure_preallocated_file(temp_path, total_size)) {
         cleanup_upload_session(upload_id);
-        tasfa_queue_leave(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
+        tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), upload_id);
         cwist_query_map_destroy(kv);
         send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
@@ -1598,7 +1598,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         !random_hex(upload_token, 24) || !random_hex(upload_secret, 24)) {
         if (bitmap) cwist_free(bitmap);
         cleanup_upload_session(upload_id);
-        tasfa_queue_leave(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
+        tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), upload_id);
         cwist_query_map_destroy(kv);
         send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
@@ -1610,7 +1610,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         if (stream_iv_seed_hex) cwist_free(stream_iv_seed_hex);
         if (bitmap) cwist_free(bitmap);
         cleanup_upload_session(upload_id);
-        tasfa_queue_leave(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
+        tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), upload_id);
         cwist_query_map_destroy(kv);
         send_json_response(res, session_error_json("upload init failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
@@ -1695,7 +1695,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
         cwist_free(bitmap);
         cJSON_Delete(meta);
         cleanup_upload_session(upload_id);
-        tasfa_queue_leave(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
+        tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), upload_id);
         cwist_free(stream_key_hex);
         cwist_free(stream_iv_seed_hex);
         cwist_query_map_destroy(kv);
@@ -2283,12 +2283,12 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     }
 
     tasfa_meta_bin_t mbin;
-    tasfa_queue_sweep(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, 600);
+    tasfa_queue_sweep(g_q_uploads, tasfa_upload_session_limit(), 600);
     if (!load_upload_session_meta_bin_cached(upload_id, &mbin)) {
         send_json_response(res, session_error_json("upload session not found"), CWIST_HTTP_NOT_FOUND);
         return;
     }
-    tasfa_queue_touch(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
+    tasfa_queue_touch(g_q_uploads, tasfa_upload_session_limit(), upload_id);
     if (!secure_str_eq(upload_token, mbin.upload_token)) {
         send_json_response(res, session_error_json("upload chunk rejected"), CWIST_HTTP_FORBIDDEN);
         return;
@@ -2790,7 +2790,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     cJSON_Delete(meta);
     close_upload_session_lock(lock_fd);
     cleanup_upload_session(upload_id);
-    tasfa_queue_leave(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
+    tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), upload_id);
     cwist_query_map_destroy(kv);
     cJSON *obj = cJSON_CreateObject();
 
@@ -2803,7 +2803,7 @@ client_disconnect:
     cJSON_Delete(meta);
     close_upload_session_lock(lock_fd);
     cleanup_upload_session(upload_id);
-    tasfa_queue_leave(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, upload_id);
+    tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), upload_id);
     cwist_query_map_destroy(kv);
     send_json_response(res, session_error_json("client disconnected"), CWIST_HTTP_BAD_REQUEST);
     return;
@@ -2964,7 +2964,7 @@ void handler_file_upload_cancel(cwist_http_request *req, cwist_http_response *re
             cJSON_ArrayForEach(item, arr) {
                 if (cJSON_IsString(item) && is_safe_segment(item->valuestring)) {
                     cleanup_upload_session(item->valuestring);
-                    tasfa_queue_leave(g_q_uploads, TASFA_MAX_CONCURRENT_UPLOADS, item->valuestring);
+                    tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), item->valuestring);
                 }
             }
         }
