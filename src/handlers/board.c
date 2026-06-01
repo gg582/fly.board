@@ -152,7 +152,8 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
         CWIST_LOG_ERROR("Board creation failed: name='%s' slug='%s'", name, slug);
     }
     cwist_query_map_destroy(kv);
-    redirect(res, "/boards");
+    const char *referer = cwist_http_header_get(req->headers, "Referer");
+    redirect(res, referer && referer[0] ? referer : "/boards");
 }
 
 void handler_board_edit_get(cwist_http_request *req, cwist_http_response *res) {
@@ -269,7 +270,8 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
     cJSON_Delete(board);
     free(pp);
     cwist_query_map_destroy(kv);
-    redirect(res, redirect_url);
+    const char *referer = cwist_http_header_get(req->headers, "Referer");
+    redirect(res, referer && referer[0] ? referer : redirect_url);
 }
 
 void handler_board_delete(cwist_http_request *req, cwist_http_response *res) {
@@ -282,7 +284,8 @@ void handler_board_delete(cwist_http_request *req, cwist_http_response *res) {
         db_board_tree_remove(bid);
         CWIST_LOG_INFO("Board deleted: bid=%d", bid);
     }
-    redirect(res, "/boards");
+    const char *referer = cwist_http_header_get(req->headers, "Referer");
+    redirect(res, referer && referer[0] ? referer : "/boards");
 }
 
 void handler_board_perms_get(cwist_http_request *req, cwist_http_response *res) {
