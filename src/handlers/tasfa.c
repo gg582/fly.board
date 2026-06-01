@@ -38,8 +38,8 @@
 #define TASFA_CLIENT_STRIPES 32
 #define TASFA_CACHE_SLOTS 512
 
-#define TASFA_MAX_CONCURRENT_UPLOADS 64
-#define TASFA_MAX_CONCURRENT_DOWNLOADS 8
+#define TASFA_MAX_CONCURRENT_UPLOADS 512
+#define tasfa_download_session_limit() 512
 #define TASFA_FINALIZE_CACHE_SLOTS 128
 
 #define HTP_TAG_LEN 129
@@ -87,7 +87,7 @@ typedef struct {
 } queue_slot_t;
 
 static queue_slot_t g_q_uploads[TASFA_MAX_CONCURRENT_UPLOADS];
-static queue_slot_t g_q_downloads[TASFA_MAX_CONCURRENT_DOWNLOADS];
+static queue_slot_t g_q_downloads[tasfa_download_session_limit()];
 static pthread_mutex_t g_tasfa_queue_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct {
@@ -150,6 +150,13 @@ static int tasfa_upload_session_limit(void) {
     int limit = g_config.max_total_parallel_uploads;
     if (limit < 1) limit = 1;
     if (limit > TASFA_MAX_CONCURRENT_UPLOADS) limit = TASFA_MAX_CONCURRENT_UPLOADS;
+    return limit;
+}
+
+static int tasfa_download_session_limit(void) {
+    int limit = g_config.max_concurrent_downloads;
+    if (limit < 1) limit = 1;
+    if (limit > tasfa_download_session_limit()) limit = tasfa_download_session_limit();
     return limit;
 }
 
@@ -3002,7 +3009,7 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
     bool mobile = is_mobile_request(req);
     int requested_chunk_size = atoi(cwist_query_map_get(req->query_params, "chunk_size") ? cwist_query_map_get(req->query_params, "chunk_size") : "0");
     int chunk_size = choose_chunk_size_download(mobile, requested_chunk_size);
-    tasfa_queue_sweep(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, 3600);
+    tasfa_queue_sweep(g_q_downloads, tasfa_download_session_limit(), 60);
     int score = link_score_from_inputs(
         cwist_query_map_get(req->query_params, "link_stability_score"),
         cwist_query_map_get(req->query_params, "link_effective_type"),
@@ -3021,7 +3028,7 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
         return;
     }
     const char *session_id = json_string(obj, "session_id", "");
-    if (!tasfa_queue_try_enter(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, session_id)) {
+    if (!tasfa_queue_try_enter(g_q_downloads, tasfa_download_session_limit(), session_id)) {
         cleanup_download_session(session_id);
         cJSON_Delete(obj);
         cJSON_Delete(file);
@@ -3029,7 +3036,7 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
         return;
     }
     if (!is_client_connected(req)) {
-        tasfa_queue_leave(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, session_id);
+        tasfa_queue_leave(g_q_downloads, tasfa_download_session_limit(), session_id);
         cleanup_download_session(session_id);
         cJSON_Delete(obj);
         cJSON_Delete(file);
@@ -3047,8 +3054,8 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
         send_json_response(res, session_error_json("invalid download chunk payload"), CWIST_HTTP_BAD_REQUEST);
         return;
     }
-    tasfa_queue_sweep(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, 300);
-    tasfa_queue_touch(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, session_id);
+    tasfa_queue_sweep(g_q_downloads, tasfa_download_session_limit(), 60);
+    tasfa_queue_touch(g_q_downloads, tasfa_download_session_limit(), session_id);
     cJSON *meta = load_download_session_cached(session_id);
     if (!meta) {
         send_json_response(res, session_error_json("download session not found"), CWIST_HTTP_NOT_FOUND);
@@ -3056,7 +3063,7 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
     }
     if (!is_client_connected(req)) {
         cJSON_Delete(meta);
-        tasfa_queue_leave(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, session_id);
+        tasfa_queue_leave(g_q_downloads, tasfa_download_session_limit(), session_id);
         cleanup_download_session(session_id);
         return;
     }
@@ -3127,7 +3134,7 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
     bool mobile = is_mobile_request(req);
     int requested_chunk_size = atoi(cwist_query_map_get(req->query_params, "chunk_size") ? cwist_query_map_get(req->query_params, "chunk_size") : "0");
     int chunk_size = choose_chunk_size_download(mobile, requested_chunk_size);
-    tasfa_queue_sweep(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, 300);
+    tasfa_queue_sweep(g_q_downloads, tasfa_download_session_limit(), 60);
     int score = link_score_from_inputs(
         cwist_query_map_get(req->query_params, "link_stability_score"),
         cwist_query_map_get(req->query_params, "link_effective_type"),
@@ -3153,14 +3160,14 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
         return;
     }
     const char *session_id = json_string(obj, "session_id", "");
-    if (!tasfa_queue_try_enter(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, session_id)) {
+    if (!tasfa_queue_try_enter(g_q_downloads, tasfa_download_session_limit(), session_id)) {
         cleanup_download_session(session_id);
         cJSON_Delete(obj);
         send_queued_json(res, "too many concurrent downloads", 3);
         return;
     }
     if (!is_client_connected(req)) {
-        tasfa_queue_leave(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, session_id);
+        tasfa_queue_leave(g_q_downloads, tasfa_download_session_limit(), session_id);
         cleanup_download_session(session_id);
         cJSON_Delete(obj);
         return;
@@ -3198,7 +3205,7 @@ void handler_file_download_complete(cwist_http_request *req, cwist_http_response
     if (file_id > 0) {
         db_file_increment_download(req->db, file_id);
     }
-    tasfa_queue_leave(g_q_downloads, TASFA_MAX_CONCURRENT_DOWNLOADS, session_id);
+    tasfa_queue_leave(g_q_downloads, tasfa_download_session_limit(), session_id);
     cleanup_download_session(session_id);
     cJSON_Delete(meta);
     cwist_query_map_destroy(kv);
