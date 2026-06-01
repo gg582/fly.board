@@ -11,6 +11,7 @@ files_img=
 favicon=
 use_rss=true
 use_tasfa=true
+roundness=0.5
 max_upload_size=1G
 max_total_parallel_uploads=8
 max_upload_parallel_chunks=32

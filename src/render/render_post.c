@@ -941,7 +941,31 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     }
     cwist_sstring_append(b, "' required>");
 
-    cwist_sstring_append(b, "<label>Board</label><select name='board_id'>");
+    int post_board_id = post ? json_int(post, "board_id", 0) : 0;
+    const char *selected_label = "Select a board";
+    if (boards && post_board_id > 0) {
+        int n = cJSON_GetArraySize(boards);
+        for (int i = 0; i < n; i++) {
+            cJSON *bo = cJSON_GetArrayItem(boards, i);
+            if (json_int(bo, "id", 0) == post_board_id) {
+                cJSON *bname = cJSON_GetObjectItem(bo, "name");
+                if (bname && bname->valuestring) selected_label = bname->valuestring;
+                break;
+            }
+        }
+    }
+
+    cwist_sstring_append(b, "<label>Board</label>");
+    cwist_sstring_append(b, "<div class='styled-dropdown' id='board-dropdown'>");
+    cwist_sstring_append(b, "<button type='button' class='styled-dropdown-trigger' aria-haspopup='listbox' aria-expanded='false'>");
+    cwist_sstring_append(b, "<span class='styled-dropdown-label' id='board-dropdown-label'>");
+    char *tmp_label = sql_escape(selected_label);
+    cwist_sstring_append(b, tmp_label);
+    cwist_free(tmp_label);
+    cwist_sstring_append(b, "</span>");
+    cwist_sstring_append(b, "<svg class='styled-dropdown-arrow' viewBox='0 0 24 24' width='16' height='16'><path d='M7 10l5 5 5-5z'/></svg>");
+    cwist_sstring_append(b, "</button>");
+    cwist_sstring_append(b, "<div class='styled-dropdown-menu' role='listbox' id='board-dropdown-menu'>");
     if (boards) {
         int n = cJSON_GetArraySize(boards);
         for (int i = 0; i < n; i++) {
@@ -950,19 +974,31 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
             int bid_val = json_int(bo, "id", 0);
             char bid_buf[32];
             snprintf(bid_buf, sizeof(bid_buf), "%d", bid_val);
-            int post_board_id = post ? json_int(post, "board_id", 0) : 0;
-            cwist_sstring_append(b, "<option value='");
+            int is_selected = (post_board_id > 0 && post_board_id == bid_val);
+            cwist_sstring_append(b, "<div class='styled-dropdown-item");
+            if (is_selected) cwist_sstring_append(b, " selected");
+            cwist_sstring_append(b, "' data-value='");
             cwist_sstring_append(b, bid_buf);
-            cwist_sstring_append(b, "'");
-            if (post_board_id > 0 && post_board_id == bid_val) cwist_sstring_append(b, " selected");
+            cwist_sstring_append(b, "' role='option'");
+            if (is_selected) cwist_sstring_append(b, " aria-selected='true'");
             cwist_sstring_append(b, ">");
-            char *tmp_bname = sql_escape(bname->valuestring);
-            cwist_sstring_append(b, tmp_bname);
-            cwist_free(tmp_bname);
-            cwist_sstring_append(b, "</option>");
+            if (bname && bname->valuestring) {
+                char *tmp_bname = sql_escape(bname->valuestring);
+                cwist_sstring_append(b, tmp_bname);
+                cwist_free(tmp_bname);
+            }
+            cwist_sstring_append(b, "</div>");
         }
     }
-    cwist_sstring_append(b, "</select>");
+    cwist_sstring_append(b, "</div>");
+    cwist_sstring_append(b, "<input type='hidden' name='board_id' id='board-id-input' value='");
+    if (post_board_id > 0) {
+        char bid_buf[32];
+        snprintf(bid_buf, sizeof(bid_buf), "%d", post_board_id);
+        cwist_sstring_append(b, bid_buf);
+    }
+    cwist_sstring_append(b, "'>");
+    cwist_sstring_append(b, "</div>");
 
     cwist_sstring_append(b, "<label>Summary</label><input id='summary-input' name='summary' value='");
     if (post) {

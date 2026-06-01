@@ -3138,6 +3138,73 @@
                 });
         });
     }
+
+    function initStyledDropdown() {
+        var dropdown = document.getElementById('board-dropdown');
+        if (!dropdown) return;
+        var trigger = dropdown.querySelector('.styled-dropdown-trigger');
+        var menu = dropdown.querySelector('.styled-dropdown-menu');
+        var items = dropdown.querySelectorAll('.styled-dropdown-item');
+        var hiddenInput = document.getElementById('board-id-input');
+        var label = document.getElementById('board-dropdown-label');
+        if (!trigger || !menu || !hiddenInput || !label) return;
+
+        function closeDropdown() {
+            dropdown.classList.remove('open');
+            trigger.setAttribute('aria-expanded', 'false');
+        }
+
+        function openDropdown() {
+            dropdown.classList.add('open');
+            trigger.setAttribute('aria-expanded', 'true');
+        }
+
+        function toggleDropdown() {
+            if (dropdown.classList.contains('open')) {
+                closeDropdown();
+            } else {
+                openDropdown();
+            }
+        }
+
+        function selectItem(item) {
+            for (var k = 0; k < items.length; k++) {
+                items[k].classList.remove('selected');
+                items[k].setAttribute('aria-selected', 'false');
+            }
+            item.classList.add('selected');
+            item.setAttribute('aria-selected', 'true');
+            hiddenInput.value = item.getAttribute('data-value');
+            label.textContent = item.textContent;
+            closeDropdown();
+        }
+
+        trigger.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleDropdown();
+        });
+
+        for (var j = 0; j < items.length; j++) {
+            items[j].addEventListener('click', function(e) {
+                selectItem(e.currentTarget);
+            });
+        }
+
+        document.addEventListener('click', function(e) {
+            if (!dropdown.contains(e.target)) {
+                closeDropdown();
+            }
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && dropdown.classList.contains('open')) {
+                closeDropdown();
+            }
+        });
+    }
+    initStyledDropdown();
+
     initMyFilesBrowser();
 
     bootstrapExistingAssets();
