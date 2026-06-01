@@ -291,7 +291,6 @@ int main(void) {
     cwist_app_post(app, "/admin/user/role", handler_admin_user_role);
     cwist_app_post(app, "/admin/files/drop", handler_admin_files_drop);
     cwist_app_get(app, "/admin/boards", handler_admin_boards_get);
-    cwist_app_post(app, "/admin/board/tree", handler_admin_boards_post);
 
     cwist_app_post(app, "/api/preview", handler_api_preview);
     cwist_app_post(app, "/api/upload", handler_api_upload);

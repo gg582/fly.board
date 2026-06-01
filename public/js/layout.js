@@ -217,6 +217,32 @@
         bindBoardsDropdown();
     }
 
-    // 6. Service Worker
+    // 6. Admin Dropdown hover helper (desktop)
+    function bindAdminDropdown(){
+        var dd=document.querySelector('.nav-admin-dropdown');
+        var menu=dd?dd.querySelector('.nav-admin-menu'):null;
+        if(!dd||!menu||dd.dataset.ddBound)return;
+        dd.dataset.ddBound='1';
+        dd.addEventListener('mouseenter',function(){
+            menu.classList.add('open');
+        });
+        dd.addEventListener('mouseleave',function(e){
+            if(!menu.contains(e.relatedTarget)){
+                menu.classList.remove('open');
+            }
+        });
+        menu.addEventListener('mouseleave',function(e){
+            if(!dd.contains(e.relatedTarget)){
+                menu.classList.remove('open');
+            }
+        });
+    }
+    if(document.readyState==='loading'){
+        document.addEventListener('DOMContentLoaded',bindAdminDropdown);
+    }else{
+        bindAdminDropdown();
+    }
+
+    // 7. Service Worker
     if('serviceWorker'in navigator){navigator.serviceWorker.register('/sw.js');}
 })();
