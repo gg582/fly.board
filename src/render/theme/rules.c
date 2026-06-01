@@ -210,7 +210,6 @@ void rule_layout(cJSON *rules) {
     add_decl(navlinks, "gap", "8px");
     add_decl(navlinks, "align-items", "center");
     add_decl(navlinks, "flex-wrap", "nowrap");
-    add_decl(navlinks, "overflow-x", "auto");
     add_decl(navlinks, "min-width", "0");
     cJSON_AddItemToArray(rules, navlinks);
 
