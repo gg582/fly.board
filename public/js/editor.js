@@ -1709,6 +1709,22 @@
         return iv;
     }
 
+    function supportsUploadGzip() {
+        return typeof CompressionStream !== 'undefined';
+    }
+
+    async function gzipArrayBufferIfUseful(buffer) {
+        if (!supportsUploadGzip() || !buffer || buffer.byteLength < 2048) {
+            return { buffer: buffer, compressed: false };
+        }
+        var stream = new Blob([buffer]).stream().pipeThrough(new CompressionStream('gzip'));
+        var compressed = await new Response(stream).arrayBuffer();
+        if (compressed.byteLength + 1024 < buffer.byteLength) {
+            return { buffer: compressed, compressed: true };
+        }
+        return { buffer: buffer, compressed: false };
+    }
+
     function firstEightBytesToBigInt(bytes) {
         var value = 0n;
         for (var i = 0; i < 8 && i < bytes.length; i++) {

@@ -36,10 +36,7 @@ POST /file/upload/cancel
 Download:
 GET /file/download/:id/handshake
 GET /file/download/:id/chunk/:chunk_index
-GET /assets/tasfa/img/:filename/handshake
-GET /assets/tasfa/img/:filename/chunk/:chunk_index
-GET /assets/tasfa/uploads/:filename/handshake
-GET /assets/tasfa/uploads/:filename/chunk/:chunk_index
+GET /file/download/:id
 end note
 
 == File-Level Sequential Upload Queue ==
@@ -127,12 +124,12 @@ Uploader -> Uploader: increase window after clean completions\nreduce one slot a
 == Runtime Baselines ==
 
 note over Uploader,Downloader
-Upload chunk size: 24 MiB desktop, 12 MiB mobile.
-Upload chunk-size hint range: 4 MiB minimum,
-up to 48 MiB desktop or 24 MiB mobile.
+Upload chunk size: 16 MiB desktop, 8 MiB mobile.
+Upload chunk-size hint range: 8 MiB minimum,
+up to 32 MiB desktop or 16 MiB mobile.
 
-Download chunk size: 2 MiB desktop, 1 MiB mobile,
-up to 16 MiB when the client hints a larger session.
+Download chunk size: 8 MiB desktop, 4 MiB mobile,
+up to 32 MiB when the client hints a larger session.
 Download coalesce (span group): up to 16 chunks on good links.
 
 Default browser upload parallelism is 16.

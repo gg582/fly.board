@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <zlib.h>
 
 #define TASFA_UPLOAD_DIR "data/tasfa/uploads"
 #define TASFA_DOWNLOAD_DIR "data/tasfa/downloads"
@@ -26,6 +27,7 @@
 #define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (4 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_MIN     (2 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_MAX     (32 * 1024 * 1024)
+#define TASFA_GZIP_MIN_GAIN_BYTES         1024
 
 #define TASFA_UPLOAD_TTL 86400
 #define TASFA_DOWNLOAD_TTL 86400
@@ -1017,6 +1019,17 @@ static unsigned char *ensure_decrypt_buf(size_t need) {
     return g_tasfa_decrypt_buf;
 }
 
+static __thread unsigned char *g_tasfa_inflate_buf = NULL;
+static __thread size_t g_tasfa_inflate_buf_size = 0;
+
+static unsigned char *ensure_inflate_buf(size_t need) {
+    if (g_tasfa_inflate_buf_size >= need) return g_tasfa_inflate_buf;
+    if (g_tasfa_inflate_buf) free(g_tasfa_inflate_buf);
+    g_tasfa_inflate_buf = (unsigned char *)malloc(need);
+    g_tasfa_inflate_buf_size = need;
+    return g_tasfa_inflate_buf;
+}
+
 static __thread char *g_tasfa_read_buf = NULL;
 static __thread size_t g_tasfa_read_buf_size = 0;
 
@@ -1026,6 +1039,74 @@ static char *ensure_read_buf(size_t need) {
     g_tasfa_read_buf = (char *)malloc(need);
     g_tasfa_read_buf_size = need;
     return g_tasfa_read_buf;
+}
+
+static bool str_contains_ci_local(const char *haystack, const char *needle) {
+    if (!haystack || !needle || !needle[0]) return false;
+    size_t nlen = strlen(needle);
+    for (const char *p = haystack; *p; p++) {
+        size_t i = 0;
+        while (i < nlen && p[i] &&
+               tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i])) {
+            i++;
+        }
+        if (i == nlen) return true;
+    }
+    return false;
+}
+
+static bool tasfa_gzip_compress_alloc(const unsigned char *input, size_t input_len,
+                                      unsigned char **out, size_t *out_len) {
+    if (!input || input_len == 0 || !out || !out_len) return false;
+    *out = NULL;
+    *out_len = 0;
+
+    z_stream zs;
+    memset(&zs, 0, sizeof(zs));
+    if (deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+        return false;
+    }
+
+    size_t cap = deflateBound(&zs, (uLong)input_len);
+    unsigned char *buf = (unsigned char *)cwist_alloc(cap);
+    if (!buf) {
+        deflateEnd(&zs);
+        return false;
+    }
+
+    zs.next_in = (Bytef *)input;
+    zs.avail_in = (uInt)input_len;
+    zs.next_out = buf;
+    zs.avail_out = (uInt)cap;
+    int rc = deflate(&zs, Z_FINISH);
+    if (rc != Z_STREAM_END) {
+        cwist_free(buf);
+        deflateEnd(&zs);
+        return false;
+    }
+
+    *out_len = cap - zs.avail_out;
+    *out = buf;
+    deflateEnd(&zs);
+    return true;
+}
+
+static bool tasfa_gzip_decompress_to(const unsigned char *input, size_t input_len,
+                                     unsigned char *out, size_t expected_len) {
+    if (!input || input_len == 0 || !out) return false;
+
+    z_stream zs;
+    memset(&zs, 0, sizeof(zs));
+    if (inflateInit2(&zs, 15 + 16) != Z_OK) return false;
+
+    zs.next_in = (Bytef *)input;
+    zs.avail_in = (uInt)input_len;
+    zs.next_out = out;
+    zs.avail_out = (uInt)expected_len;
+    int rc = inflate(&zs, Z_FINISH);
+    bool ok = (rc == Z_STREAM_END && zs.total_out == expected_len);
+    inflateEnd(&zs);
+    return ok;
 }
 
 static bool save_download_session(const char *session_id, cJSON *root) {
@@ -1124,7 +1205,6 @@ static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
 
 static bool send_file_slice_response(cwist_http_request *req, cwist_http_response *res, const char *path, const char *mime, long long offset, size_t amount,
                                        int chunk_index, int chunk_count) {
-    (void)req;
     int fd = open(path, O_RDONLY);
     if (fd < 0) return false;
 
@@ -1141,6 +1221,27 @@ static bool send_file_slice_response(cwist_http_request *req, cwist_http_respons
     }
     close(fd);
     if (total != amount) return false;
+    const char *accept_tasfa_encoding = cwist_http_header_get(req->headers, "X-TASFA-Accept-Encoding");
+    bool client_accepts_gzip = str_contains_ci_local(accept_tasfa_encoding, "gzip");
+    unsigned char *gzip_buf = NULL;
+    size_t gzip_len = 0;
+    const unsigned char *payload = (const unsigned char *)buf;
+    size_t payload_len = total;
+    bool payload_gzip = false;
+    if (client_accepts_gzip && total >= TASFA_GZIP_MIN_GAIN_BYTES &&
+        tasfa_gzip_compress_alloc((const unsigned char *)buf, total, &gzip_buf, &gzip_len) &&
+        gzip_len + TASFA_GZIP_MIN_GAIN_BYTES < total) {
+        payload = gzip_buf;
+        payload_len = gzip_len;
+        payload_gzip = true;
+        cwist_http_header_add(&res->headers, "X-TASFA-Content-Encoding", "gzip");
+        char plain_len_buf[32];
+        snprintf(plain_len_buf, sizeof(plain_len_buf), "%zu", total);
+        cwist_http_header_add(&res->headers, "X-TASFA-Uncompressed-Length", plain_len_buf);
+    } else if (gzip_buf) {
+        cwist_free(gzip_buf);
+        gzip_buf = NULL;
+    }
     cwist_http_header_add(&res->headers, "Content-Type", mime ? mime : "application/octet-stream");
     cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
     add_keepalive_headers(res);
@@ -1199,26 +1300,29 @@ static bool send_file_slice_response(cwist_http_request *req, cwist_http_respons
     }
 
     if (use_encryption) {
-        size_t cipher_len = amount + 16;
+        size_t cipher_len = payload_len + 16;
         unsigned char *cipher_buf = (unsigned char *)cwist_alloc(cipher_len);
         size_t actual_cipher_len = 0;
-        if (cipher_buf && encrypt_stream_block(stream_key, stream_iv_seed, chunk_index, session_id, (unsigned char *)buf, amount, cipher_buf, &actual_cipher_len)) {
+        if (cipher_buf && encrypt_stream_block(stream_key, stream_iv_seed, chunk_index, session_id, payload, payload_len, cipher_buf, &actual_cipher_len)) {
             cwist_sstring_assign(res->body, "");
             cwist_sstring_append_len(res->body, (char *)cipher_buf, actual_cipher_len);
             char len_buf[32];
             snprintf(len_buf, sizeof(len_buf), "%zu", actual_cipher_len);
             cwist_http_header_add(&res->headers, "Content-Length", len_buf);
             cwist_free(cipher_buf);
+            if (gzip_buf) cwist_free(gzip_buf);
             return true;
         }
         cwist_free(cipher_buf);
     }
 
     char len_buf[32];
-    snprintf(len_buf, sizeof(len_buf), "%zu", total);
+    snprintf(len_buf, sizeof(len_buf), "%zu", payload_len);
     cwist_http_header_add(&res->headers, "Content-Length", len_buf);
     cwist_sstring_assign(res->body, "");
-    if (total > 0) cwist_sstring_append_len(res->body, buf, total);
+    if (payload_len > 0) cwist_sstring_append_len(res->body, (const char *)payload, payload_len);
+    if (gzip_buf) cwist_free(gzip_buf);
+    (void)payload_gzip;
     return true;
 }
 
@@ -1703,6 +1807,7 @@ typedef struct {
     const unsigned char *stream_iv_seed;
     const void *body_data;
     size_t body_size;
+    bool compressed;
     long long offset;
     long long expected_size;
     int chunk_count;
@@ -2108,12 +2213,26 @@ static void upload_work_func(void *arg) {
         return;
     }
     if (w->encrypted_stream) {
-        unsigned char *plaintext = ensure_decrypt_buf((size_t)w->expected_size);
-        if (plaintext && w->body_size == (size_t)w->expected_size + 16 &&
+        size_t encrypted_plain_len = w->body_size > 16 ? w->body_size - 16 : 0;
+        unsigned char *plaintext = ensure_decrypt_buf(w->compressed ? encrypted_plain_len : (size_t)w->expected_size);
+        if (plaintext && encrypted_plain_len > 0 &&
             decrypt_stream_block(w->stream_key, w->stream_iv_seed, w->chunk_index, w->upload_id,
                                  (const unsigned char *)w->body_data, w->body_size,
-                                 plaintext, (size_t)w->expected_size)) {
-            w->stored = pwrite_all(fd, plaintext, (size_t)w->expected_size, (off_t)w->offset);
+                                 plaintext, encrypted_plain_len)) {
+            if (w->compressed) {
+                unsigned char *inflated = ensure_inflate_buf((size_t)w->expected_size);
+                if (inflated && tasfa_gzip_decompress_to(plaintext, encrypted_plain_len, inflated, (size_t)w->expected_size)) {
+                    w->stored = pwrite_all(fd, inflated, (size_t)w->expected_size, (off_t)w->offset);
+                }
+            } else if (encrypted_plain_len == (size_t)w->expected_size) {
+                w->stored = pwrite_all(fd, plaintext, (size_t)w->expected_size, (off_t)w->offset);
+            }
+        }
+    } else if (w->compressed) {
+        unsigned char *inflated = ensure_inflate_buf((size_t)w->expected_size);
+        if (inflated && tasfa_gzip_decompress_to((const unsigned char *)w->body_data, w->body_size,
+                                                 inflated, (size_t)w->expected_size)) {
+            w->stored = pwrite_all(fd, inflated, (size_t)w->expected_size, (off_t)w->offset);
         }
     } else if ((long long)w->body_size == w->expected_size) {
         w->stored = pwrite_all(fd, w->body_data, w->body_size, (off_t)w->offset);
@@ -2212,8 +2331,13 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     bool encrypted_stream = stream_mode && strcmp(stream_mode, "aes-256-gcm") == 0;
+    const char *content_encoding = cwist_http_header_get(req->headers, "X-TASFA-Content-Encoding");
+    bool compressed_chunk = content_encoding && str_contains_ci_local(content_encoding, "gzip");
     long long expected_body_size = encrypted_stream ? expected_size + 16 : expected_size;
-    if ((long long)req->body->size != expected_body_size) {
+    bool size_ok = compressed_chunk
+        ? (req->body->size > (encrypted_stream ? 16U : 0U) && (long long)req->body->size <= expected_body_size)
+        : ((long long)req->body->size == expected_body_size);
+    if (!size_ok) {
         FLY_LOG_ERROR("[TASFA] chunk size mismatch: upload_id=%s index=%d mode=%s expected=%lld got=%zu",
                       upload_id, chunk_index, encrypted_stream ? "aes-256-gcm" : "plain",
                       expected_body_size, req->body->size);
@@ -2230,6 +2354,7 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     work.stream_iv_seed = mbin.stream_iv_seed;
     work.body_data = req->body->data;
     work.body_size = req->body->size;
+    work.compressed = compressed_chunk;
     work.offset = offset;
     work.expected_size = expected_size;
     work.chunk_count = mbin.chunk_count;

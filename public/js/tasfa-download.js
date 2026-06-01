@@ -389,6 +389,16 @@
         return { arm: arm, clear: clear };
     }
 
+    function supportsGzipStreams() {
+        return typeof DecompressionStream !== 'undefined';
+    }
+
+    async function gunzipArrayBuffer(buffer) {
+        if (!supportsGzipStreams()) return buffer;
+        var stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
+        return new Response(stream).arrayBuffer();
+    }
+
     async function decryptBuffer(session, chunkIndex, buffer) {
         if (session.streamMode !== 'aes-256-gcm' || !session.streamKeyHex || !session.streamIvSeedHex) {
             return new Uint8Array(buffer);
@@ -429,6 +439,9 @@
             xhr.open('GET', url, true);
             xhr.responseType = 'arraybuffer';
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            if (supportsGzipStreams()) {
+                xhr.setRequestHeader('X-TASFA-Accept-Encoding', 'gzip');
+            }
             var expectedBytes = 0;
             for (var e = 0; e < span; e++) {
                 if (chunkIndex + e >= session.chunkCount) break;
@@ -459,6 +472,13 @@
                 if (!buffer) { reject(new Error('empty response')); return; }
 
                 decryptBuffer(session, chunkIndex, buffer).then(function(data) {
+                    var encoding = xhr.getResponseHeader('X-TASFA-Content-Encoding') || '';
+                    if (encoding.toLowerCase().indexOf('gzip') !== -1) {
+                        return gunzipArrayBuffer(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+                    }
+                    return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+                }).then(function(plainBuffer) {
+                    var data = new Uint8Array(plainBuffer);
                     if (data.byteLength !== expectedBytes) {
                         reject(new Error('short response'));
                         return;
@@ -798,7 +818,10 @@
             /* Feed the decrypted chunk bytes into the SW stream.
                Transfer the ArrayBuffer to avoid copying large blocks. */
             if (parts[index] && parts[index].buffer) {
-                feedTasfaStream(streamInfo.streamId, parts[index].buffer);
+                /* Clone before transferring so the original parts array stays
+                   valid for the final Blob assembly. */
+                var cloneForStream = parts[index].slice();
+                feedTasfaStream(streamInfo.streamId, cloneForStream.buffer);
             }
 
             if (!readyFired && completedChunks >= initialChunkThreshold) {
@@ -824,6 +847,8 @@
         closeTasfaStream(streamInfo.streamId);
         await notifyDownloadComplete(session.sessionId, session.sessionToken);
         if (onProgress) onProgress(100);
+
+        return new Blob(parts, { type: session.mimeType });
     }
 
     function triggerDownload(baseUrl) {
@@ -975,7 +1000,7 @@
             el.src = playUrl;
             el.style.opacity = '1';
             bindLoaderRemoval(el);
-            return;
+            return el;
         }
 
         var mediaEl = document.createElement(isAudio ? 'audio' : 'video');
@@ -993,6 +1018,7 @@
         }
 
         bindLoaderRemoval(mediaEl);
+        return mediaEl;
     }
 
     function upgradeMediaElement(el) {
@@ -1119,13 +1145,27 @@
 
                 if (isVideo || isAudio) {
                     if (session.supportsProgressiveStreaming !== false && window.fetchVideoProgressive) {
+                        var activeMediaEl = null;
                         fetchVideoProgressive(baseUrl, {
                             session: session,
                             onReady: function(streamUrl) {
-                                replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
+                                activeMediaEl = replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
                             },
                             onProgress: function(percent) {
                                 el.setAttribute('data-tasfa-progress', String(percent));
+                            }
+                        }).then(function(blob) {
+                            if (activeMediaEl && activeMediaEl.src && activeMediaEl.src.indexOf('/__tasfa_stream__/') !== -1) {
+                                var blobUrl = URL.createObjectURL(blob);
+                                var currentTime = activeMediaEl.currentTime || 0;
+                                var wasPaused = activeMediaEl.paused;
+                                activeMediaEl.src = blobUrl;
+                                if (currentTime > 0) {
+                                    try { activeMediaEl.currentTime = currentTime; } catch(e) {}
+                                }
+                                if (!wasPaused) {
+                                    try { activeMediaEl.play(); } catch(e) {}
+                                }
                             }
                         }).catch(function() {
                             var fallbackUrl = directMediaUrl(baseUrl, session);

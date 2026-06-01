@@ -136,6 +136,7 @@ export function openTasfaVideoModal(url, title, isAudio) {
         _openModal(null, title, isAudio, true);
         window.fetchDownloadSession(url).then(function(session) {
             var loading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
+            var activeMedia = null;
             function attachSource(streamUrl) {
                 if (!streamUrl) return;
                 var media = activeModal && activeModal.querySelector('video, audio');
@@ -145,6 +146,7 @@ export function openTasfaVideoModal(url, title, isAudio) {
                     media.src = streamUrl;
                     try { media.load(); } catch(e) {}
                     try { media.play(); } catch(e) {}
+                    activeMedia = media;
                 }
                 if (currentLoading) currentLoading.style.display = 'none';
             }
@@ -155,6 +157,19 @@ export function openTasfaVideoModal(url, title, isAudio) {
                     onProgress: function(percent) {
                         if (loading && loading.style.display !== 'none') {
                             loading.textContent = percent > 0 ? ('Buffering ' + percent + '%') : 'Buffering...';
+                        }
+                    }
+                }).then(function(blob) {
+                    if (activeMedia && activeMedia.src && activeMedia.src.indexOf('/__tasfa_stream__/') !== -1) {
+                        var blobUrl = URL.createObjectURL(blob);
+                        var currentTime = activeMedia.currentTime || 0;
+                        var wasPaused = activeMedia.paused;
+                        activeMedia.src = blobUrl;
+                        if (currentTime > 0) {
+                            try { activeMedia.currentTime = currentTime; } catch(e) {}
+                        }
+                        if (!wasPaused) {
+                            try { activeMedia.play(); } catch(e) {}
                         }
                     }
                 }).catch(function() {

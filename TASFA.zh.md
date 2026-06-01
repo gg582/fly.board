@@ -17,7 +17,7 @@ TASFA 是本项目用于文件上传和下载的传输协议。
 下载:
 - `GET /file/download/:id/handshake`
 - `GET /file/download/:id/chunk/:chunk_index`
-- `GET /file/download/:id` — 支持带 TASFA 会话认证（`X-TASFA-Session-ID`、`X-TASFA-Session-Token`）的 `Range` 标头，用于原生媒体流式传输
+- `GET /file/download/:id`
 - `GET /assets/tasfa/img/:filename/handshake`
 - `GET /assets/tasfa/img/:filename/chunk/:chunk_index`
 - `GET /assets/tasfa/uploads/:filename/handshake`
@@ -25,7 +25,7 @@ TASFA 是本项目用于文件上传和下载的传输协议。
 
 ## 上传协议
 
-浏览器先协商上传会话，然后发送带有 TASFA 标头的**分块**（默认 `24 MiB`，移动端 `12 MiB`）：
+浏览器先协商上传会话，然后发送带有 TASFA 标头的**分块**（默认 `16 MiB`，移动端 `8 MiB`）：
 
 - `X-TASFA-Upload-ID`
 - `X-TASFA-Upload-Token`
@@ -220,8 +220,8 @@ repair_worthwhile(嫌疑数, 总分块数, 分块大小, rtt_ms):
 
 ## 运行时设置
 
-- 上传分块大小：桌面 `24 MiB`，移动端 `12 MiB`
-- 自适应上传分块大小提示：最小 `4 MiB`，最大桌面 `48 MiB` / 移动端 `24 MiB`
+- 上传分块大小：桌面 `16 MiB`，移动端 `8 MiB`
+- 自适应上传分块大小提示：最小 `8 MiB`，最大桌面 `32 MiB` / 移动端 `16 MiB`
 - 下载分块大小：桌面 `8 MiB`，移动端 `4 MiB`，客户端提示更大会话时最大 `32 MiB`
 - 默认浏览器上传并行度：`16`
 - 最大浏览器上传并行度：`blog.settings` 中的 `max_upload_parallel_chunks`，上限 `40`
@@ -296,33 +296,6 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 4. 客户端在浏览器中使用 **Web Crypto API** 和会话密钥解密分块。
 5. 浏览器将响应组装成一个连续的缓冲区。
 
-### Range-Request 流式传输
-
-对于大型媒体文件，客户端可以绕过完整的逐块下载，直接从 `GET /file/download/:id` 请求字节范围，发送以下标头：
-
-- `Range: bytes=<start>-<end>`
-- `X-TASFA-Session-ID: <session_id>`
-- `X-TASFA-Session-Token: <session_token>`
-
-服务器验证会话令牌并返回带有 `Content-Range`、`Content-Length` 和 `Accept-Ranges` 标头的 `206 Partial Content`。Service Worker 缓存完整响应，后续范围请求可从缓存直接提供，无需访问服务器。
-
-对于视频/音频播放，客户端可以执行**仅握手注册**（`fetchBlobViaTasfa(url, {handshakeOnly: true})`），然后将媒体元素的 `src` 设为直接下载 URL。浏览器为寻道操作发出原生 `Range` 请求；Service Worker 拦截这些请求，添加 TASFA 会话标头，并在缓存可用时提供 `206` 响应。
-
-下载分块响应包括：
-
-- `X-TASFA-Chunk-Index` 和 `X-TASFA-Chunk-Count`
-- RTT 样本可用时 `X-TASFA-Predicted-Remaining-Ms`
-- 加密激活时 `X-TASFA-Stream-Mode: aes-256-gcm` 和加密载荷
-- 预计算 HTP 元数据存在时 `X-TASFA-Hash-Tag` 和 `X-TASFA-Magic-Scalar`
-
-## 媒体处理集成
-
-服务器生成的媒体（缩略图、音频预览）是 TASFA 的一等资产：
-- **HTP 元数据预计算**：当服务器生成缩略图或预览时，它会立即计算其分块的 HTP 标量和 SHA-256 标签，并将其存储在 `data/tasfa/media_htp` 中。注意：服务器端媒体生成器为此目的使用 **SHA-256**，而上传客户端对用户上传的分块仍使用 **SHA-512**。
-- **可靠的媒体传输**：媒体通过 `/assets/tasfa/...` 路由提供，支持完整的 TASFA 协议，包括使用预计算的 HTP 元数据进行分块级完整性验证。
-- **并发控制**：媒体生成（ffmpeg）限制为 4 个并发进程，以保护服务器资源。
-- **统一媒体插入**：自动插入和文件浏览器插入均使用带有 `controls` 和 `playsinline` 属性的原生 HTML `<video>` 或 `<audio>` 标签。客户端通过 MIME 类型或文件扩展名检测媒体类型，当 MIME 类型为通用类型（`application/octet-stream`）时回退到基于扩展名的检测。
-
 ## 通过位图的 DoS 缓解
 
 上传和下载状态均通过**稠密二进制位图**跟踪（每个分块 1 字节，`'0'` / `'1'`）。
@@ -344,7 +317,7 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 
 ## 异步最终化
 
-`POST /file/upload/complete` 是异步处理的。首次调用返回 `202 Accepted` 和 `{"processing": true}` 并启动后台最终化工作器。后续调用轮询最终化缓存；当工作器完成时，缓存的状态和正文立即返回。这防止长时间运行的 HTP 验证和媒体生成阻塞 HTTP 连接。
+`POST /file/upload/complete` 是异步处理的。首次调用返回 `202 Accepted` 和 `{"processing": true}` 并启动后台最终化工作器。后续调用轮询最终化缓存；当工作器完成时，缓存的状态和正文立即返回。这防止长时间运行的最终化工作阻塞 HTTP 连接。
 
 ## 自查清单
 
