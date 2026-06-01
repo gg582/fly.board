@@ -555,9 +555,23 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cwist_sstring_append(b, "</a>");
             if (summary && summary->valuestring && summary->valuestring[0]) {
                 cwist_sstring_append(b, "<p class='post-row-summary'>");
-                char *tmp_summary = sql_escape(summary->valuestring);
-                cwist_sstring_append(b, tmp_summary);
-                cwist_free(tmp_summary);
+                const char *sum_text = summary->valuestring;
+                size_t sum_len = strlen(sum_text);
+                if (sum_len > 120) {
+                    size_t trunc = utf8_truncate_len(sum_text, 120);
+                    char *tmp = (char *)cwist_alloc(trunc + 1);
+                    memcpy(tmp, sum_text, trunc);
+                    tmp[trunc] = '\0';
+                    char *tmp_escaped = sql_escape(tmp);
+                    cwist_sstring_append(b, tmp_escaped);
+                    cwist_free(tmp_escaped);
+                    cwist_free(tmp);
+                    cwist_sstring_append(b, "…");
+                } else {
+                    char *tmp_summary = sql_escape(sum_text);
+                    cwist_sstring_append(b, tmp_summary);
+                    cwist_free(tmp_summary);
+                }
                 cwist_sstring_append(b, "</p>");
             }
             cwist_sstring_append(b, "<div class='post-row-meta'>");

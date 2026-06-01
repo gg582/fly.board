@@ -151,12 +151,14 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
                         cwist_sstring_append(b, "<p class='board-post-summary'>");
                         size_t sum_len = strlen(summary_text);
                         if (sum_len > 120) {
-                            char tmp[121];
-                            strncpy(tmp, summary_text, 120);
-                            tmp[120] = '\0';
+                            size_t trunc = utf8_truncate_len(summary_text, 120);
+                            char *tmp = (char *)cwist_alloc(trunc + 1);
+                            memcpy(tmp, summary_text, trunc);
+                            tmp[trunc] = '\0';
                             char *tmp_escaped = sql_escape(tmp);
                             cwist_sstring_append(b, tmp_escaped);
                             cwist_free(tmp_escaped);
+                            cwist_free(tmp);
                             cwist_sstring_append(b, "…");
                         } else {
                             char *tmp_escaped = sql_escape(summary_text);
