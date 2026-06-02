@@ -50,6 +50,7 @@
 #define TASFA_MAX_MEDIA_CONCURRENCY 4
 static int g_media_concurrency = 0;
 static pthread_mutex_t g_media_mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_media_cond = PTHREAD_COND_INITIALIZER;
 
 /* Binary Metadata Structure for Fast Path */
 typedef struct {
@@ -629,14 +630,21 @@ static bool ensure_preallocated_file(const char *path, long long total_size) {
     return ok;
 }
 
-static int open_upload_session_lock(const char *upload_id) {
+static int open_upload_session_lock_impl(const char *upload_id, bool shared) {
     char lock_path[PATH_MAX];
     upload_session_dir(lock_path, sizeof(lock_path), upload_id);
     strncat(lock_path, "/session.lock", sizeof(lock_path) - strlen(lock_path) - 1);
     int fd = open(lock_path, O_CREAT | O_RDWR, 0644);
     if (fd < 0) return -1;
-    if (flock(fd, LOCK_EX) != 0) { close(fd); return -1; }
+    int op = shared ? LOCK_SH : LOCK_EX;
+    if (flock(fd, op) != 0) { close(fd); return -1; }
     return fd;
+}
+static int open_upload_session_lock(const char *upload_id) {
+    return open_upload_session_lock_impl(upload_id, false);
+}
+static int open_upload_session_lock_sh(const char *upload_id) {
+    return open_upload_session_lock_impl(upload_id, true);
 }
 
 static void close_upload_session_lock(int lock_fd) {
@@ -760,6 +768,7 @@ typedef struct {
 static tasfa_worker_t g_workers[TASFA_MAX_WORKERS];
 static int g_worker_count = 0;
 static pthread_once_t g_scheduler_once = PTHREAD_ONCE_INIT;
+static volatile unsigned int g_round_robin_idx = 0;
 
 static unsigned int hash_upload_id(const char *id) {
     unsigned int h = 5381;
@@ -820,8 +829,13 @@ static void tasfa_scheduler_ensure_init(void) {
 
 static void tasfa_scheduler_submit(const char *upload_id, void (*func)(void *), void *arg, tasfa_job_t *job) {
     tasfa_scheduler_ensure_init();
-    unsigned int h = hash_upload_id(upload_id);
-    int idx = (int)(h % (unsigned int)g_worker_count);
+    int idx;
+    if (upload_id) {
+        unsigned int h = hash_upload_id(upload_id);
+        idx = (int)(h % (unsigned int)g_worker_count);
+    } else {
+        idx = (int)(__sync_fetch_and_add(&g_round_robin_idx, 1) % (unsigned int)g_worker_count);
+    }
     tasfa_worker_t *w = &g_workers[idx];
 
     job->func = func;
@@ -1741,7 +1755,7 @@ void handler_file_upload_status(cwist_http_request *req, cwist_http_response *re
         send_json_response(res, session_error_json("invalid upload status payload"), CWIST_HTTP_BAD_REQUEST);
         return;
     }
-    int lock_fd = open_upload_session_lock(upload_id);
+    int lock_fd = open_upload_session_lock_sh(upload_id);
     cJSON *meta = lock_fd >= 0 ? load_upload_session(upload_id) : NULL;
     if (!meta) {
         close_upload_session_lock(lock_fd);
@@ -1773,7 +1787,7 @@ void handler_file_upload_renegotiate(cwist_http_request *req, cwist_http_respons
         send_json_response(res, session_error_json("invalid upload renegotiate payload"), CWIST_HTTP_BAD_REQUEST);
         return;
     }
-    int lock_fd = open_upload_session_lock(upload_id);
+    int lock_fd = open_upload_session_lock_sh(upload_id);
     cJSON *meta = lock_fd >= 0 ? load_upload_session(upload_id) : NULL;
     if (!meta) {
         close_upload_session_lock(lock_fd);
@@ -2719,24 +2733,34 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     finalize_cache_update_status(upload_id, "Processing media previews...");
 
     /* Concurrency limit for ffmpeg */
-    while (1) {
+    {
+        bool need_disconnect_check = (req && req->client_fd >= 0);
         pthread_mutex_lock(&g_media_mtx);
-        if (g_media_concurrency < TASFA_MAX_MEDIA_CONCURRENCY) {
-            g_media_concurrency++;
-            media_acquired = true;
-            pthread_mutex_unlock(&g_media_mtx);
-            break;
+        while (g_media_concurrency >= TASFA_MAX_MEDIA_CONCURRENCY) {
+            if (need_disconnect_check) {
+                struct timespec ts;
+                clock_gettime(CLOCK_REALTIME, &ts);
+                ts.tv_nsec += 100000000; /* 100ms */
+                if (ts.tv_nsec >= 1000000000) { ts.tv_sec++; ts.tv_nsec -= 1000000000; }
+                int rc = pthread_cond_timedwait(&g_media_cond, &g_media_mtx, &ts);
+                if (rc == ETIMEDOUT && !is_client_connected(req)) {
+                    pthread_mutex_unlock(&g_media_mtx);
+                    goto client_disconnect;
+                }
+            } else {
+                pthread_cond_wait(&g_media_cond, &g_media_mtx);
+            }
         }
+        g_media_concurrency++;
+        media_acquired = true;
         pthread_mutex_unlock(&g_media_mtx);
-        if (!is_client_connected(req)) goto client_disconnect;
-        usleep(100000);
     }
 
     /* Post-quantum checksum (SHA-256 of final file) */
     if (!is_client_connected(req)) goto client_disconnect;
     unsigned char checksum[32];
     if (!sha256_file(temp_path, checksum)) {
-        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_mutex_unlock(&g_media_mtx);
+        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
         cwist_query_map_destroy(kv);
@@ -2748,7 +2772,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     char final_path[PATH_MAX];
     snprintf(final_path, sizeof(final_path), "public/uploads/%ld_%s", (long)time(NULL), filename);
     if (rename(temp_path, final_path) != 0) {
-        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_mutex_unlock(&g_media_mtx);
+        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
         cwist_query_map_destroy(kv);
@@ -2761,7 +2785,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     }
     int fid = db_file_create_volume_get_id(req->db, post_id, owner_uid, filename, mime_buf, final_path, (size_t)json_long_long(meta, "total_size", 0));
     if (fid <= 0) {
-        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_mutex_unlock(&g_media_mtx);
+        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
         unlink(final_path);
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
@@ -2793,7 +2817,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
             tasfa_generate_htp_metadata_for_file(preview_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
         } else preview_path[0] = '\0';
     }
-    pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_mutex_unlock(&g_media_mtx);
+    pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
     media_acquired = false;
 
     if (thumb_path[0] || preview_path[0]) {
@@ -2818,7 +2842,7 @@ goto skip_disconnect;
 
 client_disconnect:
     if (media_acquired) {
-        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_mutex_unlock(&g_media_mtx);
+        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
     }
     cJSON_Delete(meta);
     close_upload_session_lock(lock_fd);
@@ -2962,7 +2986,7 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
         return;
     }
     tjob->free_after_done = true;
-    tasfa_scheduler_submit(upload_id, upload_finalize_worker, job, tjob);
+    tasfa_scheduler_submit(NULL, upload_finalize_worker, job, tjob);
 
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddBoolToObject(obj, "ok", false);
