@@ -56,15 +56,41 @@ DownloadAPI --> SW: session keys, chunk_size, chunk_count,\nsupports_progressive
 
 Client -> SW: TASFA_STREAM_OPEN\nReadableStream at /__tasfa_stream__/<streamId>
 
-loop Sequential chunks, span=1
-    SW -> DownloadAPI: GET .../chunk/:chunk_index
-    DownloadAPI --> SW: chunk bytes\nX-TASFA-Chunk-Index\nX-TASFA-Chunk-Count
-    SW -> SW: decrypt (Web Crypto API)\npush to stream via TASFA_STREAM_CHUNK
+par Bounded forward-window network fetch
+    loop Chunk workers, span=1
+        SW -> SW: wait while nextFetchIndex >=\nnextFeedIndex + forwardWindowChunks
+        SW -> DownloadAPI: GET .../chunk/:chunk_index
+        alt Chunk received
+            DownloadAPI --> SW: chunk bytes\nX-TASFA-Chunk-Index\nX-TASFA-Chunk-Count
+            SW -> SW: decrypt and store by chunk_index
+        else short read / timeout / network error
+            DownloadAPI --> SW: retryable failure
+            SW -> SW: requeue same chunk_index\nwith adaptive backoff
+        end
+    end
+and Ordered media feed
+    loop next contiguous chunk
+        SW -> SW: wait until nextFeedIndex exists
+        SW -> SW: push TASFA_STREAM_CHUNK\nadvance nextFeedIndex
+    end
 end
+
+note over SW
+The client assembles sequentially. Network fetches
+are parallel only within the near-future window from
+nextFeedIndex, so communication does not run away
+far beyond the player's buffer edge.
+end note
 
 alt Initial threshold reached\n(first 2 chunks or >= 2 MiB)
     SW -> Player: src = /__tasfa_stream__/<streamId>
 end
+
+note over SW,Player
+Playback may wait at the buffer edge while a missing
+chunk is retried, but TASFA never skips a missing byte
+range or closes the stream before all chunks are fed.
+end note
 
 SW -> SW: TASFA_STREAM_CLOSE (EOF)
 
