@@ -24,7 +24,7 @@
 #define TASFA_UPLOAD_CHUNK_SIZE_MAX     (32 * 1024 * 1024)
 #define TASFA_UPLOAD_CHUNK_SIZE_MOBILE_MAX (16 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT (8 * 1024 * 1024)
-#define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (4 * 1024 * 1024)
+#define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (6 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_MIN     (2 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_MAX     (32 * 1024 * 1024)
 #define TASFA_GZIP_MIN_GAIN_BYTES         1024
@@ -167,8 +167,18 @@ static int tasfa_upload_parallel_limit(void) {
     return limit;
 }
 
-static int choose_chunk_size_download(bool mobile, int requested) {
+static int choose_chunk_size_download(bool mobile, int requested, long long total_size) {
     int fallback = mobile ? TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE : TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT;
+    /* Large files: bigger chunks reduce per-chunk RTT overhead, critical for mobile HD video */
+    if (total_size > 100 * 1024 * 1024LL) {
+        fallback = mobile ? (10 * 1024 * 1024) : (16 * 1024 * 1024);
+    }
+    if (total_size > 1024 * 1024 * 1024LL) {
+        fallback = mobile ? (14 * 1024 * 1024) : (32 * 1024 * 1024);
+    }
+    if (total_size > 100 * 1024 * 1024LL && requested > 0 && requested < fallback) {
+        requested = fallback;
+    }
     return normalize_chunk_size_hint(requested, fallback, TASFA_DOWNLOAD_CHUNK_SIZE_MIN, TASFA_DOWNLOAD_CHUNK_SIZE_MAX);
 }
 
@@ -550,12 +560,18 @@ static void choose_upload_window(bool mobile, int score, int *initial_parallel, 
     if (pacing_ms) *pacing_ms = pace;
 }
 
-static void choose_download_profile(int score, int *initial_parallel, int *max_parallel, int *pacing_ms, int *coalesce_chunks) {
+static void choose_download_profile(bool mobile, int score, int *initial_parallel, int *max_parallel, int *pacing_ms, int *coalesce_chunks) {
     int initial_value = 18, max_value = 36, pace = 0, coalesce = 12;
     if (score < 25) { initial_value = 10; max_value = 18; pace = 4; coalesce = 4; }
     else if (score < 45) { initial_value = 14; max_value = 28; pace = 1; coalesce = 8; }
     else if (score < 65) { initial_value = 18; max_value = 36; pace = 0; coalesce = 12; }
     else { initial_value = 24; max_value = 48; coalesce = 16; }
+    /* Mobile high-res video: ensure enough parallelism to keep pipe full despite high RTT */
+    if (mobile) {
+        if (initial_value < 14) initial_value = 14;
+        if (max_value < 28) max_value = 28;
+        if (coalesce < 8) coalesce = 8;
+    }
     if (max_value > TASFA_DOWNLOAD_MAX_PARALLEL) max_value = TASFA_DOWNLOAD_MAX_PARALLEL;
     if (initial_value > max_value) initial_value = max_value;
     if (initial_parallel) *initial_parallel = initial_value;
@@ -1355,9 +1371,9 @@ static bool resolve_asset_scope_path(cwist_db *db, const char *scope, const char
 }
 
 static bool init_download_session(const char *filename, const char *mime, const char *storage_path, long long total_size,
-                                  int score, int chunk_size, int file_id, const char *media_name, cJSON **out) {
+                                  bool mobile, int score, int requested_chunk_size, int file_id, const char *media_name, cJSON **out) {
     if (!ensure_tasfa_roots()) return false;
-    if (chunk_size <= 0) chunk_size = TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT;
+    int chunk_size = choose_chunk_size_download(mobile, requested_chunk_size, total_size);
     char session_id[33], session_token[49];
     if (!random_hex(session_id, 16) || !random_hex(session_token, 24)) return false;
     char dir_path[PATH_MAX];
@@ -1395,7 +1411,8 @@ static bool init_download_session(const char *filename, const char *mime, const 
     }
 
     int initial_parallel = 0, max_parallel = 0, pacing_ms = 0, coalesce = 0;
-    choose_download_profile(score, &initial_parallel, &max_parallel, &pacing_ms, &coalesce);
+    choose_download_profile(mobile, score, &initial_parallel, &max_parallel, &pacing_ms, &coalesce);
+    if (mobile && total_size > 100 * 1024 * 1024LL && coalesce < 16) coalesce = 16;
     int chunk_count = (int)((total_size + chunk_size - 1) / chunk_size);
     if (chunk_count < 1) chunk_count = 1;
     cJSON *meta = cJSON_CreateObject();
@@ -3008,7 +3025,6 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
     }
     bool mobile = is_mobile_request(req);
     int requested_chunk_size = atoi(cwist_query_map_get(req->query_params, "chunk_size") ? cwist_query_map_get(req->query_params, "chunk_size") : "0");
-    int chunk_size = choose_chunk_size_download(mobile, requested_chunk_size);
     tasfa_queue_sweep(g_q_downloads, tasfa_download_session_limit(), 60);
     int score = link_score_from_inputs(
         cwist_query_map_get(req->query_params, "link_stability_score"),
@@ -3022,7 +3038,7 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
     cJSON *obj = NULL;
     char media_name[512];
     snprintf(media_name, sizeof(media_name), "file_%s", id_str);
-    if (!init_download_session(filename, mime, path, (long long)st.st_size, score, chunk_size, atoi(id_str), media_name, &obj)) {
+    if (!init_download_session(filename, mime, path, (long long)st.st_size, mobile, score, requested_chunk_size, atoi(id_str), media_name, &obj)) {
         cJSON_Delete(file);
         send_json_response(res, session_error_json("download handshake failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
@@ -3133,7 +3149,6 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
     }
     bool mobile = is_mobile_request(req);
     int requested_chunk_size = atoi(cwist_query_map_get(req->query_params, "chunk_size") ? cwist_query_map_get(req->query_params, "chunk_size") : "0");
-    int chunk_size = choose_chunk_size_download(mobile, requested_chunk_size);
     tasfa_queue_sweep(g_q_downloads, tasfa_download_session_limit(), 60);
     int score = link_score_from_inputs(
         cwist_query_map_get(req->query_params, "link_stability_score"),
@@ -3155,7 +3170,7 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
     }
     *p = '\0';
 
-    if (!init_download_session(filename, mime, path, (long long)st.st_size, score, chunk_size, 0, media_name, &obj)) {
+    if (!init_download_session(filename, mime, path, (long long)st.st_size, mobile, score, requested_chunk_size, 0, media_name, &obj)) {
         send_json_response(res, session_error_json("download handshake failed"), CWIST_HTTP_INTERNAL_ERROR);
         return;
     }
