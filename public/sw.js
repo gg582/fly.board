@@ -232,7 +232,12 @@ self.addEventListener('fetch', function(event) {
                 headers: headers
             }));
         } else {
-            event.respondWith(new Response('Stream not found', { status: 404 }));
+            event.respondWith(new Response('', {
+                status: 204,
+                headers: {
+                    'Cache-Control': 'no-store'
+                }
+            }));
         }
         return;
     }

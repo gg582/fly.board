@@ -188,4 +188,12 @@ void handler_sw_js(cwist_http_request *req, cwist_http_response *res) {
     }
 }
 
+void handler_tasfa_stream_placeholder(cwist_http_request *req, cwist_http_response *res) {
+    (void)req;
+    res->status_code = CWIST_HTTP_NO_CONTENT;
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-store");
+    cwist_http_header_add(&res->headers, "Content-Type", "application/octet-stream");
+    cwist_sstring_assign(res->body, "");
+}
+
 /* render_file_detail declared in render.h */
