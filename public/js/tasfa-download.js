@@ -776,11 +776,10 @@
      * Progressive video download through the TASFA protocol.
      *
      * The handshake and chunk URL formats are kept exactly as-is.
-     * Chunks are downloaded sequentially starting from index 0.
-     * As soon as the initial threshold is reached (first few chunks),
-     * the onReady callback fires so the player can start immediately.
-     * Remaining chunks continue to download and are fed into the
-     * Service Worker stream in the background.
+     * Chunks are fetched with a small forward buffer and fed to the
+     * Service Worker in strict order. Failed chunks are requeued until
+     * they arrive, so transient timeouts cannot leave permanent holes
+     * in the media stream.
      */
     async function fetchVideoProgressive(baseUrl, options) {
         var onReady = options && options.onReady;
@@ -790,9 +789,12 @@
         var streamInfo = await openTasfaStream(session);
 
         var bitmap = new Array(session.chunkCount).fill(0);
-        var completedChunks = 0;
+        var fetchedChunks = 0;
+        var fedChunks = 0;
         var downloadedBytes = 0;
         var readyFired = false;
+        var nextFetchIndex = 0;
+        var nextFeedIndex = 0;
 
         /* Heuristic: first 2 chunks usually cover the container header
            (ftyp/moov for mp4, or webm init) and a few seconds of media. */
@@ -803,46 +805,83 @@
             initialChunkThreshold = Math.max(initialChunkThreshold,
                 Math.min(chunksForMinBytes, session.chunkCount));
         }
+        var forwardWindowChunks = Math.max(initialChunkThreshold + 2, isLikelyMobile() ? 6 : 10);
 
-        /* Temporary holder reused by fetchChunk. Only index 0 is used
-           because we force span=1 for sequential streaming. */
+        /* One slot per chunk. Fetch workers may fill this out of order,
+           while the feeder only emits the next contiguous chunk. */
         var parts = new Array(session.chunkCount);
 
-        async function downloadSequentialChunk(index) {
-            var result = await fetchChunk(baseUrl, session, parts, index, 1);
-            bitmap[index] = 1;
-            completedChunks += 1;
-            var thisSize = chunkByteSize(session, index);
-            downloadedBytes += thisSize;
+        function progressiveParallelLimit() {
+            var base = isLikelyMobile() ? 2 : 4;
+            return Math.max(1, Math.min(base, session.maxParallel || base, session.chunkCount));
+        }
 
-            /* Feed the decrypted chunk bytes into the SW stream.
-               Transfer the ArrayBuffer to avoid copying large blocks. */
-            if (parts[index] && parts[index].buffer) {
-                /* Clone before transferring so the original parts array stays
-                   valid for the final Blob assembly. */
-                var cloneForStream = parts[index].slice();
-                feedTasfaStream(streamInfo.streamId, cloneForStream.buffer);
-            }
-
-            if (!readyFired && completedChunks >= initialChunkThreshold) {
-                readyFired = true;
-                if (onReady) onReady(streamInfo.streamUrl);
-            }
-            if (onProgress) {
-                onProgress(Math.round((downloadedBytes / session.totalSize) * 100));
+        async function downloadProgressiveChunk(index) {
+            var attempt = 0;
+            while (!bitmap[index]) {
+                try {
+                    var result = await fetchChunk(baseUrl, session, parts, index, 1);
+                    bitmap[index] = 1;
+                    fetchedChunks += 1;
+                    tuneDownloadSuccess(session, result.bytes || chunkByteSize(session, index), result.durationMs || 0);
+                    return;
+                } catch (e) {
+                    attempt += 1;
+                    var msg = e && e.message ? e.message : 'network';
+                    tuneDownloadFailure(session, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
+                    var delay = Math.min(8000, 500 + (attempt * 500));
+                    await new Promise(function(r) { setTimeout(r, delay); });
+                }
             }
         }
 
-        for (var i = 0; i < session.chunkCount; i++) {
-            if (bitmap[i]) continue;
-            try {
-                await downloadSequentialChunk(i);
-            } catch (e) {
-                /* One retry before surfacing the error. */
-                await new Promise(function(r) { setTimeout(r, 800); });
-                await downloadSequentialChunk(i);
+        async function fetchWorker() {
+            while (nextFetchIndex < session.chunkCount) {
+                while (nextFetchIndex >= nextFeedIndex + forwardWindowChunks) {
+                    await new Promise(function(r) { setTimeout(r, 30); });
+                }
+                var index = nextFetchIndex++;
+                await downloadProgressiveChunk(index);
             }
         }
+
+        async function feedOrderedChunks() {
+            while (nextFeedIndex < session.chunkCount) {
+                if (!bitmap[nextFeedIndex] || !parts[nextFeedIndex]) {
+                    await new Promise(function(r) { setTimeout(r, 30); });
+                    continue;
+                }
+
+                var index = nextFeedIndex++;
+                fedChunks += 1;
+                var thisSize = chunkByteSize(session, index);
+                downloadedBytes += thisSize;
+
+                /* Feed the decrypted chunk bytes into the SW stream.
+                   Transfer the ArrayBuffer to avoid copying large blocks. */
+                if (parts[index] && parts[index].buffer) {
+                    /* Clone before transferring so the original parts array stays
+                       valid for the final Blob assembly. */
+                    var cloneForStream = parts[index].slice();
+                    feedTasfaStream(streamInfo.streamId, cloneForStream.buffer);
+                }
+
+                if (!readyFired && fedChunks >= initialChunkThreshold) {
+                    readyFired = true;
+                    if (onReady) onReady(streamInfo.streamUrl);
+                }
+                if (onProgress) {
+                    onProgress(Math.round((downloadedBytes / session.totalSize) * 100));
+                }
+            }
+        }
+
+        var workers = [];
+        var workerCount = progressiveParallelLimit();
+        for (var i = 0; i < workerCount; i++) workers.push(fetchWorker());
+        var feeder = feedOrderedChunks();
+        await Promise.all(workers);
+        await feeder;
 
         closeTasfaStream(streamInfo.streamId);
         await notifyDownloadComplete(session.sessionId, session.sessionToken);
