@@ -39,7 +39,7 @@
 #define TASFA_CACHE_SLOTS 512
 
 #define TASFA_MAX_CONCURRENT_UPLOADS 512
-#define tasfa_download_session_limit() 512
+#define TASFA_MAX_CONCURRENT_DOWNLOADS 512
 #define TASFA_FINALIZE_CACHE_SLOTS 128
 
 #define HTP_TAG_LEN 129
@@ -87,7 +87,7 @@ typedef struct {
 } queue_slot_t;
 
 static queue_slot_t g_q_uploads[TASFA_MAX_CONCURRENT_UPLOADS];
-static queue_slot_t g_q_downloads[tasfa_download_session_limit()];
+static queue_slot_t g_q_downloads[TASFA_MAX_CONCURRENT_DOWNLOADS];
 static pthread_mutex_t g_tasfa_queue_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct {
@@ -156,7 +156,7 @@ static int tasfa_upload_session_limit(void) {
 static int tasfa_download_session_limit(void) {
     int limit = g_config.max_concurrent_downloads;
     if (limit < 1) limit = 1;
-    if (limit > tasfa_download_session_limit()) limit = tasfa_download_session_limit();
+    if (limit > TASFA_MAX_CONCURRENT_DOWNLOADS) limit = TASFA_MAX_CONCURRENT_DOWNLOADS;
     return limit;
 }
 
