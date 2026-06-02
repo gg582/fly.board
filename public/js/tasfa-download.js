@@ -793,7 +793,6 @@
         var fedChunks = 0;
         var downloadedBytes = 0;
         var readyFired = false;
-        var nextFetchIndex = 0;
         var nextFeedIndex = 0;
 
         /* Heuristic: first 2 chunks usually cover the container header
@@ -810,38 +809,69 @@
         /* One slot per chunk. Fetch workers may fill this out of order,
            while the feeder only emits the next contiguous chunk. */
         var parts = new Array(session.chunkCount);
+        var inflight = new Array(session.chunkCount).fill(0);
+        var retryAt = new Array(session.chunkCount).fill(0);
+        var attempts = new Array(session.chunkCount).fill(0);
+        var activeFetches = 0;
 
         function progressiveParallelLimit() {
             var base = isLikelyMobile() ? 2 : 4;
-            return Math.max(1, Math.min(base, session.maxParallel || base, session.chunkCount));
+            var adaptive = Math.max(base, Math.min(session.targetParallel || base, base * 2));
+            return Math.max(1, Math.min(adaptive, session.maxParallel || adaptive, session.chunkCount));
         }
 
-        async function downloadProgressiveChunk(index) {
-            var attempt = 0;
-            while (!bitmap[index]) {
-                try {
-                    var result = await fetchChunk(baseUrl, session, parts, index, 1);
+        function progressiveWindowSize() {
+            var parallel = progressiveParallelLimit();
+            return Math.max(forwardWindowChunks, parallel * (isLikelyMobile() ? 3 : 4), initialChunkThreshold + parallel);
+        }
+
+        function nextFetchCandidate() {
+            var now = Date.now();
+            var end = Math.min(session.chunkCount, nextFeedIndex + progressiveWindowSize());
+            for (var index = nextFeedIndex; index < end; index++) {
+                if (bitmap[index] || inflight[index]) continue;
+                if (retryAt[index] > now) continue;
+                return index;
+            }
+            return -1;
+        }
+
+        function launchProgressiveFetch(index) {
+            inflight[index] = 1;
+            activeFetches += 1;
+            fetchChunk(baseUrl, session, parts, index, 1).then(function(result) {
+                if (!bitmap[index]) {
                     bitmap[index] = 1;
                     fetchedChunks += 1;
+                    attempts[index] = 0;
+                    retryAt[index] = 0;
                     tuneDownloadSuccess(session, result.bytes || chunkByteSize(session, index), result.durationMs || 0);
-                    return;
-                } catch (e) {
-                    attempt += 1;
-                    var msg = e && e.message ? e.message : 'network';
-                    tuneDownloadFailure(session, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
-                    var delay = Math.min(8000, 500 + (attempt * 500));
-                    await new Promise(function(r) { setTimeout(r, delay); });
                 }
-            }
+            }).catch(function(e) {
+                attempts[index] = (attempts[index] || 0) + 1;
+                var msg = e && e.message ? e.message : 'network';
+                tuneDownloadFailure(session, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
+                retryAt[index] = Date.now() + Math.min(8000, 400 + (attempts[index] * 400));
+            }).finally(function() {
+                inflight[index] = 0;
+                activeFetches = Math.max(0, activeFetches - 1);
+            });
         }
 
-        async function fetchWorker() {
-            while (nextFetchIndex < session.chunkCount) {
-                while (nextFetchIndex >= nextFeedIndex + forwardWindowChunks) {
-                    await new Promise(function(r) { setTimeout(r, 30); });
+        async function scheduleProgressiveFetches() {
+            while (fetchedChunks < session.chunkCount) {
+                var launched = false;
+                var limit = progressiveParallelLimit();
+                while (activeFetches < limit) {
+                    var candidate = nextFetchCandidate();
+                    if (candidate < 0) break;
+                    launchProgressiveFetch(candidate);
+                    launched = true;
                 }
-                var index = nextFetchIndex++;
-                await downloadProgressiveChunk(index);
+                await new Promise(function(r) { setTimeout(r, launched ? 5 : 30); });
+            }
+            while (activeFetches > 0) {
+                await new Promise(function(r) { setTimeout(r, 10); });
             }
         }
 
@@ -876,11 +906,9 @@
             }
         }
 
-        var workers = [];
-        var workerCount = progressiveParallelLimit();
-        for (var i = 0; i < workerCount; i++) workers.push(fetchWorker());
+        var scheduler = scheduleProgressiveFetches();
         var feeder = feedOrderedChunks();
-        await Promise.all(workers);
+        await scheduler;
         await feeder;
 
         closeTasfaStream(streamInfo.streamId);
