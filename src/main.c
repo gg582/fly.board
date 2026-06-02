@@ -227,6 +227,7 @@ int main(void) {
     cwist_app_static(app, "/js", "public/js");
     cwist_app_static(app, "/assets/media", "public/media");
     cwist_app_get(app, "/sw.js", handler_sw_js);
+    cwist_app_get(app, "/__tasfa_stream__/:stream_id", handler_tasfa_stream_placeholder);
 
     /* Routes */
     cwist_app_get(app, "/", handler_home);
