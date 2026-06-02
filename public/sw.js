@@ -215,16 +215,17 @@ self.addEventListener('fetch', function(event) {
             var rangeHeader = event.request.headers.get('Range');
             if (rangeHeader && totalLength > 0) {
                 var match = rangeHeader.trim().match(/^bytes=(\d+)-(\d+)?$/);
-                var start = match ? parseInt(match[1], 10) : 0;
-                if (start > 0) {
-                    event.respondWith(new Response('', {
-                        status: 416,
-                        headers: { 'Content-Range': 'bytes */' + totalLength }
-                    }));
-                    return;
+                if (match) {
+                    var start = parseInt(match[1], 10);
+                    if (start === 0) {
+                        status = 206;
+                        headers.set('Content-Range', 'bytes 0-' + (totalLength - 1) + '/' + totalLength);
+                    }
+                    /* Range requests with start > 0 are not directly supported by the
+                       progressive stream, but returning 416 would kill the media player.
+                       Fall back to 200 and keep serving the stream. */
                 }
-                status = 206;
-                headers.set('Content-Range', 'bytes 0-' + (totalLength - 1) + '/' + totalLength);
+                /* If match is null (e.g. suffix range), stay on 200 and return the stream as-is */
             }
             event.respondWith(new Response(entry.stream, {
                 status: status,
