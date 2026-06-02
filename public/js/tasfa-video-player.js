@@ -128,15 +128,12 @@ function _openModal(blobUrl, title, isAudio, isLoading) {
 export function openTasfaVideoModal(url, title, isAudio) {
     if (!url) return;
 
-    // For TASFA-protected videos/audio, prefer the TASFA progressive stream:
-    // fetch the first chunks, start playback, then keep feeding chunks while
-    // the media element is already playing. Fall back to native Range only
-    // when the Service Worker stream path is unavailable.
+    // For TASFA-protected videos/audio, use TASFA only for session gating and
+    // let the browser media engine drive playback with native Range requests.
     if (window.fetchDownloadSession && /\/file\/download\/\d+/.test(url)) {
         _openModal(null, title, isAudio, true);
         window.fetchDownloadSession(url).then(function(session) {
             var loading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
-            var activeMedia = null;
             function attachSource(streamUrl) {
                 if (!streamUrl) return;
                 var media = activeModal && activeModal.querySelector('video, audio');
@@ -146,53 +143,15 @@ export function openTasfaVideoModal(url, title, isAudio) {
                     media.src = streamUrl;
                     try { media.load(); } catch(e) {}
                     try { media.play(); } catch(e) {}
-                    activeMedia = media;
                 }
                 if (currentLoading) currentLoading.style.display = 'none';
             }
-            if (window.fetchVideoProgressive && session.supportsProgressiveStreaming !== false) {
-                window.fetchVideoProgressive(url, {
-                    session: session,
-                    onReady: attachSource,
-                    onProgress: function(percent) {
-                        if (loading && loading.style.display !== 'none') {
-                            loading.textContent = percent > 0 ? ('Buffering ' + percent + '%') : 'Buffering...';
-                        }
-                    }
-                }).then(function(blob) {
-                    if (activeMedia && activeMedia.src && activeMedia.src.indexOf('/__tasfa_stream__/') !== -1) {
-                        var blobUrl = URL.createObjectURL(blob);
-                        var currentTime = activeMedia.currentTime || 0;
-                        var wasPaused = activeMedia.paused;
-                        activeMedia.src = blobUrl;
-                        if (currentTime > 0) {
-                            try { activeMedia.currentTime = currentTime; } catch(e) {}
-                        }
-                        if (!wasPaused) {
-                            try { activeMedia.play(); } catch(e) {}
-                        }
-                    }
-                }).catch(function() {
-                    var fallbackUrl = window.tasfaDirectMediaUrl ?
-                        window.tasfaDirectMediaUrl(url, session) :
-                        (url + '?session_id=' + encodeURIComponent(session.sessionId) +
-                         '&session_token=' + encodeURIComponent(session.sessionToken));
-                    attachSource(fallbackUrl);
-                });
-                return;
-            }
+            if (loading) loading.textContent = 'Buffering...';
             var streamUrl = window.tasfaDirectMediaUrl ?
                 window.tasfaDirectMediaUrl(url, session) :
                 (url + '?session_id=' + encodeURIComponent(session.sessionId) +
                  '&session_token=' + encodeURIComponent(session.sessionToken));
-            var media = activeModal && activeModal.querySelector('video, audio');
-            if (media) {
-                media.style.display = 'block';
-                media.src = streamUrl;
-                try { media.load(); } catch(e) {}
-                try { media.play(); } catch(e) {}
-            }
-            if (loading) loading.style.display = 'none';
+            attachSource(streamUrl);
         }).catch(function() {
             var loading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
             if (loading) {

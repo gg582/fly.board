@@ -27,6 +27,7 @@
 #define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (6 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_MIN     (2 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_MAX     (32 * 1024 * 1024)
+#define TASFA_DOWNLOAD_RESPONSE_BYTES_MAX (128 * 1024 * 1024)
 #define TASFA_GZIP_MIN_GAIN_BYTES         1024
 
 #define TASFA_UPLOAD_TTL 86400
@@ -1227,7 +1228,7 @@ static cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
 }
 
 static bool send_file_slice_response(cwist_http_request *req, cwist_http_response *res, const char *path, const char *mime, long long offset, size_t amount,
-                                       int chunk_index, int chunk_count) {
+                                       int chunk_index, int chunk_count, int span) {
     int fd = open(path, O_RDONLY);
     if (fd < 0) return false;
 
@@ -1268,11 +1269,13 @@ static bool send_file_slice_response(cwist_http_request *req, cwist_http_respons
     cwist_http_header_add(&res->headers, "Content-Type", mime ? mime : "application/octet-stream");
     cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
     add_keepalive_headers(res);
-    char idx_buf[32], cnt_buf[32];
+    char idx_buf[32], cnt_buf[32], span_buf[32];
     snprintf(idx_buf, sizeof(idx_buf), "%d", chunk_index);
     snprintf(cnt_buf, sizeof(cnt_buf), "%d", chunk_count);
+    snprintf(span_buf, sizeof(span_buf), "%d", span > 0 ? span : 1);
     cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Index", idx_buf);
     cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Count", cnt_buf);
+    cwist_http_header_add(&res->headers, "X-TASFA-Chunk-Span", span_buf);
 
     /* Attach HTP headers if available for this session */
     const char *session_id = cwist_query_map_get(req->query_params, "session_id");
@@ -3094,6 +3097,9 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
     int span = atoi(cwist_query_map_get(req->query_params, "span") ? cwist_query_map_get(req->query_params, "span") : "1");
     if (span < 1) span = 1;
     if (span > 64) span = 64;
+    int max_span_by_bytes = chunk_size > 0 ? (TASFA_DOWNLOAD_RESPONSE_BYTES_MAX / chunk_size) : 1;
+    if (max_span_by_bytes < 1) max_span_by_bytes = 1;
+    if (span > max_span_by_bytes) span = max_span_by_bytes;
     if (chunk_index < 0 || chunk_index >= chunk_count) {
         cJSON_Delete(meta);
         send_json_response(res, session_error_json("download chunk rejected"), CWIST_HTTP_FORBIDDEN);
@@ -3120,7 +3126,7 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
 
     bool ok = send_file_slice_response(req, res, json_string(meta, "storage_path", ""),
                                        json_string(meta, "mime_type", "application/octet-stream"), offset, amount,
-                                       chunk_index, chunk_count);
+                                       chunk_index, chunk_count, span);
     double pred = predict_remaining_ms(meta);
     cJSON_Delete(meta);
     if (ok && pred >= 0.0) {
