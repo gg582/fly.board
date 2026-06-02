@@ -174,6 +174,7 @@ self.addEventListener('fetch', function(event) {
             event.respondWith(
                 fetch(new Request(url, { headers: headers })).then(function(response) {
                     if (event.request.headers.get('Range')) {
+                        if (response.status === 206) return response;
                         return handleRangeRequest(event.request, response);
                     }
                     return response;

@@ -1234,37 +1234,8 @@
                 var isAudio = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'wma'].indexOf(ext) !== -1 || /^audio\//.test(mimeType);
 
                 if (isVideo || isAudio) {
-                    if (session.supportsProgressiveStreaming !== false && window.fetchVideoProgressive) {
-                        var activeMediaEl = null;
-                        fetchVideoProgressive(baseUrl, {
-                            session: session,
-                            onReady: function(streamUrl) {
-                                activeMediaEl = replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
-                            },
-                            onProgress: function(percent) {
-                                el.setAttribute('data-tasfa-progress', String(percent));
-                            }
-                        }).then(function(blob) {
-                            if (activeMediaEl && activeMediaEl.src && activeMediaEl.src.indexOf('/__tasfa_stream__/') !== -1) {
-                                var blobUrl = URL.createObjectURL(blob);
-                                var currentTime = activeMediaEl.currentTime || 0;
-                                var wasPaused = activeMediaEl.paused;
-                                activeMediaEl.src = blobUrl;
-                                if (currentTime > 0) {
-                                    try { activeMediaEl.currentTime = currentTime; } catch(e) {}
-                                }
-                                if (!wasPaused) {
-                                    try { activeMediaEl.play(); } catch(e) {}
-                                }
-                            }
-                        }).catch(function() {
-                            var fallbackUrl = directMediaUrl(baseUrl, session);
-                            if (fallbackUrl) replaceWithEmbeddedPlayer(el, fallbackUrl, isAudio);
-                        });
-                    } else {
-                        var streamUrl = directMediaUrl(baseUrl, session);
-                        replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
-                    }
+                    var streamUrl = directMediaUrl(baseUrl, session);
+                    if (streamUrl) replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
                     return;
                 }
 
