@@ -12,6 +12,7 @@
     var DOWNLOAD_CHUNK_STEP_DOWN = 512 * 1024;
     var DOWNLOAD_REQUEST_BYTES_MAX = 128 * 1024 * 1024;
     var DOWNLOAD_CONNECT_TIMEOUT_MS = 20000;
+    var DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS = 60000;
     /* data: URL cannot be received in TASFA environment - no placeholder used */
     var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
     var objectUrls = new WeakMap();
@@ -115,13 +116,20 @@
     }
 
     function applyPredictedDownloadRule(session) {
+        if (session && session.largeMedia) {
+            var mediaFloor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 8 : 10);
+            if ((session.targetParallel || 1) < mediaFloor) session.targetParallel = mediaFloor;
+            if ((session.currentSpan || 1) < 2) session.currentSpan = 2;
+        }
         var predicted = predictedDownloadQuality(session);
         if (predicted < 0.25) {
             var lowFloor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 2 : 4);
+            if (session && session.largeMedia) lowFloor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 6 : 8);
             session.currentSpan = Math.max(1, Math.min(session.currentSpan || 1, 2));
             session.targetParallel = Math.max(lowFloor, Math.min(session.targetParallel || 1, Math.ceil((session.maxParallel || 1) / 3)));
         } else if (predicted < 0.45) {
             var guardedFloor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 3 : 6);
+            if (session && session.largeMedia) guardedFloor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 8 : 10);
             session.currentSpan = Math.max(1, Math.min(session.currentSpan || 1, 2));
             session.targetParallel = Math.max(guardedFloor, Math.min(session.targetParallel || 1, Math.ceil((session.maxParallel || 1) / 2)));
         }
@@ -148,12 +156,18 @@
     function tuneDownloadFailure(session, kind) {
         session.failureEvents = (session.failureEvents || 0) + 1;
         session.fastStreak = 0;
-        session.currentSpan = Math.max(1, Math.round(session.currentSpan * 0.8));
-        pushDownloadQuality(session, kind === 'timeout' ? 0.05 : 0.15);
-        rememberDownloadChunkSize(preferredDownloadChunkSize() / 2);
-        var floor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 2 : 4);
-        if ((kind === 'timeout' || session.failureEvents % 4 === 0) && session.targetParallel > floor) {
-            session.targetParallel = Math.max(floor, Math.round(session.targetParallel * 0.8));
+        var largeMedia = !!(session && session.largeMedia);
+        var repeatedFailure = session.failureEvents >= (largeMedia ? 4 : 1);
+        if (repeatedFailure) {
+            session.currentSpan = Math.max(1, Math.round(session.currentSpan * (largeMedia ? 0.9 : 0.8)));
+        }
+        pushDownloadQuality(session, kind === 'timeout' ? (largeMedia ? 0.18 : 0.05) : (largeMedia ? 0.25 : 0.15));
+        if (!largeMedia || session.failureEvents % 3 === 0) {
+            rememberDownloadChunkSize(preferredDownloadChunkSize() / 2);
+        }
+        var floor = Math.min(session.maxParallel || 1, isLikelyMobile() ? (largeMedia ? 6 : 2) : (largeMedia ? 8 : 4));
+        if (repeatedFailure && (kind === 'timeout' || session.failureEvents % 4 === 0) && session.targetParallel > floor) {
+            session.targetParallel = Math.max(floor, Math.round(session.targetParallel * (largeMedia ? 0.9 : 0.8)));
         }
     }
 
@@ -286,6 +300,9 @@
         var initialParallel = Math.max(1, Math.min(Number(session.initial_parallel_chunks) || maxParallel, maxParallel));
         var coalesce = Math.max(1, Math.min(Number(session.coalesce_chunks) || 8, 64));
         var maxSpan = Math.max(1, Math.min(64, Math.floor(DOWNLOAD_REQUEST_BYTES_MAX / chunkSize) || 1));
+        var mimeType = session.mime_type || 'application/octet-stream';
+        var totalSize = Math.max(0, Number(session.total_size) || 0);
+        var largeMedia = /^(video|audio)\//i.test(mimeType) && totalSize >= 64 * 1024 * 1024;
         return {
             sessionId: session.session_id,
             sessionToken: session.session_token,
@@ -295,8 +312,8 @@
             supportsProgressiveStreaming: session.supports_progressive_streaming !== false,
             chunkSize: chunkSize,
             chunkCount: chunkCount,
-            totalSize: Math.max(0, Number(session.total_size) || 0),
-            mimeType: session.mime_type || 'application/octet-stream',
+            totalSize: totalSize,
+            mimeType: mimeType,
             filename: session.filename || 'download',
             maxParallel: maxParallel,
             targetParallel: initialParallel,
@@ -307,7 +324,8 @@
             failureEvents: 0,
             fastStreak: 0,
             ewmaMbps: 0,
-            qualitySamples: []
+            qualitySamples: [],
+            largeMedia: largeMedia
         };
     }
 
@@ -447,7 +465,8 @@
                 if (chunkIndex + e >= session.chunkCount) break;
                 expectedBytes += chunkByteSize(session, chunkIndex + e);
             }
-            var watchdog = armXhrIdleTimeout(xhr, DOWNLOAD_CONNECT_TIMEOUT_MS);
+            var timeoutMs = session && session.largeMedia ? DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS : DOWNLOAD_CONNECT_TIMEOUT_MS;
+            var watchdog = armXhrIdleTimeout(xhr, timeoutMs);
             xhr.onprogress = function() {
                 watchdog.arm();
             };
@@ -815,14 +834,16 @@
         var activeFetches = 0;
 
         function progressiveParallelLimit() {
-            var base = isLikelyMobile() ? 2 : 4;
-            var adaptive = Math.max(base, Math.min(session.targetParallel || base, base * 2));
+            var base = isLikelyMobile() ? (session.largeMedia ? 6 : 2) : (session.largeMedia ? 6 : 4);
+            var multiplier = session.largeMedia ? 3 : 2;
+            var adaptive = Math.max(base, Math.min(session.targetParallel || base, base * multiplier));
             return Math.max(1, Math.min(adaptive, session.maxParallel || adaptive, session.chunkCount));
         }
 
         function progressiveWindowSize() {
             var parallel = progressiveParallelLimit();
-            return Math.max(forwardWindowChunks, parallel * (isLikelyMobile() ? 3 : 4), initialChunkThreshold + parallel);
+            var depth = session.largeMedia ? (isLikelyMobile() ? 6 : 5) : (isLikelyMobile() ? 3 : 4);
+            return Math.max(forwardWindowChunks, parallel * depth, initialChunkThreshold + parallel);
         }
 
         function nextFetchCandidate() {
@@ -850,8 +871,10 @@
             }).catch(function(e) {
                 attempts[index] = (attempts[index] || 0) + 1;
                 var msg = e && e.message ? e.message : 'network';
-                tuneDownloadFailure(session, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
-                retryAt[index] = Date.now() + Math.min(8000, 400 + (attempts[index] * 400));
+                if (!session.largeMedia || attempts[index] >= 2) {
+                    tuneDownloadFailure(session, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
+                }
+                retryAt[index] = Date.now() + Math.min(session.largeMedia ? 3000 : 8000, 250 + (attempts[index] * (session.largeMedia ? 250 : 400)));
             }).finally(function() {
                 inflight[index] = 0;
                 activeFetches = Math.max(0, activeFetches - 1);
