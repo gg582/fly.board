@@ -56,16 +56,16 @@ DownloadAPI --> SW: session keys, chunk_size, chunk_count,\nsupports_progressive
 
 Client -> SW: TASFA_STREAM_OPEN\nReadableStream at /__tasfa_stream__/<streamId>
 
-par Bounded forward-window network fetch
-    loop Chunk workers, span=1
-        SW -> SW: wait while nextFetchIndex >=\nnextFeedIndex + forwardWindowChunks
+par Bounded forward-window scheduler
+    loop while fetchedChunks < chunk_count
+        SW -> SW: select eligible chunk where\nnextFeedIndex <= chunk_index < window_end\nand not inflight/retry-delayed
         SW -> DownloadAPI: GET .../chunk/:chunk_index
         alt Chunk received
             DownloadAPI --> SW: chunk bytes\nX-TASFA-Chunk-Index\nX-TASFA-Chunk-Count
-            SW -> SW: decrypt and store by chunk_index
+            SW -> SW: decrypt and store by chunk_index\nrelease inflight slot
         else short read / timeout / network error
             DownloadAPI --> SW: retryable failure
-            SW -> SW: requeue same chunk_index\nwith adaptive backoff
+            SW -> SW: set retryAt for same chunk_index\nrelease inflight slot
         end
     end
 and Ordered media feed
@@ -78,8 +78,8 @@ end
 note over SW
 The client assembles sequentially. Network fetches
 are parallel only within the near-future window from
-nextFeedIndex, so communication does not run away
-far beyond the player's buffer edge.
+nextFeedIndex. A failed chunk does not occupy a
+parallel slot while it waits for retry eligibility.
 end note
 
 alt Initial threshold reached\n(first 2 chunks or >= 2 MiB)

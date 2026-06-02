@@ -31,13 +31,13 @@ For video and audio playback the TASFA protocol supports **progressive chunk str
 
 1. Performs a normal handshake (`GET /.../handshake`) to obtain the session keys, chunk size, and chunk count.
 2. Opens a `ReadableStream` in the Service Worker via `TASFA_STREAM_OPEN`. The stream is exposed at `/__tasfa_stream__/<streamId>`.
-3. Fetches chunks in parallel only inside a small forward window from the next chunk that must be fed to the player (`span=1` per request) and stores them by `chunk_index`.
+3. Uses a bounded scheduler to fetch chunks in parallel only inside a forward window from the next chunk that must be fed to the player (`span=1` per request), then stores them by `chunk_index`.
 4. Once the initial threshold is reached (by default the first 2 chunks or at least 2 MiB, whichever is larger), the client starts the media player pointing at the SW stream URL.
 5. Feeds only the next contiguous decrypted chunk into the SW stream via `TASFA_STREAM_CHUNK`, preserving byte order even when later chunks arrive first.
-6. Requeues short reads, timeouts, HTTP retry responses, and network errors for the same chunk until it is received. A failed chunk is never skipped or left as a hole in the stream.
+6. Requeues short reads, timeouts, HTTP retry responses, and network errors for the same chunk until it is received. A failed chunk records a `retryAt` time and releases its network slot, allowing the scheduler to fetch another eligible chunk in the same forward window instead of idling.
 7. Remaining chunks continue to download in the background and are fed into the stream. When the final chunk is pushed, the client sends `TASFA_STREAM_CLOSE` so the browser sees an EOF.
 
-This makes progressive playback behave like a video service buffer: the browser-side assembler is strictly sequential, while actual network traffic keeps limited parallelism in the near-future chunk window. The player may wait at the current playback edge while the missing chunk is retried, but TASFA does not advance past that missing byte range or close the stream early. Successful retries keep the player attached to the same `/__tasfa_stream__/<streamId>` URL.
+This makes progressive playback behave like a video service buffer: the browser-side assembler is strictly sequential, while actual network traffic keeps adaptive, bounded parallelism in the near-future chunk window. The player may wait at the current playback edge while the missing chunk is retried, but TASFA does not advance past that missing byte range or close the stream early. Successful retries keep the player attached to the same `/__tasfa_stream__/<streamId>` URL.
 
 The server advertises support via `supports_progressive_streaming: true` in the handshake response. Existing clients that do not implement progressive streaming can ignore the field and continue to use full download or range-request streaming.
 

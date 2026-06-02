@@ -242,7 +242,7 @@ A per-chunk absolute timeout prevents stalls caused by connections that receive 
 
 Download uses the same high-throughput bias: the handshake carries the client's preferred chunk-size hint, and active downloads grow `span` and parallelism by `*1.2` after successful chunk groups. On failure both are reduced by `*0.8`. Short reads, timeouts, and network errors are requeued by chunk index; a failed group does not fail the whole download until the same chunk has exhausted a high retry budget.
 
-For progressive video/audio playback, TASFA is stricter: the client assembles and feeds chunks sequentially, while network requests keep limited parallelism only inside a forward window from the next chunk the player needs. Failed or timed-out chunks are retried in place until received, so playback can stall at the buffer edge but never skips a byte range, leaves a missing chunk unresolved, or closes the media stream early.
+For progressive video/audio playback, TASFA is stricter: the client assembles and feeds chunks sequentially, while a bounded scheduler keeps adaptive parallelism only inside a forward window from the next chunk the player needs. Failed or timed-out chunks record a retry time and release the network slot, so the scheduler can keep filling other eligible chunks in the same window. Playback can stall at the buffer edge, but it never skips a byte range, leaves a missing chunk unresolved, or closes the media stream early.
 
 ### Tail RTT Prediction (Lagrange Extrapolation)
 
