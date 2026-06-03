@@ -20,13 +20,12 @@ end box
 
 == Media Routes ==
 
-note over Client,DownloadAPI
-GET /file/download/:id
-  (with Range + X-TASFA-Session-ID/Token)
-GET /assets/tasfa/img/:filename/handshake
-GET /assets/tasfa/img/:filename/chunk/:chunk_index
-GET /assets/tasfa/uploads/:filename/handshake
-GET /assets/tasfa/uploads/:filename/chunk/:chunk_index
+note over Client, DownloadAPI
+  GET /file/download/:id (with Range + X-TASFA-Session-ID/Token)
+  GET /assets/tasfa/img/:filename/handshake
+  GET /assets/tasfa/img/:filename/chunk/:chunk_index
+  GET /assets/tasfa/uploads/:filename/handshake
+  GET /assets/tasfa/uploads/:filename/chunk/:chunk_index
 end note
 
 == Range-Request Streaming ==
@@ -68,7 +67,7 @@ par Bounded forward-window scheduler
             SW -> SW: set retryAt for same chunk_index\nrelease inflight slot
         end
     end
-and Ordered media feed
+else Ordered media feed
     loop next contiguous chunk
         SW -> SW: wait until nextFeedIndex exists
         SW -> SW: push TASFA_STREAM_CHUNK\nadvance nextFeedIndex
@@ -76,20 +75,20 @@ and Ordered media feed
 end
 
 note over SW
-The client assembles sequentially. Network fetches
-are parallel only within the near-future window from
-nextFeedIndex. A failed chunk does not occupy a
-parallel slot while it waits for retry eligibility.
+  The client assembles sequentially. Network fetches
+  are parallel only within the near-future window from
+  nextFeedIndex. A failed chunk does not occupy a
+  parallel slot while it waits for retry eligibility.
 end note
 
 alt Initial threshold reached\n(first 2 chunks or >= 2 MiB)
     SW -> Player: src = /__tasfa_stream__/<streamId>
 end
 
-note over SW,Player
-Playback may wait at the buffer edge while a missing
-chunk is retried, but TASFA never skips a missing byte
-range or closes the stream before all chunks are fed.
+note over SW, Player
+  Playback may wait at the buffer edge while a missing
+  chunk is retried, but TASFA never skips a missing byte
+  range or closes the stream before all chunks are fed.
 end note
 
 SW -> SW: TASFA_STREAM_CLOSE (EOF)
@@ -111,8 +110,8 @@ loop Adaptive chunk groups
 end
 
 note over FFmpeg
-Concurrency limit: 4 concurrent
-ffmpeg processes max.
+  Concurrency limit:
+  4 concurrent ffmpeg processes max.
 end note
 
 @enduml
