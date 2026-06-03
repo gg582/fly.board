@@ -39,7 +39,8 @@ self.addEventListener('message', function(event) {
     if (event.data.type === 'TASFA_SESSION') {
         rememberTasfaSession(event.data.url, {
             sessionId: event.data.sessionId,
-            sessionToken: event.data.sessionToken
+            sessionToken: event.data.sessionToken,
+            ultraFastConnection: !!event.data.ultraFastConnection
         });
     } else if (event.data.type === 'TASFA_STREAM_OPEN') {
         /* Client opens a progressive video stream. Create a ReadableStream
@@ -175,6 +176,7 @@ self.addEventListener('fetch', function(event) {
                 fetch(new Request(url, { headers: headers })).then(function(response) {
                     if (event.request.headers.get('Range')) {
                         if (response.status === 206) return response;
+                        if (session.ultraFastConnection) return response;
                         return handleRangeRequest(event.request, response);
                     }
                     return response;

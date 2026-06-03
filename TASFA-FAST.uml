@@ -1,0 +1,114 @@
+@startuml TASFA_Fast_Link_Strategy
+
+skinparam backgroundColor #FEFEFE
+skinparam sequenceArrowThickness 2
+skinparam sequenceParticipantBorderThickness 2
+skinparam BoxBorderThickness 2
+skinparam MaxMessageSize 120
+hide footbox
+
+actor "Browser Client" as Client
+participant "TASFA JS\nDownload Scheduler" as JS
+participant "Service Worker" as SW
+participant "Media Player\n<video>/<audio>" as Player
+
+box "TASFA Server" #F8F8F8
+    participant "Handshake API" as Handshake
+    participant "Chunk API" as ChunkAPI
+    participant "Direct Download\nRange API" as RangeAPI
+end box
+
+== Link Classification ==
+
+Client -> JS: read navigator.connection
+
+alt downlink >= 900\nsaveData off\nRTT <= 80ms or unknown\neffectiveType not 2g/3g
+    JS -> JS: classify as 1000M-class candidate
+    JS -> Handshake: GET /.../handshake\nchunk_size=64MiB\nlink_downlink_mbps, link_rtt_ms,\nlink_effective_type, link_save_data
+else downlink >= 500 with same stable hints
+    JS -> JS: classify as 500M-class candidate
+    JS -> Handshake: GET /.../handshake\nchunk_size=48MiB\nlink_downlink_mbps, link_rtt_ms,\nlink_effective_type, link_save_data
+else 100M-class or unstable / unknown quality
+    JS -> JS: keep normal TASFA strategy
+    JS -> Handshake: GET /.../handshake\nchunk_size=stored preference\nnormal link hints
+end
+
+Handshake -> Handshake: validate fast-link hints server-side
+
+alt Qualified fast link
+    Handshake --> JS: session with chunk_size <= 48MiB or 64MiB
+else Not qualified
+    Handshake --> JS: session with normal chunk_size <= 32MiB
+end
+
+== Scheduler Policy ==
+
+alt fast-link large video/audio
+    JS -> JS: cap maxParallel\n desktop <= 4, mobile <= 3
+    JS -> JS: force coalesce/span = 1
+    JS -> JS: progressive fetch limit\n desktop <= 3, mobile <= 2
+    JS -> JS: shallow forward window
+else 100M-class or non-media
+    JS -> JS: use existing adaptive TASFA policy
+    JS -> JS: normal chunk growth, span growth,\nand media parallel floors
+end
+
+== Media Transfer ==
+
+alt Native Range playback
+    JS -> SW: TASFA_SESSION\nsession_id, token, fast-link flag
+    Client -> Player: set src = direct media URL
+    Player -> SW: Range request
+    SW -> RangeAPI: Range + X-TASFA-Session-ID/Token
+    RangeAPI --> SW: 206 Partial Content
+    SW --> Player: 206 Partial Content
+else Progressive TASFA media
+    JS -> SW: TASFA_STREAM_OPEN
+    loop bounded near-future window
+        JS -> ChunkAPI: GET .../chunk/:index\nspan=1
+        ChunkAPI --> JS: one large chunk
+        JS -> SW: TASFA_STREAM_CHUNK
+    end
+    SW --> Player: ordered bytes
+end
+
+== Runtime Demotion ==
+
+loop successful chunk samples
+    JS -> JS: compute observed Mbps EWMA
+end
+
+alt 1000M-class large media\nand early EWMA < 250 Mbps
+    JS -> JS: demote session to normal strategy
+    JS -> JS: restore standard maxParallel,\ntargetParallel, coalesce, span
+else 500M-class large media\nand early EWMA < 150 Mbps
+    JS -> JS: demote session to normal strategy
+    JS -> JS: restore standard maxParallel,\ntargetParallel, coalesce, span
+else Actual throughput is healthy
+    JS -> JS: keep 64MiB + low parallel policy
+end
+
+== Service Worker Guardrail ==
+
+Player -> SW: Range request
+SW -> RangeAPI: authenticated Range fetch
+
+alt Server returns 206
+    RangeAPI --> SW: 206 Partial Content
+    SW --> Player: 206
+else Server returns non-206 and fast-link flag is set
+    RangeAPI --> SW: 200 or other response
+    SW --> Player: forward response without full Blob slicing
+else Normal session fallback
+    RangeAPI --> SW: 200 response
+    SW -> SW: legacy cache/blob range slicing
+    SW --> Player: fallback response
+end
+
+note over JS,SW
+FAST prefers fewer large transfers on true 500M+ links.
+Unstable wireless or poor observed throughput falls back to
+the normal 100M-class TASFA strategy.
+end note
+
+@enduml
