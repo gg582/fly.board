@@ -8,6 +8,8 @@
     var DOWNLOAD_CHUNK_DEFAULT = 8 * 1024 * 1024;
     var DOWNLOAD_CHUNK_MOBILE_DEFAULT = 4 * 1024 * 1024;
     var DOWNLOAD_CHUNK_MAX = 32 * 1024 * 1024;
+    var DOWNLOAD_CHUNK_FAST = 48 * 1024 * 1024;
+    var DOWNLOAD_CHUNK_ULTRA_FAST = 64 * 1024 * 1024;
     var DOWNLOAD_CHUNK_STEP_UP = 1024 * 1024;
     var DOWNLOAD_CHUNK_STEP_DOWN = 512 * 1024;
     var DOWNLOAD_REQUEST_BYTES_MAX = 128 * 1024 * 1024;
@@ -56,6 +58,37 @@
         };
     }
 
+    function fastLinkTier() {
+        var conn = getConnectionSnapshot();
+        var weakEffectiveType = /^(slow-2g|2g|3g)$/i.test(conn.effectiveType || '');
+        var rttLooksBad = conn.rtt > 0 && conn.rtt > 80;
+        if (conn.saveData === '1' || weakEffectiveType || rttLooksBad) return '';
+        if (conn.downlink >= 900) return 'ultra';
+        if (conn.downlink >= 500) return 'fast';
+        return '';
+    }
+
+    function fastLinkChunkSize() {
+        var tier = fastLinkTier();
+        if (tier === 'ultra') return DOWNLOAD_CHUNK_ULTRA_FAST;
+        if (tier === 'fast') return DOWNLOAD_CHUNK_FAST;
+        return 0;
+    }
+
+    function isUltraFastConnection() {
+        return !!fastLinkTier();
+    }
+
+    function demoteUltraFastSession(session) {
+        if (!session || !session.ultraFastConnection) return;
+        session.ultraFastConnection = false;
+        if (session.standardMaxParallel) session.maxParallel = session.standardMaxParallel;
+        if (session.standardTargetParallel) session.targetParallel = session.standardTargetParallel;
+        if (session.standardCoalesceChunks) session.coalesceChunks = session.standardCoalesceChunks;
+        if (session.standardCurrentSpan) session.currentSpan = session.standardCurrentSpan;
+        if (session.standardMaxSpan) session.maxSpan = session.standardMaxSpan;
+    }
+
     function preferredDownloadChunkSize() {
         var saved = 0;
         try { saved = Number(localStorage.getItem(DOWNLOAD_CHUNK_STORE) || 0); } catch (e) {}
@@ -84,7 +117,7 @@
     function downloadHandshakeParams() {
         var conn = getConnectionSnapshot();
         return {
-            chunk_size: String(preferredDownloadChunkSize()),
+            chunk_size: String(fastLinkChunkSize() || preferredDownloadChunkSize()),
             link_effective_type: conn.effectiveType,
             link_downlink_mbps: conn.downlink > 0 ? conn.downlink.toFixed(2) : '',
             link_rtt_ms: conn.rtt > 0 ? String(Math.round(conn.rtt)) : '',
@@ -116,20 +149,22 @@
     }
 
     function applyPredictedDownloadRule(session) {
+        var ultraFastMedia = !!(session && session.largeMedia && session.ultraFastConnection);
         if (session && session.largeMedia) {
-            var mediaFloor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 8 : 10);
+            var mediaFloor = ultraFastMedia ? Math.min(session.maxParallel || 1, isLikelyMobile() ? 3 : 4) : Math.min(session.maxParallel || 1, isLikelyMobile() ? 8 : 10);
             if ((session.targetParallel || 1) < mediaFloor) session.targetParallel = mediaFloor;
-            if ((session.currentSpan || 1) < 2) session.currentSpan = 2;
+            if (ultraFastMedia) session.currentSpan = Math.min(session.currentSpan || 1, 1);
+            else if ((session.currentSpan || 1) < 2) session.currentSpan = 2;
         }
         var predicted = predictedDownloadQuality(session);
         if (predicted < 0.25) {
             var lowFloor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 2 : 4);
-            if (session && session.largeMedia) lowFloor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 6 : 8);
+            if (session && session.largeMedia) lowFloor = ultraFastMedia ? Math.min(session.maxParallel || 1, isLikelyMobile() ? 2 : 3) : Math.min(session.maxParallel || 1, isLikelyMobile() ? 6 : 8);
             session.currentSpan = Math.max(1, Math.min(session.currentSpan || 1, 2));
             session.targetParallel = Math.max(lowFloor, Math.min(session.targetParallel || 1, Math.ceil((session.maxParallel || 1) / 3)));
         } else if (predicted < 0.45) {
             var guardedFloor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 3 : 6);
-            if (session && session.largeMedia) guardedFloor = Math.min(session.maxParallel || 1, isLikelyMobile() ? 8 : 10);
+            if (session && session.largeMedia) guardedFloor = ultraFastMedia ? Math.min(session.maxParallel || 1, isLikelyMobile() ? 3 : 4) : Math.min(session.maxParallel || 1, isLikelyMobile() ? 8 : 10);
             session.currentSpan = Math.max(1, Math.min(session.currentSpan || 1, 2));
             session.targetParallel = Math.max(guardedFloor, Math.min(session.targetParallel || 1, Math.ceil((session.maxParallel || 1) / 2)));
         }
@@ -140,12 +175,19 @@
         session.fastStreak = (session.fastStreak || 0) + 1;
         var mbps = durationMs > 0 ? ((bytes * 8) / durationMs / 1000) : 0;
         session.ewmaMbps = session.ewmaMbps ? (session.ewmaMbps * 0.75 + mbps * 0.25) : mbps;
+        var demoteMbps = session.fastLinkTier === 'ultra' ? 250 : 150;
+        if (session.largeMedia && session.ultraFastConnection && session.successEvents >= 2 && session.ewmaMbps > 0 && session.ewmaMbps < demoteMbps) {
+            demoteUltraFastSession(session);
+        }
         pushDownloadQuality(session, clampNumber(mbps / 25, 0.1, 1));
-        if (session.fastStreak >= 6 && (session.ewmaMbps >= 25 || durationMs < 10000)) {
+        if (!(session.largeMedia && session.ultraFastConnection) && session.fastStreak >= 6 && (session.ewmaMbps >= 25 || durationMs < 10000)) {
             rememberDownloadChunkSize(preferredDownloadChunkSize() * 2);
             session.fastStreak = 0;
         }
-        if (session.currentSpan < session.maxSpan && session.successEvents % 2 === 0) {
+        if (session.largeMedia && session.ultraFastConnection) {
+            session.currentSpan = Math.min(session.currentSpan || 1, 1);
+            session.targetParallel = Math.min(session.targetParallel || 1, isLikelyMobile() ? 3 : 4);
+        } else if (session.currentSpan < session.maxSpan && session.successEvents % 2 === 0) {
             session.currentSpan = Math.min(session.maxSpan, Math.max(1, Math.round(session.currentSpan * 1.2)));
         }
         if (session.targetParallel < session.maxParallel && session.successEvents % 3 === 0) {
@@ -300,9 +342,21 @@
         var initialParallel = Math.max(1, Math.min(Number(session.initial_parallel_chunks) || maxParallel, maxParallel));
         var coalesce = Math.max(1, Math.min(Number(session.coalesce_chunks) || 8, 64));
         var maxSpan = Math.max(1, Math.min(64, Math.floor(DOWNLOAD_REQUEST_BYTES_MAX / chunkSize) || 1));
+        var standardMaxParallel = maxParallel;
+        var standardInitialParallel = initialParallel;
+        var standardCoalesce = coalesce;
+        var standardMaxSpan = maxSpan;
         var mimeType = session.mime_type || 'application/octet-stream';
         var totalSize = Math.max(0, Number(session.total_size) || 0);
         var largeMedia = /^(video|audio)\//i.test(mimeType) && totalSize >= 64 * 1024 * 1024;
+        var tier = fastLinkTier();
+        var ultraFastConnection = !!tier;
+        if (largeMedia && ultraFastConnection) {
+            maxParallel = Math.min(maxParallel, isLikelyMobile() ? 3 : 4);
+            initialParallel = Math.min(initialParallel, maxParallel);
+            coalesce = 1;
+            maxSpan = 1;
+        }
         return {
             sessionId: session.session_id,
             sessionToken: session.session_token,
@@ -325,7 +379,14 @@
             fastStreak: 0,
             ewmaMbps: 0,
             qualitySamples: [],
-            largeMedia: largeMedia
+            largeMedia: largeMedia,
+            ultraFastConnection: ultraFastConnection,
+            fastLinkTier: tier,
+            standardMaxParallel: standardMaxParallel,
+            standardTargetParallel: standardInitialParallel,
+            standardCoalesceChunks: Math.min(standardCoalesce, standardMaxSpan),
+            standardCurrentSpan: Math.min(standardCoalesce, standardMaxSpan),
+            standardMaxSpan: standardMaxSpan
         };
     }
 
@@ -343,7 +404,8 @@
                 type: 'TASFA_SESSION',
                 url: absoluteNormalizedUrl(baseUrl) || normalizeUrl(baseUrl) || baseUrl,
                 sessionId: session.sessionId,
-                sessionToken: session.sessionToken
+                sessionToken: session.sessionToken,
+                ultraFastConnection: session.ultraFastConnection
             });
         }
         return session;
@@ -823,7 +885,7 @@
             initialChunkThreshold = Math.max(initialChunkThreshold,
                 Math.min(chunksForMinBytes, session.chunkCount));
         }
-        var forwardWindowChunks = Math.max(initialChunkThreshold + 2, isLikelyMobile() ? 6 : 10);
+        var forwardWindowChunks = session.ultraFastConnection && session.largeMedia ? Math.max(initialChunkThreshold + 1, isLikelyMobile() ? 3 : 4) : Math.max(initialChunkThreshold + 2, isLikelyMobile() ? 6 : 10);
 
         /* One slot per chunk. Fetch workers may fill this out of order,
            while the feeder only emits the next contiguous chunk. */
@@ -834,6 +896,9 @@
         var activeFetches = 0;
 
         function progressiveParallelLimit() {
+            if (session.ultraFastConnection && session.largeMedia) {
+                return Math.max(1, Math.min(isLikelyMobile() ? 2 : 3, session.maxParallel || 1, session.chunkCount));
+            }
             var base = isLikelyMobile() ? (session.largeMedia ? 6 : 2) : (session.largeMedia ? 6 : 4);
             var multiplier = session.largeMedia ? 3 : 2;
             var adaptive = Math.max(base, Math.min(session.targetParallel || base, base * multiplier));
@@ -842,6 +907,9 @@
 
         function progressiveWindowSize() {
             var parallel = progressiveParallelLimit();
+            if (session.ultraFastConnection && session.largeMedia) {
+                return Math.max(forwardWindowChunks, initialChunkThreshold + parallel);
+            }
             var depth = session.largeMedia ? (isLikelyMobile() ? 6 : 5) : (isLikelyMobile() ? 3 : 4);
             return Math.max(forwardWindowChunks, parallel * depth, initialChunkThreshold + parallel);
         }
