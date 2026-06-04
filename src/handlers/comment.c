@@ -4,28 +4,33 @@
 void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    auth_is_logged_in(req, &uid, role, sizeof(role));
     cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
     const char *target_type = cwist_query_map_get(kv, "target_type");
     const char *target_id_str = cwist_query_map_get(kv, "target_id");
     const char *parent_id_str = cwist_query_map_get(kv, "parent_id");
     const char *content = cwist_query_map_get(kv, "content");
+    const char *author_name_input = cwist_query_map_get(kv, "author_name");
     const char *referer = cwist_http_header_get(req->headers, "Referer");
     if (target_type && target_id_str && content && content[0]) {
         int target_id = atoi(target_id_str);
         int parent_id = parent_id_str ? atoi(parent_id_str) : 0;
         const char *author_name = NULL;
-        cJSON *u = db_user_get_by_id(req->db, uid);
-        if (u) {
-            cJSON *uname = cJSON_GetObjectItem(u, "username");
-            if (uname && uname->valuestring) author_name = uname->valuestring;
+        if (uid > 0) {
+            cJSON *u = db_user_get_by_id(req->db, uid);
+            if (u) {
+                cJSON *uname = cJSON_GetObjectItem(u, "username");
+                if (uname && uname->valuestring) author_name = uname->valuestring;
+            }
+            if (u) cJSON_Delete(u);
+        } else {
+            author_name = (author_name_input && author_name_input[0]) ? author_name_input : "Anonymous";
         }
         if (db_comment_create(req->db, target_type, target_id, uid, author_name, parent_id, content)) {
             CWIST_LOG_INFO("Comment created: target_type=%s target_id=%d uid=%d", target_type, target_id, uid);
         } else {
             CWIST_LOG_ERROR("Comment creation failed: target_type=%s target_id=%d uid=%d", target_type, target_id, uid);
         }
-        if (u) cJSON_Delete(u);
     } else {
         CWIST_LOG_WARN("Comment creation failed: missing fields");
     }

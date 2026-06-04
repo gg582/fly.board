@@ -238,11 +238,19 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
     int comment_user_id = json_int(comment, "user_id", 0);
     cJSON *content = cJSON_GetObjectItem(comment, "content");
     cJSON *username = cJSON_GetObjectItem(comment, "username");
+    cJSON *author_name = cJSON_GetObjectItem(comment, "author_name");
     cJSON *date = cJSON_GetObjectItem(comment, "created_at");
     cJSON *deleted = cJSON_GetObjectItem(comment, "deleted");
     int margin = depth * 20;
 
-    const char *uname = username && username->valuestring ? username->valuestring : "unknown";
+    const char *uname;
+    if (author_name && author_name->valuestring && author_name->valuestring[0]) {
+        uname = author_name->valuestring;
+    } else if (username && username->valuestring && username->valuestring[0]) {
+        uname = username->valuestring;
+    } else {
+        uname = "unknown";
+    }
 
     cwist_sstring_append(b, "<div class='comment-node' style='margin-left:");
     char mbuf[32]; snprintf(mbuf, sizeof(mbuf), "%d", margin);
@@ -304,7 +312,7 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
         cwist_sstring_append(b, "</div>");
     }
 
-    if (user_role && user_role[0] && !(deleted && deleted->valueint)) {
+    if (!(deleted && deleted->valueint)) {
         cwist_sstring_append(b, "<div style='margin-top:8px'>");
         cwist_sstring_append(b, "<button type='button' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick=\"var el=document.getElementById('reply-");
         cwist_sstring_append(b, cid_buf);
@@ -320,6 +328,9 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
         cwist_sstring_append(b, "<input type='hidden' name='parent_id' value='");
         cwist_sstring_append(b, cid_buf);
         cwist_sstring_append(b, "'>");
+        if (!user_role || !user_role[0]) {
+            cwist_sstring_append(b, "<input type='text' name='author_name' placeholder='Your name' style='width:100%;font-family:inherit;font-size:14px;margin-bottom:8px' required>");
+        }
         cwist_sstring_append(b, "<textarea name='content' rows='2' placeholder='Write a reply...' required style='width:100%;font-family:inherit;font-size:14px'></textarea>");
         cwist_sstring_append(b, "<div style='margin-top:6px'><button type='submit' class='btn' style='font-size:12px;padding:4px 10px'>Reply</button></div>");
         cwist_sstring_append(b, "</form></div></div>");
@@ -909,16 +920,17 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     } else {
         cwist_sstring_append(b, "<p style='color:var(--muted)'>No comments yet.</p>");
     }
-    if (user_role && user_role[0]) {
-        cwist_sstring_append(b, "<form action='/comment/new' method='post' style='margin-top:18px'>");
-        cwist_sstring_append(b, "<input type='hidden' name='target_type' value='post'>");
-        cwist_sstring_append(b, "<input type='hidden' name='target_id' value='");
-        cwist_sstring_append(b, pid_buf);
-        cwist_sstring_append(b, "'>");
-        cwist_sstring_append(b, "<textarea name='content' rows='3' placeholder='Write a comment...' required></textarea>");
-        cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div>");
-        cwist_sstring_append(b, "</form>");
+    cwist_sstring_append(b, "<form action='/comment/new' method='post' style='margin-top:18px'>");
+    cwist_sstring_append(b, "<input type='hidden' name='target_type' value='post'>");
+    cwist_sstring_append(b, "<input type='hidden' name='target_id' value='");
+    cwist_sstring_append(b, pid_buf);
+    cwist_sstring_append(b, "'>");
+    if (!user_role || !user_role[0]) {
+        cwist_sstring_append(b, "<input type='text' name='author_name' placeholder='Your name' style='width:100%;font-family:inherit;font-size:14px;margin-bottom:8px' required>");
     }
+    cwist_sstring_append(b, "<textarea name='content' rows='3' placeholder='Write a comment...' required></textarea>");
+    cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div>");
+    cwist_sstring_append(b, "</form>");
     cwist_sstring_append(b, "</div>");
 
     cwist_sstring *page = render_page(title->valuestring, b->data, dark, user_role, profile_pic, is_mobile);
