@@ -58,17 +58,18 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
     } else {
         cwist_sstring_append(b, "<p style='color:var(--muted)'>No comments yet.</p>");
     }
-    if (user_role && user_role[0]) {
-        char fid_buf2[32]; snprintf(fid_buf2, sizeof(fid_buf2), "%d", file_id_val);
-        cwist_sstring_append(b, "<form action='/comment/new' method='post' style='margin-top:18px'>");
-        cwist_sstring_append(b, "<input type='hidden' name='target_type' value='file'>");
-        cwist_sstring_append(b, "<input type='hidden' name='target_id' value='");
-        cwist_sstring_append(b, fid_buf2);
-        cwist_sstring_append(b, "'>");
-        cwist_sstring_append(b, "<textarea name='content' rows='3' placeholder='Write a comment...' required></textarea>");
-        cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div>");
-        cwist_sstring_append(b, "</form>");
+    char fid_buf2[32]; snprintf(fid_buf2, sizeof(fid_buf2), "%d", file_id_val);
+    cwist_sstring_append(b, "<form action='/comment/new' method='post' style='margin-top:18px'>");
+    cwist_sstring_append(b, "<input type='hidden' name='target_type' value='file'>");
+    cwist_sstring_append(b, "<input type='hidden' name='target_id' value='");
+    cwist_sstring_append(b, fid_buf2);
+    cwist_sstring_append(b, "'>");
+    if (!user_role || !user_role[0]) {
+        cwist_sstring_append(b, "<input type='text' name='author_name' placeholder='Your name' style='width:100%;font-family:inherit;font-size:14px;margin-bottom:8px' required>");
     }
+    cwist_sstring_append(b, "<textarea name='content' rows='3' placeholder='Write a comment...' required></textarea>");
+    cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div>");
+    cwist_sstring_append(b, "</form>");
     cwist_sstring_append(b, "</div>");
 
     cwist_sstring *page = render_page(fname && fname->valuestring ? fname->valuestring : "File Detail", b->data, dark, user_role, profile_pic, is_mobile);
