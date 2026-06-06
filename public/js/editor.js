@@ -703,6 +703,7 @@
         }
 
         var codeBlocks = [];
+        var inlineCodes = [];
         var mathBlocks = [];
         var mathInlines = [];
         var normalized = md.replace(/\r\n/g, '\n');
@@ -710,6 +711,13 @@
             var token = '@@CODEBLOCK' + codeBlocks.length + '@@';
             var cls = lang ? " class='language-" + escapeHtml(lang) + "'" : '';
             codeBlocks.push("<pre><code" + cls + ">" + escapeHtml(code.replace(/\n$/, '')) + "</code></pre>");
+            return token;
+        });
+
+        /* Protect inline code spans so $ inside backticks isn't treated as math */
+        normalized = normalized.replace(/`([^`]+)`/g, function(_, code) {
+            var token = '@@INLINECODE' + inlineCodes.length + '@@';
+            inlineCodes.push('<code>' + escapeHtml(code) + '</code>');
             return token;
         });
 
@@ -882,6 +890,9 @@
         var rendered = html.join('');
         rendered = rendered.replace(/@@CODEBLOCK(\d+)@@/g, function(_, idx) {
             return codeBlocks[Number(idx)] || '';
+        });
+        rendered = rendered.replace(/@@INLINECODE(\d+)@@/g, function(_, idx) {
+            return inlineCodes[Number(idx)] || '';
         });
         rendered = rendered.replace(/@@MATHBLOCK(\d+)@@/g, function(_, idx) {
             return '<span class="math-block">' + (mathBlocks[Number(idx)] || '') + '</span>';

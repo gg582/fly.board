@@ -64,11 +64,22 @@ static bool is_line_start(const char *s, size_t pos) {
     return pos == 0 || s[pos - 1] == '\n';
 }
 
-static bool is_code_fence_line(const char *s, size_t pos, size_t len) {
+static bool is_code_fence_line(const char *s, size_t pos, size_t len, int *out_len) {
     size_t k = pos;
     while (k < len && (s[k] == ' ' || s[k] == '\t')) k++;
-    if (k + 3 <= len && strncmp(s + k, "```", 3) == 0) return true;
-    if (k + 3 <= len && strncmp(s + k, "~~~", 3) == 0) return true;
+    if (k + 3 > len) return false;
+    int backticks = 0;
+    while (k + backticks < len && s[k + backticks] == '`') backticks++;
+    if (backticks >= 3) {
+        if (out_len) *out_len = backticks;
+        return true;
+    }
+    int tildes = 0;
+    while (k + tildes < len && s[k + tildes] == '~') tildes++;
+    if (tildes >= 3) {
+        if (out_len) *out_len = tildes;
+        return true;
+    }
     return false;
 }
 
@@ -77,16 +88,51 @@ static char *protect_math(const char *md, math_registry_t *blocks, math_registry
     cwist_sstring *out = cwist_sstring_create();
     size_t i = 0;
     int in_code_block = 0;
+    int current_fence_len = 0;
 
     while (i < len) {
-        if (is_line_start(md, i) && is_code_fence_line(md, i, len)) {
-            in_code_block = !in_code_block;
+        /* Track fenced code blocks with proper backtick/tilde counts */
+        int fence_len = 0;
+        if (is_line_start(md, i) && is_code_fence_line(md, i, len, &fence_len)) {
+            if (in_code_block) {
+                if (fence_len >= current_fence_len) {
+                    in_code_block = 0;
+                    current_fence_len = 0;
+                    /* Consume the rest of the closing fence line so backticks
+                       are not misinterpreted as inline code spans. */
+                    while (i < len && md[i] != '\n') {
+                        cwist_sstring_append_len(out, md + i, 1);
+                        i++;
+                    }
+                    if (i < len) {
+                        cwist_sstring_append_len(out, md + i, 1);
+                        i++;
+                    }
+                    continue;
+                }
+            } else {
+                in_code_block = 1;
+                current_fence_len = fence_len;
+            }
         }
 
         if (in_code_block) {
             cwist_sstring_append_len(out, md + i, 1);
             i++;
             continue;
+        }
+
+        /* Skip inline code spans (backticks) */
+        if (md[i] == '`') {
+            size_t j = i + 1;
+            while (j < len && md[j] != '`') j++;
+            if (j < len) {
+                while (i <= j) {
+                    cwist_sstring_append_len(out, md + i, 1);
+                    i++;
+                }
+                continue;
+            }
         }
 
         /* Block math: $$...$$ */
