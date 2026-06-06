@@ -137,6 +137,12 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(head, dyn_style);
     free(critical_css);
 
+    /* KaTeX for math rendering */
+    cwist_html_element_t *katex_css = cwist_html_element_create("link");
+    cwist_html_element_add_attr(katex_css, "rel", "stylesheet");
+    cwist_html_element_add_attr(katex_css, "href", "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css");
+    cwist_html_element_add_child(head, katex_css);
+
     cwist_html_element_t *layout_js = cwist_html_element_create("script");
     cwist_html_element_add_attr(layout_js, "src", "/assets/js/layout.js");
     cwist_html_element_add_child(head, layout_js);
@@ -358,6 +364,32 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
         if (shell) cwist_html_element_add_child(body, shell);
         if (footer) cwist_html_element_add_child(body, footer);
+
+        cwist_html_element_t *katex_js = cwist_html_element_create("script");
+        if (katex_js) {
+            cwist_html_element_add_attr(katex_js, "src", "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js");
+            cwist_html_element_add_child(body, katex_js);
+        }
+
+        cwist_html_element_t *katex_script = cwist_html_element_create("script");
+        if (katex_script) {
+            cwist_html_element_set_text(katex_script,
+                "document.addEventListener('DOMContentLoaded', function() {"
+                "  if (typeof katex === 'undefined') return;"
+                "  function renderBlogMath(elem) {"
+                "    if (!elem) return;"
+                "    elem.querySelectorAll('.math-block').forEach(function(el) {"
+                "      try { katex.render(el.textContent, el, {throwOnError: false, displayMode: true}); } catch(e) {}"
+                "    });"
+                "    elem.querySelectorAll('.math-inline').forEach(function(el) {"
+                "      try { katex.render(el.textContent, el, {throwOnError: false, displayMode: false}); } catch(e) {}"
+                "    });"
+                "  }"
+                "  renderBlogMath(document.body);"
+                "  window.__renderBlogMath = renderBlogMath;"
+                "});");
+            cwist_html_element_add_child(body, katex_script);
+        }
 
         cwist_html_element_t *tasfa_script = cwist_html_element_create("script");
         if (tasfa_script) {
