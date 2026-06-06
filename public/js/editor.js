@@ -703,11 +703,36 @@
         }
 
         var codeBlocks = [];
+        var mathBlocks = [];
+        var mathInlines = [];
         var normalized = md.replace(/\r\n/g, '\n');
         normalized = normalized.replace(/```([\w-]*)\n([\s\S]*?)```/g, function(_, lang, code) {
             var token = '@@CODEBLOCK' + codeBlocks.length + '@@';
             var cls = lang ? " class='language-" + escapeHtml(lang) + "'" : '';
             codeBlocks.push("<pre><code" + cls + ">" + escapeHtml(code.replace(/\n$/, '')) + "</code></pre>");
+            return token;
+        });
+
+        /* Protect block math before line splitting */
+        normalized = normalized.replace(/\$\$([\s\S]*?)\$\$/g, function(_, expr) {
+            var token = '@@MATHBLOCK' + mathBlocks.length + '@@';
+            mathBlocks.push(escapeHtml(expr));
+            return token;
+        });
+        normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, function(_, expr) {
+            var token = '@@MATHBLOCK' + mathBlocks.length + '@@';
+            mathBlocks.push(escapeHtml(expr));
+            return token;
+        });
+        /* Protect inline math */
+        normalized = normalized.replace(/\$([^$\n]+)\$/g, function(_, expr) {
+            var token = '@@MATHINLINE' + mathInlines.length + '@@';
+            mathInlines.push(escapeHtml(expr));
+            return token;
+        });
+        normalized = normalized.replace(/\\\((.*?)\\\)/g, function(_, expr) {
+            var token = '@@MATHINLINE' + mathInlines.length + '@@';
+            mathInlines.push(escapeHtml(expr));
             return token;
         });
 
@@ -855,9 +880,16 @@
         }
 
         var rendered = html.join('');
-        return rendered.replace(/@@CODEBLOCK(\d+)@@/g, function(_, idx) {
+        rendered = rendered.replace(/@@CODEBLOCK(\d+)@@/g, function(_, idx) {
             return codeBlocks[Number(idx)] || '';
         });
+        rendered = rendered.replace(/@@MATHBLOCK(\d+)@@/g, function(_, idx) {
+            return '<span class="math-block">' + (mathBlocks[Number(idx)] || '') + '</span>';
+        });
+        rendered = rendered.replace(/@@MATHINLINE(\d+)@@/g, function(_, idx) {
+            return '<span class="math-inline">' + (mathInlines[Number(idx)] || '') + '</span>';
+        });
+        return rendered;
     }
 
     function insertAtCursor(text, selectOffset) {
@@ -962,6 +994,9 @@
         preview.innerHTML = renderMarkdown(ta.value);
         if (typeof window.initMarkdownAffordances === 'function') {
             window.initMarkdownAffordances(preview);
+        }
+        if (typeof window.__renderBlogMath === 'function') {
+            window.__renderBlogMath(preview);
         }
         updateMetrics();
         if (syncStatus) {
