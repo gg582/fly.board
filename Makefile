@@ -38,6 +38,9 @@ CFLAGS := -Wall -Wextra -O2 \
           -Ithird_party/stb \
           -Ithird_party/file/src
 
+EXTRA_CFLAGS ?=
+CFLAGS += $(EXTRA_CFLAGS)
+
 ifeq ($(DEBUG),1)
 CFLAGS += -DDEBUG=1
 endif
