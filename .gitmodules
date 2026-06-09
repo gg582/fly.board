@@ -4,3 +4,6 @@
 [submodule "third_party/file"]
 	path = third_party/file
 	url = https://github.com/file/file.git
+[submodule "third_party/libttak"]
+	path = third_party/libttak
+	url = https://github.com/religiya-serdtsa/libttak.git
