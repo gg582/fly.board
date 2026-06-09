@@ -1,6 +1,7 @@
 *.o
 fly_board
 data/blog.db
+data/board_tree.db
 data/comments.db
 data/tasfa/
 public/uploads/*

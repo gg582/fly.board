@@ -8,7 +8,7 @@ services:
       - "${FLYBOARD_PORT:-8888}:8888/tcp"
       - "${FLYBOARD_PORT:-8888}:8888/udp"
     volumes:
-      - flyboard_data:/app/data
+      - ./data:/app/data
       - ./public:/app/public
       - ./posts:/app/posts
       - ./img:/app/img
@@ -32,5 +32,3 @@ services:
           cpus: "2.0"
           memory: 1GB
 
-volumes:
-  flyboard_data:
