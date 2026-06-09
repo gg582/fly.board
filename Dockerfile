@@ -21,6 +21,8 @@ RUN git clone --depth 1 --recursive https://github.com/religiya-serdtsa/cwist.gi
 WORKDIR /app
 COPY . .
 
+ENV EXTRA_CFLAGS="-I/app/third_party/libttak/include"
+
 # Build md4c and fly_board
 RUN make deps \
     && make
