@@ -7,6 +7,8 @@ MD4C_LIB := $(MD4C_DIR)/build/libmd4c_example.a
 MD4C_OBJS := $(MD4C_DIR)/build/md4c.o $(MD4C_DIR)/build/md4c-html.o $(MD4C_DIR)/build/entity.o
 
 MULTIPART_DIR := third_party/multipart-parser-c
+LIBTTAK_DIR := third_party/libttak
+LIBTTAK_A := $(LIBTTAK_DIR)/lib/libttak.a
 
 LIBMAGIC_DIR := third_party/file
 LIBMAGIC_A := $(LIBMAGIC_DIR)/src/.libs/libmagic.a
@@ -33,6 +35,7 @@ CFLAGS := -Wall -Wextra -O2 \
           -I$(CWIST_PREFIX)/include \
           -I$(MD4C_DIR)/src \
           -I$(MULTIPART_DIR) \
+          -I$(LIBTTAK_DIR)/include \
           -Isrc \
           -Iinclude \
           -Ithird_party/stb \
@@ -86,7 +89,10 @@ TARGET := fly_board
 
 all: deps $(TARGET)
 
-deps: $(MD4C_LIB) $(LIBMAGIC_A)
+deps: $(MD4C_LIB) $(LIBMAGIC_A) $(LIBTTAK_A)
+
+$(LIBTTAK_A):
+	$(MAKE) -C $(LIBTTAK_DIR)
 
 $(LIBMAGIC_A):
 	cd $(LIBMAGIC_DIR) && if [ ! -f configure ]; then autoreconf -fi; fi
@@ -118,8 +124,8 @@ src/crypto/fly_crypto.o: src/crypto/fly_crypto.c
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TARGET): $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
-	$(CC) $(CFLAGS) -o $@ $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A) $(LDFLAGS) $(CWIST_LIB) $(LIBS)
+$(TARGET): $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A) $(LIBTTAK_A)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A) $(LDFLAGS) $(CWIST_LIB) $(LIBTTAK_A) $(LIBS)
 
 setup:
 	mkdir data

@@ -7,6 +7,9 @@
 #include "nats/fly_nats.h"
 #include "config/config.h"
 #include <cwist/sys/app/app.h>
+#include <ttak/async/task.h>
+#include <ttak/thread/pool.h>
+#include <ttak/timing/timing.h>
 #include <signal.h>
 #if defined __has_include
 #  if __has_include (<cwist/security/tls/ech.h>)
@@ -18,9 +21,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <poll.h>
 #include <sys/stat.h>
 #include <sys/timerfd.h>
 #include <limits.h>
@@ -30,6 +33,8 @@
 #define DB_PATH   "data/blog.db"
 
 static volatile bool g_nats_running = false;
+static volatile bool g_cleanup_running = false;
+static ttak_thread_pool_t *g_background_pool = NULL;
 
 static bool dir_exists(const char *path) {
     struct stat st;
@@ -70,6 +75,42 @@ static void *nats_worker(void *arg) {
     return NULL;
 }
 
+static size_t background_pool_size(void) {
+    long cores = sysconf(_SC_NPROCESSORS_ONLN);
+    if (cores < 2) return 2;
+    if (cores > 4) return 4;
+    return (size_t)cores;
+}
+
+static bool schedule_background_task(ttak_task_func_t func,
+                                     void *arg,
+                                     uint64_t hash,
+                                     ttak_task_domain_t domain,
+                                     uint8_t urgency) {
+    if (!g_background_pool || !func) return false;
+    uint64_t now = ttak_get_tick_count();
+    ttak_task_t *task = ttak_task_create(func, arg, NULL, now);
+    if (!task) return false;
+    ttak_task_set_hash(task, hash);
+    ttak_task_set_domain(task, domain);
+    ttak_task_set_urgency(task, urgency);
+    if (!ttak_thread_pool_schedule_task(g_background_pool, task, 0, now)) {
+        ttak_task_destroy(task, now);
+        return false;
+    }
+    return true;
+}
+
+static void shutdown_background_pool(void) {
+    g_nats_running = false;
+    g_cleanup_running = false;
+    fly_nats_close();
+    if (g_background_pool) {
+        ttak_thread_pool_destroy(g_background_pool);
+        g_background_pool = NULL;
+    }
+}
+
 static int create_daily_3am_timer(void) {
     int fd = timerfd_create(CLOCK_REALTIME, 0);
     if (fd < 0) return -1;
@@ -104,9 +145,13 @@ static void *cleanup_worker(void *arg) {
         return NULL;
     }
     uint64_t exp;
-    while (1) {
+    struct pollfd pfd = { .fd = tfd, .events = POLLIN };
+    while (g_cleanup_running) {
+        int ready = poll(&pfd, 1, 1000);
+        if (ready < 0) break;
+        if (ready == 0) continue;
         ssize_t s = read(tfd, &exp, sizeof(exp));
-        if (s != sizeof(exp)) break;
+        if (s != sizeof(exp)) continue;
         db_cleanup_orphaned_files(db);
     }
     close(tfd);
@@ -136,12 +181,22 @@ int main(void) {
     font_settings_load("fonts.settings");
     CWIST_LOG_INFO("Font settings loaded");
 
+    g_background_pool = ttak_thread_pool_create(background_pool_size(), 0, ttak_get_tick_count());
+    if (!g_background_pool) {
+        FLY_LOG_ERROR("Failed to initialize libttak background thread pool");
+        fly_crypto_cleanup();
+        return 1;
+    }
+
     const char *nats_url = getenv("NATS_URL");
     if (nats_url) {
         if (fly_nats_init(nats_url)) {
             g_nats_running = true;
-            pthread_t ntid;
-            pthread_create(&ntid, NULL, nats_worker, NULL);
+            if (!schedule_background_task(nats_worker, NULL, 0x4e415453ULL, TTAK_TASK_DOMAIN_NET, 80)) {
+                g_nats_running = false;
+                fly_nats_close();
+                FLY_LOG_ERROR("Failed to schedule NATS worker");
+            }
         } else {
             FLY_LOG_ERROR("NATS init failed, continuing without messaging");
         }
@@ -150,6 +205,7 @@ int main(void) {
     cwist_app *app = cwist_app_create();
     if (!app) {
         FLY_LOG_ERROR("Failed to create app");
+        shutdown_background_pool();
         fly_crypto_cleanup();
         return 1;
     }
@@ -158,6 +214,7 @@ int main(void) {
     cwist_error_t dberr = cwist_app_use_db(app, DB_PATH);
     if (dberr.errtype != CWIST_ERR_INT16 || dberr.error.err_i16 != 0) {
         FLY_LOG_ERROR("Failed to open database");
+        shutdown_background_pool();
         cwist_app_destroy(app);
         return 1;
     }
@@ -166,18 +223,21 @@ int main(void) {
     cwist_db *db = cwist_app_get_db(app);
     if (!db_init(db)) {
         FLY_LOG_ERROR("Failed to initialize database schema");
+        shutdown_background_pool();
         cwist_app_destroy(app);
         return 1;
     }
     CWIST_LOG_INFO("Database schema initialized");
     if (!db_comment_init("data/comments.db")) {
         FLY_LOG_ERROR("Failed to initialize comments database");
+        shutdown_background_pool();
         cwist_app_destroy(app);
         return 1;
     }
     CWIST_LOG_INFO("Comments database initialized");
     if (!db_board_tree_init("data/board_tree.db")) {
         FLY_LOG_ERROR("Failed to initialize board tree database");
+        shutdown_background_pool();
         cwist_app_destroy(app);
         return 1;
     }
@@ -187,8 +247,11 @@ int main(void) {
     db_cleanup_orphaned_files(db);
     CWIST_LOG_INFO("Orphaned files cleanup completed");
 
-    pthread_t cleanup_tid;
-    pthread_create(&cleanup_tid, NULL, cleanup_worker, db);
+    g_cleanup_running = true;
+    if (!schedule_background_task(cleanup_worker, db, 0x434c45414e5550ULL, TTAK_TASK_DOMAIN_IO, 10)) {
+        g_cleanup_running = false;
+        FLY_LOG_ERROR("Failed to schedule cleanup worker");
+    }
 
     cwist_app_set_max_memspace(app, CWIST_MIB(512));
     cwist_app_configure_bdr(app, CWIST_MIB(256), 600, 250000);
@@ -198,6 +261,7 @@ int main(void) {
     cwist_error_t tls = cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
     if (tls.errtype != CWIST_ERR_INT16 || tls.error.err_i16 != 0) {
         FLY_LOG_ERROR("HTTPS init failed; run ./keygen.sh first");
+        shutdown_background_pool();
         cwist_app_destroy(app);
         return 1;
     }
@@ -209,6 +273,7 @@ int main(void) {
         cwist_error_t ech = cwist_app_use_ech(app, ech_key, ech_dir);
         if (ech.errtype != CWIST_ERR_INT16 || ech.error.err_i16 != 0) {
             FLY_LOG_ERROR("ECH init failed");
+            shutdown_background_pool();
             cwist_app_destroy(app);
             return 1;
         }
@@ -307,8 +372,7 @@ int main(void) {
     CWIST_LOG_INFO("Starting server on port %d (HTTP/3 on UDP %d)", g_config.port, g_config.port);
     printf("Docker Blog: https://localhost:%d (HTTP/3 on UDP %d)\n", g_config.port, g_config.port);
     int rc = cwist_app_listen(app, g_config.port);
-    g_nats_running = false;
-    fly_nats_close();
+    shutdown_background_pool();
     db_comment_close();
     db_board_tree_close();
     cwist_app_destroy(app);

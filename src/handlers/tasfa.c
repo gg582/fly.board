@@ -9,6 +9,9 @@
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
+#include <ttak/async/task.h>
+#include <ttak/thread/pool.h>
+#include <ttak/timing/timing.h>
 #include <strings.h>
 #include <sys/file.h>
 #include <sys/stat.h>
@@ -760,33 +763,19 @@ static bool is_chunk_already_received(const char *upload_id, int chunk_index) {
     return ok && val == '1';
 }
 
-/* --- Sticky Round-Robin Worker Scheduler --- */
-/* Limits concurrent chunk processing to CPU count while keeping same-upload-id
-   chunks on the same worker for cache locality and ordering. */
+/* --- TASFA Worker Scheduler --- */
+/* Uses libttak's sharded thread pool so upload/finalize jobs are routed by
+   stable hashes and managed by the shared pool policy instead of local pthreads. */
 
 #define TASFA_MAX_WORKERS 64
 
 typedef struct tasfa_job {
     void (*func)(void *);
     void *arg;
-    volatile bool done;
     bool free_after_done;
-    pthread_mutex_t mtx;
-    pthread_cond_t cond;
-    struct tasfa_job *next;
 } tasfa_job_t;
 
-typedef struct {
-    pthread_t tid;
-    pthread_mutex_t queue_lock;
-    pthread_cond_t queue_cond;
-    tasfa_job_t *head;
-    tasfa_job_t *tail;
-    bool shutdown;
-} tasfa_worker_t;
-
-static tasfa_worker_t g_workers[TASFA_MAX_WORKERS];
-static int g_worker_count = 0;
+static ttak_thread_pool_t *g_tasfa_pool = NULL;
 static pthread_once_t g_scheduler_once = PTHREAD_ONCE_INIT;
 static volatile unsigned int g_round_robin_idx = 0;
 
@@ -797,31 +786,11 @@ static unsigned int hash_upload_id(const char *id) {
     return h;
 }
 
-static void *tasfa_worker_loop(void *arg) {
-    tasfa_worker_t *w = (tasfa_worker_t *)arg;
-    while (1) {
-        pthread_mutex_lock(&w->queue_lock);
-        while (!w->shutdown && !w->head) {
-            pthread_cond_wait(&w->queue_cond, &w->queue_lock);
-        }
-        if (w->shutdown && !w->head) {
-            pthread_mutex_unlock(&w->queue_lock);
-            break;
-        }
-        tasfa_job_t *job = w->head;
-        w->head = job->next;
-        if (!w->head) w->tail = NULL;
-        pthread_mutex_unlock(&w->queue_lock);
-
+static void *tasfa_pool_job_run(void *arg) {
+    tasfa_job_t *job = (tasfa_job_t *)arg;
+    if (job && job->func) {
         job->func(job->arg);
-
-        pthread_mutex_lock(&job->mtx);
-        job->done = true;
-        pthread_cond_signal(&job->cond);
-        pthread_mutex_unlock(&job->mtx);
         if (job->free_after_done) {
-            pthread_mutex_destroy(&job->mtx);
-            pthread_cond_destroy(&job->cond);
             free(job);
         }
     }
@@ -832,14 +801,9 @@ static void tasfa_scheduler_init_impl(void) {
     int n = (int)sysconf(_SC_NPROCESSORS_ONLN);
     if (n < 2) n = 2;
     if (n > TASFA_MAX_WORKERS) n = TASFA_MAX_WORKERS;
-    g_worker_count = n;
-    for (int i = 0; i < n; i++) {
-        pthread_mutex_init(&g_workers[i].queue_lock, NULL);
-        pthread_cond_init(&g_workers[i].queue_cond, NULL);
-        g_workers[i].head = NULL;
-        g_workers[i].tail = NULL;
-        g_workers[i].shutdown = false;
-        pthread_create(&g_workers[i].tid, NULL, tasfa_worker_loop, &g_workers[i]);
+    g_tasfa_pool = ttak_thread_pool_create((size_t)n, 0, ttak_get_tick_count());
+    if (!g_tasfa_pool) {
+        fprintf(stderr, "[TASFA] Failed to initialize libttak scheduler pool.\n");
     }
 }
 
@@ -849,41 +813,29 @@ static void tasfa_scheduler_ensure_init(void) {
 
 static void tasfa_scheduler_submit(const char *upload_id, void (*func)(void *), void *arg, tasfa_job_t *job) {
     tasfa_scheduler_ensure_init();
-    int idx;
+    uint64_t hash;
     if (upload_id) {
-        unsigned int h = hash_upload_id(upload_id);
-        idx = (int)(h % (unsigned int)g_worker_count);
+        hash = (uint64_t)hash_upload_id(upload_id);
     } else {
-        idx = (int)(__sync_fetch_and_add(&g_round_robin_idx, 1) % (unsigned int)g_worker_count);
+        hash = (uint64_t)__sync_fetch_and_add(&g_round_robin_idx, 1);
     }
-    tasfa_worker_t *w = &g_workers[idx];
 
     job->func = func;
     job->arg = arg;
-    job->done = false;
-    job->next = NULL;
-    pthread_mutex_init(&job->mtx, NULL);
-    pthread_cond_init(&job->cond, NULL);
 
-    pthread_mutex_lock(&w->queue_lock);
-    if (w->tail) {
-        w->tail->next = job;
-    } else {
-        w->head = job;
+    uint64_t now = ttak_get_tick_count();
+    ttak_task_t *task = ttak_task_create(tasfa_pool_job_run, job, NULL, now);
+    if (task) {
+        ttak_task_set_hash(task, hash);
+        ttak_task_set_domain(task, TTAK_TASK_DOMAIN_IO);
+        ttak_task_set_urgency(task, 70);
+        if (g_tasfa_pool && ttak_thread_pool_schedule_task(g_tasfa_pool, task, 0, now)) {
+            return;
+        }
+        ttak_task_destroy(task, now);
     }
-    w->tail = job;
-    pthread_cond_signal(&w->queue_cond);
-    pthread_mutex_unlock(&w->queue_lock);
-}
 
-static void tasfa_scheduler_wait(tasfa_job_t *job) {
-    pthread_mutex_lock(&job->mtx);
-    while (!job->done) {
-        pthread_cond_wait(&job->cond, &job->mtx);
-    }
-    pthread_mutex_unlock(&job->mtx);
-    pthread_mutex_destroy(&job->mtx);
-    pthread_cond_destroy(&job->cond);
+    tasfa_pool_job_run(job);
 }
 
 /* --- Session Management --- */

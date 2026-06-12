@@ -1,22 +1,28 @@
 FROM archlinux:base-devel
 
+# Install build/runtime dependencies
 RUN pacman -Syu --noconfirm \
-    && pacman -S --noconfirm \
+    && pacman -S --needed --noconfirm \
         git cmake ninja gcc make pkgconf \
         openssl libnghttp3 libngtcp2 zlib \
         sqlite cjson uriparser \
-        curl wget \
+        curl wget coreutils \
     && pacman -Scc --noconfirm
 
-# Build and install cwist
-RUN git clone --depth 1 --recursive https://github.com/religiya-serdtsa/cwist.git /tmp/cwist \
-    && cd /tmp/cwist \
-    && if [ -s /tmp/cwist_http2.patch ]; then patch -p0 < /tmp/cwist_http2.patch; fi \
-    && sed -i 's|FIND_PATH(ZLIB_INCLUDE_DIR NAMES zlib.h)|SET(ZLIB_INCLUDE_DIR /usr/include)|' lib/lsquic/CMakeLists.txt \
-    && sed -i 's|FIND_LIBRARY(ZLIB_LIB libz\${LIB_SUFFIX})|SET(ZLIB_LIB /usr/lib/libz.so)|' lib/lsquic/CMakeLists.txt \
-    && make -j$(nproc) \
-    && make install \
-    && rm -rf /tmp/cwist
+# Build and install cwist (with retry in case of transient network issues)
+RUN set -eux; \
+    for i in 1 2 3; do \
+        git clone --depth 1 --recursive https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break; \
+        echo "cwist clone attempt $i failed, retrying..."; \
+        rm -rf /tmp/cwist; \
+        sleep 5; \
+    done; \
+    cd /tmp/cwist; \
+    sed -i 's|FIND_PATH(ZLIB_INCLUDE_DIR NAMES zlib.h)|SET(ZLIB_INCLUDE_DIR /usr/include)|' lib/lsquic/CMakeLists.txt; \
+    sed -i 's|FIND_LIBRARY(ZLIB_LIB libz\${LIB_SUFFIX})|SET(ZLIB_LIB /usr/lib/libz.so)|' lib/lsquic/CMakeLists.txt; \
+    make -j$(nproc); \
+    make install; \
+    rm -rf /tmp/cwist
 
 WORKDIR /app
 COPY . .
@@ -29,7 +35,7 @@ RUN make deps \
 
 RUN chmod +x /app/entrypoint.sh
 
-EXPOSE 8443/tcp
-EXPOSE 8443/udp
+EXPOSE 8888/tcp
+EXPOSE 8888/udp
 
 CMD ["/app/entrypoint.sh"]
