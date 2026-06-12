@@ -1,0 +1,32 @@
+# Git metadata (large, not needed for build)
+.git
+.gitmodules
+.gitignore
+
+# Docker files
+Dockerfile
+docker-compose.yml
+compose.yml
+
+# Documentation
+*.md
+README*
+
+# Runtime data & logs
+data
+*.db
+*.log
+
+# Tests (not needed in image)
+tests
+
+# Build artifacts
+*.o
+*.a
+fly_board
+
+# Local uploads/media caches
+public/uploads
+public/media
+public/profile
+public/images
