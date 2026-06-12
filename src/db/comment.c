@@ -39,12 +39,16 @@ bool db_comment_create(cwist_db *db, const char *target_type, int target_id, int
     const char *sql = "INSERT INTO comments (target_type, target_id, user_id, author_name, parent_id, content) VALUES (?,?,?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(g_comments_db, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, target_type, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 1, target_type, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, target_id);
     sqlite3_bind_int(stmt, 3, user_id);
-    sqlite3_bind_text(stmt, 4, author_name ? author_name : "", -1, SQLITE_STATIC);
-    sqlite3_bind_int(stmt, 5, parent_id);
-    sqlite3_bind_text(stmt, 6, content, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 4, author_name ? author_name : "", -1, SQLITE_TRANSIENT);
+    if (parent_id > 0) {
+        sqlite3_bind_int(stmt, 5, parent_id);
+    } else {
+        sqlite3_bind_null(stmt, 5);
+    }
+    sqlite3_bind_text(stmt, 6, content, -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
@@ -56,7 +60,7 @@ bool db_comment_update(cwist_db *db, int id, int user_id, const char *content) {
     const char *sql = "UPDATE comments SET content=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND deleted=0";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(g_comments_db, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, content, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 1, content, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, id);
     sqlite3_bind_int(stmt, 3, user_id);
     int rc = sqlite3_step(stmt);
@@ -93,7 +97,7 @@ cJSON *db_comment_list_by_target(cwist_db *db, const char *target_type, int targ
     const char *sql = "SELECT id, target_type, target_id, user_id, author_name, parent_id, content, created_at, updated_at, deleted FROM comments WHERE target_type=? AND target_id=? ORDER BY created_at ASC";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(g_comments_db, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
-    sqlite3_bind_text(stmt, 1, target_type, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 1, target_type, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, target_id);
     return db_sqlite3_rows_to_json(stmt);
 }

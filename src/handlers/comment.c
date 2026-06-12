@@ -5,7 +5,8 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
-    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    cwist_query_map *kv = cwist_query_map_create();
+    if (req->body && req->body->data) cwist_query_map_parse(kv, req->body->data);
     const char *target_type = cwist_query_map_get(kv, "target_type");
     const char *target_id_str = cwist_query_map_get(kv, "target_id");
     const char *parent_id_str = cwist_query_map_get(kv, "parent_id");
@@ -16,11 +17,15 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
         int target_id = atoi(target_id_str);
         int parent_id = parent_id_str ? atoi(parent_id_str) : 0;
         const char *author_name = NULL;
+        char author_name_buf[128] = {0};
         if (uid > 0) {
             cJSON *u = db_user_get_by_id(req->db, uid);
             if (u) {
                 cJSON *uname = cJSON_GetObjectItem(u, "username");
-                if (uname && uname->valuestring) author_name = uname->valuestring;
+                if (uname && uname->valuestring) {
+                    snprintf(author_name_buf, sizeof(author_name_buf), "%s", uname->valuestring);
+                    author_name = author_name_buf;
+                }
             }
             if (u) cJSON_Delete(u);
         } else {
@@ -42,7 +47,8 @@ void handler_comment_edit_post(cwist_http_request *req, cwist_http_response *res
     int uid = 0;
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
-    cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
+    cwist_query_map *kv = cwist_query_map_create();
+    if (req->body && req->body->data) cwist_query_map_parse(kv, req->body->data);
     const char *id_str = cwist_query_map_get(kv, "id");
     const char *content = cwist_query_map_get(kv, "content");
     const char *referer = cwist_http_header_get(req->headers, "Referer");
