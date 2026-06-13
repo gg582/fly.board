@@ -24,7 +24,8 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         char *token = auth_jwt_issue(1, username, "admin");
         if (token) {
             char cookie[2048];
-            snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax", SESSION_COOKIE_NAME, token);
+            const char *secure_attr = g_config.use_tls ? "; Secure" : "";
+            snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, token, secure_attr);
             cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
             cwist_free(token);
         }
@@ -54,7 +55,8 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     char *token = auth_jwt_issue(user_id, uname->valuestring, role->valuestring);
     if (token) {
         char cookie[2048];
-        snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax", SESSION_COOKIE_NAME, token);
+        const char *secure_attr = g_config.use_tls ? "; Secure" : "";
+        snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, token, secure_attr);
         cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
         cwist_free(token);
     }
@@ -66,7 +68,8 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
 void handler_logout(cwist_http_request *req, cwist_http_response *res) {
     (void)req;
     char cookie[256];
-    snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax", SESSION_COOKIE_NAME);
+    const char *secure_attr = g_config.use_tls ? "; Secure" : "";
+    snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, secure_attr);
     cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
     redirect(res, "/");
 }

@@ -133,7 +133,7 @@
     if(!/^(light|dark|ocean|forest|sepia)$/.test(mode))mode='light';
     function applyCached(){if(themes){applyTheme(findTheme(themes,mode));}}
     applyCached();
-    fetch('/themes.json',{cache:'no-store'}).then(function(r){return r.json();}).then(function(arr){
+    fetch('/themes.json',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
         saveThemes(arr);
         themes=arr;
         applyTheme(findTheme(arr,mode));
@@ -145,7 +145,7 @@
         setHlCss(mode);
         updateBtn(mode);
         if(themes){applyTheme(findTheme(themes,mode));return;}
-        fetch('/themes.json',{cache:'no-store'}).then(function(r){return r.json();}).then(function(arr){
+        fetch('/themes.json',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
             saveThemes(arr);
             themes=arr;
             applyTheme(findTheme(arr,mode));
@@ -189,7 +189,7 @@
         }
     }
     function loadBoardsDropdown(){
-        fetch('/api/boards',{headers:{'Accept':'application/json'}}).then(function(r){
+        fetch('/api/boards',{credentials:'same-origin',headers:{'Accept':'application/json'}}).then(function(r){
             if(!r.ok)throw new Error('boards fetch failed');
             return r.json();
         }).then(function(arr){

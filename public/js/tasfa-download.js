@@ -619,7 +619,7 @@
                     'X-TASFA-Session-Token': session.sessionToken,
                     'Range': 'bytes=' + range.start + '-' + range.end
                 };
-                var rangeResponse = await fetch(baseUrl, { headers: rangeHeaders });
+                var rangeResponse = await fetch(baseUrl, { credentials: 'same-origin', headers: rangeHeaders });
                 if (!rangeResponse.ok) throw new Error('range fetch failed: ' + rangeResponse.status);
                 return { blob: await rangeResponse.blob(), filename: session.filename };
             }

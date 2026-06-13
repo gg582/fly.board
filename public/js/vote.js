@@ -19,6 +19,7 @@ updateVoteStyle(uv);
 function sendVote(vt){
 fetch('/post/vote',{
 method:'POST',
+credentials:'same-origin',
 headers:{'Content-Type':'application/x-www-form-urlencoded'},
 body:'post_id='+pid+'&vote_type='+vt
 })
