@@ -55,6 +55,7 @@ int db_post_count_search(cwist_db *db, int board_id, const char *search, const c
 /* Post votes */
 bool db_post_vote(cwist_db *db, int post_id, int user_id, int vote_type);
 bool db_post_vote_remove(cwist_db *db, int post_id, int user_id);
+bool db_post_vote_anon(cwist_db *db, int post_id, int vote_type);
 cJSON *db_post_vote_counts(cwist_db *db, int post_id);
 int db_post_user_vote(cwist_db *db, int post_id, int user_id);
 
