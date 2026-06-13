@@ -165,13 +165,13 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
         }
     }
     cwist_http_header_add(&res->headers, "Content-Security-Policy",
-        "default-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net data: blob:; "
-        "script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.plyr.io; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.plyr.io; "
-        "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; "
-        "img-src 'self' blob: data:; "
-        "media-src 'self' blob:; "
-        "connect-src 'self'; "
+        "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.plyr.io data: blob:; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.plyr.io data: blob:; "
+        "style-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.plyr.io data: blob:; "
+        "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:; "
+        "img-src 'self' blob: data: https:; "
+        "media-src 'self' blob: data: https:; "
+        "connect-src 'self' https:; "
         "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none';");
 
     if (req->method == CWIST_HTTP_OPTIONS) {
