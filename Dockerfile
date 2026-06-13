@@ -29,6 +29,10 @@ COPY . .
 
 ENV EXTRA_CFLAGS="-I/app/third_party/libttak/include"
 
+# Rebuild libttak inside the container so its LTO bytecode matches the image's toolchain
+RUN if [ -f /app/third_party/libttak/Makefile ]; then make -C /app/third_party/libttak clean || true; fi \
+    && rm -f /app/third_party/libttak/lib/libttak.a
+
 # Build md4c and fly_board
 RUN make deps \
     && make

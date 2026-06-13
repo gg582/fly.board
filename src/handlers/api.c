@@ -128,7 +128,7 @@ void handler_themes_json(cwist_http_request *req, cwist_http_response *res) {
     (void)req;
     char *json = theme_build_all_json();
     cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
-    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-store, no-cache, must-revalidate, private");
     if (json) {
         cwist_sstring_assign(res->body, json);
         free(json);

@@ -150,6 +150,9 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
     cwist_http_header_add(&res->headers, "Access-Control-Expose-Headers", "Content-Length, Content-Type, X-Request-Id");
     cwist_http_header_add(&res->headers, "Access-Control-Max-Age", "86400");
 
+    const char *path = (req->path && req->path->data) ? req->path->data : "";
+    bool is_static_asset = (strncmp(path, "/assets/", 8) == 0) || strcmp(path, "/sw.js") == 0;
+
     /* Remove any existing Content-Security-Policy header added by the framework
        so that our policy (which allows blob: URLs for img/media) is the only one sent. */
     cwist_http_header_node **cur = &res->headers;
@@ -164,15 +167,20 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
             cur = &(*cur)->next;
         }
     }
-    cwist_http_header_add(&res->headers, "Content-Security-Policy",
-        "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.plyr.io data: blob:; "
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.plyr.io data: blob:; "
-        "style-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.plyr.io data: blob:; "
-        "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:; "
-        "img-src 'self' blob: data: https:; "
-        "media-src 'self' blob: data: https:; "
-        "connect-src 'self' https:; "
-        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none';");
+
+    /* Static assets (images, js, css, media) do not need a CSP. Adding one can
+       confuse Firefox when it evaluates img-src for cached/subresource loads. */
+    if (!is_static_asset) {
+        cwist_http_header_add(&res->headers, "Content-Security-Policy",
+            "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.plyr.io data: blob:; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.plyr.io data: blob:; "
+            "style-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.plyr.io data: blob:; "
+            "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:; "
+            "img-src 'self' blob: data: https:; "
+            "media-src 'self' blob: data: https:; "
+            "connect-src 'self' https:; "
+            "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none';");
+    }
 
     if (req->method == CWIST_HTTP_OPTIONS) {
         res->status_code = CWIST_HTTP_NO_CONTENT;

@@ -246,6 +246,16 @@ self.addEventListener('fetch', function(event) {
         return;
     }
 
+    function withoutCsp(response) {
+        var headers = new Headers(response.headers);
+        headers.delete('content-security-policy');
+        return new Response(response.body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: headers
+        });
+    }
+
     // Logo and favicon caching (cache-first with 24h TTL)
     if ((event.request.destination === 'image' || url.includes('favicon')) && (isLogoUrl(url) || url.includes('favicon'))) {
         event.respondWith(
@@ -255,12 +265,12 @@ self.addEventListener('fetch', function(event) {
                     if (cachedResponse && cachedResponse.ok) {
                         var fetched = cachedResponse.headers.get('x-sw-fetched');
                         if (fetched && (now - parseInt(fetched, 10)) < LOGO_MAX_AGE) {
-                            return cachedResponse;
+                            return withoutCsp(cachedResponse);
                         }
                     }
                     return fetch(event.request).then(function(networkResponse) {
                         if (!networkResponse.ok) {
-                            return cachedResponse && cachedResponse.ok ? cachedResponse : networkResponse;
+                            return cachedResponse && cachedResponse.ok ? withoutCsp(cachedResponse) : networkResponse;
                         }
                         // Use blob() for Firefox compatibility when reconstructing Response
                         return networkResponse.blob().then(function(blob) {
@@ -272,15 +282,15 @@ self.addEventListener('fetch', function(event) {
                                 headers: headers
                             });
                             cache.put(event.request, modified);
-                            return new Response(blob, {
+                            return withoutCsp(new Response(blob, {
                                 status: networkResponse.status,
                                 statusText: networkResponse.statusText,
                                 headers: networkResponse.headers
-                            });
+                            }));
                         });
                     }).catch(function(err) {
                         if (cachedResponse && cachedResponse.ok) {
-                            return cachedResponse;
+                            return withoutCsp(cachedResponse);
                         }
                         // Do not let respondWith reject on network errors
                         return new Response('', {
