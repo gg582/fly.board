@@ -302,5 +302,40 @@
     }
 
     // 10. Service Worker
-    if('serviceWorker'in navigator){navigator.serviceWorker.register('/sw.js');}
+    if('serviceWorker'in navigator){
+        function registerSw(retry){
+            navigator.serviceWorker.register('/sw.js').then(function(reg){
+                if(typeof console!=='undefined'&&console.log) console.log('[SW] registered:', reg.scope);
+            }).catch(function(err){
+                if(typeof console!=='undefined'&&console.warn) console.warn('[SW] registration failed:', err);
+                if(!retry) setTimeout(function(){ registerSw(true); }, 1000);
+            });
+        }
+        registerSw(false);
+    }
+
+    // 11. Firefox occasionally drops same-origin sub-resource requests (extensions,
+    //     strict tracking protection, .zip TLD heuristics). Retry failed scripts once.
+    (function(){
+        if(!window.addEventListener) return;
+        var retried = {};
+        window.addEventListener('error', function(e){
+            var target = e.target;
+            if(!target || (target.tagName !== 'SCRIPT' && target.tagName !== 'LINK')) return;
+            var url = target.src || target.href || '';
+            if(!url || url.indexOf(window.location.origin) !== 0) return;
+            if(retried[url]) return;
+            retried[url] = true;
+            if(target.tagName === 'SCRIPT'){
+                setTimeout(function(){
+                    try { target.remove(); } catch(err) {}
+                    var s = document.createElement('script');
+                    s.src = url;
+                    s.async = true;
+                    var container = document.head || document.body || document.documentElement;
+                    if(container) container.appendChild(s);
+                }, 500);
+            }
+        }, true);
+    })();
 })();
