@@ -1,6 +1,6 @@
-var LOGO_CACHE = 'logo-cache-v1';
+var LOGO_CACHE = 'logo-cache-v2';
 var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
-var LOGO_MAX_AGE = 86400000; // 86400 seconds in milliseconds
+var LOGO_MAX_AGE = 3600000; // 1 hour in milliseconds
 var tasfaSessions = {};
 
 /* Progressive video streaming streams managed by the Service Worker */
@@ -249,34 +249,44 @@ self.addEventListener('fetch', function(event) {
     if ((event.request.destination === 'image' || url.includes('favicon')) && (isLogoUrl(url) || url.includes('favicon'))) {
         event.respondWith(
             caches.open(LOGO_CACHE).then(function(cache) {
-                return cache.match(event.request).then(function(response) {
+                return cache.match(event.request).then(function(cachedResponse) {
                     var now = Date.now();
-                    if (response && response.ok) {
-                        var fetched = response.headers.get('x-sw-fetched');
+                    if (cachedResponse && cachedResponse.ok) {
+                        var fetched = cachedResponse.headers.get('x-sw-fetched');
                         if (fetched && (now - parseInt(fetched, 10)) < LOGO_MAX_AGE) {
-                            return response;
+                            return cachedResponse;
                         }
                     }
                     return fetch(event.request).then(function(networkResponse) {
-                        if (networkResponse.ok) {
-                            var clone = networkResponse.clone();
-                            var headers = new Headers(clone.headers);
+                        if (!networkResponse.ok) {
+                            return cachedResponse && cachedResponse.ok ? cachedResponse : networkResponse;
+                        }
+                        // Use blob() for Firefox compatibility when reconstructing Response
+                        return networkResponse.blob().then(function(blob) {
+                            var headers = new Headers(networkResponse.headers);
                             headers.set('x-sw-fetched', now.toString());
-                            var modified = new Response(clone.body, {
-                                status: clone.status,
-                                statusText: clone.statusText,
+                            var modified = new Response(blob, {
+                                status: networkResponse.status,
+                                statusText: networkResponse.statusText,
                                 headers: headers
                             });
                             cache.put(event.request, modified);
-                        } else if (response && response.ok) {
-                            return response;
-                        }
-                        return networkResponse;
+                            return new Response(blob, {
+                                status: networkResponse.status,
+                                statusText: networkResponse.statusText,
+                                headers: networkResponse.headers
+                            });
+                        });
                     }).catch(function(err) {
-                        if (response && response.ok) {
-                            return response;
+                        if (cachedResponse && cachedResponse.ok) {
+                            return cachedResponse;
                         }
-                        throw err;
+                        // Do not let respondWith reject on network errors
+                        return new Response('', {
+                            status: 404,
+                            statusText: 'Not Found',
+                            headers: { 'Content-Type': 'text/plain' }
+                        });
                     });
                 });
             })

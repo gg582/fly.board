@@ -39,13 +39,13 @@ cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pi
             cwist_sstring_append(b, "<input type='hidden' name='id' value='");
             cwist_sstring_append(b, uid_buf);
             cwist_sstring_append(b, "'>");
-            cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete?\")'>Delete</button></form>");
+            cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Delete?'>Delete</button></form>");
             cwist_sstring_append(b, "</td></tr>");
         }
     }
     cwist_sstring_append(b, "</tbody></table></div></div>");
     cwist_sstring_append(b, "<div class='card' style='margin-top:20px'><h3 style='margin-top:0'>File Admin</h3>");
-    cwist_sstring_append(b, "<form action='/admin/files/drop' method='post' onsubmit='return confirm(&quot;Drop ALL files? This cannot be undone.&quot;)'>");
+    cwist_sstring_append(b, "<form action='/admin/files/drop' method='post' data-confirm='Drop ALL files? This cannot be undone.'>");
     cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Drop All Files</button></form></div>");
     cwist_sstring *page = render_page("User Admin", b->data, dark, "admin", profile_pic, is_mobile);
     cwist_sstring_destroy(b);
@@ -64,7 +64,7 @@ cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool i
     cwist_sstring_append(b, "<a href='/admin/boards' class='btn'>Go to Manage Boards</a></section>");
     cwist_sstring_append(b, "<section class='board-line fade-in' style='animation-delay:0.10s'><div class='board-line-head'><h2 class='board-line-title'>File Admin</h2></div>");
     cwist_sstring_append(b, "<p class='board-card-desc'>Drop all uploaded files. This action cannot be undone.</p>");
-    cwist_sstring_append(b, "<form action='/admin/files/drop' method='post' onsubmit='return confirm(&quot;Drop ALL files? This cannot be undone.&quot;)'>");
+    cwist_sstring_append(b, "<form action='/admin/files/drop' method='post' data-confirm='Drop ALL files? This cannot be undone.'>");
     cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Drop All Files</button></form></section>");
     cwist_sstring_append(b, "</div>");
     cwist_sstring *page = render_page("Dashboard", b->data, dark, "admin", profile_pic, is_mobile);

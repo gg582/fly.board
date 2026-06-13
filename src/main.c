@@ -256,16 +256,26 @@ int main(void) {
     cwist_app_set_max_memspace(app, CWIST_MIB(512));
     cwist_app_configure_bdr(app, CWIST_MIB(256), 600, 250000);
 
-    cwist_app_use_https2(app, true);
-    cwist_app_use_https3(app, true);
-    cwist_error_t tls = cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
-    if (tls.errtype != CWIST_ERR_INT16 || tls.error.err_i16 != 0) {
-        FLY_LOG_ERROR("HTTPS init failed; run ./keygen.sh first");
-        shutdown_background_pool();
-        cwist_app_destroy(app);
-        return 1;
+    if (g_config.use_http2) {
+        cwist_app_use_https2(app, true);
+        CWIST_LOG_INFO("HTTP/2 enabled");
     }
-    CWIST_LOG_INFO("HTTPS initialized");
+    if (g_config.use_http3) {
+        cwist_app_use_https3(app, true);
+        CWIST_LOG_INFO("HTTP/3 enabled");
+    }
+    if (g_config.use_tls) {
+        cwist_error_t tls = cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
+        if (tls.errtype != CWIST_ERR_INT16 || tls.error.err_i16 != 0) {
+            FLY_LOG_ERROR("HTTPS init failed; run ./keygen.sh first");
+            shutdown_background_pool();
+            cwist_app_destroy(app);
+            return 1;
+        }
+        CWIST_LOG_INFO("HTTPS initialized");
+    } else {
+        CWIST_LOG_INFO("TLS disabled, running plain HTTP");
+    }
 
     const char *ech_key = getenv("BLOG_ECH_KEY");
     const char *ech_dir = getenv("BLOG_ECH_DIR");
@@ -369,8 +379,26 @@ int main(void) {
      * falling back to epoll/kqueue on other platforms. */
     setenv("CWIST_C1M_MODE", "1", 1);
 
-    CWIST_LOG_INFO("Starting server on port %d (HTTP/3 on UDP %d)", g_config.port, g_config.port);
-    printf("Docker Blog: https://localhost:%d (HTTP/3 on UDP %d)\n", g_config.port, g_config.port);
+    if (g_config.use_tls) {
+        if (g_config.use_http3) {
+            CWIST_LOG_INFO("Starting server on port %d (HTTP/3 on UDP %d)", g_config.port, g_config.port);
+            printf("Docker Blog: https://localhost:%d (HTTP/3 on UDP %d)\n", g_config.port, g_config.port);
+        } else if (g_config.use_http2) {
+            CWIST_LOG_INFO("Starting server on port %d (HTTP/2)", g_config.port);
+            printf("Docker Blog: https://localhost:%d (HTTP/2)\n", g_config.port);
+        } else {
+            CWIST_LOG_INFO("Starting server on port %d (HTTPS)", g_config.port);
+            printf("Docker Blog: https://localhost:%d\n", g_config.port);
+        }
+    } else {
+        if (g_config.use_http2) {
+            CWIST_LOG_INFO("Starting server on port %d (HTTP/2, plain)", g_config.port);
+            printf("Docker Blog: http://localhost:%d (HTTP/2)\n", g_config.port);
+        } else {
+            CWIST_LOG_INFO("Starting server on port %d (HTTP/1.1, plain)", g_config.port);
+            printf("Docker Blog: http://localhost:%d\n", g_config.port);
+        }
+    }
     int rc = cwist_app_listen(app, g_config.port);
     shutdown_background_pool();
     db_comment_close();
