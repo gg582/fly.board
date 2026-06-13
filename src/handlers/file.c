@@ -144,20 +144,29 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
     res->file_stream_auto_close = true;
     cwist_sstring_assign(res->body, "");
 
+    size_t response_len;
     if (is_range) {
         res->status_code = (cwist_http_status_t)206;
         char content_range[128];
         snprintf(content_range, sizeof(content_range), "bytes %lld-%lld/%lld",
                  (long long)range_start, (long long)range_end, (long long)st.st_size);
         cwist_http_header_add(&res->headers, "Content-Range", content_range);
-        
-        res->file_stream_len = (size_t)(range_end - range_start + 1);
+
+        response_len = (size_t)(range_end - range_start + 1);
+        res->file_stream_len = response_len;
         res->file_stream_offset = range_start;
     } else {
         res->status_code = CWIST_HTTP_OK;
+        response_len = sz;
         res->file_stream_len = sz;
         res->file_stream_offset = 0;
     }
+
+    /* Firefox is strict about Content-Length matching the actual body length
+       for range responses; ensure the header is explicit and correct. */
+    char len_buf[32];
+    snprintf(len_buf, sizeof(len_buf), "%zu", response_len);
+    cwist_http_header_add(&res->headers, "Content-Length", len_buf);
 
     return true;
 }

@@ -106,13 +106,46 @@ function handleRangeRequest(request, response) {
 
     return response.blob().then(function(blob) {
         var total = blob.size;
+
+        if (!response.ok) {
+            return new Response(blob, {
+                status: response.status,
+                statusText: response.statusText,
+                headers: response.headers
+            });
+        }
+
         var match = rangeHeader.trim().match(/^bytes=(\d+)-(\d+)?$/);
         if (!match) {
+            var suffixMatch = rangeHeader.trim().match(/^bytes=-(\d+)$/);
+            if (suffixMatch) {
+                var suffixLen = parseInt(suffixMatch[1], 10);
+                if (suffixLen <= 0) {
+                    return new Response('', {
+                        status: 416,
+                        headers: { 'Content-Range': 'bytes */' + total }
+                    });
+                }
+                var suffixStart = Math.max(0, total - suffixLen);
+                var suffixBlob = blob.slice(suffixStart, total);
+                var suffixHeaders = new Headers(response.headers);
+                suffixHeaders.set('Content-Range', 'bytes ' + suffixStart + '-' + (total - 1) + '/' + total);
+                suffixHeaders.set('Content-Length', suffixBlob.size.toString());
+                suffixHeaders.set('Accept-Ranges', 'bytes');
+                return new Response(suffixBlob, {
+                    status: 206,
+                    statusText: 'Partial Content',
+                    headers: suffixHeaders
+                });
+            }
+            /* Multi-range or unsupported syntax: return the full resource
+               rather than fabricating a malformed 206 response. */
             return new Response(blob, {
                 status: 200,
                 headers: response.headers
             });
         }
+
         var start = parseInt(match[1], 10);
         var end = match[2] ? parseInt(match[2], 10) : total - 1;
         if (end >= total) {
@@ -202,7 +235,11 @@ self.addEventListener('fetch', function(event) {
     }
 
     /* Progressive TASFA video stream: the client feeds chunks through
-       postMessage and the media element reads from this URL. */
+       postMessage and the media element reads from this URL.
+       This stream is strictly sequential; do not advertise byte ranges,
+       because the ReadableStream is always fed from byte 0. Firefox in
+       particular treats a Content-Length/range mismatch as a partial
+       transfer error (NS_ERROR_PARTIAL_TRANSFER). */
     if (url.indexOf(self.location.origin + '/__tasfa_stream__/') === 0 && event.request.method === 'GET') {
         var pathParts = new URL(url).pathname.split('/');
         var streamId = pathParts[pathParts.length - 1];
@@ -211,26 +248,30 @@ self.addEventListener('fetch', function(event) {
             var headers = new Headers();
             headers.set('Content-Type', entry.headers.contentType || 'application/octet-stream');
             var totalLength = Number(entry.headers.contentLength || 0);
-            if (entry.headers.contentLength) {
-                headers.set('Content-Length', entry.headers.contentLength);
-            }
-            headers.set('Accept-Ranges', 'bytes');
-            var status = 200;
             var rangeHeader = event.request.headers.get('Range');
+            var status = 200;
+
             if (rangeHeader && totalLength > 0) {
                 var match = rangeHeader.trim().match(/^bytes=(\d+)-(\d+)?$/);
                 if (match) {
                     var start = parseInt(match[1], 10);
                     if (start === 0) {
+                        /* First-byte range request: serve as 206 so the player
+                           knows range requests are honoured for this URL. */
                         status = 206;
                         headers.set('Content-Range', 'bytes 0-' + (totalLength - 1) + '/' + totalLength);
+                        headers.set('Content-Length', entry.headers.contentLength);
+                        headers.set('Accept-Ranges', 'bytes');
                     }
-                    /* Range requests with start > 0 are not directly supported by the
-                       progressive stream, but returning 416 would kill the media player.
-                       Fall back to 200 and keep serving the stream. */
+                    /* start > 0 is not supported by a sequential stream.
+                       Fall back to 200 with no Content-Length so Firefox does
+                       not see a promised length mismatch. */
                 }
-                /* If match is null (e.g. suffix range), stay on 200 and return the stream as-is */
+                /* Suffix or multi-range: same no-length fallback. */
+            } else if (totalLength > 0) {
+                headers.set('Content-Length', entry.headers.contentLength);
             }
+
             event.respondWith(new Response(entry.stream, {
                 status: status,
                 headers: headers
