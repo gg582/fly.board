@@ -162,11 +162,12 @@ function fetchWithRetry(request, retries) {
 }
 
 self.addEventListener('fetch', function(event) {
-    var url = event.request.url;
-    // Don't intercept cross-origin requests (multi-port)
-    if (new URL(url).origin !== self.location.origin) return;
+    try {
+        var url = event.request.url;
+        // Don't intercept cross-origin requests (multi-port)
+        if (new URL(url).origin !== self.location.origin) return;
 
-    if (url.indexOf(self.location.origin + '/file/download/') === 0 && event.request.method === 'GET') {
+        if (url.indexOf(self.location.origin + '/file/download/') === 0 && event.request.method === 'GET') {
         var session = lookupTasfaSession(url);
         if (session) {
             var headers = new Headers(event.request.headers);
@@ -304,4 +305,8 @@ self.addEventListener('fetch', function(event) {
         });
     });
     event.respondWith(promise);
+    } catch (e) {
+        // Never let a service-worker exception break a page request.
+        if (typeof console !== 'undefined' && console.error) console.error('[SW] fetch handler error:', e);
+    }
 });
