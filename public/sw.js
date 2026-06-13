@@ -144,7 +144,7 @@ function handleRangeRequest(request, response) {
 
 function fetchWithRetry(request, retries) {
     retries = retries || 0;
-    return fetch(request).then(function(response) {
+    return fetch(request, { credentials: 'same-origin' }).then(function(response) {
         if ((response.status >= 500 || !response.ok) && retries < 3) {
             return new Promise(function(resolve) { setTimeout(resolve, 500); }).then(function() {
                 return fetchWithRetry(request, retries + 1);
@@ -174,7 +174,7 @@ self.addEventListener('fetch', function(event) {
             headers.set('X-TASFA-Session-ID', session.sessionId);
             headers.set('X-TASFA-Session-Token', session.sessionToken);
             event.respondWith(
-                fetch(new Request(url, { headers: headers })).then(function(response) {
+                fetch(new Request(url, { headers: headers, credentials: 'same-origin' })).then(function(response) {
                     if (event.request.headers.get('Range')) {
                         if (response.status === 206) return response;
                         if (session.ultraFastConnection) return response;
@@ -192,7 +192,7 @@ self.addEventListener('fetch', function(event) {
             caches.open(TASFA_MEDIA_CACHE).then(function(cache) {
                 return cache.match(event.request).then(function(response) {
                     if (!response) {
-                        return fetch(event.request);
+                        return fetch(event.request, { credentials: 'same-origin' });
                     }
                     return handleRangeRequest(event.request, response);
                 });
@@ -268,7 +268,7 @@ self.addEventListener('fetch', function(event) {
                             return withoutCsp(cachedResponse);
                         }
                     }
-                    return fetch(event.request).then(function(networkResponse) {
+                    return fetch(event.request, { credentials: 'same-origin' }).then(function(networkResponse) {
                         if (!networkResponse.ok) {
                             return cachedResponse && cachedResponse.ok ? withoutCsp(cachedResponse) : networkResponse;
                         }

@@ -474,6 +474,7 @@
             });
             fetch(UPLOAD_RENEGOTIATE_ENDPOINT, {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 body: encodeFormBody(values)
             }).then(function(response) {
@@ -1330,6 +1331,7 @@
             if (asset.uploadId) {
                 fetch(UPLOAD_CANCEL_ENDPOINT, {
                     method: 'POST',
+                    credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: 'upload_ids=' + encodeURIComponent(JSON.stringify([asset.uploadId]))
                 });
@@ -1351,6 +1353,7 @@
                 if (asset.uploadId) {
                     fetch(UPLOAD_CANCEL_ENDPOINT, {
                         method: 'POST',
+                        credentials: 'same-origin',
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                         body: 'upload_ids=' + encodeURIComponent(JSON.stringify([asset.uploadId]))
                     });
@@ -1388,6 +1391,7 @@
             if (asset.fid !== null) {
                 fetch('/file/delete', {
                     method: 'POST',
+                    credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: 'id=' + encodeURIComponent(String(asset.fid)) +
                         '&delete_pin=' + encodeURIComponent(asset.deletePin || '')
@@ -1921,6 +1925,7 @@
             });
             fetch(UPLOAD_INIT_ENDPOINT, {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 body: encodeFormBody(values),
                 signal: controller.signal
@@ -2009,6 +2014,7 @@
         var timeoutId = setTimeout(function() { controller.abort(); }, TASFA_CONNECT_TIMEOUT_MS);
         fetch(UPLOAD_STATUS_ENDPOINT, {
             method: 'POST',
+            credentials: 'same-origin',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             body: body,
             signal: controller.signal
@@ -2524,6 +2530,7 @@
         var timeoutId = setTimeout(function() { controller.abort(); }, TASFA_CONNECT_TIMEOUT_MS);
         fetch(UPLOAD_STATUS_ENDPOINT, {
             method: 'POST',
+            credentials: 'same-origin',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             body: body,
             signal: controller.signal
@@ -3007,6 +3014,7 @@
         var targetUrl = event.currentTarget.href;
         fetch(UPLOAD_CANCEL_ENDPOINT, {
             method: 'POST',
+            credentials: 'same-origin',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: 'fids=' + encodeURIComponent(JSON.stringify(transientFids)) +
                 '&upload_ids=' + encodeURIComponent(JSON.stringify(transientUploadIds))
@@ -3038,6 +3046,7 @@
         if (btn) btn.disabled = true;
         fetch(form.action || '/file/delete', {
             method: 'POST',
+            credentials: 'same-origin',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
             body: new URLSearchParams(new FormData(form))
         }).then(function(response) {
