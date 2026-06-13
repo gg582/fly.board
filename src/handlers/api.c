@@ -234,7 +234,12 @@ void handler_api_my_files(cwist_http_request *req, cwist_http_response *res) {
 void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    bool logged_in = auth_require_login(req, res, &uid, role, sizeof(role));
+    if (!logged_in) {
+        res->status_code = CWIST_HTTP_OK;
+        cwist_sstring_assign(res->body, "");
+        uid = 0;
+    }
     cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
     const char *post_id_str = cwist_query_map_get(kv, "post_id");
     const char *vote_type_str = cwist_query_map_get(kv, "vote_type");
@@ -246,15 +251,22 @@ void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
     }
     int post_id = atoi(post_id_str);
     int vote_type = atoi(vote_type_str);
-    if (vote_type == 0) {
-        db_post_vote_remove(req->db, post_id, uid);
-        CWIST_LOG_INFO("Vote removed: post_id=%d uid=%d", post_id, uid);
+    if (logged_in) {
+        if (vote_type == 0) {
+            db_post_vote_remove(req->db, post_id, uid);
+            CWIST_LOG_INFO("Vote removed: post_id=%d uid=%d", post_id, uid);
+        } else {
+            db_post_vote(req->db, post_id, uid, vote_type);
+            CWIST_LOG_INFO("Vote cast: post_id=%d uid=%d vote_type=%d", post_id, uid, vote_type);
+        }
     } else {
-        db_post_vote(req->db, post_id, uid, vote_type);
-        CWIST_LOG_INFO("Vote cast: post_id=%d uid=%d vote_type=%d", post_id, uid, vote_type);
+        if (vote_type != 0) {
+            db_post_vote_anon(req->db, post_id, vote_type);
+            CWIST_LOG_INFO("Anon vote cast: post_id=%d vote_type=%d", post_id, vote_type);
+        }
     }
     cJSON *counts = db_post_vote_counts(req->db, post_id);
-    int user_vote = db_post_user_vote(req->db, post_id, uid);
+    int user_vote = logged_in ? db_post_user_vote(req->db, post_id, uid) : 0;
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddBoolToObject(obj, "ok", true);
     if (counts) {
