@@ -347,7 +347,11 @@ self.addEventListener('fetch', function(event) {
     }
 
     var isTasfa = url.includes('/tasfa/') || url.includes('/file/upload') || url.includes('/file/download');
-    if (!isTasfa || event.request.method !== 'GET') return;
+    /* Direct image assets (e.g. thumbnails) are not TASFA endpoints, but under
+       heavy photo posts they suffer from the same transient failures. Intercept
+       them so fetchWithRetry can recover short read/connection errors. */
+    var isDirectImageAsset = event.request.destination === 'image' && url.includes('/assets/uploads/');
+    if ((!isTasfa && !isDirectImageAsset) || event.request.method !== 'GET') return;
     if (event.request.headers.get('Range') || event.request.destination === 'video' || event.request.destination === 'audio') return;
     var promise = fetchWithRetry(event.request).catch(function(err) {
         return new Response(JSON.stringify({ok:false, error:'network', retry:true}), {

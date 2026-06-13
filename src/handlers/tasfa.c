@@ -2489,6 +2489,39 @@ static bool is_client_connected(cwist_http_request *req) {
     return err == 0;
 }
 
+static bool copy_file_chunked(const char *src, const char *dst) {
+    FILE *fsrc = fopen(src, "rb");
+    if (!fsrc) return false;
+    FILE *fdst = fopen(dst, "wb");
+    if (!fdst) {
+        fclose(fsrc);
+        return false;
+    }
+    char buf[65536];
+    size_t n;
+    bool ok = true;
+    while ((n = fread(buf, 1, sizeof(buf), fsrc)) > 0) {
+        if (fwrite(buf, 1, n, fdst) != n) {
+            ok = false;
+            break;
+        }
+    }
+    fclose(fsrc);
+    fclose(fdst);
+    return ok;
+}
+
+static int rename_fallback(const char *src, const char *dst) {
+    if (rename(src, dst) == 0) return 0;
+    if (errno == EXDEV) {
+        if (copy_file_chunked(src, dst)) {
+            unlink(src);
+            return 0;
+        }
+    }
+    return -1;
+}
+
 static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -2743,7 +2776,8 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
 
     char final_path[PATH_MAX];
     snprintf(final_path, sizeof(final_path), "public/uploads/%ld_%s", (long)time(NULL), filename);
-    if (rename(temp_path, final_path) != 0) {
+    if (rename_fallback(temp_path, final_path) != 0) {
+        FLY_LOG_ERROR("[TASFA] final file rename failed from %s to %s: errno=%d (%s)", temp_path, final_path, errno, strerror(errno));
         pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);

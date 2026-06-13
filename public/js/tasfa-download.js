@@ -20,6 +20,38 @@
     var objectUrls = new WeakMap();
     var videoPlayerModule = null;
 
+    /* Concurrency guard for direct image loads. Browsers limit per-origin
+       parallel connections; photo-heavy posts can exhaust that pool and
+       leave thumbnails partially loaded. Queue image probes so only a few
+       compete for the network at a time. */
+    var imageLoadQueue = [];
+    var activeImageLoads = 0;
+    var MAX_CONCURRENT_IMAGE_LOADS = 6;
+    var IMAGE_LOAD_TIMEOUT_MS = 15000;
+
+    function enqueueImageLoad(fn) {
+        return new Promise(function(resolve, reject) {
+            imageLoadQueue.push({ fn: fn, resolve: resolve, reject: reject });
+            pumpImageLoadQueue();
+        });
+    }
+
+    function pumpImageLoadQueue() {
+        while (activeImageLoads < MAX_CONCURRENT_IMAGE_LOADS && imageLoadQueue.length > 0) {
+            var item = imageLoadQueue.shift();
+            activeImageLoads++;
+            Promise.resolve().then(function() { return item.fn(); }).then(function(result) {
+                activeImageLoads = Math.max(0, activeImageLoads - 1);
+                item.resolve(result);
+                pumpImageLoadQueue();
+            }).catch(function(err) {
+                activeImageLoads = Math.max(0, activeImageLoads - 1);
+                item.reject(err);
+                pumpImageLoadQueue();
+            });
+        }
+    }
+
     async function getCachedBlob(baseUrl) {
         try {
             var c = await caches.open(CACHE_NAME);
@@ -1213,44 +1245,58 @@
             }
 
             function setImageSrc(url) {
+                if (!url) return;
                 el.src = url;
                 el.style.opacity = '1';
                 el.setAttribute('data-tasfa-ready', '1');
             }
 
-            var currentSrc = el.getAttribute('src') || '';
-            var alreadyThumb = currentSrc.indexOf('/assets/uploads/') === 0;
+            function tryTasfaImageDownload() {
+                if (!baseUrl) return;
+                fetchBlobViaTasfa(baseUrl, { silent: true }).then(function(result) {
+                    return createMediaPlaybackUrl(baseUrl, result.blob, 'img');
+                }).then(function(objectUrl) {
+                    setImageSrc(objectUrl || baseUrl);
+                }).catch(function() {
+                    setImageSrc(baseUrl);
+                });
+            }
 
-            if (alreadyThumb) {
-                var testImg = new Image();
-                testImg.onload = function() {
-                    setImageSrc(currentSrc);
-                };
-                testImg.onerror = function() {
-                    setImageSrc(baseUrl || currentSrc);
-                };
-                testImg.src = currentSrc;
-            } else if (baseUrl) {
-                var thumbUrl = null;
-                if (baseUrl.indexOf('/assets/uploads/') === 0) {
+            function pickThumbUrl() {
+                var currentSrc = el.getAttribute('src') || '';
+                if (currentSrc && currentSrc.indexOf('/assets/uploads/') === 0) return currentSrc;
+                if (baseUrl && baseUrl.indexOf('/assets/uploads/') === 0) {
                     var filename = baseUrl.slice('/assets/uploads/'.length);
                     if (filename.indexOf('.thumbs/') !== 0) {
-                        thumbUrl = '/assets/uploads/.thumbs/' + filename;
+                        return '/assets/uploads/.thumbs/' + filename;
                     }
                 }
+                return '';
+            }
 
-                if (thumbUrl) {
-                    var testImg = new Image();
-                    testImg.onload = function() {
-                        setImageSrc(thumbUrl);
-                    };
-                    testImg.onerror = function() {
-                        setImageSrc(baseUrl);
-                    };
-                    testImg.src = thumbUrl;
-                } else {
-                    setImageSrc(baseUrl);
-                }
+            var thumbUrl = pickThumbUrl();
+            if (thumbUrl) {
+                enqueueImageLoad(function() {
+                    return new Promise(function(resolve, reject) {
+                        var testImg = new Image();
+                        var timer = setTimeout(function() {
+                            testImg.onload = testImg.onerror = null;
+                            reject(new Error('thumb timeout'));
+                        }, IMAGE_LOAD_TIMEOUT_MS);
+                        testImg.onload = function() {
+                            clearTimeout(timer);
+                            setImageSrc(thumbUrl);
+                            resolve();
+                        };
+                        testImg.onerror = function() {
+                            clearTimeout(timer);
+                            reject(new Error('thumb error'));
+                        };
+                        testImg.src = thumbUrl;
+                    });
+                }).catch(tryTasfaImageDownload);
+            } else {
+                tryTasfaImageDownload();
             }
 
             if (posterUrl && isTasfaDownloadUrl(posterUrl)) {
