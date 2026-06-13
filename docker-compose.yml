@@ -13,6 +13,8 @@ services:
       - ./posts:/app/posts
       - ./img:/app/img
       - ./ech:/app/ech
+      - ./blog.settings:/app/blog.settings:ro
+      - ./fonts.settings:/app/fonts.settings:ro
     environment:
       - BLOG_ROOT=/app
 #      - NATS_URL=${NATS_URL:-}

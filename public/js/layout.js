@@ -91,6 +91,7 @@
 
     // 3. Theme toggle (simple click-to-toggle)
     var CACHE_KEY='fly_themes_v2';
+    var CACHE_TTL_MS=300000; // 5 minutes: long enough to avoid FOUC, short enough to pick up config changes
     var HL_LIGHT='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css';
     var HL_DARK='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css';
     function buildCss(t){
@@ -113,17 +114,27 @@
         var btn=document.getElementById('theme-toggle-btn');
         if(btn)btn.textContent=(name==='dark'?'●':'○');
     }
+    function saveThemes(arr){
+        try{localStorage.setItem(CACHE_KEY,JSON.stringify({themes:arr,ts:Date.now()}));}catch(e){}
+    }
+    function loadThemes(){
+        try{
+            var p=JSON.parse(localStorage.getItem(CACHE_KEY));
+            if(p && Array.isArray(p.themes) && typeof p.ts==='number' && (Date.now()-p.ts)<CACHE_TTL_MS){
+                return p.themes;
+            }
+        }catch(e){}
+        return null;
+    }
     var d=document.documentElement;
-    var stored=localStorage.getItem(CACHE_KEY);
-    var themes=null;
-    try{var p=JSON.parse(stored);if(Array.isArray(p))themes=p;}catch(e){}
+    var themes=loadThemes();
     var c=document.cookie.match(/theme=(\w+)/);
     var mode=c?c[1]:(d.classList.contains('dark')?'dark':'light');
     if(!/^(light|dark|ocean|forest|sepia)$/.test(mode))mode='light';
     function applyCached(){if(themes){applyTheme(findTheme(themes,mode));}}
     applyCached();
-    fetch('/themes.json').then(function(r){return r.json();}).then(function(arr){
-        localStorage.setItem(CACHE_KEY,JSON.stringify(arr));
+    fetch('/themes.json',{cache:'no-store'}).then(function(r){return r.json();}).then(function(arr){
+        saveThemes(arr);
         themes=arr;
         applyTheme(findTheme(arr,mode));
     });
@@ -134,8 +145,8 @@
         setHlCss(mode);
         updateBtn(mode);
         if(themes){applyTheme(findTheme(themes,mode));return;}
-        fetch('/themes.json').then(function(r){return r.json();}).then(function(arr){
-            localStorage.setItem(CACHE_KEY,JSON.stringify(arr));
+        fetch('/themes.json',{cache:'no-store'}).then(function(r){return r.json();}).then(function(arr){
+            saveThemes(arr);
             themes=arr;
             applyTheme(findTheme(arr,mode));
         });
