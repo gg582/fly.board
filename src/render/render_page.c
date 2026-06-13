@@ -371,24 +371,10 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             cwist_html_element_add_child(body, katex_js);
         }
 
-        cwist_html_element_t *katex_script = cwist_html_element_create("script");
-        if (katex_script) {
-            cwist_html_element_set_text(katex_script,
-                "document.addEventListener('DOMContentLoaded', function() {"
-                "  if (typeof katex === 'undefined') return;"
-                "  function renderBlogMath(elem) {"
-                "    if (!elem) return;"
-                "    elem.querySelectorAll('.math-block').forEach(function(el) {"
-                "      try { katex.render(el.textContent, el, {throwOnError: false, displayMode: true}); } catch(e) {}"
-                "    });"
-                "    elem.querySelectorAll('.math-inline').forEach(function(el) {"
-                "      try { katex.render(el.textContent, el, {throwOnError: false, displayMode: false}); } catch(e) {}"
-                "    });"
-                "  }"
-                "  renderBlogMath(document.body);"
-                "  window.__renderBlogMath = renderBlogMath;"
-                "});");
-            cwist_html_element_add_child(body, katex_script);
+        cwist_html_element_t *katex_render_js = cwist_html_element_create("script");
+        if (katex_render_js) {
+            cwist_html_element_add_attr(katex_render_js, "src", "/assets/js/katex-render.js");
+            cwist_html_element_add_child(body, katex_render_js);
         }
 
         cwist_html_element_t *tasfa_script = cwist_html_element_create("script");

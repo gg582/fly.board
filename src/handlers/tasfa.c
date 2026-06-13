@@ -1253,7 +1253,7 @@ static bool send_file_slice_response(cwist_http_request *req, cwist_http_respons
         gzip_buf = NULL;
     }
     cwist_http_header_add(&res->headers, "Content-Type", mime ? mime : "application/octet-stream");
-    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=86400");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
     add_keepalive_headers(res);
     char idx_buf[32], cnt_buf[32], span_buf[32];
     snprintf(idx_buf, sizeof(idx_buf), "%d", chunk_index);

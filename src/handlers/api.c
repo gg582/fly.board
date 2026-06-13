@@ -6,6 +6,7 @@ void handler_api_preview(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring *html = render_markdown_to_html(req->body->data);
     if (html) {
         cwist_http_header_add(&res->headers, "Content-Type", "text/html; charset=utf-8");
+        cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
         cwist_sstring_assign(res->body, html->data);
         cwist_sstring_destroy(html);
     } else {
@@ -65,6 +66,7 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
     char *json = cJSON_PrintUnformatted(obj);
     cJSON_Delete(obj);
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
     cwist_sstring_assign(res->body, json ? json : "{}");
     if (json) free(json);
 }
@@ -113,7 +115,7 @@ void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res) 
 
     char *json = out ? cJSON_PrintUnformatted(out) : NULL;
     cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
-    cwist_http_header_add(&res->headers, "Cache-Control", "private, max-age=60");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
     cwist_sstring_assign(res->body, json ? json : "[]");
 
     if (json) free(json);
@@ -126,7 +128,7 @@ void handler_themes_json(cwist_http_request *req, cwist_http_response *res) {
     (void)req;
     char *json = theme_build_all_json();
     cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
-    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=3600");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
     if (json) {
         cwist_sstring_assign(res->body, json);
         free(json);
@@ -207,7 +209,7 @@ void handler_rss_xml(cwist_http_request *req, cwist_http_response *res) {
     if (posts) cJSON_Delete(posts);
 
     cwist_http_header_add(&res->headers, "Content-Type", "application/rss+xml; charset=utf-8");
-    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=60");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
     if (etag_buf[0]) cwist_http_header_add(&res->headers, "ETag", etag_buf);
     if (last_modified[0]) cwist_http_header_add(&res->headers, "Last-Modified", last_modified);
     cwist_sstring_assign(res->body, rss->data);
@@ -222,6 +224,7 @@ void handler_api_my_files(cwist_http_request *req, cwist_http_response *res) {
     cJSON *files = db_file_list_by_user(req->db, uid, 200);
     char *json = files ? cJSON_PrintUnformatted(files) : NULL;
     cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
     cwist_sstring_assign(res->body, json ? json : "[]");
     if (json) free(json);
     if (files) cJSON_Delete(files);
@@ -268,6 +271,7 @@ void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
     char *json = cJSON_PrintUnformatted(obj);
     cJSON_Delete(obj);
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
     cwist_sstring_assign(res->body, json ? json : "{}");
     if (json) free(json);
     cwist_query_map_destroy(kv);

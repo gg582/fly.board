@@ -291,12 +291,12 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
 
     if (can_edit_comment && !(deleted && deleted->valueint)) {
         cwist_sstring_append(b, "<div style='margin-top:6px;display:flex;gap:8px;flex-wrap:wrap'>");
-        cwist_sstring_append(b, "<button type='button' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick=\"var el=document.getElementById('edit-");
+        cwist_sstring_append(b, "<button type='button' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-toggle-target='edit-");
         cwist_sstring_append(b, cid_buf);
-        cwist_sstring_append(b, "');el.style.display=el.style.display==='none'?'block':'none';\">Edit</button>");
+        cwist_sstring_append(b, "'>Edit</button>");
         cwist_sstring_append(b, "<a href='/comment/");
         cwist_sstring_append(b, cid_buf);
-        cwist_sstring_append(b, "/delete' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete?\")'>Delete</a>");
+        cwist_sstring_append(b, "/delete' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Delete?'>Delete</a>");
         cwist_sstring_append(b, "<div id='edit-");
         cwist_sstring_append(b, cid_buf);
         cwist_sstring_append(b, "' style='display:none;margin-top:8px;width:100%'>");
@@ -314,9 +314,9 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
 
     if (!(deleted && deleted->valueint)) {
         cwist_sstring_append(b, "<div style='margin-top:8px'>");
-        cwist_sstring_append(b, "<button type='button' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick=\"var el=document.getElementById('reply-");
+        cwist_sstring_append(b, "<button type='button' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-toggle-target='reply-");
         cwist_sstring_append(b, cid_buf);
-        cwist_sstring_append(b, "');el.style.display=el.style.display==='none'?'block':'none';\">Reply</button>");
+        cwist_sstring_append(b, "'>Reply</button>");
         cwist_sstring_append(b, "<div id='reply-");
         cwist_sstring_append(b, cid_buf);
         cwist_sstring_append(b, "' style='display:none;margin-top:8px'>");
@@ -462,7 +462,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     if (search && search[0]) cwist_sstring_append_escaped(b, search);
     cwist_sstring_append(b, "'>");
     cwist_sstring_append(b, "<button type='submit' class='btn'>Search</button>");
-    cwist_sstring_append(b, "<button type='button' class='btn btn-outline adv-toggle-btn' onclick=\"var el=document.getElementById('adv-search');var btn=this;var open=el.style.display!=='none';el.style.display=open?'none':'block';btn.classList.toggle('open',!open);\">Advanced</button>");
+    cwist_sstring_append(b, "<button type='button' class='btn btn-outline adv-toggle-btn'>Advanced</button>");
     if (search && search[0]) {
         cwist_sstring_append(b, "<a href='");
         if (board_slug) { cwist_sstring_append(b, "/board/"); cwist_sstring_append(b, board_slug); }
@@ -618,7 +618,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
                 cwist_sstring_append(b, "/edit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Edit</a>");
                 cwist_sstring_append(b, "<a href='/post/delete/");
                 cwist_sstring_append(b, pid_buf);
-                cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px' onclick='return confirm(\"Delete this post?\")'>Delete</a>");
+                cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Delete this post?'>Delete</a>");
                 cwist_sstring_append(b, "</div>");
             }
             cwist_sstring_append(b, "</div>");
@@ -895,14 +895,14 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         cwist_sstring_append(b, "/edit' class='btn'>Edit</a>");
         cwist_sstring_append(b, "<a href='/post/delete/");
         cwist_sstring_append(b, pid_buf);
-        cwist_sstring_append(b, "' class='btn btn-outline' onclick='return confirm(\"Delete this post?\")'>Delete</a>");
+        cwist_sstring_append(b, "' class='btn btn-outline' data-confirm='Delete this post?'>Delete</a>");
     }
     if (json_int(post, "user_id", 0) == 0) {
         cwist_sstring_append(b, "<form action='/post/delete/");
         cwist_sstring_append(b, pid_buf);
         cwist_sstring_append(b, "' method='get' style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>");
         cwist_sstring_append(b, "<input type='text' name='delete_pin' placeholder='Delete PIN' required style='max-width:180px'>");
-        cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' onclick='return confirm(\"Delete this anonymous post?\")'>Delete With PIN</button></form>");
+        cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' data-confirm='Delete this anonymous post?'>Delete With PIN</button></form>");
     }
     cwist_sstring_append(b, "</div>");
 

@@ -6,8 +6,8 @@
 #include <fcntl.h>
 #include <time.h>
 
-#define IMAGE_CACHE_CONTROL "public, max-age=31536000, immutable"
-#define FILE_CACHE_CONTROL  "public, max-age=86400"
+#define IMAGE_CACHE_CONTROL "no-cache, private"
+#define FILE_CACHE_CONTROL  "no-cache, private"
 
 static void send_upload_not_found(cwist_http_response *res) {
     res->status_code = CWIST_HTTP_NOT_FOUND;

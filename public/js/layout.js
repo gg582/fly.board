@@ -243,6 +243,64 @@
         bindAdminDropdown();
     }
 
-    // 7. Service Worker
+    // 7. Advanced search toggle (replaces inline onclick for CSP)
+    function bindAdvSearchToggle(){
+        var btn=document.querySelector('.adv-toggle-btn');
+        var el=document.getElementById('adv-search');
+        if(!btn||!el||btn.dataset.advBound)return;
+        btn.dataset.advBound='1';
+        btn.addEventListener('click',function(){
+            var open=el.style.display!=='none';
+            el.style.display=open?'none':'block';
+            btn.classList.toggle('open',!open);
+        });
+    }
+    if(document.readyState==='loading'){
+        document.addEventListener('DOMContentLoaded',bindAdvSearchToggle);
+    }else{
+        bindAdvSearchToggle();
+    }
+
+    // 8. Generic toggle buttons (replaces inline onclick for edit/reply panels)
+    function bindToggleButtons(){
+        document.querySelectorAll('[data-toggle-target]').forEach(function(btn){
+            if(btn.dataset.toggleBound)return;
+            btn.dataset.toggleBound='1';
+            btn.addEventListener('click',function(){
+                var el=document.getElementById(btn.dataset.toggleTarget);
+                if(!el)return;
+                el.style.display=el.style.display==='none'?'block':'none';
+            });
+        });
+    }
+    if(document.readyState==='loading'){
+        document.addEventListener('DOMContentLoaded',bindToggleButtons);
+    }else{
+        bindToggleButtons();
+    }
+
+    // 9. Confirm dialogs (replaces inline onclick/onsubmit for delete actions)
+    function bindConfirmActions(){
+        document.querySelectorAll('a[data-confirm], button[data-confirm], form[data-confirm]').forEach(function(el){
+            if(el.dataset.confirmBound)return;
+            el.dataset.confirmBound='1';
+            if(el.tagName==='FORM'){
+                el.addEventListener('submit',function(e){
+                    if(!confirm(el.dataset.confirm))e.preventDefault();
+                });
+            }else{
+                el.addEventListener('click',function(e){
+                    if(!confirm(el.dataset.confirm))e.preventDefault();
+                });
+            }
+        });
+    }
+    if(document.readyState==='loading'){
+        document.addEventListener('DOMContentLoaded',bindConfirmActions);
+    }else{
+        bindConfirmActions();
+    }
+
+    // 10. Service Worker
     if('serviceWorker'in navigator){navigator.serviceWorker.register('/sw.js');}
 })();
