@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -16,6 +17,81 @@ static bool run_ffmpeg(const char *cmd) {
     int status = pclose(fp);
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
+
+int media_quality_score_from_link(const char *score_str, const char *effective_type, const char *downlink_str,
+                                  const char *rtt_str, const char *retry_str, const char *timeout_str,
+                                  const char *save_data_str) {
+    int explicit_score = score_str ? atoi(score_str) : 0;
+    if (explicit_score > 0) {
+        if (explicit_score < 10) explicit_score = 10;
+        if (explicit_score > 100) explicit_score = 100;
+        return explicit_score;
+    }
+
+    double downlink = downlink_str ? atof(downlink_str) : 0.0;
+    double rtt = rtt_str ? atof(rtt_str) : 0.0;
+    int retries = retry_str ? atoi(retry_str) : 0;
+    int timeouts = timeout_str ? atoi(timeout_str) : 0;
+    int score = 55;
+
+    if (effective_type && strcmp(effective_type, "4g") == 0) score += 24;
+    else if (effective_type && strcmp(effective_type, "3g") == 0) score += 10;
+    else if (effective_type && (!strcmp(effective_type, "2g") || !strcmp(effective_type, "slow-2g"))) score -= 10;
+
+    if (downlink >= 30.0) score += 18;
+    else if (downlink >= 10.0) score += 12;
+    else if (downlink >= 3.0) score += 6;
+    else if (downlink > 0.0 && downlink < 1.5) score -= 10;
+
+    if (rtt > 0.0) {
+        if (rtt <= 60.0) score += 16;
+        else if (rtt <= 120.0) score += 8;
+        else if (rtt <= 220.0) score += 2;
+        else if (rtt <= 450.0) score -= 10;
+        else score -= 18;
+    }
+
+    (void)retries;
+    (void)timeouts;
+
+    if (save_data_str && (!strcmp(save_data_str, "1") || !strcasecmp(save_data_str, "true"))) score -= 10;
+
+    if (score < 10) score = 10;
+    if (score > 100) score = 100;
+    return score;
+}
+
+void media_preview_dimensions_from_score(int score, int src_w, int src_h,
+                                         int *image_max_w, int *image_max_h,
+                                         int *video_max_h) {
+    /* Base max dimensions based on quality score */
+    int base_w = 1280;
+    int base_h = 1280;
+    int base_video_h = 1080;
+
+    if (score < 25) {
+        base_w = 720;  base_h = 1080;  base_video_h = 720;
+    } else if (score < 45) {
+        base_w = 960;  base_h = 1280; base_video_h = 900;
+    }
+
+    /* Preserve aspect ratio for images */
+    if (src_w > 0 && src_h > 0) {
+        double ratio = (double)src_w / (double)src_h;
+        int w = base_w;
+        int h = (int)(base_w / ratio);
+        if (h > base_h) { h = base_h; w = (int)(base_h * ratio); }
+        if (image_max_w) *image_max_w = w;
+        if (image_max_h) *image_max_h = h;
+    } else {
+        if (image_max_w) *image_max_w = base_w;
+        if (image_max_h) *image_max_h = base_h;
+    }
+
+    /* Video height: keep width scaling implicit, only limit height */
+    if (video_max_h) *video_max_h = base_video_h;
+}
+
 
 bool generate_image_thumb(const char *src, const char *dst, int max_w, int max_h) {
     if (!src || !dst || max_w <= 0 || max_h <= 0) return false;

@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stb_image.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -291,8 +292,33 @@ bool mime_type_from_data(const char *file_path, char *out, size_t out_len) {
     magic_close(magic);
     return ok;
 }
+/* Retrieve width and height of image or video */
+bool get_media_dimensions(const char *src, bool is_video, int *w, int *h) {
+    if (!src || !w || !h) return false;
+    if (!is_video) {
+        // Image: use stb_image info from file
+        if (stbi_info(src, w, h, NULL)) return true;
+    } else {
+        // Video: use ffprobe to get dimensions
+        char cmd[256];
+        snprintf(cmd, sizeof(cmd),
+                 "ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 '%s'",
+                 src);
+        FILE *p = popen(cmd, "r");
+        if (!p) return false;
+        int vw = 0, vh = 0;
+        if (fscanf(p, "%d,%d", &vw, &vh) == 2) {
+            *w = vw;
+            *h = vh;
+            pclose(p);
+            return true;
+        }
+        pclose(p);
+    }
+    return false;
+}
 
-bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, upload_result_t *out) {
+bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, int media_quality_score, upload_result_t *out) {
     memset(out, 0, sizeof(*out));
 
     if (!f || !f->filename || !f->data || f->data[0] == '\0') {
@@ -322,14 +348,24 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
         snprintf(out->url, sizeof(out->url), "/file/download/%d", fid);
         char thumb_path[512] = {0};
         char preview_path[512] = {0};
+        int image_max_w = 0, image_max_h = 0, video_max_h = 0;
+        int src_w = 0, src_h = 0;
+        /* Determine source dimensions */
+        if (strncmp(out->mime_type, "image/", 6) == 0) {
+            get_media_dimensions(f->data, false, &src_w, &src_h);
+        } else if (strncmp(out->mime_type, "video/", 6) == 0) {
+            get_media_dimensions(f->data, true, &src_w, &src_h);
+        }
+        media_preview_dimensions_from_score(media_quality_score, src_w, src_h,
+                                           &image_max_w, &image_max_h, &video_max_h);
         if (strncmp(out->mime_type, "image/", 6) == 0) {
             snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
-            if (!generate_image_thumb(f->data, thumb_path, 1280, 1280)) thumb_path[0] = '\0';
+            if (!generate_image_thumb(f->data, thumb_path, image_max_w, image_max_h)) thumb_path[0] = '\0';
         } else if (strncmp(out->mime_type, "video/", 6) == 0) {
             snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
             if (!generate_video_thumb(f->data, thumb_path, 480, 270)) thumb_path[0] = '\0';
             snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp4", fid);
-            if (!generate_video_preview(f->data, preview_path, 1080)) preview_path[0] = '\0';
+            if (!generate_video_preview(f->data, preview_path, video_max_h)) preview_path[0] = '\0';
         } else if (strncmp(out->mime_type, "audio/", 6) == 0) {
             snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp3", fid);
             if (!generate_audio_preview(f->data, preview_path, 192)) preview_path[0] = '\0';

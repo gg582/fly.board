@@ -538,31 +538,7 @@ static double predict_remaining_ms(cJSON *meta) {
 
 static int link_score_from_inputs(const char *score_str, const char *effective_type, const char *downlink_str,
                                   const char *rtt_str, const char *retry_str, const char *timeout_str, const char *save_data_str) {
-    int explicit_score = score_str ? atoi(score_str) : 0;
-    if (explicit_score > 0) return clamp_int(explicit_score, 10, 100);
-    double downlink = downlink_str ? atof(downlink_str) : 0.0;
-    double rtt = rtt_str ? atof(rtt_str) : 0.0;
-    int retries = retry_str ? atoi(retry_str) : 0;
-    int timeouts = timeout_str ? atoi(timeout_str) : 0;
-    int score = 55;
-    if (effective_type && strcmp(effective_type, "4g") == 0) score += 24;
-    else if (effective_type && strcmp(effective_type, "3g") == 0) score += 10;
-    else if (effective_type && (!strcmp(effective_type, "2g") || !strcmp(effective_type, "slow-2g"))) score -= 10;
-    if (downlink >= 30.0) score += 18;
-    else if (downlink >= 10.0) score += 12;
-    else if (downlink >= 3.0) score += 6;
-    else if (downlink > 0.0 && downlink < 1.5) score -= 10;
-    if (rtt > 0.0) {
-        if (rtt <= 60.0) score += 16;
-        else if (rtt <= 120.0) score += 8;
-        else if (rtt <= 220.0) score += 2;
-        else if (rtt <= 450.0) score -= 10;
-        else score -= 18;
-    }
-    bool good_mobile = effective_type && strcmp(effective_type, "4g") == 0 && (downlink >= 8.0 || downlink <= 0.0) && (rtt <= 220.0 || rtt <= 0.0);
-    (void)good_mobile; (void)retries; (void)timeouts; /* aggressive: ignore transient loss events */
-    if (save_data_str && (!strcmp(save_data_str, "1") || !strcasecmp(save_data_str, "true"))) score -= 10;
-    return clamp_int(score, 10, 100);
+    return media_quality_score_from_link(score_str, effective_type, downlink_str, rtt_str, retry_str, timeout_str, save_data_str);
 }
 
 static void choose_upload_window(bool mobile, int score, int *initial_parallel, int *max_parallel, int *pacing_ms) {

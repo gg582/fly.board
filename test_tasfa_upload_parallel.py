@@ -152,17 +152,25 @@ def upload_parallel():
         "upload_id": upload_id,
         "upload_token": upload_token
     }).encode()
-    status, resp = make_request("/file/upload/complete", data=body, headers={
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Accept": "application/json"
-    })
-    if status != 200:
-        print(f"Complete failed: HTTP {status} - {resp.decode()}")
-        return False
-    payload = json.loads(resp)
-    if not payload.get("ok"):
-        print(f"Complete rejected: {payload}")
-        return False
+    while True:
+        status, resp = make_request("/file/upload/complete", data=body, headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json"
+        })
+        if status == 202:
+            payload = json.loads(resp)
+            retry_after = payload.get("retry_after", 1)
+            print(f"Finalizing upload, retrying in {retry_after}s...")
+            time.sleep(retry_after)
+            continue
+        if status != 200:
+            print(f"Complete failed: HTTP {status} - {resp.decode()}")
+            return False
+        payload = json.loads(resp)
+        if not payload.get("ok"):
+            print(f"Complete rejected: {payload}")
+            return False
+        break
     print(f"Upload complete! file_id={payload.get('file_id')} url={payload.get('url')}")
     total_elapsed = time.time() - start_time
     print(f"Total time: {total_elapsed:.2f}s  Average: {FILE_SIZE/1024/1024/total_elapsed:.2f} MB/s")
