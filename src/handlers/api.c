@@ -43,9 +43,18 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
     form_field_t *f = form_find(fields, "file");
     const char *post_id_str = cwist_query_map_get(req->query_params, "post_id");
     int post_id = post_id_str ? atoi(post_id_str) : 0;
+    int media_quality_score = media_quality_score_from_link(
+        cwist_query_map_get(req->query_params, "media_quality_score"),
+        cwist_query_map_get(req->query_params, "link_effective_type"),
+        cwist_query_map_get(req->query_params, "link_downlink_mbps"),
+        cwist_query_map_get(req->query_params, "link_rtt_ms"),
+        cwist_query_map_get(req->query_params, "link_retry_events"),
+        cwist_query_map_get(req->query_params, "link_timeout_events"),
+        cwist_query_map_get(req->query_params, "link_save_data")
+    );
 
     upload_result_t result = {0};
-    bool ok = process_file_upload(req->db, f, uid, post_id, &result);
+    bool ok = process_file_upload(req->db, f, uid, post_id, media_quality_score, &result);
 
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddBoolToObject(obj, "ok", ok);

@@ -44,7 +44,7 @@ typedef struct {
 } upload_result_t;
 
 bool mime_type_from_data(const char *file_path, char *out, size_t out_len);
-bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, upload_result_t *out);
+bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, int media_quality_score, upload_result_t *out);
 void get_file_timestamp_str(const char *file_path, char *out_ts, size_t max_len);
 
 /* Truncate UTF-8 string at a valid character boundary (returns byte length <= max_bytes) */
