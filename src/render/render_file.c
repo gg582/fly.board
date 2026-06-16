@@ -148,11 +148,8 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             cJSON *stype = cJSON_GetObjectItem(f, "mime_type");
             cJSON *sz = cJSON_GetObjectItem(f, "size");
             cJSON *fuid = cJSON_GetObjectItem(f, "user_id");
-            cJSON *jthumb = cJSON_GetObjectItem(f, "thumb_path");
             cJSON *jpreview = cJSON_GetObjectItem(f, "preview_path");
-            const char *thumb_path = (jthumb && jthumb->valuestring && jthumb->valuestring[0]) ? jthumb->valuestring : "";
             const char *preview_path = (jpreview && jpreview->valuestring && jpreview->valuestring[0]) ? jpreview->valuestring : "";
-            bool has_thumb = thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0;
             bool has_preview = preview_path[0] && strncmp(preview_path, "public/uploads/", 15) == 0;
             cJSON *jpath = cJSON_GetObjectItem(f, "file_path"); (void)jpath;
             int id_val = 0;
@@ -176,15 +173,13 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             cwist_sstring_append(b, "<div class='file-repo-card-inner'>");
             cwist_sstring_append(b, "<div class='file-repo-thumb'>");
             if (is_image) {
-                if (has_thumb) {
-                    cwist_sstring_append(b, "<img src='/assets/uploads/");
-                    cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
-                    cwist_sstring_append(b, "' data-tasfa-download='/file/download/");
-                    cwist_sstring_append(b, fid_buf);
-                    cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block;object-fit:cover'>");
-                } else {
-                    cwist_sstring_append(b, "<span class='file-thumb-icon'>IMG</span>");
-                }
+                cwist_sstring_append(b, "<img src='/file/preview/");
+                cwist_sstring_append(b, fid_buf);
+                cwist_sstring_append(b, "' data-tasfa-src='/file/preview/");
+                cwist_sstring_append(b, fid_buf);
+                cwist_sstring_append(b, "' data-tasfa-original='/file/download/");
+                cwist_sstring_append(b, fid_buf);
+                cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block;object-fit:cover'>");
             } else if (is_video) {
                 cwist_sstring_append(b, "<button type='button' class='media-load-btn file-video-thumb-link' data-tasfa-video-link='/file/download/");
                 cwist_sstring_append(b, fid_buf);

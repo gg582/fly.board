@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#include "../utils/media_preview.h"
 #include <ctype.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -372,6 +373,66 @@ void handler_file_repo(cwist_http_request *req, cwist_http_response *res) {
     if (files) cJSON_Delete(files);
     send_html_res(res, page);
     free(pp);
+}
+
+void handler_file_preview(cwist_http_request *req, cwist_http_response *res) {
+    const char *id_str = cwist_query_map_get(req->path_params, "id");
+    int id = id_str ? atoi(id_str) : 0;
+    if (id <= 0) {
+        send_upload_not_found(res);
+        return;
+    }
+
+    cJSON *file = db_file_get(req->db, id);
+    if (!file) {
+        send_upload_not_found(res);
+        return;
+    }
+
+    cJSON *jpath = cJSON_GetObjectItem(file, "file_path");
+    cJSON *jfilename = cJSON_GetObjectItem(file, "filename");
+    cJSON *jmime = cJSON_GetObjectItem(file, "mime_type");
+    cJSON *jthumb = cJSON_GetObjectItem(file, "thumb_path");
+    cJSON *jpreview = cJSON_GetObjectItem(file, "preview_path");
+    const char *path = (jpath && jpath->type == cJSON_String && jpath->valuestring) ? jpath->valuestring : "";
+    const char *filename = (jfilename && jfilename->type == cJSON_String && jfilename->valuestring) ? jfilename->valuestring : "";
+    const char *mime = (jmime && jmime->type == cJSON_String && jmime->valuestring) ? jmime->valuestring : "";
+    char detected_mime[128] = {0};
+    if (!mime[0] || strcmp(mime, "application/octet-stream") == 0) {
+        if (mime_type_from_data(path, detected_mime, sizeof(detected_mime))) {
+            mime = detected_mime;
+        } else {
+            mime = mime_type(filename);
+        }
+    }
+    if (strncmp(mime, "image/", 6) != 0) {
+        cJSON_Delete(file);
+        send_upload_not_found(res);
+        return;
+    }
+
+    const char *thumb_path = (jthumb && jthumb->type == cJSON_String && jthumb->valuestring) ? jthumb->valuestring : "";
+    const char *audio_preview_path = (jpreview && jpreview->type == cJSON_String && jpreview->valuestring) ? jpreview->valuestring : "";
+    char preview_path[PATH_MAX] = {0};
+    struct stat st;
+    if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0 &&
+        stat(thumb_path, &st) == 0 && S_ISREG(st.st_mode)) {
+        snprintf(preview_path, sizeof(preview_path), "%s", thumb_path);
+    } else {
+        int written = snprintf(preview_path, sizeof(preview_path), "public/uploads/.thumbs/%d.jpg", id);
+        if (written < 0 || written >= (int)sizeof(preview_path) ||
+            !generate_image_thumb(path, preview_path, 1280, 1280)) {
+            cJSON_Delete(file);
+            send_upload_not_found(res);
+            return;
+        }
+        db_file_set_preview_paths(req->db, id, preview_path, audio_preview_path);
+    }
+
+    if (!send_cached_file_response(req, res, preview_path, "image/jpeg", IMAGE_CACHE_CONTROL, NULL)) {
+        send_upload_not_found(res);
+    }
+    cJSON_Delete(file);
 }
 
 void handler_file_detail_get(cwist_http_request *req, cwist_http_response *res) {

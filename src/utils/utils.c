@@ -324,7 +324,7 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
         char preview_path[512] = {0};
         if (strncmp(out->mime_type, "image/", 6) == 0) {
             snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.jpg", fid);
-            if (!generate_image_thumb(f->data, thumb_path, 320, 240)) thumb_path[0] = '\0';
+            if (!generate_image_thumb(f->data, thumb_path, 1280, 1280)) thumb_path[0] = '\0';
         } else if (strncmp(out->mime_type, "video/", 6) == 0) {
             snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.jpg", fid);
             if (!generate_video_thumb(f->data, thumb_path, 320, 240)) thumb_path[0] = '\0';
@@ -338,9 +338,11 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
     }
 
     if (strncmp(out->mime_type, "image/", 6) == 0) {
+        char preview_url[64] = {0};
+        if (fid > 0) snprintf(preview_url, sizeof(preview_url), "/file/preview/%d", fid);
         snprintf(out->html, sizeof(out->html),
-            "<img src=\"%s\" data-tasfa-download=\"%s\" alt=\"%s\" style=\"max-width:100%%;height:auto;display:block\">",
-            out->url, out->url, out->filename);
+            "<img src=\"%s\" data-tasfa-src=\"%s\" data-tasfa-original=\"%s\" alt=\"%s\" style=\"max-width:100%%;height:auto;display:block\">",
+            preview_url, preview_url, out->url, out->filename);
     } else if (strncmp(out->mime_type, "video/", 6) == 0) {
         snprintf(out->html, sizeof(out->html),
             "<div class=\"media-video-placeholder\"><div class=\"media-video-title\">%s</div><div class=\"media-video-frame\"><button type=\"button\" class=\"media-load-btn media-video-open\" data-tasfa-video-link=\"%s\">Click to Load</button></div></div>",

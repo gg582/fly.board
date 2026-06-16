@@ -1060,7 +1060,7 @@
     }
 
     function mediaBaseUrl(el) {
-        var explicit = el.getAttribute('data-tasfa-download') || el.getAttribute('data-tasfa-src') || '';
+        var explicit = el.getAttribute('data-tasfa-src') || el.getAttribute('data-tasfa-download') || '';
         if (explicit && isTasfaDownloadUrl(explicit)) return explicit;
         var attrSrc = el.getAttribute('src') || '';
         if (attrSrc && isTasfaDownloadUrl(attrSrc)) return attrSrc;
@@ -1225,6 +1225,7 @@
         if (baseUrl) el.setAttribute('data-tasfa-download', baseUrl);
 
         if (tagName === 'img') {
+            var originalUrl = el.getAttribute('data-tasfa-original') || baseUrl;
             var wrap = document.createElement('div');
             wrap.className = 'tasfa-image-wrap';
             if (el.parentNode) {
@@ -1232,14 +1233,14 @@
                 wrap.appendChild(el);
             }
 
-            if (baseUrl) {
+            if (originalUrl) {
                 var dlBtn = document.createElement('a');
                 dlBtn.className = 'tasfa-image-dl-btn';
                 dlBtn.textContent = 'Download';
                 dlBtn.href = 'javascript:void(0);';
                 dlBtn.addEventListener('click', function(event) {
                     event.preventDefault();
-                    triggerDownload(baseUrl).catch(function(){});
+                    triggerDownload(originalUrl).catch(function(){});
                 });
                 wrap.appendChild(dlBtn);
             }

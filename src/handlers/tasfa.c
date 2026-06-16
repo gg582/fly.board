@@ -2806,7 +2806,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     char preview_path[PATH_MAX] = {0};
     if (strncmp(mime_buf, "image/", 6) == 0) {
         snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.jpg", fid);
-        if (generate_image_thumb(final_path, thumb_path, 320, 240)) {
+        if (generate_image_thumb(final_path, thumb_path, 1280, 1280)) {
             char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
             tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
         } else thumb_path[0] = '\0';

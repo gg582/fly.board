@@ -345,6 +345,7 @@ int main(void) {
     cwist_app_get(app, "/post/delete/:id", handler_post_delete);
 
     cwist_app_get(app, "/files", handler_file_repo);
+    cwist_app_get(app, "/file/preview/:id", handler_file_preview);
     cwist_app_get(app, "/file/:id", handler_file_detail_get);
     cwist_app_get(app, "/file/download/:id", handler_file_download);
     cwist_app_get(app, "/file/download/:id/handshake", handler_file_download_handshake);

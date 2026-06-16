@@ -103,25 +103,19 @@ static void append_video_placeholder(cwist_sstring *out, const char *href, const
 
 static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int fid, const char *kind) {
     cJSON *jname = cJSON_GetObjectItem(file, "filename");
-    cJSON *jthumb = cJSON_GetObjectItem(file, "thumb_path");
     const char *filename = jname && jname->valuestring ? jname->valuestring : "";
-    const char *thumb_path = jthumb && jthumb->valuestring ? jthumb->valuestring : "";
     char url[64];
+    char preview_url[64];
     snprintf(url, sizeof(url), "/file/download/%d", fid);
+    snprintf(preview_url, sizeof(preview_url), "/file/preview/%d", fid);
 
     if (strcmp(kind, "image") == 0) {
         cwist_sstring_append(out, "<img ");
-        if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
-            cwist_sstring_append(out, "src=\"");
-            cwist_sstring_append(out, "/assets/uploads/");
-            cwist_sstring_append(out, thumb_path + 15);
-            cwist_sstring_append(out, "\" ");
-        } else {
-            cwist_sstring_append(out, "src=\"");
-            cwist_sstring_append(out, url);
-            cwist_sstring_append(out, "\" ");
-        }
-        cwist_sstring_append(out, "data-tasfa-download=\"");
+        cwist_sstring_append(out, "src=\"");
+        cwist_sstring_append(out, preview_url);
+        cwist_sstring_append(out, "\" data-tasfa-src=\"");
+        cwist_sstring_append(out, preview_url);
+        cwist_sstring_append(out, "\" data-tasfa-original=\"");
         cwist_sstring_append(out, url);
         cwist_sstring_append(out, "\" alt=\"");
         cwist_sstring_append_escaped(out, filename);
@@ -822,8 +816,6 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 if (!fname || !fname->valuestring || fname->valuestring[0] == '\0') continue;
                 cJSON *fid = cJSON_GetObjectItem(f, "id");
                 cJSON *stype = cJSON_GetObjectItem(f, "mime_type");
-                cJSON *jthumb = cJSON_GetObjectItem(f, "thumb_path");
-                const char *thumb_path = (jthumb && jthumb->valuestring && jthumb->valuestring[0]) ? jthumb->valuestring : "";
                 char fid_buf2[32];
                 snprintf(fid_buf2, sizeof(fid_buf2), "%d", fid->valueint);
                 const char *mime = stype && stype->valuestring ? stype->valuestring : "";
@@ -844,19 +836,13 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                     } else {
                         cwist_sstring_append(b, "<div class='media-attachment-block' style='margin-bottom:12px'>");
                         if (is_image) {
-                            if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0) {
-                                cwist_sstring_append(b, "<img src='/assets/uploads/");
-                                cwist_sstring_append(b, thumb_path + strlen("public/uploads/"));
-                                cwist_sstring_append(b, "' data-tasfa-download='/file/download/");
-                                cwist_sstring_append(b, fid_buf2);
-                                cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block'>");
-                            } else {
-                                cwist_sstring_append(b, "<img src='/file/download/");
-                                cwist_sstring_append(b, fid_buf2);
-                                cwist_sstring_append(b, "' data-tasfa-download='/file/download/");
-                                cwist_sstring_append(b, fid_buf2);
-                                cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block'>");
-                            }
+                            cwist_sstring_append(b, "<img src='/file/preview/");
+                            cwist_sstring_append(b, fid_buf2);
+                            cwist_sstring_append(b, "' data-tasfa-src='/file/preview/");
+                            cwist_sstring_append(b, fid_buf2);
+                            cwist_sstring_append(b, "' data-tasfa-original='/file/download/");
+                            cwist_sstring_append(b, fid_buf2);
+                            cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block'>");
                         } else if (is_audio) {
                             cwist_sstring_append(b, "<audio src='/file/download/");
                             cwist_sstring_append(b, fid_buf2);
