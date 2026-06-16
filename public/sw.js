@@ -175,23 +175,39 @@ function handleRangeRequest(request, response) {
     });
 }
 
-function fetchWithRetry(request, retries) {
-    retries = retries || 0;
-    return fetch(request, { credentials: 'same-origin' }).then(function(response) {
-        if ((response.status >= 500 || !response.ok) && retries < 3) {
-            return new Promise(function(resolve) { setTimeout(resolve, 500); }).then(function() {
-                return fetchWithRetry(request, retries + 1);
-            });
-        }
-        return response;
-    }).catch(function(err) {
-        if (retries < 3) {
-            return new Promise(function(resolve) { setTimeout(resolve, 500); }).then(function() {
-                return fetchWithRetry(request, retries + 1);
-            });
-        }
-        throw err;
-    });
+function fetchWithRetry(request, options) {
+    options = options || {};
+    var maxRetries = options.maxRetries || 5;
+    var baseDelay = options.baseDelay || 200;
+    var maxDelay = options.maxDelay || 3000;
+    var retries = 0;
+
+    function delay() {
+        var exp = Math.min(retries, 6); // cap exponential factor to avoid huge delays
+        var d = Math.min(baseDelay * Math.pow(2, exp), maxDelay);
+        d += Math.floor(Math.random() * 300); // jitter to avoid thundering herd
+        return new Promise(function(resolve) { setTimeout(resolve, d); });
+    }
+
+    function attempt() {
+        return fetch(request, { credentials: 'same-origin' }).then(function(response) {
+            // Only retry on server-side errors. 4xx client errors should not be retried.
+            if (response.status >= 500 && retries < maxRetries) {
+                retries++;
+                return delay().then(attempt);
+            }
+            return response;
+        }).catch(function(err) {
+            // Network errors (ERR_CONNECTION_RESET, ERR_NETWORK_CHANGED, etc.) are retried.
+            if (retries < maxRetries) {
+                retries++;
+                return delay().then(attempt);
+            }
+            throw err;
+        });
+    }
+
+    return attempt();
 }
 
 self.addEventListener('fetch', function(event) {
@@ -309,7 +325,7 @@ self.addEventListener('fetch', function(event) {
                             return withoutCsp(cachedResponse);
                         }
                     }
-                    return fetch(event.request, { credentials: 'same-origin' }).then(function(networkResponse) {
+                    return fetchWithRetry(event.request, { maxRetries: 3, baseDelay: 150 }).then(function(networkResponse) {
                         if (!networkResponse.ok) {
                             return cachedResponse && cachedResponse.ok ? withoutCsp(cachedResponse) : networkResponse;
                         }
@@ -347,13 +363,14 @@ self.addEventListener('fetch', function(event) {
     }
 
     var isTasfa = url.includes('/tasfa/') || url.includes('/file/upload') || url.includes('/file/download');
-    /* Direct image assets (e.g. thumbnails) are not TASFA endpoints, but under
-       heavy photo posts they suffer from the same transient failures. Intercept
-       them so fetchWithRetry can recover short read/connection errors. */
-    var isDirectImageAsset = event.request.destination === 'image' && url.includes('/assets/uploads/');
+    /* Direct image assets (e.g. thumbnails, profile pictures, static images)
+       are not TASFA endpoints, but under heavy photo posts they suffer from
+       the same transient connection resets. Intercept all /assets/ images so
+       fetchWithRetry can recover short read/connection errors. */
+    var isDirectImageAsset = event.request.destination === 'image' && url.includes('/assets/');
     if ((!isTasfa && !isDirectImageAsset) || event.request.method !== 'GET') return;
     if (event.request.headers.get('Range') || event.request.destination === 'video' || event.request.destination === 'audio') return;
-    var promise = fetchWithRetry(event.request).catch(function(err) {
+    var promise = fetchWithRetry(event.request, { maxRetries: 5, baseDelay: 200 }).catch(function(err) {
         return new Response(JSON.stringify({ok:false, error:'network', retry:true}), {
             status: 503,
             headers: {'Content-Type':'application/json'}
