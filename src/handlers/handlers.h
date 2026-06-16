@@ -56,6 +56,7 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res);
 void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *res);
 void handler_file_upload_cancel(cwist_http_request *req, cwist_http_response *res);
 void handler_file_detail_get(cwist_http_request *req, cwist_http_response *res);
+void handler_file_preview(cwist_http_request *req, cwist_http_response *res);
 void handler_file_download(cwist_http_request *req, cwist_http_response *res);
 void handler_file_download_handshake(cwist_http_request *req, cwist_http_response *res);
 void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *res);
