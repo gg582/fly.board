@@ -2805,17 +2805,22 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     char thumb_path[PATH_MAX] = {0};
     char preview_path[PATH_MAX] = {0};
     if (strncmp(mime_buf, "image/", 6) == 0) {
-        snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.jpg", fid);
+        snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
         if (generate_image_thumb(final_path, thumb_path, 1280, 1280)) {
             char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
             tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
         } else thumb_path[0] = '\0';
     } else if (strncmp(mime_buf, "video/", 6) == 0) {
-        snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.jpg", fid);
-        if (generate_video_thumb(final_path, thumb_path, 320, 240)) {
+        snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
+        if (generate_video_thumb(final_path, thumb_path, 480, 270)) {
             char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
             tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
         } else thumb_path[0] = '\0';
+        snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp4", fid);
+        if (generate_video_preview(final_path, preview_path, 1080)) {
+            char media_name[64]; snprintf(media_name, sizeof(media_name), "preview_%d", fid);
+            tasfa_generate_htp_metadata_for_file(preview_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
+        } else preview_path[0] = '\0';
     } else if (strncmp(mime_buf, "audio/", 6) == 0) {
         snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp3", fid);
         if (generate_audio_preview(final_path, preview_path, 192)) {
@@ -3040,6 +3045,8 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
     const char *path = json_string(file, "file_path", "");
     const char *filename = json_string(file, "filename", "download");
     const char *mime = json_string(file, "mime_type", "application/octet-stream");
+    const char *thumb_path = json_string(file, "thumb_path", "");
+    const char *preview_path = json_string(file, "preview_path", "");
     
     char detected_mime[128] = {0};
     if (strcmp(mime, "application/octet-stream") == 0) {
@@ -3048,6 +3055,31 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
         } else {
             mime = mime_type(filename);
         }
+    }
+
+    bool wants_preview = false;
+    const char *preview_q = cwist_query_map_get(req->query_params, "preview");
+    if (preview_q && (strcmp(preview_q, "1") == 0 || strcmp(preview_q, "true") == 0)) {
+        wants_preview = true;
+    }
+    char generated_preview[PATH_MAX] = {0};
+    if (wants_preview && strncmp(mime, "video/", 6) == 0) {
+        struct stat pst;
+        if (preview_path[0] && strncmp(preview_path, "public/uploads/", 15) == 0 &&
+            stat(preview_path, &pst) == 0 && S_ISREG(pst.st_mode) && pst.st_size > 0) {
+            path = preview_path;
+        } else {
+            snprintf(generated_preview, sizeof(generated_preview), "public/uploads/.previews/%d.mp4", atoi(id_str));
+            if (!generate_video_preview(path, generated_preview, 1080)) {
+                cJSON_Delete(file);
+                send_json_response(res, session_error_json("download preview not found"), CWIST_HTTP_NOT_FOUND);
+                return;
+            }
+            db_file_set_preview_paths(req->db, atoi(id_str), thumb_path, generated_preview);
+            path = generated_preview;
+        }
+        filename = "preview.mp4";
+        mime = "video/mp4";
     }
 
     struct stat st;

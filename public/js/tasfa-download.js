@@ -284,6 +284,17 @@
         }
     }
 
+    function normalizeUrlWithQuery(url) {
+        if (!url) return '';
+        if (url.indexOf('blob:') === 0) return '';
+        try {
+            var parsed = new URL(url, window.location.origin);
+            return parsed.pathname + parsed.search;
+        } catch (e) {
+            return url;
+        }
+    }
+
     function absoluteNormalizedUrl(url) {
         var path = normalizeUrl(url);
         if (!path) return '';
@@ -295,31 +306,37 @@
     }
 
     function directMediaUrl(baseUrl, session) {
-        var path = normalizeUrl(baseUrl);
+        var path = normalizeUrlWithQuery(baseUrl);
         if (!path || !session) return '';
-        return path + '?session_id=' + encodeURIComponent(session.sessionId) +
+        return path + (path.indexOf('?') === -1 ? '?' : '&') + 'session_id=' + encodeURIComponent(session.sessionId) +
                '&session_token=' + encodeURIComponent(session.sessionToken);
     }
 
     function handshakeUrl(baseUrl) {
-        var path = normalizeUrl(baseUrl);
+        var path = normalizeUrlWithQuery(baseUrl);
+        var cleanPath = path.split('?')[0];
+        var query = path.indexOf('?') === -1 ? '' : path.slice(path.indexOf('?'));
         if (!path) return null;
-        if (path.indexOf('/file/download/') === 0) return path + '/handshake';
-        if (path.indexOf('/assets/img/') === 0) return '/assets/tasfa/img/' + encodeURIComponent(path.slice('/assets/img/'.length)) + '/handshake';
-        if (path.indexOf('/assets/uploads/') === 0) return '/assets/tasfa/uploads/' + encodeURIComponent(path.slice('/assets/uploads/'.length)) + '/handshake';
+        if (cleanPath.indexOf('/file/download/') === 0) return cleanPath + '/handshake' + query;
+        if (cleanPath.indexOf('/assets/img/') === 0) return '/assets/tasfa/img/' + encodeURIComponent(cleanPath.slice('/assets/img/'.length)) + '/handshake';
+        if (cleanPath.indexOf('/assets/uploads/') === 0) return '/assets/tasfa/uploads/' + encodeURIComponent(cleanPath.slice('/assets/uploads/'.length)) + '/handshake';
         return null;
     }
 
     function chunkUrl(baseUrl, sessionId, sessionToken, chunkIndex, span) {
-        var path = normalizeUrl(baseUrl);
+        var path = normalizeUrlWithQuery(baseUrl);
+        var cleanPath = path.split('?')[0];
+        var extraQuery = path.indexOf('?') === -1 ? '' : path.slice(path.indexOf('?') + 1);
         if (!path) return null;
         var url = null;
-        if (path.indexOf('/file/download/') === 0) {
-            url = path + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
-        } else if (path.indexOf('/assets/img/') === 0) {
-            url = '/assets/tasfa/img/' + encodeURIComponent(path.slice('/assets/img/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
-        } else if (path.indexOf('/assets/uploads/') === 0) {
-            url = '/assets/tasfa/uploads/' + encodeURIComponent(path.slice('/assets/uploads/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
+        if (cleanPath.indexOf('/file/download/') === 0) {
+            url = cleanPath + '/chunk/' + String(chunkIndex) + '?';
+            if (extraQuery) url += extraQuery + '&';
+            url += 'session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
+        } else if (cleanPath.indexOf('/assets/img/') === 0) {
+            url = '/assets/tasfa/img/' + encodeURIComponent(cleanPath.slice('/assets/img/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
+        } else if (cleanPath.indexOf('/assets/uploads/') === 0) {
+            url = '/assets/tasfa/uploads/' + encodeURIComponent(cleanPath.slice('/assets/uploads/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
         }
         if (url && span > 1) url += '&span=' + String(span);
         return url;

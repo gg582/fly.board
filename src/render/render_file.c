@@ -183,7 +183,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             } else if (is_video) {
                 cwist_sstring_append(b, "<button type='button' class='media-load-btn file-video-thumb-link' data-tasfa-video-link='/file/download/");
                 cwist_sstring_append(b, fid_buf);
-                cwist_sstring_append(b, "'>&#9654; Play</button>");
+                cwist_sstring_append(b, "?preview=1'>&#9654; Play</button>");
             } else if (strncmp(mime, "audio/", 6) == 0) {
                 if (has_preview) {
                     cwist_sstring_append(b, "<audio controls class='file-thumb-media' src='/assets/uploads/");
