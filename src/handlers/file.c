@@ -412,24 +412,24 @@ void handler_file_preview(cwist_http_request *req, cwist_http_response *res) {
     }
 
     const char *thumb_path = (jthumb && jthumb->type == cJSON_String && jthumb->valuestring) ? jthumb->valuestring : "";
-    const char *audio_preview_path = (jpreview && jpreview->type == cJSON_String && jpreview->valuestring) ? jpreview->valuestring : "";
+    const char *stored_preview_path = (jpreview && jpreview->type == cJSON_String && jpreview->valuestring) ? jpreview->valuestring : "";
     char preview_path[PATH_MAX] = {0};
     struct stat st;
     if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0 &&
-        stat(thumb_path, &st) == 0 && S_ISREG(st.st_mode)) {
+        strstr(thumb_path, ".webp") && stat(thumb_path, &st) == 0 && S_ISREG(st.st_mode)) {
         snprintf(preview_path, sizeof(preview_path), "%s", thumb_path);
     } else {
-        int written = snprintf(preview_path, sizeof(preview_path), "public/uploads/.thumbs/%d.jpg", id);
+        int written = snprintf(preview_path, sizeof(preview_path), "public/uploads/.thumbs/%d.webp", id);
         if (written < 0 || written >= (int)sizeof(preview_path) ||
             !generate_image_thumb(path, preview_path, 1280, 1280)) {
             cJSON_Delete(file);
             send_upload_not_found(res);
             return;
         }
-        db_file_set_preview_paths(req->db, id, preview_path, audio_preview_path);
+        db_file_set_preview_paths(req->db, id, preview_path, stored_preview_path);
     }
 
-    if (!send_cached_file_response(req, res, preview_path, "image/jpeg", IMAGE_CACHE_CONTROL, NULL)) {
+    if (!send_cached_file_response(req, res, preview_path, "image/webp", IMAGE_CACHE_CONTROL, NULL)) {
         send_upload_not_found(res);
     }
     cJSON_Delete(file);
@@ -462,9 +462,13 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     cJSON *jpath = cJSON_GetObjectItem(file, "file_path");
     cJSON *jfilename = cJSON_GetObjectItem(file, "filename");
     cJSON *jmime = cJSON_GetObjectItem(file, "mime_type");
+    cJSON *jthumb = cJSON_GetObjectItem(file, "thumb_path");
+    cJSON *jpreview = cJSON_GetObjectItem(file, "preview_path");
     const char *path = (jpath && jpath->type == cJSON_String && jpath->valuestring) ? jpath->valuestring : "";
     const char *filename = (jfilename && jfilename->type == cJSON_String && jfilename->valuestring) ? jfilename->valuestring : "download";
     const char *mime = (jmime && jmime->type == cJSON_String && jmime->valuestring) ? jmime->valuestring : "application/octet-stream";
+    const char *thumb_path = (jthumb && jthumb->type == cJSON_String && jthumb->valuestring) ? jthumb->valuestring : "";
+    const char *preview_path = (jpreview && jpreview->type == cJSON_String && jpreview->valuestring) ? jpreview->valuestring : "";
     bool is_image = strncmp(mime, "image/", 6) == 0;
     bool is_media = strncmp(mime, "video/", 6) == 0 || strncmp(mime, "audio/", 6) == 0;
     if (!is_image && !is_media && (!mime[0] || strcmp(mime, "application/octet-stream") == 0)) {
@@ -492,6 +496,33 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
         mime = detected_mime;
         is_image = strncmp(mime, "image/", 6) == 0;
         is_media = strncmp(mime, "video/", 6) == 0 || strncmp(mime, "audio/", 6) == 0;
+    }
+
+    bool wants_preview = false;
+    const char *preview_q = cwist_query_map_get(req->query_params, "preview");
+    if (preview_q && (strcmp(preview_q, "1") == 0 || strcmp(preview_q, "true") == 0)) {
+        wants_preview = true;
+    }
+    char generated_preview[PATH_MAX] = {0};
+    if (wants_preview && strncmp(mime, "video/", 6) == 0) {
+        struct stat pst;
+        if (preview_path[0] && strncmp(preview_path, "public/uploads/", 15) == 0 &&
+            stat(preview_path, &pst) == 0 && S_ISREG(pst.st_mode) && pst.st_size > 0) {
+            path = preview_path;
+        } else {
+            snprintf(generated_preview, sizeof(generated_preview), "public/uploads/.previews/%d.mp4", atoi(id_str));
+            if (!generate_video_preview(path, generated_preview, 1080)) {
+                cJSON_Delete(file);
+                send_upload_not_found(res);
+                return;
+            }
+            db_file_set_preview_paths(req->db, atoi(id_str), thumb_path, generated_preview);
+            path = generated_preview;
+        }
+        filename = "preview.mp4";
+        mime = "video/mp4";
+        is_image = false;
+        is_media = true;
     }
 
     if (g_config.use_tasfa && !is_image) {

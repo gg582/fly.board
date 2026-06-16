@@ -50,6 +50,17 @@ cJSON *db_file_get(cwist_db *db, int id) {
     return db_sqlite3_row_to_json(stmt);
 }
 
+cJSON *db_file_list_all(cwist_db *db) {
+    const char *sql =
+        "SELECT id, filename, mime_type, file_path, size, created_at, thumb_path, preview_path "
+        "FROM files "
+        "WHERE file_path IS NOT NULL AND file_path != '' AND file_path NOT LIKE '%/.thumbs/%' AND file_path NOT LIKE '%/.previews/%' "
+        "ORDER BY id ASC";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    return db_sqlite3_rows_to_json(stmt);
+}
+
 cJSON *db_file_list_by_post(cwist_db *db, int post_id) {
     const char *sql =
         "SELECT a.id, a.filename, a.mime_type, a.file_path, a.size, a.created_at, a.thumb_path, a.preview_path "

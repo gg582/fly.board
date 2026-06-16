@@ -323,11 +323,13 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
         char thumb_path[512] = {0};
         char preview_path[512] = {0};
         if (strncmp(out->mime_type, "image/", 6) == 0) {
-            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.jpg", fid);
+            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
             if (!generate_image_thumb(f->data, thumb_path, 1280, 1280)) thumb_path[0] = '\0';
         } else if (strncmp(out->mime_type, "video/", 6) == 0) {
-            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.jpg", fid);
-            if (!generate_video_thumb(f->data, thumb_path, 320, 240)) thumb_path[0] = '\0';
+            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
+            if (!generate_video_thumb(f->data, thumb_path, 480, 270)) thumb_path[0] = '\0';
+            snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp4", fid);
+            if (!generate_video_preview(f->data, preview_path, 1080)) preview_path[0] = '\0';
         } else if (strncmp(out->mime_type, "audio/", 6) == 0) {
             snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp3", fid);
             if (!generate_audio_preview(f->data, preview_path, 192)) preview_path[0] = '\0';
@@ -344,9 +346,11 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, up
             "<img src=\"%s\" data-tasfa-src=\"%s\" data-tasfa-original=\"%s\" alt=\"%s\" style=\"max-width:100%%;height:auto;display:block\">",
             preview_url, preview_url, out->url, out->filename);
     } else if (strncmp(out->mime_type, "video/", 6) == 0) {
+        char play_url[576];
+        snprintf(play_url, sizeof(play_url), "%s?preview=1", out->url);
         snprintf(out->html, sizeof(out->html),
             "<div class=\"media-video-placeholder\"><div class=\"media-video-title\">%s</div><div class=\"media-video-frame\"><button type=\"button\" class=\"media-load-btn media-video-open\" data-tasfa-video-link=\"%s\">Click to Load</button></div></div>",
-            out->filename, out->url);
+            out->filename, play_url);
     } else if (strncmp(out->mime_type, "audio/", 6) == 0) {
         snprintf(out->html, sizeof(out->html),
             "<audio controls src=\"%s\"></audio>",

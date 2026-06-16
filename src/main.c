@@ -3,6 +3,7 @@
 #include "auth/auth.h"
 #include "crypto/fly_crypto.h"
 #include "db/db.h"
+#include "utils/media_preview.h"
 #include "cwist/board_tree.h"
 #include "nats/fly_nats.h"
 #include "config/config.h"
@@ -244,6 +245,7 @@ int main(void) {
     CWIST_LOG_INFO("Board tree database initialized");
 
     db_file_cleanup_duplicates(db);
+    media_preview_backfill(db);
     db_cleanup_orphaned_files(db);
     CWIST_LOG_INFO("Orphaned files cleanup completed");
 

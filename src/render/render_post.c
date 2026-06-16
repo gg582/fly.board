@@ -106,8 +106,10 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
     const char *filename = jname && jname->valuestring ? jname->valuestring : "";
     char url[64];
     char preview_url[64];
+    char video_preview_url[80];
     snprintf(url, sizeof(url), "/file/download/%d", fid);
     snprintf(preview_url, sizeof(preview_url), "/file/preview/%d", fid);
+    snprintf(video_preview_url, sizeof(video_preview_url), "/file/download/%d?preview=1", fid);
 
     if (strcmp(kind, "image") == 0) {
         cwist_sstring_append(out, "<img ");
@@ -124,7 +126,10 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
         cwist_sstring_append(out, url);
         cwist_sstring_append(out, "\">Download original</a></div>");
     } else if (strcmp(kind, "video") == 0) {
-        append_video_placeholder(out, url, filename);
+        append_video_placeholder(out, video_preview_url, filename);
+        cwist_sstring_append(out, "<div style=\"margin-top:8px\"><a href=\"#\" data-tasfa-download-link=\"");
+        cwist_sstring_append(out, url);
+        cwist_sstring_append(out, "\">Download original</a></div>");
     } else if (strcmp(kind, "audio") == 0) {
         cwist_sstring_append(out, "<audio src=\"");
         cwist_sstring_append(out, url);
@@ -829,9 +834,14 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 if (is_image || is_video || is_audio) {
                     if (is_video) {
                         char video_url[64];
-                        snprintf(video_url, sizeof(video_url), "/file/download/%s", fid_buf2);
+                        snprintf(video_url, sizeof(video_url), "/file/download/%s?preview=1", fid_buf2);
                         cwist_sstring_append(b, "<div class='media-attachment-block' style='margin-bottom:12px'>");
                         append_video_placeholder(b, video_url, fname->valuestring);
+                        cwist_sstring_append(b, "<div style='margin-top:8px;font-size:13px;color:var(--muted);text-align:center'>");
+                        cwist_sstring_append_escaped(b, fname->valuestring);
+                        cwist_sstring_append(b, " &middot; <a href='#' data-tasfa-download-link='/file/download/");
+                        cwist_sstring_append(b, fid_buf2);
+                        cwist_sstring_append(b, "'>Download original</a></div>");
                         cwist_sstring_append(b, "</div>");
                     } else {
                         cwist_sstring_append(b, "<div class='media-attachment-block' style='margin-bottom:12px'>");
