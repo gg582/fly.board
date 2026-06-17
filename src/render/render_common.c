@@ -38,10 +38,10 @@ cwist_sstring *build_form(const char *title, const char *action, const char *met
 }
 
 const char *code_copy_script =
-    "<script src='/assets/js/copy.js'></script>";
+    "<script src='/assets/js/copy.js' defer></script>";
 
 const char *login_register_script =
-    "<script src='/assets/js/auth.js'></script>";
+    "<script src='/assets/js/auth.js' defer></script>";
 
 char *format_join_date(const char *iso_date) {
     static char buf[128];

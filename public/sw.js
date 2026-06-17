@@ -371,6 +371,17 @@ self.addEventListener('fetch', function(event) {
     if ((!isTasfa && !isDirectImageAsset) || event.request.method !== 'GET') return;
     if (event.request.headers.get('Range') || event.request.destination === 'video' || event.request.destination === 'audio') return;
     var promise = fetchWithRetry(event.request, { maxRetries: 5, baseDelay: 200 }).catch(function(err) {
+        if (isDirectImageAsset) {
+            /* For image assets, returning JSON causes Firefox to report a
+               decoding/error mismatch. Return an empty image response so the
+               browser shows a broken-image placeholder cleanly and the page
+               can fall back if it wants to. */
+            return new Response('', {
+                status: 503,
+                statusText: 'Service Unavailable',
+                headers: {'Content-Type': 'image/png'}
+            });
+        }
         return new Response(JSON.stringify({ok:false, error:'network', retry:true}), {
             status: 503,
             headers: {'Content-Type':'application/json'}

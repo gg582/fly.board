@@ -145,6 +145,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
     cwist_html_element_t *layout_js = cwist_html_element_create("script");
     cwist_html_element_add_attr(layout_js, "src", "/assets/js/layout.js");
+    cwist_html_element_add_attr(layout_js, "defer", NULL);
     cwist_html_element_add_child(head, layout_js);
 
     cwist_html_element_t *body = cwist_html_element_create("body");
@@ -368,18 +369,21 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         cwist_html_element_t *katex_js = cwist_html_element_create("script");
         if (katex_js) {
             cwist_html_element_add_attr(katex_js, "src", "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js");
+            cwist_html_element_add_attr(katex_js, "defer", NULL);
             cwist_html_element_add_child(body, katex_js);
         }
 
         cwist_html_element_t *katex_render_js = cwist_html_element_create("script");
         if (katex_render_js) {
             cwist_html_element_add_attr(katex_render_js, "src", "/assets/js/katex-render.js");
+            cwist_html_element_add_attr(katex_render_js, "defer", NULL);
             cwist_html_element_add_child(body, katex_render_js);
         }
 
         cwist_html_element_t *tasfa_script = cwist_html_element_create("script");
         if (tasfa_script) {
             cwist_html_element_add_attr(tasfa_script, "src", "/assets/js/tasfa-download.js?v=5");
+            cwist_html_element_add_attr(tasfa_script, "defer", NULL);
             cwist_html_element_add_child(body, tasfa_script);
         }
     }

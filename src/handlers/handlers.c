@@ -139,14 +139,20 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
 
     const char *origin = cwist_http_header_get(req->headers, "Origin");
     if (origin && origin[0]) {
+        /* Echo the actual Origin so credentialed cross-origin requests work.
+           Firefox (and other spec-compliant browsers) reject the combination
+           of Access-Control-Allow-Origin: * + Access-Control-Allow-Credentials: true. */
         cwist_http_header_add(&res->headers, "Access-Control-Allow-Origin", origin);
         cwist_http_header_add(&res->headers, "Vary", "Origin");
+        cwist_http_header_add(&res->headers, "Access-Control-Allow-Credentials", "true");
     } else {
+        /* No Origin header usually means a same-origin request. Use a wildcard
+           for simple non-credentialed access, but do NOT send Allow-Credentials
+           because wildcard + credentials is invalid in Firefox. */
         cwist_http_header_add(&res->headers, "Access-Control-Allow-Origin", "*");
     }
     cwist_http_header_add(&res->headers, "Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD");
     cwist_http_header_add(&res->headers, "Access-Control-Allow-Headers", "*");
-    cwist_http_header_add(&res->headers, "Access-Control-Allow-Credentials", "true");
     cwist_http_header_add(&res->headers, "Access-Control-Expose-Headers", "Content-Length, Content-Type, X-Request-Id");
     cwist_http_header_add(&res->headers, "Access-Control-Max-Age", "86400");
 

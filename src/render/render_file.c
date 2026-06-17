@@ -126,7 +126,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
     cwist_sstring_append(b, "<div class='file-repo-upload-actions' style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px'>");
     cwist_sstring_append(b, "<button id='file-repo-upload-btn' type='button' class='btn'>Upload queued files</button>");
     cwist_sstring_append(b, "</div></div>");
-    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=2'></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=2' defer></script>");
 
     if (files && cJSON_GetArraySize(files) > 0) {
         int n_files = cJSON_GetArraySize(files);
