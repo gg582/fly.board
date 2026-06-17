@@ -1,8 +1,10 @@
 #include "config.h"
+#include <cwist/core/log.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 
 blog_config_t g_config = {0};
 font_settings_t g_font_settings = {0};
@@ -28,6 +30,32 @@ static int clamp_int_config(int value, int min_value, int max_value) {
     if (value < min_value) return min_value;
     if (value > max_value) return max_value;
     return value;
+}
+
+static bool is_safe_image_name(const char *name) {
+    if (!name || !name[0]) return false;
+    return strchr(name, '/') == NULL && strchr(name, '\\') == NULL;
+}
+
+static void validate_image_setting(char *filename, const char *setting_name) {
+    if (!filename || !filename[0]) return;
+    if (!is_safe_image_name(filename)) {
+        CWIST_LOG_WARN("Ignoring unsafe %s value: %s", setting_name, filename);
+        filename[0] = '\0';
+        return;
+    }
+    char path[512];
+    int n = snprintf(path, sizeof(path), "public/img/%s", filename);
+    if (n < 0 || n >= (int)sizeof(path)) {
+        CWIST_LOG_WARN("Ignoring too-long %s value: %s", setting_name, filename);
+        filename[0] = '\0';
+        return;
+    }
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        CWIST_LOG_WARN("Configured %s not found at %s, ignoring", setting_name, path);
+        filename[0] = '\0';
+    }
 }
 
 static void set_default(void) {
@@ -152,6 +180,14 @@ bool blog_config_load(const char *path) {
     g_config.max_total_parallel_uploads = clamp_int_config(g_config.max_total_parallel_uploads, 1, 512);
     g_config.max_upload_parallel_chunks = clamp_int_config(g_config.max_upload_parallel_chunks, 1, 64);
     g_config.max_concurrent_downloads = clamp_int_config(g_config.max_concurrent_downloads, 1, 512);
+
+    /* Validate configured image assets so the renderer does not emit broken
+       <img> tags that result in 404s in Firefox (and all other browsers). */
+    validate_image_setting(g_config.home_img, "home_img");
+    validate_image_setting(g_config.blog_logo, "blog_logo");
+    validate_image_setting(g_config.boards_img, "boards_img");
+    validate_image_setting(g_config.files_img, "files_img");
+    validate_image_setting(g_config.favicon, "favicon");
     return true;
 }
 
