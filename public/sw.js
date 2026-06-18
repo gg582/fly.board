@@ -1,4 +1,4 @@
-var LOGO_CACHE = 'logo-cache-v2';
+var LOGO_CACHE = 'logo-cache-v3';
 var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
 var LOGO_MAX_AGE = 3600000; // 1 hour in milliseconds
 var tasfaSessions = {};
@@ -93,6 +93,15 @@ self.addEventListener('install', function(e) {
 self.addEventListener('activate', function(e) {
     e.waitUntil(self.clients.claim());
 });
+
+function emptyPngResponse(status, statusText) {
+    var png = new Uint8Array([0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,0x00,0x00,0x00,0x0D,0x49,0x48,0x44,0x52,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x08,0x06,0x00,0x00,0x00,0x1F,0x15,0xC4,0x89,0x00,0x00,0x00,0x0A,0x49,0x44,0x41,0x54,0x78,0x9C,0x63,0x60,0x00,0x00,0x00,0x02,0x00,0x01,0x73,0x75,0x01,0x18,0x00,0x00,0x00,0x00,0x49,0x45,0x4E,0x44,0xAE,0x42,0x60,0x82]);
+    return new Response(png, {
+        status: status || 503,
+        statusText: statusText || 'Service Unavailable',
+        headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' }
+    });
+}
 
 function isLogoUrl(url) {
     return url.startsWith(self.location.origin + '/assets/img/');
@@ -349,12 +358,10 @@ self.addEventListener('fetch', function(event) {
                         if (cachedResponse && cachedResponse.ok) {
                             return withoutCsp(cachedResponse);
                         }
-                        // Do not let respondWith reject on network errors
-                        return new Response('', {
-                            status: 404,
-                            statusText: 'Not Found',
-                            headers: { 'Content-Type': 'text/plain' }
-                        });
+                        // Firefox logs MIME/decoding mismatches for text/plain
+                        // image responses. Return a valid 1x1 transparent PNG so
+                        // the browser shows a clean broken-image placeholder.
+                        return emptyPngResponse(503, 'Service Unavailable');
                     });
                 });
             })
@@ -373,14 +380,9 @@ self.addEventListener('fetch', function(event) {
     var promise = fetchWithRetry(event.request, { maxRetries: 5, baseDelay: 200 }).catch(function(err) {
         if (isDirectImageAsset) {
             /* For image assets, returning JSON causes Firefox to report a
-               decoding/error mismatch. Return an empty image response so the
-               browser shows a broken-image placeholder cleanly and the page
-               can fall back if it wants to. */
-            return new Response('', {
-                status: 503,
-                statusText: 'Service Unavailable',
-                headers: {'Content-Type': 'image/png'}
-            });
+               decoding/error mismatch. Return a valid 1x1 transparent PNG so
+               the browser shows a clean broken-image placeholder. */
+            return emptyPngResponse(503, 'Service Unavailable');
         }
         return new Response(JSON.stringify({ok:false, error:'network', retry:true}), {
             status: 503,

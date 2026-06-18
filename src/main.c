@@ -293,6 +293,7 @@ int main(void) {
     }
 
     cwist_app_use(app, global_middleware);
+    cwist_app_register_error_handler(app, CWIST_HTTP_NOT_FOUND, handler_not_found);
 
     cwist_app_get(app, "/assets/img/:filename", handler_asset_img);
     cwist_app_get(app, "/assets/uploads/:filename", handler_asset_upload);

@@ -7,11 +7,16 @@
 #include <fcntl.h>
 #include <time.h>
 
-#define IMAGE_CACHE_CONTROL "no-cache, private"
-#define FILE_CACHE_CONTROL  "no-cache, private"
+/* Production-grade cache control:
+   - Static user content (images/uploads/profile): public caches allowed, 1-day freshness,
+     must revalidate after that. ETag is always provided for validation.
+   - Generic downloads: same policy. */ 
+#define IMAGE_CACHE_CONTROL "public, max-age=86400, must-revalidate"
+#define FILE_CACHE_CONTROL  "public, max-age=86400, must-revalidate"
 
 static void send_upload_not_found(cwist_http_response *res) {
     res->status_code = CWIST_HTTP_NOT_FOUND;
+    cwist_sstring_assign(res->status_text, "Not Found");
     cwist_sstring_assign(res->body, "Not found");
 }
 
@@ -65,6 +70,7 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
 
     if (request_cache_fresh(req, etag, last_modified)) {
         res->status_code = (cwist_http_status_t)304;
+        cwist_sstring_assign(res->status_text, "Not Modified");
         cwist_sstring_assign(res->body, "");
         if (not_modified) *not_modified = true;
         return true;
@@ -121,9 +127,11 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
 
         if (!is_range) {
             res->status_code = (cwist_http_status_t)416;
+            cwist_sstring_assign(res->status_text, "Range Not Satisfiable");
             char content_range[128];
             snprintf(content_range, sizeof(content_range), "bytes */%lld", (long long)st.st_size);
             cwist_http_header_add(&res->headers, "Content-Range", content_range);
+            cwist_http_header_add(&res->headers, "Content-Length", "0");
             cwist_sstring_assign(res->body, "");
             if (not_modified) *not_modified = false;
             return true;
@@ -136,7 +144,59 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
     size_t sz = (size_t)st.st_size;
     if (sz == 0) {
         close(fd);
+        res->status_code = CWIST_HTTP_OK;
+        cwist_sstring_assign(res->status_text, "OK");
+        cwist_http_header_add(&res->headers, "Content-Length", "0");
         cwist_sstring_assign(res->body, "");
+        return true;
+    }
+
+    size_t response_len = is_range ? (size_t)(range_end - range_start + 1) : sz;
+    off_t response_offset = is_range ? range_start : 0;
+
+    /* CWIST's HTTPS-over-HTTP/1.1 path stringifies the response and ignores
+       res->use_file_stream content, so the body must be materialized here.
+       HTTP/2 and HTTP/3 have their own send paths that honor file_stream. */
+    bool is_http11_tls = g_config.use_tls && req->stream_id == 0 &&
+        req->version && req->version->data &&
+        strncmp(req->version->data, "HTTP/1.", 7) == 0;
+
+    if (is_http11_tls) {
+        char *buf = (char *)cwist_alloc(response_len);
+        if (!buf) {
+            close(fd);
+            res->status_code = CWIST_HTTP_SERVICE_UNAVAILABLE;
+            cwist_sstring_assign(res->status_text, "Service Unavailable");
+            cwist_http_header_add(&res->headers, "Content-Type", "text/plain");
+            cwist_sstring_assign(res->body, "Asset too large for HTTP/1.1 TLS transport; use HTTP/2 or HTTP/3.");
+            return true;
+        }
+        size_t total = 0;
+        while (total < response_len) {
+            ssize_t rc = pread(fd, buf + total, response_len - total,
+                               response_offset + (off_t)total);
+            if (rc <= 0) break;
+            total += (size_t)rc;
+        }
+        close(fd);
+        if (total != response_len) { cwist_free(buf); return false; }
+
+        res->use_file_stream = false;
+        cwist_sstring_assign(res->body, "");
+        cwist_sstring_append_len(res->body, buf, total);
+        cwist_free(buf);
+
+        res->status_code = is_range ? (cwist_http_status_t)206 : CWIST_HTTP_OK;
+        cwist_sstring_assign(res->status_text, is_range ? "Partial Content" : "OK");
+        if (is_range) {
+            char content_range[128];
+            snprintf(content_range, sizeof(content_range), "bytes %lld-%lld/%lld",
+                     (long long)range_start, (long long)range_end, (long long)st.st_size);
+            cwist_http_header_add(&res->headers, "Content-Range", content_range);
+        }
+        char len_buf[32];
+        snprintf(len_buf, sizeof(len_buf), "%zu", response_len);
+        cwist_http_header_add(&res->headers, "Content-Length", len_buf);
         return true;
     }
 
@@ -145,20 +205,19 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
     res->file_stream_auto_close = true;
     cwist_sstring_assign(res->body, "");
 
-    size_t response_len;
     if (is_range) {
         res->status_code = (cwist_http_status_t)206;
+        cwist_sstring_assign(res->status_text, "Partial Content");
         char content_range[128];
         snprintf(content_range, sizeof(content_range), "bytes %lld-%lld/%lld",
                  (long long)range_start, (long long)range_end, (long long)st.st_size);
         cwist_http_header_add(&res->headers, "Content-Range", content_range);
 
-        response_len = (size_t)(range_end - range_start + 1);
         res->file_stream_len = response_len;
         res->file_stream_offset = range_start;
     } else {
         res->status_code = CWIST_HTTP_OK;
-        response_len = sz;
+        cwist_sstring_assign(res->status_text, "OK");
         res->file_stream_len = sz;
         res->file_stream_offset = 0;
     }
