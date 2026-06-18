@@ -282,10 +282,41 @@ static void send_queued_json(cwist_http_response *res, const char *msg, int retr
 
 /* --- Utility Functions --- */
 
+static const char *http_status_text(int code) {
+    switch (code) {
+        case 200: return "OK";
+        case 201: return "Created";
+        case 202: return "Accepted";
+        case 204: return "No Content";
+        case 206: return "Partial Content";
+        case 301: return "Moved Permanently";
+        case 302: return "Found";
+        case 304: return "Not Modified";
+        case 400: return "Bad Request";
+        case 401: return "Unauthorized";
+        case 403: return "Forbidden";
+        case 404: return "Not Found";
+        case 405: return "Method Not Allowed";
+        case 408: return "Request Timeout";
+        case 410: return "Gone";
+        case 413: return "Payload Too Large";
+        case 429: return "Too Many Requests";
+        case 500: return "Internal Server Error";
+        case 502: return "Bad Gateway";
+        case 503: return "Service Unavailable";
+        case 504: return "Gateway Timeout";
+        default:  return "Unknown";
+    }
+}
+
 static void send_json_response(cwist_http_response *res, cJSON *obj, int status_code) {
     char *json = cJSON_PrintUnformatted(obj);
     res->status_code = (cwist_http_status_t)status_code;
+    cwist_sstring_assign(res->status_text, http_status_text(status_code));
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+    /* Dynamic JSON (sessions, handshake, chunk errors) must not be cached. */
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-store, no-cache, must-revalidate, private");
+    cwist_http_header_add(&res->headers, "Vary", "Origin, Accept-Encoding");
     add_keepalive_headers(res);
     cwist_sstring_assign(res->body, json ? json : "{}");
     if (json) free(json);
@@ -1229,7 +1260,11 @@ static bool send_file_slice_response(cwist_http_request *req, cwist_http_respons
         gzip_buf = NULL;
     }
     cwist_http_header_add(&res->headers, "Content-Type", mime ? mime : "application/octet-stream");
-    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
+    /* TASFA chunks are session-bound and must never be cached by shared or private caches. */
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-store, no-cache, must-revalidate, private");
+    cwist_http_header_add(&res->headers, "Accept-Ranges", "bytes");
+    cwist_http_header_add(&res->headers, "Vary", "Origin, Accept-Encoding");
+    res->status_code = CWIST_HTTP_OK;
     add_keepalive_headers(res);
     char idx_buf[32], cnt_buf[32], span_buf[32];
     snprintf(idx_buf, sizeof(idx_buf), "%d", chunk_index);
@@ -3103,6 +3138,7 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
         cleanup_download_session(session_id);
         cJSON_Delete(obj);
         cJSON_Delete(file);
+        send_json_response(res, session_error_json("client disconnected"), CWIST_HTTP_SERVICE_UNAVAILABLE);
         return;
     }
     cJSON_Delete(file);
@@ -3128,11 +3164,21 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
         cJSON_Delete(meta);
         tasfa_queue_leave(g_q_downloads, tasfa_download_session_limit(), session_id);
         cleanup_download_session(session_id);
+        send_json_response(res, session_error_json("client disconnected"), CWIST_HTTP_SERVICE_UNAVAILABLE);
         return;
     }
     if (!secure_str_eq(session_token, json_string(meta, "session_token", ""))) {
         cJSON_Delete(meta);
         send_json_response(res, session_error_json("download chunk rejected"), CWIST_HTTP_FORBIDDEN);
+        return;
+    }
+    time_t now = time(NULL);
+    time_t expires_at = (time_t)json_long_long(meta, "expires_at", 0);
+    if (expires_at > 0 && now > expires_at) {
+        cJSON_Delete(meta);
+        tasfa_queue_leave(g_q_downloads, tasfa_download_session_limit(), session_id);
+        cleanup_download_session(session_id);
+        send_json_response(res, session_error_json("download session expired"), (cwist_http_status_t)410);
         return;
     }
     int chunk_index = atoi(chunk_str);
@@ -3146,7 +3192,7 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
     if (span > max_span_by_bytes) span = max_span_by_bytes;
     if (chunk_index < 0 || chunk_index >= chunk_count) {
         cJSON_Delete(meta);
-        send_json_response(res, session_error_json("download chunk rejected"), CWIST_HTTP_FORBIDDEN);
+        send_json_response(res, session_error_json("download chunk out of range"), CWIST_HTTP_BAD_REQUEST);
         return;
     }
     if (chunk_index + span > chunk_count) span = chunk_count - chunk_index;
@@ -3241,6 +3287,7 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
         tasfa_queue_leave(g_q_downloads, tasfa_download_session_limit(), session_id);
         cleanup_download_session(session_id);
         cJSON_Delete(obj);
+        send_json_response(res, session_error_json("client disconnected"), CWIST_HTTP_SERVICE_UNAVAILABLE);
         return;
     }
     send_json_response(res, obj, CWIST_HTTP_OK);

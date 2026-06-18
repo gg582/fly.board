@@ -82,5 +82,6 @@ void handler_sw_js(cwist_http_request *req, cwist_http_response *res);
 void handler_tasfa_stream_placeholder(cwist_http_request *req, cwist_http_response *res);
 
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next);
+void handler_not_found(cwist_http_request *req, cwist_http_response *res, cwist_http_status_t status);
 
 #endif
