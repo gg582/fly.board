@@ -13,11 +13,15 @@
     var DOWNLOAD_CHUNK_STEP_UP = 1024 * 1024;
     var DOWNLOAD_CHUNK_STEP_DOWN = 512 * 1024;
     var DOWNLOAD_REQUEST_BYTES_MAX = 128 * 1024 * 1024;
-    // Globe-baseline RTT ~500 ms (light-speed ~267 ms + realistic routing).
-    // Full reconnect (TCP + TLS 1.3) costs ~1.5 s; allow ~40 such cycles.
-    var DOWNLOAD_CONNECT_TIMEOUT_MS = 60000;
-    // Media idle timeout: must survive HLS/DASH segment gaps over a global link.
-    var DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS = 120000;
+    // KR<->NG worst-case baseline: measured RTT up to 4000 ms (path MTU
+    // probing + middlebox resets inflate beyond raw propagation delay).
+    // Full reconnect (TCP SYN+SYNACK + TLS 1.3) over this path: up to ~3
+    // RTTs = ~12 s. Idle watchdog must not fire before the first byte
+    // arrives on a slow-start connection transferring a large chunk.
+    var DOWNLOAD_CONNECT_TIMEOUT_MS = 120000;  // 120 s: ~10 full reconnect cycles
+    // Media idle timeout: a globally-routed HLS segment gap can be tens of
+    // seconds; never abort mid-stream unless truly stalled.
+    var DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS = 180000;
     /* data: URL cannot be received in TASFA environment - no placeholder used */
     var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
     var objectUrls = new WeakMap();
@@ -597,8 +601,9 @@
             };
             xhr.onload = function() {
                 watchdog.clear();
-                if (xhr.status === 429 && retries < 10) {
-                    var delay = 3000;
+                if (xhr.status === 429 && retries < 15) {
+                    // Default 8 s so the server can shed load across a 4 s RTT path
+                    var delay = 8000;
                     try {
                         var resp = JSON.parse(xhr.responseText);
                         if (resp.retry_after) delay = resp.retry_after * 1000;
@@ -771,14 +776,21 @@
                         activeFetches = Math.max(0, activeFetches - 1);
                         var msg = e && e.message ? e.message : 'network';
                         tuneDownloadFailure(session, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
-                        // Add a small delay before retrying to prevent rapid retry exhaustion
-                        await new Promise(function(r) { setTimeout(r, 1000); });
+                        // KR<->NG worst case: 4000 ms RTT, TCP+TLS reconnect ~12 s.
+                        // Use exponential backoff starting at 5 s so the first
+                        // retry lands after a full reconnect cycle; cap at 60 s.
+                        var attemptCount = retryCounts[claim.idx] || 0;
+                        var workerDelay = Math.min(5000 * Math.pow(2, Math.min(attemptCount, 4)), 60000)
+                                          + Math.floor(Math.random() * 2000);
+                        await new Promise(function(r) { setTimeout(r, workerDelay); });
                         var exhausted = false;
                         for (var k = 0; k < claim.span; k++) {
                             var ci = claim.idx + k;
                             if (ci >= session.chunkCount || bitmap[ci]) continue;
                             retryCounts[ci] = (retryCounts[ci] || 0) + 1;
-                            if (retryCounts[ci] > 80) exhausted = true;
+                            // 200 retries × 60 s ceiling = up to ~3.3 hours of persistence
+                            // on a badly degraded intercontinental path
+                            if (retryCounts[ci] > 200) exhausted = true;
                             pending.push(ci);
                         }
                         if (exhausted) sharedState.failed = e || new Error('download failed');
@@ -1005,11 +1017,13 @@
                 if (!session.largeMedia || attempts[index] >= 2) {
                     tuneDownloadFailure(session, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
                 }
-                // Globe-RTT baseline: initial retryAt must exceed at least one
-                // full reconnect cycle (~1.5 s) to avoid hammering a recovering server.
+                // KR<->NG worst case: 4000 ms RTT, full TCP+TLS reconnect ~12 s.
+                // retryAt must clear at least one full reconnect cycle before
+                // the next attempt; grow aggressively to avoid hammering a
+                // server whose connection pool is still recovering.
                 retryAt[index] = Date.now() + Math.min(
-                    session.largeMedia ? 4000 : 10000,
-                    1500 + (attempts[index] * (session.largeMedia ? 400 : 600))
+                    session.largeMedia ? 20000 : 30000,   // ceiling: 20 s / 30 s
+                    5000 + (attempts[index] * (session.largeMedia ? 3000 : 4000))
                 );
             }).finally(function() {
                 inflight[index] = 0;
