@@ -217,6 +217,10 @@ cJSON *board_by_route_key(cwist_db *db, const char *key) {
 
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
     res->keep_alive = req->keep_alive;
+    if (res->keep_alive) {
+        cwist_http_header_add(&res->headers, "Connection", "keep-alive");
+        cwist_http_header_add(&res->headers, "Keep-Alive", "timeout=3600, max=500000");
+    }
 
     if (g_config.use_http3) {
         char altsvc[128];

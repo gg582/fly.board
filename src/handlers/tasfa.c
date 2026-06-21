@@ -258,8 +258,8 @@ static void tasfa_queue_sweep(queue_slot_t *slots, int max_slots, int ttl) {
 }
 
 static void add_keepalive_headers(cwist_http_response *res) {
-    cwist_http_header_add(&res->headers, "Connection", "keep-alive");
-    cwist_http_header_add(&res->headers, "Keep-Alive", "timeout=600, max=10000");
+    /* Connection and Keep-Alive are handled globally by global_middleware. */
+    (void)res;
 }
 
 static void send_queued_json(cwist_http_response *res, const char *msg, int retry_after) {
