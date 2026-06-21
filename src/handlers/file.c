@@ -63,10 +63,7 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
     cwist_http_header_add(&res->headers, "Accept-Ranges", "bytes");
     if (last_modified[0]) cwist_http_header_add(&res->headers, "Last-Modified", last_modified);
 
-    if (req->keep_alive) {
-        cwist_http_header_add(&res->headers, "Connection", "keep-alive");
-        cwist_http_header_add(&res->headers, "Keep-Alive", "timeout=600, max=10000");
-    }
+
 
     if (request_cache_fresh(req, etag, last_modified)) {
         res->status_code = (cwist_http_status_t)304;
