@@ -319,10 +319,10 @@
                 if(typeof console!=='undefined'&&console.log) console.log('[SW] registered:', reg.scope);
             }).catch(function(err){
                 if(typeof console!=='undefined'&&console.warn) console.warn('[SW] registration failed (attempt '+attempt+'):', err);
-                // Globe-RTT baseline: TCP+TLS costs ~1.5 s, so start with
-                // a 2 s delay and back off up to 30 s over 6 attempts.
-                if(attempt < 6){
-                    var delay = Math.min(2000 * Math.pow(2, attempt - 1), 30000);
+                // KR<->NG worst case: TCP+TLS ~12 s reconnect cycle.
+                // Start at 5 s (one cycle), back off up to 90 s over 8 attempts.
+                if(attempt < 8){
+                    var delay = Math.min(5000 * Math.pow(2, attempt - 1), 90000);
                     setTimeout(function(){ registerSw(attempt + 1); }, delay);
                 }
             });
@@ -338,15 +338,14 @@
         if(!window.addEventListener) return;
         // retried[url] = attempt count
         var retried = {};
-        // Globe-RTT baseline: allow up to 5 retries so a script can survive
-        // multiple consecutive connection drops on a long-haul path.
-        var MAX_SCRIPT_RETRIES = 5;
+        // KR<->NG worst case: allow 8 retries over ~12-min window so a
+        // script can survive a badly degraded intercontinental path.
+        var MAX_SCRIPT_RETRIES = 8;
         function retryScript(url, attempt){
-            // 1500 ms base (covers one TCP+TLS reconnect round), doubles each
-            // retry, cap at 30 s. Add ±500 ms jitter to prevent synchronised
-            // retry bursts across tabs sharing the same global route.
-            var delay = Math.min(1500 * Math.pow(2, attempt - 1), 30000)
-                        + Math.floor(Math.random() * 500);
+            // 5000 ms base = one TCP+TLS reconnect cycle on KR<->NG.
+            // Doubles each retry up to 90 s; +0-2000 ms jitter.
+            var delay = Math.min(5000 * Math.pow(2, attempt - 1), 90000)
+                        + Math.floor(Math.random() * 2000);
             setTimeout(function(){
                 var s = document.createElement('script');
                 s.src = url;

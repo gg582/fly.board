@@ -186,20 +186,20 @@ function handleRangeRequest(request, response) {
 
 function fetchWithRetry(request, options) {
     options = options || {};
-    var maxRetries = options.maxRetries || 8;
-    // Globe-baseline RTT ~500 ms; TCP+TLS reconnect costs ~1500 ms.
-    // Start first retry no earlier than ~1 s so the server has time to
-    // recycle its idle-connection slot before we hammer it again.
-    var baseDelay = options.baseDelay || 1000;
-    var maxDelay = options.maxDelay || 30000; // 30 s ceiling for global links
+    var maxRetries = options.maxRetries || 12;
+    // KR<->NG worst-case: measured RTT up to 4000 ms; TCP+TLS reconnect ~12 s.
+    // First retry must land after at least one full reconnect cycle, so
+    // baseline delay is 5 s.  Subsequent retries back off up to 90 s.
+    var baseDelay = options.baseDelay || 5000;
+    var maxDelay = options.maxDelay || 90000;
     var retries = 0;
 
     function delay() {
-        var exp = Math.min(retries, 5); // cap: 1s * 2^5 = 32s, clamped to maxDelay
+        var exp = Math.min(retries, 4); // 5s * 2^4 = 80s, clamped to 90s ceiling
         var d = Math.min(baseDelay * Math.pow(2, exp), maxDelay);
-        // ±800 ms jitter prevents reconnect stampedes when many clients
-        // share the same global route and experience simultaneous drops.
-        d += Math.floor(Math.random() * 800);
+        // ±2000 ms jitter: wide enough to desynchronise clients on the same
+        // KR-> [US West] -> EU -> NG path that all drop at once.
+        d += Math.floor(Math.random() * 2000);
         return new Promise(function(resolve) { setTimeout(resolve, d); });
     }
 
