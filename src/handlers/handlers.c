@@ -168,7 +168,7 @@ static void replace_csp(cwist_http_response *res) {
             *cur = (*cur)->next;
             cwist_sstring_destroy(to_remove->key);
             cwist_sstring_destroy(to_remove->value);
-            free(to_remove);
+            cwist_free(to_remove);
         } else {
             cur = &(*cur)->next;
         }
@@ -268,7 +268,7 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
             *cur = (*cur)->next;
             cwist_sstring_destroy(to_remove->key);
             cwist_sstring_destroy(to_remove->value);
-            free(to_remove);
+            cwist_free(to_remove);
         } else {
             cur = &(*cur)->next;
         }
