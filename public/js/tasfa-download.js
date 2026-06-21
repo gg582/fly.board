@@ -13,21 +13,24 @@
     var DOWNLOAD_CHUNK_STEP_UP = 1024 * 1024;
     var DOWNLOAD_CHUNK_STEP_DOWN = 512 * 1024;
     var DOWNLOAD_REQUEST_BYTES_MAX = 128 * 1024 * 1024;
-    var DOWNLOAD_CONNECT_TIMEOUT_MS = 30000; // extended for high-RTT links
-    var DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS = 60000;
+    // Globe-baseline RTT ~500 ms (light-speed ~267 ms + realistic routing).
+    // Full reconnect (TCP + TLS 1.3) costs ~1.5 s; allow ~40 such cycles.
+    var DOWNLOAD_CONNECT_TIMEOUT_MS = 60000;
+    // Media idle timeout: must survive HLS/DASH segment gaps over a global link.
+    var DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS = 120000;
     /* data: URL cannot be received in TASFA environment - no placeholder used */
     var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
     var objectUrls = new WeakMap();
     var videoPlayerModule = null;
 
-    /* Concurrency guard for direct image loads. Browsers limit per-origin
-       parallel connections; photo-heavy posts can exhaust that pool and
-       leave thumbnails partially loaded. Queue image probes so only a few
-       compete for the network at a time. */
+    /* Concurrency guard for direct image loads.
+       On high-RTT links each image occupies a connection slot for much longer;
+       raising the limit keeps the HTTP/2 multiplexer saturated and cuts
+       perceived load time by utilising more parallel streams. */
     var imageLoadQueue = [];
     var activeImageLoads = 0;
-    var MAX_CONCURRENT_IMAGE_LOADS = 6;
-    var IMAGE_LOAD_TIMEOUT_MS = 15000;
+    var MAX_CONCURRENT_IMAGE_LOADS = 10; // raised for globe-RTT pipeline saturation
+    var IMAGE_LOAD_TIMEOUT_MS = 45000;   // 45 s: reconnect overhead on global links
 
     function enqueueImageLoad(fn) {
         return new Promise(function(resolve, reject) {
@@ -93,7 +96,11 @@
     function fastLinkTier() {
         var conn = getConnectionSnapshot();
         var weakEffectiveType = /^(slow-2g|2g|3g)$/i.test(conn.effectiveType || '');
-        var rttLooksBad = conn.rtt > 0 && conn.rtt > 80;
+        // Globe-baseline RTT is ~500 ms; only flag as bad if RTT exceeds that
+        // by a significant margin (router congestion, lossy satellite, etc.).
+        // Raising from 80 ms allows intercontinental fast-bandwidth links to
+        // still receive large chunks and benefit from parallel pipelining.
+        var rttLooksBad = conn.rtt > 0 && conn.rtt > 500;
         if (conn.saveData === '1' || weakEffectiveType || rttLooksBad) return '';
         if (conn.downlink >= 900) return 'ultra';
         if (conn.downlink >= 500) return 'fast';
@@ -360,11 +367,12 @@
                 signal: controller ? controller.signal : undefined
             });
         } catch (e) {
-            if (retries < 8) {
-                // Exponential backoff: 500 ms base, capped at 8 s, +0-400 ms jitter.
-                // High-RTT links need longer gaps to let the server recover idle
-                // connections before the next attempt.
-                var netDelay = Math.min(500 * Math.pow(2, retries), 8000) + Math.floor(Math.random() * 400);
+            if (retries < 10) {
+                // Globe-RTT baseline: TCP+TLS reconnect costs ~1.5 s.
+                // Use 1000 ms base so the first retry lands after the server
+                // can recycle its idle-connection slot; cap at 16 s.
+                var netDelay = Math.min(1000 * Math.pow(2, retries), 16000)
+                               + Math.floor(Math.random() * 600);
                 await new Promise(function(r) { setTimeout(r, netDelay); });
                 return fetchJson(url, retries + 1);
             }
@@ -372,14 +380,15 @@
         } finally {
             if (timeoutId) clearTimeout(timeoutId);
         }
-        if (response.status === 429 && retries < 10) {
+        if (response.status === 429 && retries < 12) {
             var data = await response.json().catch(function() { return {}; });
-            var delay = (data.retry_after || 3) * 1000;
+            var delay = (data.retry_after || 5) * 1000;
             await new Promise(function(r) { setTimeout(r, delay); });
             return fetchJson(url, retries + 1);
         }
-        if ((response.status >= 500 || !response.ok) && retries < 8) {
-            var srvDelay = Math.min(500 * Math.pow(2, retries), 8000) + Math.floor(Math.random() * 400);
+        if ((response.status >= 500 || !response.ok) && retries < 10) {
+            var srvDelay = Math.min(1000 * Math.pow(2, retries), 16000)
+                           + Math.floor(Math.random() * 600);
             await new Promise(function(r) { setTimeout(r, srvDelay); });
             return fetchJson(url, retries + 1);
         }
@@ -996,7 +1005,12 @@
                 if (!session.largeMedia || attempts[index] >= 2) {
                     tuneDownloadFailure(session, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
                 }
-                retryAt[index] = Date.now() + Math.min(session.largeMedia ? 3000 : 8000, 250 + (attempts[index] * (session.largeMedia ? 250 : 400)));
+                // Globe-RTT baseline: initial retryAt must exceed at least one
+                // full reconnect cycle (~1.5 s) to avoid hammering a recovering server.
+                retryAt[index] = Date.now() + Math.min(
+                    session.largeMedia ? 4000 : 10000,
+                    1500 + (attempts[index] * (session.largeMedia ? 400 : 600))
+                );
             }).finally(function() {
                 inflight[index] = 0;
                 activeFetches = Math.max(0, activeFetches - 1);

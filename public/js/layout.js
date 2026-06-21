@@ -319,11 +319,10 @@
                 if(typeof console!=='undefined'&&console.log) console.log('[SW] registered:', reg.scope);
             }).catch(function(err){
                 if(typeof console!=='undefined'&&console.warn) console.warn('[SW] registration failed (attempt '+attempt+'):', err);
-                // Retry with exponential backoff up to 5 times.
-                // High-RTT links can lose the very first fetch, so multiple
-                // retries with growing delays (1s, 2s, 4s, 8s, 16s) are needed.
-                if(attempt < 5){
-                    var delay = Math.min(1000 * Math.pow(2, attempt - 1), 16000);
+                // Globe-RTT baseline: TCP+TLS costs ~1.5 s, so start with
+                // a 2 s delay and back off up to 30 s over 6 attempts.
+                if(attempt < 6){
+                    var delay = Math.min(2000 * Math.pow(2, attempt - 1), 30000);
                     setTimeout(function(){ registerSw(attempt + 1); }, delay);
                 }
             });
@@ -339,10 +338,15 @@
         if(!window.addEventListener) return;
         // retried[url] = attempt count
         var retried = {};
-        var MAX_SCRIPT_RETRIES = 3;
+        // Globe-RTT baseline: allow up to 5 retries so a script can survive
+        // multiple consecutive connection drops on a long-haul path.
+        var MAX_SCRIPT_RETRIES = 5;
         function retryScript(url, attempt){
-            // Exponential backoff: 600 ms, 1.2 s, 2.4 s
-            var delay = Math.min(600 * Math.pow(2, attempt - 1), 5000);
+            // 1500 ms base (covers one TCP+TLS reconnect round), doubles each
+            // retry, cap at 30 s. Add ±500 ms jitter to prevent synchronised
+            // retry bursts across tabs sharing the same global route.
+            var delay = Math.min(1500 * Math.pow(2, attempt - 1), 30000)
+                        + Math.floor(Math.random() * 500);
             setTimeout(function(){
                 var s = document.createElement('script');
                 s.src = url;
