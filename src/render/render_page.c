@@ -26,11 +26,6 @@ void render_set_nav_profile(const char *display_name, const char *account_name) 
     }
 }
 
-static void render_clear_nav_profile(void) {
-    g_nav_profile_name[0] = '\0';
-    g_nav_profile_account[0] = '\0';
-}
-
 cwist_sstring *render_page(const char *title, const char *body_html, bool dark, const char *user_role, const char *profile_pic, bool is_mobile) {
 
     cwist_html_element_t *html = cwist_html_element_create("html");
