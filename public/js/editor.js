@@ -42,7 +42,7 @@
     var TASFA_SOFT_STALL_MS = 30000;
     var TASFA_HARD_STALL_MS = 90000;
     var TASFA_FAST_RECOVERY_MS = 5000;
-    var TASFA_CONNECT_TIMEOUT_MS = 15000;
+    var TASFA_CONNECT_TIMEOUT_MS = 120000;
     var TASFA_FALLBACK_PREFETCH_MAX_BYTES = 64 * 1024 * 1024;
     var TASFA_MIN_SIZE_BYTES = 4 * 1024 * 1024;
     var FileUploadQueue = [];
@@ -2133,8 +2133,8 @@
                 var watchdog = armXhrIdleTimeout(xhr, uploadIdleTimeoutMs(size));
                 var chunkStartedAt = Date.now();
                 var tinyProgressFloor = Math.max(1024, Math.min(size - 1, Math.floor(size * 0.01)));
-                var tinyProgressTimeout = Math.min(20000, Math.max(10000, Math.round(uploadIdleTimeoutMs(size) * 0.3)));
-                var stalledTimeout = Math.min(15000, Math.max(5000, Math.round(uploadIdleTimeoutMs(size) * 0.2)));
+                var tinyProgressTimeout = Math.max(30000, Math.round(uploadIdleTimeoutMs(size) * 0.3));
+                var stalledTimeout = Math.max(20000, Math.round(uploadIdleTimeoutMs(size) * 0.2));
 
                 xhr.upload.onprogress = function(event) {
                     if (!event.lengthComputable) return;
@@ -2237,14 +2237,29 @@
                 }
                 var aad = asset._aadCache[chunkIndex];
                 return blob.arrayBuffer().then(function(plain) {
+                    if (typeof CompressionStream !== 'undefined' && plain.byteLength > 1024) {
+                        try {
+                            var cs = new CompressionStream('gzip');
+                            var res = new Response(new Blob([plain]).stream().pipeThrough(cs));
+                            return res.arrayBuffer().then(function(comp) {
+                                return { buf: comp, compressed: true, size: plain.byteLength };
+                            }).catch(function() {
+                                return { buf: plain, compressed: false, size: plain.byteLength };
+                            });
+                        } catch(e) {
+                            return { buf: plain, compressed: false, size: plain.byteLength };
+                        }
+                    }
+                    return { buf: plain, compressed: false, size: plain.byteLength };
+                }).then(function(prep) {
                     return crypto.subtle.encrypt({
                         name: 'AES-GCM',
                         iv: iv,
                         additionalData: aad,
                         tagLength: 128
-                    }, key, plain);
-                }).then(function(cipher) {
-                    return { cipher: cipher, htp: htp, size: size };
+                    }, key, prep.buf).then(function(cipher) {
+                        return { cipher: cipher, htp: htp, size: prep.size, compressed: prep.compressed };
+                    });
                 }).catch(function(err) {
                     releaseEncryptedChunk(asset, chunkIndex);
                     throw err;
@@ -2269,6 +2284,7 @@
 	                    xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
 	                    xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
 	                    xhr.setRequestHeader('X-TASFA-Stream-Mode', 'aes-256-gcm');
+	                    if (enc.compressed) xhr.setRequestHeader('X-TASFA-Content-Encoding', 'gzip');
 	                    if (enc.htp && enc.htp.hashTag) xhr.setRequestHeader('X-TASFA-Hash-Tag', enc.htp.hashTag);
 	                    if (enc.htp && enc.htp.rawScalar) xhr.setRequestHeader('X-TASFA-Raw-Scalar', enc.htp.rawScalar);
 	                    if (enc.htp && enc.htp.magicScalar) xhr.setRequestHeader('X-TASFA-Magic-Scalar', enc.htp.magicScalar);
@@ -2278,8 +2294,8 @@
 	                    var watchdog = armXhrIdleTimeout(xhr, uploadIdleTimeoutMs(enc.size));
 	                    var chunkStartedAt = Date.now();
 	                    var tinyProgressFloor = Math.max(1024, Math.min(enc.size - 1, Math.floor(enc.size * 0.01)));
-                    var tinyProgressTimeout = Math.min(20000, Math.max(10000, Math.round(uploadIdleTimeoutMs(enc.size) * 0.3)));
-                    var stalledTimeout = Math.min(15000, Math.max(5000, Math.round(uploadIdleTimeoutMs(enc.size) * 0.2)));
+                    var tinyProgressTimeout = Math.max(30000, Math.round(uploadIdleTimeoutMs(enc.size) * 0.3));
+                    var stalledTimeout = Math.max(20000, Math.round(uploadIdleTimeoutMs(enc.size) * 0.2));
                     xhr.upload.onprogress = function(event) {
                         if (!event.lengthComputable) return;
                         var elapsed = Date.now() - chunkStartedAt;
