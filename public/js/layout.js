@@ -137,7 +137,7 @@
         saveThemes(arr);
         themes=arr;
         applyTheme(findTheme(arr,mode));
-    });
+    }).catch(function(){/* network error: use cached or skip */});
     window.toggleTheme=function(name){
         if(!name)name=(mode==='light'?'dark':'light');
         mode=name;
@@ -149,7 +149,7 @@
             saveThemes(arr);
             themes=arr;
             applyTheme(findTheme(arr,mode));
-        });
+        }).catch(function(){/* network error: keep current theme */});
     };
     function bindThemeToggle(){
         var themeBtn=document.getElementById('theme-toggle-btn');
@@ -314,38 +314,60 @@
 
     // 10. Service Worker
     if('serviceWorker'in navigator){
-        function registerSw(retry){
+        function registerSw(attempt){
             navigator.serviceWorker.register('/sw.js').then(function(reg){
                 if(typeof console!=='undefined'&&console.log) console.log('[SW] registered:', reg.scope);
             }).catch(function(err){
-                if(typeof console!=='undefined'&&console.warn) console.warn('[SW] registration failed:', err);
-                if(!retry) setTimeout(function(){ registerSw(true); }, 1000);
+                if(typeof console!=='undefined'&&console.warn) console.warn('[SW] registration failed (attempt '+attempt+'):', err);
+                // Retry with exponential backoff up to 5 times.
+                // High-RTT links can lose the very first fetch, so multiple
+                // retries with growing delays (1s, 2s, 4s, 8s, 16s) are needed.
+                if(attempt < 5){
+                    var delay = Math.min(1000 * Math.pow(2, attempt - 1), 16000);
+                    setTimeout(function(){ registerSw(attempt + 1); }, delay);
+                }
             });
         }
-        registerSw(false);
+        registerSw(1);
     }
 
-    // 11. Firefox occasionally drops same-origin sub-resource requests (extensions,
-    //     strict tracking protection, .zip TLD heuristics). Retry failed scripts once.
+    // 11. Sub-resource load failure recovery.
+    //     Covers Firefox tracking-protection drops, .zip-TLD heuristic blocks,
+    //     and high-RTT first-connection races that produce ERR_CONNECTION_REFUSED
+    //     before the SW is active enough to intercept.
     (function(){
         if(!window.addEventListener) return;
+        // retried[url] = attempt count
         var retried = {};
+        var MAX_SCRIPT_RETRIES = 3;
+        function retryScript(url, attempt){
+            // Exponential backoff: 600 ms, 1.2 s, 2.4 s
+            var delay = Math.min(600 * Math.pow(2, attempt - 1), 5000);
+            setTimeout(function(){
+                var s = document.createElement('script');
+                s.src = url;
+                // Preserve defer semantics: do NOT set async so that execution
+                // order relative to other deferred scripts is kept.
+                s.defer = true;
+                s.onerror = function(){
+                    if(attempt < MAX_SCRIPT_RETRIES){
+                        retryScript(url, attempt + 1);
+                    }
+                };
+                var container = document.head || document.body || document.documentElement;
+                if(container) container.appendChild(s);
+            }, delay);
+        }
         window.addEventListener('error', function(e){
             var target = e.target;
             if(!target || (target.tagName !== 'SCRIPT' && target.tagName !== 'LINK')) return;
             var url = target.src || target.href || '';
             if(!url || url.indexOf(window.location.origin) !== 0) return;
-            if(retried[url]) return;
-            retried[url] = true;
+            if((retried[url] || 0) >= MAX_SCRIPT_RETRIES) return;
+            retried[url] = (retried[url] || 0) + 1;
             if(target.tagName === 'SCRIPT'){
-                setTimeout(function(){
-                    try { target.remove(); } catch(err) {}
-                    var s = document.createElement('script');
-                    s.src = url;
-                    s.async = true;
-                    var container = document.head || document.body || document.documentElement;
-                    if(container) container.appendChild(s);
-                }, 500);
+                try { target.remove(); } catch(err) {}
+                retryScript(url, retried[url]);
             }
         }, true);
     })();
