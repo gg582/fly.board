@@ -1,4 +1,4 @@
-var LOGO_CACHE = 'logo-cache-v3';
+var LOGO_CACHE = 'logo-cache-v4';
 var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
 var LOGO_MAX_AGE = 3600000; // 1 hour in milliseconds
 var tasfaSessions = {};
@@ -187,14 +187,15 @@ function handleRangeRequest(request, response) {
 function fetchWithRetry(request, options) {
     options = options || {};
     var maxRetries = options.maxRetries || 5;
-    var baseDelay = options.baseDelay || 200;
-    var maxDelay = options.maxDelay || 3000;
+    var baseDelay = options.baseDelay || 300;
+    var maxDelay = options.maxDelay || 12000; // longer ceiling for high-RTT links
     var retries = 0;
 
     function delay() {
-        var exp = Math.min(retries, 6); // cap exponential factor to avoid huge delays
+        var exp = Math.min(retries, 7); // cap at 2^7 factor
         var d = Math.min(baseDelay * Math.pow(2, exp), maxDelay);
-        d += Math.floor(Math.random() * 300); // jitter to avoid thundering herd
+        // Wider jitter (0-600 ms) spreads reconnect storms on high-RTT links
+        d += Math.floor(Math.random() * 600);
         return new Promise(function(resolve) { setTimeout(resolve, d); });
     }
 
@@ -207,7 +208,8 @@ function fetchWithRetry(request, options) {
             }
             return response;
         }).catch(function(err) {
-            // Network errors (ERR_CONNECTION_RESET, ERR_NETWORK_CHANGED, etc.) are retried.
+            // Network errors (ERR_CONNECTION_RESET, ERR_CONNECTION_REFUSED,
+            // ERR_NETWORK_CHANGED, etc.) — always retry with backoff.
             if (retries < maxRetries) {
                 retries++;
                 return delay().then(attempt);
@@ -375,7 +377,13 @@ self.addEventListener('fetch', function(event) {
        the same transient connection resets. Intercept all /assets/ images so
        fetchWithRetry can recover short read/connection errors. */
     var isDirectImageAsset = event.request.destination === 'image' && url.includes('/assets/');
-    if ((!isTasfa && !isDirectImageAsset) || event.request.method !== 'GET') return;
+    /* Static JS/CSS under /assets/ (e.g. tasfa-download.js, copy.js, katex-render.js)
+       and the themes.json config fetch share the same high-RTT failure mode:
+       the first TCP attempt races against a server-side idle timeout and gets
+       refused.  Intercept them so fetchWithRetry can transparently recover. */
+    var isStaticScript = (event.request.destination === 'script' || event.request.destination === 'style') && url.includes('/assets/');
+    var isThemesFetch = url === self.location.origin + '/themes.json';
+    if ((!isTasfa && !isDirectImageAsset && !isStaticScript && !isThemesFetch) || event.request.method !== 'GET') return;
     if (event.request.headers.get('Range') || event.request.destination === 'video' || event.request.destination === 'audio') return;
     var promise = fetchWithRetry(event.request, { maxRetries: 5, baseDelay: 200 }).catch(function(err) {
         if (isDirectImageAsset) {
@@ -383,6 +391,15 @@ self.addEventListener('fetch', function(event) {
                decoding/error mismatch. Return a valid 1x1 transparent PNG so
                the browser shows a clean broken-image placeholder. */
             return emptyPngResponse(503, 'Service Unavailable');
+        }
+        if (isStaticScript) {
+            /* Return an empty script body so the browser does not block on a
+               parse error, and so that layout.js error-event retry logic can
+               still fire a second attempt if needed. */
+            return new Response('/* SW: fetch failed after retries */', {
+                status: 503,
+                headers: {'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store'}
+            });
         }
         return new Response(JSON.stringify({ok:false, error:'network', retry:true}), {
             status: 503,

@@ -13,7 +13,7 @@
     var DOWNLOAD_CHUNK_STEP_UP = 1024 * 1024;
     var DOWNLOAD_CHUNK_STEP_DOWN = 512 * 1024;
     var DOWNLOAD_REQUEST_BYTES_MAX = 128 * 1024 * 1024;
-    var DOWNLOAD_CONNECT_TIMEOUT_MS = 20000;
+    var DOWNLOAD_CONNECT_TIMEOUT_MS = 30000; // extended for high-RTT links
     var DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS = 60000;
     /* data: URL cannot be received in TASFA environment - no placeholder used */
     var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
@@ -360,8 +360,12 @@
                 signal: controller ? controller.signal : undefined
             });
         } catch (e) {
-            if (retries < 5) {
-                await new Promise(function(r) { setTimeout(r, 1000); });
+            if (retries < 8) {
+                // Exponential backoff: 500 ms base, capped at 8 s, +0-400 ms jitter.
+                // High-RTT links need longer gaps to let the server recover idle
+                // connections before the next attempt.
+                var netDelay = Math.min(500 * Math.pow(2, retries), 8000) + Math.floor(Math.random() * 400);
+                await new Promise(function(r) { setTimeout(r, netDelay); });
                 return fetchJson(url, retries + 1);
             }
             throw e;
@@ -374,8 +378,9 @@
             await new Promise(function(r) { setTimeout(r, delay); });
             return fetchJson(url, retries + 1);
         }
-        if ((response.status >= 500 || !response.ok) && retries < 5) {
-            await new Promise(function(r) { setTimeout(r, 1000); });
+        if ((response.status >= 500 || !response.ok) && retries < 8) {
+            var srvDelay = Math.min(500 * Math.pow(2, retries), 8000) + Math.floor(Math.random() * 400);
+            await new Promise(function(r) { setTimeout(r, srvDelay); });
             return fetchJson(url, retries + 1);
         }
         if (!response.ok) throw new Error('handshake:' + response.status);
