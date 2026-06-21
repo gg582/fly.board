@@ -56,6 +56,9 @@
         var btn=document.querySelector('.burger-btn');
         if(!nav||!overlay||!btn)return;
         var open=!nav.classList.contains('open');
+        if(open){
+            loadBoardsDropdown();
+        }
         nav.classList.toggle('open',open);
         nav.style.display=open?'flex':'';
         overlay.classList.toggle('open',open);
@@ -133,11 +136,23 @@
     if(!/^(light|dark|ocean|forest|sepia)$/.test(mode))mode='light';
     function applyCached(){if(themes){applyTheme(findTheme(themes,mode));}}
     applyCached();
-    fetch('/themes.json',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
-        saveThemes(arr);
-        themes=arr;
-        applyTheme(findTheme(arr,mode));
-    }).catch(function(){/* network error: use cached or skip */});
+    if (!themes) {
+        fetch('/themes.json',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
+            saveThemes(arr);
+            themes=arr;
+            applyTheme(findTheme(arr,mode));
+        }).catch(function(){/* network error: use cached or skip */});
+    } else {
+        var isMobileTheme = shouldUseMobileNav();
+        var connTheme = navigator.connection || navigator.mozConnection || navigator.webkitConnection || {};
+        var isSlowTheme = isMobileTheme || (connTheme.rtt && connTheme.rtt > 1000);
+        setTimeout(function() {
+            fetch('/themes.json',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
+                saveThemes(arr);
+                themes=arr;
+            }).catch(function(){});
+        }, isSlowTheme ? 5000 : 2000);
+    }
     window.toggleTheme=function(name){
         if(!name)name=(mode==='light'?'dark':'light');
         mode=name;
@@ -188,18 +203,18 @@
             list.appendChild(e);
         }
     }
+    var boardsLoaded = false;
     function loadBoardsDropdown(){
+        if (boardsLoaded) return;
         fetch('/api/boards',{credentials:'same-origin',headers:{'Accept':'application/json'}}).then(function(r){
             if(!r.ok)throw new Error('boards fetch failed');
             return r.json();
         }).then(function(arr){
-            if(Array.isArray(arr))renderBoardsDropdown(arr);
+            if(Array.isArray(arr)) {
+                renderBoardsDropdown(arr);
+                boardsLoaded = true;
+            }
         }).catch(function(){});
-    }
-    if(document.readyState==='loading'){
-        document.addEventListener('DOMContentLoaded',loadBoardsDropdown);
-    }else{
-        loadBoardsDropdown();
     }
 
     // 5. Boards Dropdown hover helper (desktop)
@@ -209,6 +224,7 @@
         if(!dd||!menu||dd.dataset.ddBound)return;
         dd.dataset.ddBound='1';
         dd.addEventListener('mouseenter',function(){
+            loadBoardsDropdown();
             menu.classList.add('open');
         });
         dd.addEventListener('mouseleave',function(e){
@@ -327,7 +343,19 @@
                 }
             });
         }
-        registerSw(1);
+        // Defer SW registration to prevent connection bottleneck on mobile / high-latency links
+        var isMobileSw = shouldUseMobileNav();
+        var connSw = navigator.connection || navigator.mozConnection || navigator.webkitConnection || {};
+        var isSlowSw = isMobileSw || (connSw.rtt && connSw.rtt > 1000) || (connSw.effectiveType && (connSw.effectiveType === '2g' || connSw.effectiveType === '3g'));
+        var regDelay = isSlowSw ? 3000 : 1000;
+        
+        if (document.readyState === 'complete') {
+            setTimeout(function(){ registerSw(1); }, regDelay);
+        } else {
+            window.addEventListener('load', function() {
+                setTimeout(function(){ registerSw(1); }, regDelay);
+            });
+        }
     }
 
     // 11. Sub-resource load failure recovery.
