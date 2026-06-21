@@ -3101,7 +3101,7 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
     }
     bool mobile = is_mobile_request(req);
     int requested_chunk_size = atoi(cwist_query_map_get(req->query_params, "chunk_size") ? cwist_query_map_get(req->query_params, "chunk_size") : "0");
-    tasfa_queue_sweep(g_q_downloads, tasfa_download_session_limit(), 60);
+    tasfa_queue_sweep(g_q_downloads, tasfa_download_session_limit(), 300);
     int score = link_score_from_inputs(
         cwist_query_map_get(req->query_params, "link_stability_score"),
         cwist_query_map_get(req->query_params, "link_effective_type"),
@@ -3153,7 +3153,7 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
         send_json_response(res, session_error_json("invalid download chunk payload"), CWIST_HTTP_BAD_REQUEST);
         return;
     }
-    tasfa_queue_sweep(g_q_downloads, tasfa_download_session_limit(), 60);
+    tasfa_queue_sweep(g_q_downloads, tasfa_download_session_limit(), 300);
     tasfa_queue_touch(g_q_downloads, tasfa_download_session_limit(), session_id);
     cJSON *meta = load_download_session_cached(session_id);
     if (!meta) {
@@ -3245,7 +3245,7 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
     }
     bool mobile = is_mobile_request(req);
     int requested_chunk_size = atoi(cwist_query_map_get(req->query_params, "chunk_size") ? cwist_query_map_get(req->query_params, "chunk_size") : "0");
-    tasfa_queue_sweep(g_q_downloads, tasfa_download_session_limit(), 60);
+    tasfa_queue_sweep(g_q_downloads, tasfa_download_session_limit(), 300);
     int score = link_score_from_inputs(
         cwist_query_map_get(req->query_params, "link_stability_score"),
         cwist_query_map_get(req->query_params, "link_effective_type"),
