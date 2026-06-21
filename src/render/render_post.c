@@ -122,9 +122,6 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
         cwist_sstring_append(out, "\" alt=\"");
         cwist_sstring_append_escaped(out, filename);
         cwist_sstring_append(out, "\" loading=\"lazy\" decoding=\"async\" style=\"max-width:100%;height:auto;display:block\">");
-        cwist_sstring_append(out, "<div style=\"margin-top:8px\"><a href=\"#\" data-tasfa-download-link=\"");
-        cwist_sstring_append(out, url);
-        cwist_sstring_append(out, "\">Download original</a></div>");
     } else if (strcmp(kind, "video") == 0) {
         append_video_placeholder(out, video_preview_url, filename);
         cwist_sstring_append(out, "<div style=\"margin-top:8px\"><a href=\"#\" data-tasfa-download-link=\"");
@@ -821,6 +818,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 if (!fname || !fname->valuestring || fname->valuestring[0] == '\0') continue;
                 cJSON *fid = cJSON_GetObjectItem(f, "id");
                 cJSON *stype = cJSON_GetObjectItem(f, "mime_type");
+
                 char fid_buf2[32];
                 snprintf(fid_buf2, sizeof(fid_buf2), "%d", fid->valueint);
                 const char *mime = stype && stype->valuestring ? stype->valuestring : "";
