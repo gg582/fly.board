@@ -32,12 +32,12 @@ SRCS := src/main.c \
 OBJS := $(SRCS:.c=.o)
 
 CFLAGS := -Wall -Wextra -O2 \
+          -Iinclude \
+          -Isrc \
           -I$(CWIST_PREFIX)/include \
           -I$(MD4C_DIR)/src \
           -I$(MULTIPART_DIR) \
           -I$(LIBTTAK_DIR)/include \
-          -Isrc \
-          -Iinclude \
           -Ithird_party/stb \
           -Ithird_party/file/src
 
