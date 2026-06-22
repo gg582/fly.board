@@ -313,7 +313,7 @@ static const char *http_status_text(int code) {
 static void send_json_response(cwist_http_response *res, cJSON *obj, int status_code) {
     char *json = cJSON_PrintUnformatted(obj);
     res->status_code = (cwist_http_status_t)status_code;
-    cwist_sstring_assign(res->status_text, http_status_text(status_code));
+    cwist_sstring_assign(res->status_text, (char *)http_status_text(status_code));
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
     /* Dynamic JSON (sessions, handshake, chunk errors) must not be cached. */
     cwist_http_header_add(&res->headers, "Cache-Control", "no-store, no-cache, must-revalidate, private");
@@ -3109,7 +3109,7 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
         struct stat pst;
         if (preview_path[0] && strncmp(preview_path, "public/uploads/", 15) == 0 &&
             stat(preview_path, &pst) == 0 && S_ISREG(pst.st_mode) && pst.st_size > 0) {
-            path = preview_path;
+            snprintf(path, sizeof(path), "%s", preview_path);
         } else {
             snprintf(generated_preview, sizeof(generated_preview), "public/uploads/.previews/%d.mp4", atoi(id_str));
             if (!generate_video_preview(path, generated_preview, 1080)) {
@@ -3118,7 +3118,7 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
                 return;
             }
             db_file_set_preview_paths(req->db, atoi(id_str), thumb_path, generated_preview);
-            path = generated_preview;
+            snprintf(path, sizeof(path), "%s", generated_preview);
         }
         filename = "preview.mp4";
         mime = "video/mp4";
