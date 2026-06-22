@@ -92,6 +92,7 @@ all: deps $(TARGET)
 deps: $(MD4C_LIB) $(LIBMAGIC_A) $(LIBTTAK_A)
 
 $(LIBTTAK_A):
+	cp src/utils/libttak_worker_patched.c $(LIBTTAK_DIR)/src/thread/worker.c
 	$(MAKE) -C $(LIBTTAK_DIR)
 
 $(LIBMAGIC_A):
