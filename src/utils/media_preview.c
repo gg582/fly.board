@@ -70,9 +70,9 @@ void media_preview_dimensions_from_score(int score, int src_w, int src_h,
     int base_video_h = 1080;
 
     if (score < 25) {
-        base_w = 720;  base_h = 1080;  base_video_h = 720;
+        base_w = 1080;  base_h = 1080;  base_video_h = 720;
     } else if (score < 45) {
-        base_w = 960;  base_h = 1280; base_video_h = 900;
+        base_w = 1280;  base_h = 1280; base_video_h = 900;
     }
 
     /* Preserve aspect ratio for images */
@@ -198,7 +198,7 @@ void media_preview_backfill(cwist_db *db) {
             snprintf(next_thumb, sizeof(next_thumb), "public/uploads/.thumbs/%d.webp", id);
             snprintf(next_preview, sizeof(next_preview), "public/uploads/.previews/%d.mp4", id);
             if (!regular_file_exists(next_thumb)) {
-                ok = generate_video_thumb(path, next_thumb, 480, 270);
+                ok = generate_video_thumb(path, next_thumb, 1280, 720);
                 if (ok) generated++;
             }
             if (ok && !regular_file_exists(next_preview)) {

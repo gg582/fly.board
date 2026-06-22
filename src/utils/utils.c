@@ -363,7 +363,7 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
             if (!generate_image_thumb(f->data, thumb_path, image_max_w, image_max_h)) thumb_path[0] = '\0';
         } else if (strncmp(out->mime_type, "video/", 6) == 0) {
             snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
-            if (!generate_video_thumb(f->data, thumb_path, 480, 270)) thumb_path[0] = '\0';
+            if (!generate_video_thumb(f->data, thumb_path, 1280, 720)) thumb_path[0] = '\0';
             snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp4", fid);
             if (!generate_video_preview(f->data, preview_path, video_max_h)) preview_path[0] = '\0';
         } else if (strncmp(out->mime_type, "audio/", 6) == 0) {
