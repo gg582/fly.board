@@ -1304,51 +1304,42 @@
 
             function tryTasfaImageDownload() {
                 if (!baseUrl) return;
-                fetchBlobViaTasfa(baseUrl, { silent: true }).then(function(result) {
-                    return createMediaPlaybackUrl(baseUrl, result.blob, 'img');
+
+                var displayWidth = el.offsetWidth || el.clientWidth;
+                if (!displayWidth && el.parentNode) {
+                    displayWidth = el.parentNode.offsetWidth || el.parentNode.clientWidth;
+                }
+                if (!displayWidth) {
+                    displayWidth = window.innerWidth || 800;
+                }
+                displayWidth = Math.ceil(displayWidth / 100) * 100;
+                if (displayWidth < 100) displayWidth = 100;
+                if (displayWidth > 1920) displayWidth = 1920;
+
+                var displayHeight = el.offsetHeight || el.clientHeight;
+                if (!displayHeight && el.parentNode) {
+                    displayHeight = el.parentNode.offsetHeight || el.parentNode.clientHeight;
+                }
+                if (!displayHeight) {
+                    displayHeight = window.innerHeight || 800;
+                }
+                displayHeight = Math.ceil(displayHeight / 100) * 100;
+                if (displayHeight < 100) displayHeight = 100;
+                if (displayHeight > 1920) displayHeight = 1920;
+
+                var displayUrl = baseUrl;
+                displayUrl += (displayUrl.indexOf('?') === -1 ? '?' : '&') + 'w=' + displayWidth + '&h=' + displayHeight;
+
+                fetchBlobViaTasfa(displayUrl, { silent: true }).then(function(result) {
+                    return createMediaPlaybackUrl(displayUrl, result.blob, 'img');
                 }).then(function(objectUrl) {
-                    setImageSrc(objectUrl || baseUrl);
+                    setImageSrc(objectUrl || displayUrl);
                 }).catch(function() {
-                    setImageSrc(baseUrl);
+                    setImageSrc(displayUrl);
                 });
             }
 
-            function pickThumbUrl() {
-                var currentSrc = el.getAttribute('src') || '';
-                if (currentSrc && currentSrc.indexOf('/assets/uploads/') === 0) return currentSrc;
-                if (baseUrl && baseUrl.indexOf('/assets/uploads/') === 0) {
-                    var filename = baseUrl.slice('/assets/uploads/'.length);
-                    if (filename.indexOf('.thumbs/') !== 0) {
-                        return '/assets/uploads/.thumbs/' + filename;
-                    }
-                }
-                return '';
-            }
-
-            var thumbUrl = pickThumbUrl();
-            if (thumbUrl) {
-                enqueueImageLoad(function() {
-                    return new Promise(function(resolve, reject) {
-                        var testImg = new Image();
-                        var timer = setTimeout(function() {
-                            testImg.onload = testImg.onerror = null;
-                            reject(new Error('thumb timeout'));
-                        }, IMAGE_LOAD_TIMEOUT_MS);
-                        testImg.onload = function() {
-                            clearTimeout(timer);
-                            setImageSrc(thumbUrl);
-                            resolve();
-                        };
-                        testImg.onerror = function() {
-                            clearTimeout(timer);
-                            reject(new Error('thumb error'));
-                        };
-                        testImg.src = thumbUrl;
-                    });
-                }).catch(tryTasfaImageDownload);
-            } else {
-                tryTasfaImageDownload();
-            }
+            tryTasfaImageDownload();
 
             if (posterUrl && isTasfaDownloadUrl(posterUrl)) {
                 fetchBlobViaTasfa(posterUrl, { silent: true }).then(async function(result) {
