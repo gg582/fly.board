@@ -15,6 +15,7 @@
 #include <cwist/core/log.h>
 #include <cwist/net/http/query.h>
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -215,20 +216,43 @@ cJSON *board_by_route_key(cwist_db *db, const char *key) {
     return db_board_get_by_slug(db, key);
 }
 
+static int env_int_clamped(const char *name, int def, int min_value, int max_value) {
+    const char *value = getenv(name);
+    if (!value || !value[0]) return def;
+    char *end = NULL;
+    long parsed = strtol(value, &end, 10);
+    if (end == value || *end != '\0') return def;
+    if (parsed < min_value) return min_value;
+    if (parsed > max_value) return max_value;
+    return (int)parsed;
+}
+
+static bool env_flag_enabled(const char *name, bool def) {
+    const char *value = getenv(name);
+    if (!value || !value[0]) return def;
+    if (strcmp(value, "0") == 0 || strcasecmp(value, "false") == 0 || strcasecmp(value, "off") == 0) return false;
+    if (strcmp(value, "1") == 0 || strcasecmp(value, "true") == 0 || strcasecmp(value, "on") == 0) return true;
+    return def;
+}
+
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
     res->keep_alive = req->keep_alive;
     if (res->keep_alive) {
+        int keepalive_timeout = env_int_clamped("FLYBOARD_KEEPALIVE_TIMEOUT", 25, 5, 300);
+        int keepalive_max = env_int_clamped("FLYBOARD_KEEPALIVE_MAX", 1000, 1, 100000);
+        char keepalive[64];
+        snprintf(keepalive, sizeof(keepalive), "timeout=%d, max=%d", keepalive_timeout, keepalive_max);
         cwist_http_header_add(&res->headers, "Connection", "keep-alive");
-        cwist_http_header_add(&res->headers, "Keep-Alive", "timeout=3600, max=500000");
+        cwist_http_header_add(&res->headers, "Keep-Alive", keepalive);
     }
 
-    if (g_config.use_http3) {
+    if (g_config.use_http3 && env_flag_enabled("FLYBOARD_ADVERTISE_H3", true)) {
         char altsvc[128];
-        // Advertise HTTP/3 and HTTP/2 fallback. h3 is prioritized.
+        int alt_ma = env_int_clamped("FLYBOARD_ALT_SVC_MAX_AGE", 300, 0, 86400);
         if (g_config.use_http2) {
-            snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"; ma=86400, h2=\":%d\"; ma=86400", g_config.port, g_config.port);
+            snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"; ma=%d, h2=\":%d\"; ma=%d", g_config.port, alt_ma, g_config.port, alt_ma);
         } else {
-            snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"; ma=86400", g_config.port);
+            snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"; ma=%d", g_config.port, alt_ma);
         }
         cwist_http_header_add(&res->headers, "Alt-Svc", altsvc);
     }
