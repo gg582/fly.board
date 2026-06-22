@@ -2495,10 +2495,18 @@ static bool tasfa_generate_htp_metadata_for_file(const char *file_path, int chun
 
 static bool is_client_connected(cwist_http_request *req) {
     if (!req || req->client_fd < 0) return true; /* background worker: no fd, assume ok */
-    int err = 0;
-    socklen_t len = sizeof(err);
-    if (getsockopt(req->client_fd, SOL_SOCKET, SO_ERROR, &err, &len) < 0) return false;
-    return err == 0;
+    char buf;
+    ssize_t r = recv(req->client_fd, &buf, 1, MSG_PEEK | MSG_DONTWAIT);
+    if (r == 0) {
+        return false; /* EOF: client closed connection */
+    }
+    if (r < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            return true; /* Still connected, no data */
+        }
+        return false; /* Client disconnected due to error */
+    }
+    return true; /* Data available, client still connected */
 }
 
 static bool copy_file_chunked(const char *src, const char *dst) {
