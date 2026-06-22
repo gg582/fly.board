@@ -21,6 +21,11 @@ static cJSON *find_render_file_by_id(cJSON *files, int id) {
     return NULL;
 }
 
+static const char *json_string_or_empty(cJSON *obj, const char *key) {
+    cJSON *item = cJSON_GetObjectItem(obj, key);
+    return (item && item->valuestring) ? item->valuestring : "";
+}
+
 static const char *render_file_media_kind(cJSON *file) {
     if (!file) return "";
     cJSON *jmime = cJSON_GetObjectItem(file, "mime_type");
@@ -556,9 +561,9 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             }
             cwist_sstring_append(b, "</div>");
             cwist_sstring_append(b, "<a class='post-row-title' href='/post/");
-            cwist_sstring_append(b, slug->valuestring);
+            cwist_sstring_append_escaped(b, slug && slug->valuestring ? slug->valuestring : "");
             cwist_sstring_append(b, "'>");
-            cwist_sstring_append_escaped(b, title->valuestring);
+            cwist_sstring_append_escaped(b, title && title->valuestring ? title->valuestring : "(untitled)");
             cwist_sstring_append(b, "</a>");
             if (summary && summary->valuestring && summary->valuestring[0]) {
                 cwist_sstring_append(b, "<p class='post-row-summary'>");
@@ -690,10 +695,13 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
 }
 
 cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, const char *author_profile_pic, int user_id, const char *ephemeral_delete_pin, bool is_mobile) {
+    if (!post) {
+        return render_page("Post", "<p style='color:var(--muted)'>Post not found.</p>", dark, user_role, profile_pic, is_mobile);
+    }
     cwist_sstring *b = cwist_sstring_create();
-    cJSON *title = cJSON_GetObjectItem(post, "title");
-    cJSON *content = cJSON_GetObjectItem(post, "content");
-    cJSON *date = cJSON_GetObjectItem(post, "created_at");
+    const char *title_text = json_string_or_empty(post, "title");
+    const char *content_text = json_string_or_empty(post, "content");
+    const char *date_text = json_string_or_empty(post, "created_at");
     cJSON *author = cJSON_GetObjectItem(post, "author_name");
     int post_id_val = json_int(post, "id", 0);
     cJSON *view_count = cJSON_GetObjectItem(post, "view_count");
@@ -717,7 +725,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
              g_font_settings.font_weight_post_h1[0] ? g_font_settings.font_weight_post_h1 : "800",
              g_font_settings.letter_spacing_post_h1[0] ? g_font_settings.letter_spacing_post_h1 : "-0.03em");
     cwist_sstring_append(b, post_h1_style);
-    cwist_sstring_append_escaped(b, title->valuestring);
+    cwist_sstring_append_escaped(b, title_text[0] ? title_text : "(untitled)");
     cwist_sstring_append(b, "</h1>");
     cwist_sstring_append(b, "<p style='color:var(--muted);font-size:14px'>by ");
     if (author && author->valuestring) {
@@ -744,7 +752,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         cwist_sstring_append(b, "unknown");
     }
     cwist_sstring_append(b, " &middot; ");
-    cwist_sstring_append_escaped(b, date->valuestring);
+    cwist_sstring_append_escaped(b, date_text);
     int view_total = view_count ? view_count->valueint : 0;
     cwist_sstring_append(b, " &middot; ");
     char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%d view%s", view_total, view_total == 1 ? "" : "s");
@@ -789,7 +797,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring_append(b, "})();");
     cwist_sstring_append(b, "</script>");
 
-    cwist_sstring *md_html = render_markdown_to_html(content->valuestring);
+    cwist_sstring *md_html = render_markdown_to_html(content_text);
     cwist_sstring_append(b, "<div class='markdown-body'>");
     if (md_html) {
         upgrade_markdown_file_links_to_media(md_html, files);
@@ -816,11 +824,12 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 cJSON *f = cJSON_GetArrayItem(files, i);
                 cJSON *fname = cJSON_GetObjectItem(f, "filename");
                 if (!fname || !fname->valuestring || fname->valuestring[0] == '\0') continue;
-                cJSON *fid = cJSON_GetObjectItem(f, "id");
                 cJSON *stype = cJSON_GetObjectItem(f, "mime_type");
+                int fid_val = json_int(f, "id", 0);
+                if (fid_val <= 0) continue;
 
                 char fid_buf2[32];
-                snprintf(fid_buf2, sizeof(fid_buf2), "%d", fid->valueint);
+                snprintf(fid_buf2, sizeof(fid_buf2), "%d", fid_val);
                 const char *mime = stype && stype->valuestring ? stype->valuestring : "";
                 if (!mime[0] || strcmp(mime, "application/octet-stream") == 0) {
                     mime = mime_type(fname->valuestring);
@@ -927,7 +936,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring_append(b, "</form>");
     cwist_sstring_append(b, "</div>");
 
-    cwist_sstring *page = render_page(title->valuestring, b->data, dark, user_role, profile_pic, is_mobile);
+    cwist_sstring *page = render_page(title_text[0] ? title_text : "Post", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;
 }
