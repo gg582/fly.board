@@ -377,7 +377,7 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
                     *h = (*h)->next;
                     cwist_sstring_destroy(r->key);
                     cwist_sstring_destroy(r->value);
-                    free(r);
+                    cwist_free(r);
                 } else {
                     h = &(*h)->next;
                 }

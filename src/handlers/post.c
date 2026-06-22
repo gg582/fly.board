@@ -14,6 +14,15 @@ static bool random_hex_local(char *out, size_t byte_len) {
 
 #include <ctype.h>
 
+static char *cwist_strdup_local(const char *src) {
+    if (!src) return NULL;
+    size_t len = strlen(src);
+    char *copy = (char *)cwist_alloc(len + 1);
+    if (!copy) return NULL;
+    memcpy(copy, src, len + 1);
+    return copy;
+}
+
 static void rewrite_content_legacy_urls(cwist_db *db, char **content) {
     if (!db || !content || !*content || !**content) return;
     const char *prefix = "/file/download/";
@@ -55,8 +64,11 @@ static void rewrite_content_legacy_urls(cwist_db *db, char **content) {
         cwist_sstring_append_len(out, found, num_end - found);
         p = num_end;
     }
-    cwist_free(*content);
-    *content = strdup(out->data);
+    char *rewritten = cwist_strdup_local(out->data);
+    if (rewritten) {
+        cwist_free(*content);
+        *content = rewritten;
+    }
     cwist_sstring_destroy(out);
 }
 
@@ -302,7 +314,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         if (boards) cJSON_Delete(boards);
         send_html_res(res, page);
         free(pp);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
         multipart_free(files);
         return;
     }
@@ -324,11 +336,12 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     while (!created && slug_idx < 100) {
         char *final_slug = NULL;
         if (slug_idx == 0) {
-            final_slug = strdup(sl);
+            final_slug = cwist_strdup_local(sl);
         } else {
             final_slug = (char *)cwist_alloc(strlen(sl) + 16);
             snprintf(final_slug, strlen(sl) + 16, "%s%d", sl, slug_idx);
         }
+        if (!final_slug) break;
 
         cJSON *existing = db_post_get_by_slug(req->db, final_slug);
         if (existing) {
@@ -469,7 +482,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     if (!id_str || !title || !content || !title[0] || !content[0]) {
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
         multipart_free(files);
         redirect(res, "/");
         return;
@@ -478,7 +491,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     cJSON *post = db_post_get_by_id(req->db, atoi(id_str));
     if (!post) {
         CWIST_LOG_WARN("Post edit failed: post not found id=%s uid=%d", id_str, uid);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
         multipart_free(files);
         redirect(res, "/");
         return;
@@ -488,7 +501,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         res->status_code = CWIST_HTTP_FORBIDDEN;
         cwist_sstring_assign(res->body, "Forbidden");
         cJSON_Delete(post);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
         multipart_free(files);
         return;
     }
