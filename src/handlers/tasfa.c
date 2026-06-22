@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE
 #include "handlers_internal.h"
+#include "../utils/media_preview.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -3053,7 +3054,8 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
         send_json_response(res, session_error_json("download not found"), CWIST_HTTP_NOT_FOUND);
         return;
     }
-    const char *path = json_string(file, "file_path", "");
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s", json_string(file, "file_path", ""));
     const char *filename = json_string(file, "filename", "download");
     const char *mime = json_string(file, "mime_type", "application/octet-stream");
     const char *thumb_path = json_string(file, "thumb_path", "");
@@ -3065,6 +3067,35 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
             mime = detected_mime;
         } else {
             mime = mime_type(filename);
+        }
+    }
+
+    bool is_image = strncmp(mime, "image/", 6) == 0;
+    if (is_image) {
+        const char *w_str = cwist_query_map_get(req->query_params, "w");
+        const char *h_str = cwist_query_map_get(req->query_params, "h");
+        if (w_str && h_str) {
+            int w = atoi(w_str);
+            int h = atoi(h_str);
+            if (w > 0 && h > 0) {
+                if (w < 50) w = 50;
+                if (w > 2048) w = 2048;
+                if (h < 50) h = 50;
+                if (h > 2048) h = 2048;
+
+                char thumb_img_path[PATH_MAX];
+                snprintf(thumb_img_path, sizeof(thumb_img_path), "public/uploads/.thumbs/%d_%dx%d.webp", atoi(id_str), w, h);
+                struct stat pst;
+                if (stat(thumb_img_path, &pst) != 0 || !S_ISREG(pst.st_mode) || pst.st_size <= 0) {
+                    if (generate_image_thumb(path, thumb_img_path, w, h)) {
+                        snprintf(path, sizeof(path), "%s", thumb_img_path);
+                        mime = "image/webp";
+                    }
+                } else {
+                    snprintf(path, sizeof(path), "%s", thumb_img_path);
+                    mime = "image/webp";
+                }
+            }
         }
     }
 
@@ -3238,6 +3269,45 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
         send_json_response(res, session_error_json("asset not found"), CWIST_HTTP_NOT_FOUND);
         return;
     }
+    bool is_image = mime && strncmp(mime, "image/", 6) == 0;
+    if (is_image) {
+        const char *w_str = cwist_query_map_get(req->query_params, "w");
+        const char *h_str = cwist_query_map_get(req->query_params, "h");
+        if (w_str && h_str) {
+            int w = atoi(w_str);
+            int h = atoi(h_str);
+            if (w > 0 && h > 0) {
+                if (w < 50) w = 50;
+                if (w > 2048) w = 2048;
+                if (h < 50) h = 50;
+                if (h > 2048) h = 2048;
+
+                char scope_fname[512] = {0};
+                const char *scope = cwist_query_map_get(req->path_params, "scope");
+                const char *raw_fname = cwist_query_map_get(req->path_params, "filename");
+                snprintf(scope_fname, sizeof(scope_fname), "%s_", scope ? scope : "unknown");
+                char *p_sf = scope_fname + strlen(scope_fname);
+                for (int i = 0; raw_fname && raw_fname[i] && (size_t)(p_sf - scope_fname) < sizeof(scope_fname) - 1; i++) {
+                    *p_sf++ = (raw_fname[i] == '/') ? '_' : raw_fname[i];
+                }
+                *p_sf = '\0';
+
+                char thumb_img_path[PATH_MAX];
+                snprintf(thumb_img_path, sizeof(thumb_img_path), "public/uploads/.thumbs/asset_%s_%dx%d.webp", scope_fname, w, h);
+                struct stat pst;
+                if (stat(thumb_img_path, &pst) != 0 || !S_ISREG(pst.st_mode) || pst.st_size <= 0) {
+                    if (generate_image_thumb(path, thumb_img_path, w, h)) {
+                        snprintf(path, sizeof(path), "%s", thumb_img_path);
+                        mime = "image/webp";
+                    }
+                } else {
+                    snprintf(path, sizeof(path), "%s", thumb_img_path);
+                    mime = "image/webp";
+                }
+            }
+        }
+    }
+
     struct stat st;
     if (stat(path, &st) != 0 || st.st_size <= 0) {
         send_json_response(res, session_error_json("asset not found"), CWIST_HTTP_NOT_FOUND);

@@ -448,8 +448,6 @@ void handler_file_preview(cwist_http_request *req, cwist_http_response *res) {
     cJSON *jpath = cJSON_GetObjectItem(file, "file_path");
     cJSON *jfilename = cJSON_GetObjectItem(file, "filename");
     cJSON *jmime = cJSON_GetObjectItem(file, "mime_type");
-    cJSON *jthumb = cJSON_GetObjectItem(file, "thumb_path");
-    cJSON *jpreview = cJSON_GetObjectItem(file, "preview_path");
     const char *path = (jpath && jpath->type == cJSON_String && jpath->valuestring) ? jpath->valuestring : "";
     const char *filename = (jfilename && jfilename->type == cJSON_String && jfilename->valuestring) ? jfilename->valuestring : "";
     const char *mime = (jmime && jmime->type == cJSON_String && jmime->valuestring) ? jmime->valuestring : "";
@@ -467,22 +465,26 @@ void handler_file_preview(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    const char *thumb_path = (jthumb && jthumb->type == cJSON_String && jthumb->valuestring) ? jthumb->valuestring : "";
-    const char *stored_preview_path = (jpreview && jpreview->type == cJSON_String && jpreview->valuestring) ? jpreview->valuestring : "";
+    int w = 1280;
+    int h = 1280;
+    const char *w_str = cwist_query_map_get(req->query_params, "w");
+    const char *h_str = cwist_query_map_get(req->query_params, "h");
+    if (w_str) w = atoi(w_str);
+    if (h_str) h = atoi(h_str);
+    if (w <= 0) w = 1280;
+    if (h <= 0) h = 1280;
+    if (w < 50) w = 50;
+    if (w > 2048) w = 2048;
+    if (h < 50) h = 50;
+    if (h > 2048) h = 2048;
+
     char preview_path[PATH_MAX] = {0};
+    snprintf(preview_path, sizeof(preview_path), "public/uploads/.thumbs/%d_%dx%d.webp", id, w, h);
     struct stat st;
-    if (thumb_path[0] && strncmp(thumb_path, "public/uploads/", 15) == 0 &&
-        strstr(thumb_path, ".webp") && stat(thumb_path, &st) == 0 && S_ISREG(st.st_mode)) {
-        snprintf(preview_path, sizeof(preview_path), "%s", thumb_path);
-    } else {
-        int written = snprintf(preview_path, sizeof(preview_path), "public/uploads/.thumbs/%d.webp", id);
-        if (written < 0 || written >= (int)sizeof(preview_path) ||
-            !generate_image_thumb(path, preview_path, 1280, 1280)) {
-            cJSON_Delete(file);
-            send_upload_not_found(res);
-            return;
+    if (stat(preview_path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) {
+        if (!generate_image_thumb(path, preview_path, w, h)) {
+            snprintf(preview_path, sizeof(preview_path), "%s", path);
         }
-        db_file_set_preview_paths(req->db, id, preview_path, stored_preview_path);
     }
 
     if (!send_cached_file_response(req, res, preview_path, "image/webp", IMAGE_CACHE_CONTROL, NULL)) {
@@ -520,7 +522,8 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     cJSON *jmime = cJSON_GetObjectItem(file, "mime_type");
     cJSON *jthumb = cJSON_GetObjectItem(file, "thumb_path");
     cJSON *jpreview = cJSON_GetObjectItem(file, "preview_path");
-    const char *path = (jpath && jpath->type == cJSON_String && jpath->valuestring) ? jpath->valuestring : "";
+    char resolved_path[PATH_MAX];
+    snprintf(resolved_path, sizeof(resolved_path), "%s", (jpath && jpath->type == cJSON_String && jpath->valuestring) ? jpath->valuestring : "");
     const char *filename = (jfilename && jfilename->type == cJSON_String && jfilename->valuestring) ? jfilename->valuestring : "download";
     const char *mime = (jmime && jmime->type == cJSON_String && jmime->valuestring) ? jmime->valuestring : "application/octet-stream";
     const char *thumb_path = (jthumb && jthumb->type == cJSON_String && jthumb->valuestring) ? jthumb->valuestring : "";
@@ -541,18 +544,48 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     }
 
     struct stat st;
-    if (stat(path, &st) != 0 || st.st_size <= 0) {
+    if (stat(resolved_path, &st) != 0 || st.st_size <= 0) {
         cJSON_Delete(file);
         send_upload_not_found(res);
         return;
     }
 
     char detected_mime[128] = {0};
-    if (mime_type_from_data(path, detected_mime, sizeof(detected_mime))) {
+    if (mime_type_from_data(resolved_path, detected_mime, sizeof(detected_mime))) {
         mime = detected_mime;
         is_image = strncmp(mime, "image/", 6) == 0;
         is_media = strncmp(mime, "video/", 6) == 0 || strncmp(mime, "audio/", 6) == 0;
     }
+
+    if (is_image) {
+        const char *w_str = cwist_query_map_get(req->query_params, "w");
+        const char *h_str = cwist_query_map_get(req->query_params, "h");
+        if (w_str && h_str) {
+            int w = atoi(w_str);
+            int h = atoi(h_str);
+            if (w > 0 && h > 0) {
+                if (w < 50) w = 50;
+                if (w > 2048) w = 2048;
+                if (h < 50) h = 50;
+                if (h > 2048) h = 2048;
+
+                char thumb_img_path[PATH_MAX];
+                snprintf(thumb_img_path, sizeof(thumb_img_path), "public/uploads/.thumbs/%d_%dx%d.webp", atoi(id_str), w, h);
+                struct stat pst;
+                if (stat(thumb_img_path, &pst) != 0 || !S_ISREG(pst.st_mode) || pst.st_size <= 0) {
+                    if (generate_image_thumb(resolved_path, thumb_img_path, w, h)) {
+                        snprintf(resolved_path, sizeof(resolved_path), "%s", thumb_img_path);
+                        mime = "image/webp";
+                    }
+                } else {
+                    snprintf(resolved_path, sizeof(resolved_path), "%s", thumb_img_path);
+                    mime = "image/webp";
+                }
+            }
+        }
+    }
+
+    const char *path = resolved_path;
 
     bool wants_preview = false;
     const char *preview_q = cwist_query_map_get(req->query_params, "preview");

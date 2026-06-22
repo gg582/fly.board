@@ -846,7 +846,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                         if (is_image) {
                             cwist_sstring_append(b, "<img src='/file/preview/");
                             cwist_sstring_append(b, fid_buf2);
-                            cwist_sstring_append(b, "' data-tasfa-src='/file/preview/");
+                            cwist_sstring_append(b, "' data-tasfa-src='/file/download/");
                             cwist_sstring_append(b, fid_buf2);
                             cwist_sstring_append(b, "' data-tasfa-original='/file/download/");
                             cwist_sstring_append(b, fid_buf2);

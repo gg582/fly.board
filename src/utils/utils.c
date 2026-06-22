@@ -380,7 +380,7 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
         if (fid > 0) snprintf(preview_url, sizeof(preview_url), "/file/preview/%d", fid);
         snprintf(out->html, sizeof(out->html),
             "<img src=\"%s\" data-tasfa-src=\"%s\" data-tasfa-original=\"%s\" alt=\"%s\" style=\"max-width:100%%;height:auto;display:block\">",
-            preview_url, preview_url, out->url, out->filename);
+            preview_url, out->url, out->url, out->filename);
     } else if (strncmp(out->mime_type, "video/", 6) == 0) {
         char play_url[576];
         snprintf(play_url, sizeof(play_url), "%s?preview=1", out->url);
