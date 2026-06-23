@@ -105,10 +105,16 @@ void media_preview_dimensions_from_score(int score, int src_w, int src_h,
 bool generate_image_thumb(const char *src, const char *dst, int max_w, int max_h) {
     if (!src || !dst || max_w <= 0 || max_h <= 0) return false;
     dir_ensure("public/uploads/.thumbs");
+    int quality = 60;
+    int compression = 6;
+    if (strstr(src, "uploads") != NULL) {
+        quality = 82;
+        compression = 5;
+    }
     char cmd[2048];
     snprintf(cmd, sizeof(cmd),
-        "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vf 'scale=%d:%d:force_original_aspect_ratio=decrease' -frames:v 1 -c:v libwebp -quality 82 -compression_level 5 -y '%s'",
-        src, max_w, max_h, dst);
+        "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vf 'scale=%d:%d:force_original_aspect_ratio=decrease' -frames:v 1 -c:v libwebp -quality %d -compression_level %d -y '%s'",
+        src, max_w, max_h, quality, compression, dst);
     return run_ffmpeg(cmd);
 }
 

@@ -1914,7 +1914,9 @@
             if (asset._sessionChunkHint && asset._sessionChunkHint >= TASFA_UPLOAD_CHUNK_MIN) {
                 asset.chunkSize = asset._sessionChunkHint;
             }
-            var chunkCount = Math.max(1, Math.ceil(file.size / asset.chunkSize));
+            var dataChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
+            var parityChunks = Math.ceil(dataChunks / 6);
+            var chunkCount = dataChunks + parityChunks;
             var values = tasfaLinkFormValues(asset, {
                 filename: file.name,
                 total_size: String(file.size),
@@ -2032,7 +2034,9 @@
                 asset._aadCache = null;
             }
             asset.chunkSize = newChunkSize;
-            asset.totalChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
+            var dataChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
+            var parityChunks = Math.ceil(dataChunks / 6);
+            asset.totalChunks = dataChunks + parityChunks;
             var newStreamKeyHex = payload.stream_key_hex || asset.streamKeyHex || '';
             if (newStreamKeyHex !== asset.streamKeyHex) {
                 asset.streamCryptoKey = null;
@@ -2105,14 +2109,32 @@
         var poolFailed = false;
 
         function postChunk(chunkIndex) {
-            ensureHtpGroup(asset, file, Math.floor(chunkIndex / 6)).catch(function() {});
-            return new Promise(function(resolve, reject) {
-                var start = chunkIndex * asset.chunkSize;
-                var end = Math.min(start + asset.chunkSize, file.size);
-                var blob = file.slice(start, end);
-                var size = end - start;
+            var dataChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
+            var isParity = chunkIndex >= dataChunks;
+            if (!isParity) {
+                ensureHtpGroup(asset, file, Math.floor(chunkIndex / 6)).catch(function() {});
+            }
+            return new Promise(async function(resolve, reject) {
+                var blob;
+                var size;
+                if (isParity) {
+                    try {
+                        var groupIndex = chunkIndex - dataChunks;
+                        var parityBuf = await generateParityBuffer(file, dataChunks, asset.chunkSize, groupIndex);
+                        blob = new Blob([parityBuf]);
+                        size = parityBuf.byteLength;
+                    } catch (e) {
+                        reject(e);
+                        return;
+                    }
+                } else {
+                    var start = chunkIndex * asset.chunkSize;
+                    var end = Math.min(start + asset.chunkSize, file.size);
+                    blob = file.slice(start, end);
+                    size = end - start;
+                }
                 var xhr = new XMLHttpRequest();
-                var htp = peekHtpHeaders(asset, chunkIndex);
+                var htp = isParity ? null : peekHtpHeaders(asset, chunkIndex);
                 xhr._tasfaChunkIndex = chunkIndex;
                 asset.xhrs.push(xhr);
                 asset.inflightBytes[chunkIndex] = 0;
@@ -2121,14 +2143,14 @@
                 xhr.setRequestHeader('Accept', 'application/json');
                 xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
                 xhr.setRequestHeader('X-TASFA-Upload-ID', asset.uploadId);
-	                xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
-	                xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
-	                if (htp && htp.hashTag) xhr.setRequestHeader('X-TASFA-Hash-Tag', htp.hashTag);
-	                if (htp && htp.rawScalar) xhr.setRequestHeader('X-TASFA-Raw-Scalar', htp.rawScalar);
-	                if (htp && htp.magicScalar) xhr.setRequestHeader('X-TASFA-Magic-Scalar', htp.magicScalar);
-	                var stats = ensureTasfaStats(asset);
-	                var rttHint = Math.round((stats.lastChunkMs || stats.ewmaMs || 0));
-	                if (rttHint > 0) xhr.setRequestHeader('X-TASFA-Chunk-RTT', String(rttHint));
+                xhr.setRequestHeader('X-TASFA-Upload-Token', asset.uploadToken);
+                xhr.setRequestHeader('X-TASFA-Chunk-Index', String(chunkIndex));
+                if (htp && htp.hashTag) xhr.setRequestHeader('X-TASFA-Hash-Tag', htp.hashTag);
+                if (htp && htp.rawScalar) xhr.setRequestHeader('X-TASFA-Raw-Scalar', htp.rawScalar);
+                if (htp && htp.magicScalar) xhr.setRequestHeader('X-TASFA-Magic-Scalar', htp.magicScalar);
+                var stats = ensureTasfaStats(asset);
+                var rttHint = Math.round((stats.lastChunkMs || stats.ewmaMs || 0));
+                if (rttHint > 0) xhr.setRequestHeader('X-TASFA-Chunk-RTT', String(rttHint));
 
                 var watchdog = armXhrIdleTimeout(xhr, uploadIdleTimeoutMs(size));
                 var chunkStartedAt = Date.now();
@@ -2210,9 +2232,9 @@
             if (asset.encryptedCache && asset.encryptedCache[chunkIndex]) {
                 return asset.encryptedCache[chunkIndex];
             }
-            var start = chunkIndex * asset.chunkSize;
-            var end = Math.min(start + asset.chunkSize, file.size);
-            var size = end - start;
+            var dataChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
+            var isParity = chunkIndex >= dataChunks;
+            var size = isParity ? asset.chunkSize : (Math.min(chunkIndex * asset.chunkSize + asset.chunkSize, file.size) - chunkIndex * asset.chunkSize);
             var budget = tasfaFallbackPrefetchBudget(asset);
             if (!force && (asset.encryptedCacheBytes || 0) + size > budget) {
                 return Promise.reject(new Error('prefetch-budget'));
@@ -2221,10 +2243,21 @@
             if (!asset.encryptedCacheSizes) asset.encryptedCacheSizes = {};
             asset.encryptedCacheBytes = (asset.encryptedCacheBytes || 0) + size;
             asset.encryptedCacheSizes[chunkIndex] = size;
-            ensureHtpGroup(asset, file, Math.floor(chunkIndex / 6)).catch(function() {});
-            var promise = importUploadStreamKey(asset).then(function(key) {
-                var htp = peekHtpHeaders(asset, chunkIndex);
-                var blob = file.slice(start, end);
+            if (!isParity) {
+                ensureHtpGroup(asset, file, Math.floor(chunkIndex / 6)).catch(function() {});
+            }
+            var promise = importUploadStreamKey(asset).then(async function(key) {
+                var htp = isParity ? null : peekHtpHeaders(asset, chunkIndex);
+                var plain;
+                if (isParity) {
+                    var groupIndex = chunkIndex - dataChunks;
+                    plain = await generateParityBuffer(file, dataChunks, asset.chunkSize, groupIndex);
+                } else {
+                    var start = chunkIndex * asset.chunkSize;
+                    var end = Math.min(start + asset.chunkSize, file.size);
+                    var blob = file.slice(start, end);
+                    plain = await blob.arrayBuffer();
+                }
                 if (!asset._streamIvSeedBytes) {
                     asset._streamIvSeedBytes = hexToBytes(asset.streamIvSeedHex || '');
                 }
@@ -2236,7 +2269,7 @@
                     asset._aadCache[chunkIndex] = new TextEncoder().encode((asset.uploadId || '') + ':' + String(chunkIndex));
                 }
                 var aad = asset._aadCache[chunkIndex];
-                return blob.arrayBuffer().then(function(plain) {
+                return Promise.resolve(plain).then(function(plain) {
                     if (typeof CompressionStream !== 'undefined' && plain.byteLength > 1024) {
                         try {
                             var cs = new CompressionStream('gzip');
@@ -2373,9 +2406,26 @@
             }
         }
 
+    async function generateParityBuffer(file, dataChunks, chunkSize, groupIndex) {
+        var groupStart = groupIndex * 6;
+        var groupEnd = Math.min(groupStart + 6, dataChunks);
+        var parity = new Uint8Array(chunkSize);
+        for (var ci = groupStart; ci < groupEnd; ci++) {
+            var start = ci * chunkSize;
+            var end = Math.min(start + chunkSize, file.size);
+            var data = new Uint8Array(await file.slice(start, end).arrayBuffer());
+            for (var i = 0; i < data.length; i++) {
+                parity[i] ^= data[i];
+            }
+        }
+        return parity.buffer;
+    }
+
         function prefetchHtpGroups(count) {
+            var dataChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
             for (var i = 0; i < pending.length && count > 0; i++) {
                 var ci = pending[i];
+                if (ci >= dataChunks) continue;
                 var gi = Math.floor(ci / 6);
                 if (!asset.htpGroups || !asset.htpGroups[gi]) {
                     ensureHtpGroup(asset, file, gi);
@@ -2579,10 +2629,15 @@
             }
             asset.confirmedBytes = 0;
             asset.completedChunks = 0;
+            var dataChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
             for (var i = 0; i < asset.totalChunks; i++) {
                 if (i < bitmap.length && bitmap[i] === '1') {
                     asset.completedChunks += 1;
-                    asset.confirmedBytes += Math.min(asset.chunkSize, file.size - (i * asset.chunkSize));
+                    if (i < dataChunks) {
+                        asset.confirmedBytes += Math.min(asset.chunkSize, file.size - (i * asset.chunkSize));
+                    } else {
+                        asset.confirmedBytes += asset.chunkSize;
+                    }
                 } else {
                     pending.push(i);
                 }
@@ -2673,9 +2728,14 @@
                     asset.confirmedBytes = 0;
                     asset.completedChunks = 0;
                     var bitmap2 = payload.received_bitmap || '';
+                    var dataChunks = Math.max(1, Math.ceil(asset.file.size / asset.chunkSize));
                     for (var i = 0; i < asset.totalChunks; i++) {
                         if (i < bitmap2.length && bitmap2[i] === '1') {
-                            asset.confirmedBytes += Math.min(asset.chunkSize, asset.file.size - (i * asset.chunkSize));
+                            if (i < dataChunks) {
+                                asset.confirmedBytes += Math.min(asset.chunkSize, asset.file.size - (i * asset.chunkSize));
+                            } else {
+                                asset.confirmedBytes += asset.chunkSize;
+                            }
                             asset.completedChunks += 1;
                         }
                     }
@@ -2693,10 +2753,15 @@
                     var pending = [];
                     asset.confirmedBytes = 0;
                     asset.completedChunks = 0;
+                    var dataChunks = Math.max(1, Math.ceil(asset.file.size / asset.chunkSize));
                     for (var i = 0; i < asset.totalChunks; i++) {
                         if (i < bitmap.length && bitmap[i] === '1') {
                             asset.completedChunks += 1;
-                            asset.confirmedBytes += Math.min(asset.chunkSize, asset.file.size - (i * asset.chunkSize));
+                            if (i < dataChunks) {
+                                asset.confirmedBytes += Math.min(asset.chunkSize, asset.file.size - (i * asset.chunkSize));
+                            } else {
+                                asset.confirmedBytes += asset.chunkSize;
+                            }
                         } else {
                             pending.push(i);
                         }

@@ -480,8 +480,8 @@ void handler_file_preview(cwist_http_request *req, cwist_http_response *res) {
         if (w < 720) w = 720;
         if (h < 1080) h = 1080;
     }
-    if (w > 2048) w = 2048;
-    if (h > 2048) h = 2048;
+    if (w > 3072) w = 3072;
+    if (h > 3072) h = 3072;
 
     char preview_path[PATH_MAX] = {0};
     snprintf(preview_path, sizeof(preview_path), "public/uploads/.thumbs/%d_%dx%d.webp", id, w, h);
@@ -576,8 +576,8 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
                     if (w < 720) w = 720;
                     if (h < 1080) h = 1080;
                 }
-                if (w > 2048) w = 2048;
-                if (h > 2048) h = 2048;
+                if (w > 3072) w = 3072;
+                if (h > 3072) h = 3072;
 
                 char thumb_img_path[PATH_MAX];
                 snprintf(thumb_img_path, sizeof(thumb_img_path), "public/uploads/.thumbs/%d_%dx%d.webp", atoi(id_str), w, h);

@@ -1323,17 +1323,34 @@
                 }
                 displayHeight = Math.ceil(displayHeight / 100) * 100;
 
-                // Guarantee a minimum resolution around 720x1080, adaptive to image orientation
-                if (displayWidth >= displayHeight) {
-                    if (displayWidth < 1080) displayWidth = 1080;
-                    if (displayHeight < 720) displayHeight = 720;
-                } else {
-                    if (displayWidth < 720) displayWidth = 720;
-                    if (displayHeight < 1080) displayHeight = 1080;
-                }
+                var isBg = el.classList.contains('hero-bg');
+                var isLogo = el.classList.contains('hero-logo');
 
-                if (displayWidth > 1920) displayWidth = 1920;
-                if (displayHeight > 1920) displayHeight = 1920;
+                if (isBg) {
+                    if (displayWidth >= displayHeight) {
+                        if (displayWidth < 2560) displayWidth = 2560;
+                        if (displayHeight < 1440) displayHeight = 1440;
+                    } else {
+                        if (displayWidth < 1440) displayWidth = 1440;
+                        if (displayHeight < 2560) displayHeight = 2560;
+                    }
+                    if (displayWidth > 3072) displayWidth = 3072;
+                    if (displayHeight > 3072) displayHeight = 3072;
+                } else if (isLogo) {
+                    if (displayWidth > 512) displayWidth = 512;
+                    if (displayHeight > 512) displayHeight = 512;
+                } else {
+                    // Guarantee a minimum resolution around 720x1080, adaptive to image orientation
+                    if (displayWidth >= displayHeight) {
+                        if (displayWidth < 1080) displayWidth = 1080;
+                        if (displayHeight < 720) displayHeight = 720;
+                    } else {
+                        if (displayWidth < 720) displayWidth = 720;
+                        if (displayHeight < 1080) displayHeight = 1080;
+                    }
+                    if (displayWidth > 1920) displayWidth = 1920;
+                    if (displayHeight > 1920) displayHeight = 1920;
+                }
 
                 var displayUrl = baseUrl;
                 displayUrl += (displayUrl.indexOf('?') === -1 ? '?' : '&') + 'w=' + displayWidth + '&h=' + displayHeight;
