@@ -541,9 +541,6 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     bool pin_ok = delete_pin && pin_hash && pin_hash->valuestring && pin_hash->valuestring[0] &&
                   auth_verify_password(delete_pin, pin_hash->valuestring);
 
-    fprintf(stderr, "[DEBUG] handler_post_delete: id_str=%s, uid=%d, role='%s', pin_ok=%d, is_author_or_admin=%d\n",
-            id_str ? id_str : "NULL", uid, role, pin_ok, is_author_or_admin(post, uid, role));
-
     if (!is_author_or_admin(post, uid, role) && !pin_ok) {
         CWIST_LOG_WARN("Post delete forbidden: id=%s uid=%d role=%s", id_str, uid, role);
         res->status_code = CWIST_HTTP_FORBIDDEN;
