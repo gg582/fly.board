@@ -101,3 +101,15 @@ cJSON *db_comment_list_by_target(cwist_db *db, const char *target_type, int targ
     sqlite3_bind_int(stmt, 2, target_id);
     return db_sqlite3_rows_to_json(stmt);
 }
+
+bool db_comment_delete_by_target(const char *target_type, int target_id) {
+    if (!g_comments_db) return false;
+    const char *sql = "DELETE FROM comments WHERE target_type=? AND target_id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(g_comments_db, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, target_type, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, target_id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}

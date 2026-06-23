@@ -81,6 +81,7 @@ bool db_file_attach_to_post(cwist_db *db, int id, int post_id, int is_inline);
 void db_file_replace_for_post(cwist_db *db, int post_id, const char *filename);
 void db_file_cleanup_duplicates(cwist_db *db);
 void db_cleanup_orphaned_files(cwist_db *db);
+void db_file_delete_by_post(cwist_db *db, int post_id);
 
 /* Comments (separate DB) */
 bool db_comment_init(const char *path);
@@ -90,6 +91,7 @@ bool db_comment_update(cwist_db *db, int id, int user_id, const char *content);
 bool db_comment_delete(cwist_db *db, int id, int user_id);
 cJSON *db_comment_get_by_id(cwist_db *db, int id);
 cJSON *db_comment_list_by_target(cwist_db *db, const char *target_type, int target_id);
+bool db_comment_delete_by_target(const char *target_type, int target_id);
 
 /* User delete with cascade */
 bool db_user_delete_with_cascade(cwist_db *db, int id, bool delete_replies);
