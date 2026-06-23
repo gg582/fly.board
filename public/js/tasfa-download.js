@@ -331,6 +331,7 @@
         if (cleanPath.indexOf('/file/download/') === 0) return cleanPath + '/handshake' + query;
         if (cleanPath.indexOf('/assets/img/') === 0) return '/assets/tasfa/img/' + encodeURIComponent(cleanPath.slice('/assets/img/'.length)) + '/handshake';
         if (cleanPath.indexOf('/assets/uploads/') === 0) return '/assets/tasfa/uploads/' + encodeURIComponent(cleanPath.slice('/assets/uploads/'.length)) + '/handshake';
+        if (cleanPath.indexOf('/assets/profile/') === 0) return '/assets/tasfa/profile/' + encodeURIComponent(cleanPath.slice('/assets/profile/'.length)) + '/handshake';
         return null;
     }
 
@@ -348,6 +349,8 @@
             url = '/assets/tasfa/img/' + encodeURIComponent(cleanPath.slice('/assets/img/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
         } else if (cleanPath.indexOf('/assets/uploads/') === 0) {
             url = '/assets/tasfa/uploads/' + encodeURIComponent(cleanPath.slice('/assets/uploads/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
+        } else if (cleanPath.indexOf('/assets/profile/') === 0) {
+            url = '/assets/tasfa/profile/' + encodeURIComponent(cleanPath.slice('/assets/profile/'.length)) + '/chunk/' + String(chunkIndex) + '?session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
         }
         if (url && span > 1) url += '&span=' + String(span);
         return url;
@@ -1325,6 +1328,9 @@
 
                 var isBg = el.classList.contains('hero-bg');
                 var isLogo = el.classList.contains('hero-logo');
+                var isProfile = el.classList.contains('profile-pic') ||
+                                el.classList.contains('profile-pic-small') ||
+                                el.classList.contains('mobile-profile-pic');
 
                 if (isBg) {
                     /* Server pre-generates these exact canonical sizes at startup so
@@ -1344,6 +1350,16 @@
                 } else if (isLogo) {
                     displayWidth = 512;
                     displayHeight = 512;
+                } else if (isProfile) {
+                    /* Profile pics are rendered tiny (24px-48px); request a retina-friendly
+                       canonical size so the server can serve a pre-generated thumb. */
+                    if (el.classList.contains('profile-pic-small')) {
+                        displayWidth = 128;
+                        displayHeight = 128;
+                    } else {
+                        displayWidth = 256;
+                        displayHeight = 256;
+                    }
                 } else {
                     // Guarantee a minimum resolution around 720x1080, adaptive to image orientation
                     if (displayWidth >= displayHeight) {
@@ -1473,11 +1489,28 @@
 
     function upgradeMediaWithin(root) {
         if (!root || !root.querySelectorAll) return;
-        var mediaSelector = 'img[data-tasfa-download], img[src^="/file/download/"], img[src^="/assets/img/"], img[src^="/assets/uploads/"], audio[data-tasfa-download], audio[src^="/file/download/"], video[data-tasfa-download], video[src^="/file/download/"]';
+        var mediaSelector = 'img[data-tasfa-download], img[src^="/file/download/"], img[src^="/assets/img/"], img[src^="/assets/uploads/"], img[src^="/assets/profile/"], audio[data-tasfa-download], audio[src^="/file/download/"], video[data-tasfa-download], video[src^="/file/download/"]';
         if (root.matches) {
             if (root.matches(mediaSelector)) upgradeMediaElement(root);
         }
         root.querySelectorAll(mediaSelector).forEach(upgradeMediaElement);
+    }
+
+    function upgradeFavicon() {
+        var link = document.querySelector('link[data-tasfa-favicon="1"]');
+        if (!link) return;
+        var baseUrl = link.getAttribute('data-tasfa-src');
+        if (!baseUrl) return;
+        /* Favicons are tiny; request a small pre-generated canonical size. */
+        var displayUrl = baseUrl + (baseUrl.indexOf('?') === -1 ? '?' : '&') + 'w=128&h=128';
+        fetchBlobViaTasfa(displayUrl, { silent: true }).then(function(result) {
+            return createMediaPlaybackUrl(displayUrl, result.blob, 'img');
+        }).then(function(objectUrl) {
+            if (objectUrl) link.href = objectUrl;
+        }).catch(function() {
+            /* fallback: direct fetch */
+            link.href = baseUrl;
+        });
     }
 
     function init() {
@@ -1495,6 +1528,7 @@
         };
         upgradeWithin(document);
         upgradeMediaWithin(document);
+        upgradeFavicon();
         if (window.MutationObserver) {
             new MutationObserver(function(mutations) {
                 mutations.forEach(function(mutation) {

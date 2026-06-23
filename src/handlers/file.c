@@ -260,7 +260,7 @@ static bool is_safe_upload_preview_name(const char *name) {
     return false;
 }
 
-static bool is_profile_pic_asset(cwist_db *db, const char *name) {
+bool is_profile_pic_asset(cwist_db *db, const char *name) {
     if (!db || !name || !name[0]) return false;
     char profile_url[512];
     int written_profile = snprintf(profile_url, sizeof(profile_url), "/assets/profile/%s", name);
