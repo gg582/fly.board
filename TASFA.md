@@ -159,6 +159,14 @@ If a slot only appears in passing equations, it is **cleared** from the suspect 
 
 Scores are aggregated across all failed groups; if a chunk appears in multiple groups, its maximum score is kept.
 
+### Hybrid HTP-XOR Erasure Coding
+
+To resolve packet/chunk loss without high computational cost on low-spec servers, TASFA uses a hybrid model of HTP topological suspect location and lightweight XOR erasure coding:
+- **XOR Parity Generation**: Every 6-chunk group contains a 7th parity chunk $P = C_0 \oplus C_1 \oplus C_2 \oplus C_3 \oplus C_4 \oplus C_5$.
+- **Zero-Cost Suspect Localization**: When a group fails integrity checks, HTP's line sums and suspicion scores pinpoint the exact corrupted or missing chunk index $i$ at negligible CPU cost (simple scalar arithmetic).
+- **$O(1)$ Recovery**: If exactly one chunk $C_i$ is missing or corrupted within a group, the server instantly reconstructs it via $C_i = P \oplus \bigoplus_{j \neq i} C_j$ using SIMD bitwise XOR. This avoids expensive matrix inversions and Galois Field arithmetic.
+- **Multi-Erasure Fallback**: If two or more chunks are corrupted or missing, the server bypasses the FEC limits and falls back to normal retransmission (ARQ) via `retry_targets`.
+
 ### Repair cost threshold
 
 Before requesting any repair, the server evaluates whether contraction is cheaper than direct retry:

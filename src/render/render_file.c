@@ -98,7 +98,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
         cwist_sstring_append(b, ";");
         cwist_sstring_append(b, text_style);
         cwist_sstring_append(b, "\">");
-        cwist_sstring_append(b, "<img class='hero-bg' data-tasfa-skip='1' fetchpriority='high' src='");
+        cwist_sstring_append(b, "<img class='hero-bg' fetchpriority='high' src='");
         cwist_sstring_append(b, img_url);
         cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0'>");
         if (overlay_style[0]) {

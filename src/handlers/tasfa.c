@@ -1585,8 +1585,10 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     }
     bool mobile = is_mobile_request(req);
     int chunk_size = choose_chunk_size_upload(mobile, requested_chunk_size);
-    chunk_count = (int)((total_size + chunk_size - 1) / chunk_size);
-    if (chunk_count < 1) chunk_count = 1;
+    int data_chunks = (int)((total_size + chunk_size - 1) / chunk_size);
+    if (data_chunks < 1) data_chunks = 1;
+    int parity_chunks = (data_chunks + 5) / 6;
+    chunk_count = data_chunks + parity_chunks;
     tasfa_queue_sweep(g_q_uploads, tasfa_upload_session_limit(), 600);
     char upload_id[33];
     if (!random_hex(upload_id, 16)) {
@@ -1838,6 +1840,8 @@ typedef struct {
     int chunk_count;
     const char *hash_tag_hex;
     const char *magic_scalar_str;
+    bool is_parity;
+    int data_chunks;
     /* outputs */
     bool stored;
     bool state_ok;
@@ -2232,11 +2236,19 @@ static void upload_work_func(void *arg) {
     upload_work_t *w = (upload_work_t *)arg;
 
     long long store_start_ms = tasfa_monotonic_ms();
-    int fd = open(w->temp_path, O_WRONLY);
+    char parity_path[PATH_MAX];
+    int fd = -1;
+    if (w->is_parity) {
+        snprintf(parity_path, sizeof(parity_path), "%s/%s/parity_%d.bin", TASFA_UPLOAD_DIR, w->upload_id, w->chunk_index - w->data_chunks);
+        fd = open(parity_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    } else {
+        fd = open(w->temp_path, O_WRONLY);
+    }
     if (fd < 0) {
-        FLY_LOG_ERROR("[TASFA] chunk open failed: %s errno=%d", w->temp_path, errno);
+        FLY_LOG_ERROR("[TASFA] chunk open failed: %s (parity=%d) errno=%d", w->is_parity ? parity_path : w->temp_path, w->is_parity, errno);
         return;
     }
+    off_t write_offset = w->is_parity ? 0 : (off_t)w->offset;
     if (w->encrypted_stream) {
         size_t encrypted_plain_len = w->body_size > 16 ? w->body_size - 16 : 0;
         unsigned char *plaintext = ensure_decrypt_buf(w->compressed ? encrypted_plain_len : (size_t)w->expected_size);
@@ -2247,20 +2259,20 @@ static void upload_work_func(void *arg) {
             if (w->compressed) {
                 unsigned char *inflated = ensure_inflate_buf((size_t)w->expected_size);
                 if (inflated && tasfa_gzip_decompress_to(plaintext, encrypted_plain_len, inflated, (size_t)w->expected_size)) {
-                    w->stored = pwrite_all(fd, inflated, (size_t)w->expected_size, (off_t)w->offset);
+                    w->stored = pwrite_all(fd, inflated, (size_t)w->expected_size, write_offset);
                 }
             } else if (encrypted_plain_len == (size_t)w->expected_size) {
-                w->stored = pwrite_all(fd, plaintext, (size_t)w->expected_size, (off_t)w->offset);
+                w->stored = pwrite_all(fd, plaintext, (size_t)w->expected_size, write_offset);
             }
         }
     } else if (w->compressed) {
         unsigned char *inflated = ensure_inflate_buf((size_t)w->expected_size);
         if (inflated && tasfa_gzip_decompress_to((const unsigned char *)w->body_data, w->body_size,
                                                  inflated, (size_t)w->expected_size)) {
-            w->stored = pwrite_all(fd, inflated, (size_t)w->expected_size, (off_t)w->offset);
+            w->stored = pwrite_all(fd, inflated, (size_t)w->expected_size, write_offset);
         }
     } else if ((long long)w->body_size == w->expected_size) {
-        w->stored = pwrite_all(fd, w->body_data, w->body_size, (off_t)w->offset);
+        w->stored = pwrite_all(fd, w->body_data, w->body_size, write_offset);
     } else {
         FLY_LOG_ERROR("[TASFA] chunk store size mismatch: index=%d expected=%lld got=%zu",
                       w->chunk_index, w->expected_size, w->body_size);
@@ -2343,9 +2355,21 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
         }
     }
 
-    long long offset = (long long)chunk_index * (long long)mbin.chunk_size;
-    long long expected_size = mbin.total_size - offset;
-    if (expected_size > mbin.chunk_size) expected_size = mbin.chunk_size;
+    int data_chunks = (int)((mbin.total_size + (long long)mbin.chunk_size - 1) / (long long)mbin.chunk_size);
+    if (data_chunks < 1) data_chunks = 1;
+    bool is_parity = (chunk_index >= data_chunks);
+
+    long long offset = 0;
+    long long expected_size = 0;
+    if (is_parity) {
+        offset = 0;
+        expected_size = mbin.chunk_size;
+    } else {
+        offset = (long long)chunk_index * (long long)mbin.chunk_size;
+        expected_size = mbin.total_size - offset;
+        if (expected_size > mbin.chunk_size) expected_size = mbin.chunk_size;
+    }
+
     if (expected_size <= 0) {
         send_json_response(res, session_error_json("invalid chunk bounds"), CWIST_HTTP_BAD_REQUEST);
         return;
@@ -2383,6 +2407,8 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     work.offset = offset;
     work.expected_size = expected_size;
     work.chunk_count = mbin.chunk_count;
+    work.is_parity = is_parity;
+    work.data_chunks = data_chunks;
 
     upload_work_func(&work);
 
@@ -2542,6 +2568,73 @@ static int rename_fallback(const char *src, const char *dst) {
     return -1;
 }
 
+static bool perform_xor_recovery(const char *upload_id, const char *temp_path, int chunk_size, 
+                                 int group_start, int group_end, int target_chunk, int parity_chunk_idx, int data_chunks, long long total_size) {
+    char parity_path[PATH_MAX];
+    snprintf(parity_path, sizeof(parity_path), "%s/%s/parity_%d.bin", TASFA_UPLOAD_DIR, upload_id, parity_chunk_idx - data_chunks);
+    
+    unsigned char *parity_buf = (unsigned char *)cwist_alloc((size_t)chunk_size);
+    if (!parity_buf) return false;
+    memset(parity_buf, 0, (size_t)chunk_size);
+
+    FILE *pf = fopen(parity_path, "rb");
+    if (!pf) {
+        cwist_free(parity_buf);
+        return false;
+    }
+    size_t read_bytes = fread(parity_buf, 1, (size_t)chunk_size, pf);
+    fclose(pf);
+    if (read_bytes == 0) {
+        cwist_free(parity_buf);
+        return false;
+    }
+
+    int fd = open(temp_path, O_RDWR);
+    if (fd < 0) {
+        cwist_free(parity_buf);
+        return false;
+    }
+
+    unsigned char *chunk_buf = (unsigned char *)cwist_alloc((size_t)chunk_size);
+    if (!chunk_buf) {
+        close(fd);
+        cwist_free(parity_buf);
+        return false;
+    }
+
+    for (int ci = group_start; ci < group_end; ci++) {
+        if (ci == target_chunk) continue;
+
+        long long offset = (long long)ci * (long long)chunk_size;
+        long long current_chunk_size = total_size - offset;
+        if (current_chunk_size > chunk_size) current_chunk_size = chunk_size;
+        if (current_chunk_size <= 0) continue;
+
+        memset(chunk_buf, 0, (size_t)chunk_size);
+        if (pread(fd, chunk_buf, (size_t)current_chunk_size, (off_t)offset) != (ssize_t)current_chunk_size) {
+            cwist_free(chunk_buf);
+            cwist_free(parity_buf);
+            close(fd);
+            return false;
+        }
+
+        for (int i = 0; i < chunk_size; i++) {
+            parity_buf[i] ^= chunk_buf[i];
+        }
+    }
+
+    long long target_offset = (long long)target_chunk * (long long)chunk_size;
+    long long target_size = total_size - target_offset;
+    if (target_size > chunk_size) target_size = chunk_size;
+
+    bool write_ok = pwrite_all(fd, parity_buf, (size_t)target_size, (off_t)target_offset);
+
+    close(fd);
+    cwist_free(chunk_buf);
+    cwist_free(parity_buf);
+    return write_ok;
+}
+
 static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -2573,6 +2666,62 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     int chunk_count = json_int(meta, "chunk_count", 0);
     const char *bitmap = json_string(meta, "received_bitmap", "");
     int received = bitmap_count_set(bitmap, chunk_count);
+
+    long long total_size = json_long_long(meta, "total_size", 0);
+    int chunk_size = json_int(meta, "chunk_size", TASFA_UPLOAD_CHUNK_SIZE_DEFAULT);
+    int data_chunks = (int)((total_size + (long long)chunk_size - 1) / (long long)chunk_size);
+    if (data_chunks < 1) data_chunks = 1;
+    int parity_chunks = (data_chunks + 5) / 6;
+
+    const char *temp_path = json_string(meta, "temp_path", "");
+
+    /* === XOR Reconstruction for missing chunks === */
+    if (received != chunk_count) {
+        char *mutable_bitmap = (char *)cwist_alloc((size_t)chunk_count + 1);
+        if (mutable_bitmap) {
+            memcpy(mutable_bitmap, bitmap, (size_t)chunk_count + 1);
+            bool recovered_any = false;
+
+            for (int g = 0; g < parity_chunks; g++) {
+                int missing_data_idx = -1;
+                int missing_data_count = 0;
+                int group_start = g * 6;
+                int group_end = group_start + 6;
+                if (group_end > data_chunks) group_end = data_chunks;
+
+                for (int ci = group_start; ci < group_end; ci++) {
+                    if (mutable_bitmap[ci] == '0') {
+                        missing_data_count++;
+                        missing_data_idx = ci;
+                    }
+                }
+
+                int parity_idx = data_chunks + g;
+                bool parity_received = (mutable_bitmap[parity_idx] == '1');
+
+                if (missing_data_count == 1 && parity_received) {
+                    if (perform_xor_recovery(upload_id, temp_path, chunk_size, group_start, group_end, missing_data_idx, parity_idx, data_chunks, total_size)) {
+                        mutable_bitmap[missing_data_idx] = '1';
+                        mark_chunk_received_in_session_state(upload_id, missing_data_idx);
+                        recovered_any = true;
+                        FLY_LOG_DEBUG("[TASFA] Successfully recovered missing chunk %d in group %d using XOR", missing_data_idx, g);
+                    }
+                }
+            }
+
+            if (recovered_any) {
+                save_upload_session_state_bin(upload_id, chunk_count, mutable_bitmap);
+                cJSON_ReplaceItemInObject(meta, "received_bitmap", cJSON_CreateString(mutable_bitmap));
+                cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(bitmap_count_set(mutable_bitmap, chunk_count)));
+                save_upload_session_state(upload_id, meta);
+
+                bitmap = json_string(meta, "received_bitmap", "");
+                received = bitmap_count_set(bitmap, chunk_count);
+            }
+            cwist_free(mutable_bitmap);
+        }
+    }
+
     if (received != chunk_count) {
         cJSON *obj = build_upload_status_json(meta, upload_id);
         cJSON_ReplaceItemInObject(obj, "ok", cJSON_CreateBool(false));
@@ -2603,7 +2752,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     int contraction_level = json_int(meta, "htp_contraction_level", 0);
 
     if (htp_ok) {
-        int group_count = chunk_count / 6;
+        int group_count = data_chunks / 6;
         for (int g = 0; g < group_count; g++) {
             uint64_t m[6] = {0};
             bool group_has_any = false;
@@ -2657,7 +2806,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     } else {
         cJSON *magic_scalars = cJSON_GetObjectItem(meta, "magic_scalars");
         if (magic_scalars) {
-            int group_count = chunk_count / 6;
+            int group_count = data_chunks / 6;
             bool has_any_scalar = false;
             for (int i = 0; i < chunk_count && i < cJSON_GetArraySize(magic_scalars); i++) {
                 cJSON *item = cJSON_GetArrayItem(magic_scalars, i);
@@ -2714,6 +2863,41 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
             FLY_LOG_DEBUG("[TASFA] htp verify upload_id=%s chunks=%d groups=%d backend=%s suspects=%d contraction=%d ms=%lld",
                           upload_id, chunk_count, chunk_count / 6, htp_simd_backend(),
                           suspect_count, contraction_level, verify_ms);
+        }
+    }
+
+    if (suspect_count > 0) {
+        /* === XOR Reconstruction for corrupted chunks detected by HTP === */
+        for (int g = 0; g < parity_chunks; g++) {
+            int group_start = g * 6;
+            int group_end = group_start + 6;
+            if (group_end > data_chunks) group_end = data_chunks;
+
+            int suspect_in_group_idx = -1;
+            int suspect_in_group_count = 0;
+            int suspect_array_pos = -1;
+
+            for (int i = 0; i < suspect_count; i++) {
+                int ci = suspects[i].chunk_index;
+                if (ci >= group_start && ci < group_end) {
+                    suspect_in_group_count++;
+                    suspect_in_group_idx = ci;
+                    suspect_array_pos = i;
+                }
+            }
+
+            int parity_idx = data_chunks + g;
+            bool parity_received = is_chunk_already_received(upload_id, parity_idx);
+
+            if (suspect_in_group_count == 1 && parity_received) {
+                if (perform_xor_recovery(upload_id, temp_path, chunk_size, group_start, group_end, suspect_in_group_idx, parity_idx, data_chunks, total_size)) {
+                    for (int j = suspect_array_pos; j < suspect_count - 1; j++) {
+                        suspects[j] = suspects[j + 1];
+                    }
+                    suspect_count--;
+                    FLY_LOG_DEBUG("[TASFA] Successfully recovered HTP-suspect chunk %d in group %d using XOR", suspect_in_group_idx, g);
+                }
+            }
         }
     }
 
@@ -3093,8 +3277,8 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
                     if (w < 720) w = 720;
                     if (h < 1080) h = 1080;
                 }
-                if (w > 2048) w = 2048;
-                if (h > 2048) h = 2048;
+                if (w > 3072) w = 3072;
+                if (h > 3072) h = 3072;
 
                 char thumb_img_path[PATH_MAX];
                 snprintf(thumb_img_path, sizeof(thumb_img_path), "public/uploads/.thumbs/%d_%dx%d.webp", atoi(id_str), w, h);
@@ -3297,8 +3481,8 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
                     if (w < 720) w = 720;
                     if (h < 1080) h = 1080;
                 }
-                if (w > 2048) w = 2048;
-                if (h > 2048) h = 2048;
+                if (w > 3072) w = 3072;
+                if (h > 3072) h = 3072;
 
                 char scope_fname[512] = {0};
                 const char *scope = cwist_query_map_get(req->path_params, "scope");

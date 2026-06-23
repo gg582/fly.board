@@ -31,7 +31,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
         cwist_sstring_append(b, ";");
         cwist_sstring_append(b, text_style);
         cwist_sstring_append(b, "\">");
-        cwist_sstring_append(b, "<img class='hero-bg' data-tasfa-skip='1' fetchpriority='high' src='");
+        cwist_sstring_append(b, "<img class='hero-bg' fetchpriority='high' src='");
         cwist_sstring_append(b, img_url);
         cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0'>");
         if (overlay_style[0]) {
@@ -42,7 +42,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     }
     cwist_sstring_append(b, "<div class='hero' ");
     if (has_boards_bg) cwist_sstring_append(b, "style='position:relative;z-index:2;background:none;' ");
-    cwist_sstring_append(b, "><img class='hero-logo' data-tasfa-skip='1' src='/assets/img/");
+    cwist_sstring_append(b, "><img class='hero-logo' src='/assets/img/");
     if (g_config.blog_logo[0]) cwist_sstring_append_escaped(b, g_config.blog_logo);
     else cwist_sstring_append(b, "logo.png");
     cwist_sstring_append(b, "' alt='Logo'");

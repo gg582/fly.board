@@ -157,6 +157,14 @@ Si una ranura solo aparece en ecuaciones aprobadas, se **elimina** de la lista d
 
 Los puntajes se agregan entre todos los grupos fallidos; si un fragmento aparece en múltiples grupos, se conserva su puntaje máximo.
 
+### Codificación de borrado híbrida HTP-XOR
+
+Para resolver la pérdida de paquetes o fragmentos sin un alto costo computacional en servidores de bajas especificaciones, TASFA utiliza un modelo híbrido de localización de sospechosos topológicos HTP y codificación de borrado XOR liviana:
+- **Generación de paridad XOR**: Cada grupo de 6 fragmentos contiene un séptimo fragmento de paridad $P = C_0 \oplus C_1 \oplus C_2 \oplus C_3 \oplus C_4 \oplus C_5$.
+- **Localización de sospechosos sin coste**: Cuando un grupo falla en las comprobaciones de integridad, las sumas de línea y las puntuaciones de sospecha de HTP señalan el índice del fragmento dañado o faltante $i$ con un coste de CPU insignificante (aritmética escalar simple).
+- **Recuperación $O(1)$**: Si falta o se daña exactamente un fragmento $C_i$ en un grupo, el servidor lo reconstruye instantáneamente mediante $C_i = P \oplus \bigoplus_{j \neq i} C_j$ utilizando operaciones XOR a nivel de bits optimizadas por SIMD. Esto evita costosas inversiones de matrices y aritmética en campos de Galois.
+- **Alternativa para borrados múltiples**: Si faltan o se dañan dos o más fragmentos, el servidor omite los límites de FEC y recurre a la retransmisión normal (ARQ) a través de `retry_targets`.
+
 ### Umbral de costo de reparación
 
 Antes de solicitar cualquier reparación, el servidor evalúa si la contracción es más barata que el reintento directo:
