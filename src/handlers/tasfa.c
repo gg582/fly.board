@@ -2732,7 +2732,6 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
         send_json_response(res, obj, (cwist_http_status_t)409);
         return;
     }
-    const char *temp_path = json_string(meta, "temp_path", "");
     const char *filename = json_string(meta, "filename", "upload.bin");
     int post_id = json_int(meta, "post_id", 0);
     int owner_uid = json_int(meta, "uid", uid);
