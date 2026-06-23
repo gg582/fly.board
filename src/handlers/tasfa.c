@@ -3086,9 +3086,14 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
             int w = atoi(w_str);
             int h = atoi(h_str);
             if (w > 0 && h > 0) {
-                if (w < 50) w = 50;
+                if (w >= h) {
+                    if (w < 1080) w = 1080;
+                    if (h < 720) h = 720;
+                } else {
+                    if (w < 720) w = 720;
+                    if (h < 1080) h = 1080;
+                }
                 if (w > 2048) w = 2048;
-                if (h < 50) h = 50;
                 if (h > 2048) h = 2048;
 
                 char thumb_img_path[PATH_MAX];
@@ -3285,9 +3290,14 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
             int w = atoi(w_str);
             int h = atoi(h_str);
             if (w > 0 && h > 0) {
-                if (w < 50) w = 50;
+                if (w >= h) {
+                    if (w < 1080) w = 1080;
+                    if (h < 720) h = 720;
+                } else {
+                    if (w < 720) w = 720;
+                    if (h < 1080) h = 1080;
+                }
                 if (w > 2048) w = 2048;
-                if (h < 50) h = 50;
                 if (h > 2048) h = 2048;
 
                 char scope_fname[512] = {0};
