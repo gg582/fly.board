@@ -49,7 +49,10 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         cwist_html_element_add_attr(favicon_el, "rel", "icon");
         char favicon_url[512];
         snprintf(favicon_url, sizeof(favicon_url), "/assets/img/%s", g_config.favicon);
-        cwist_html_element_add_attr(favicon_el, "href", favicon_url);
+        /* Favicon is loaded through the TASFA reliable-transfer path by JS.
+           Omit href here so the browser does not fetch it directly before JS runs. */
+        cwist_html_element_add_attr(favicon_el, "data-tasfa-favicon", "1");
+        cwist_html_element_add_attr(favicon_el, "data-tasfa-src", favicon_url);
         cwist_html_element_add_child(head, favicon_el);
     }
 

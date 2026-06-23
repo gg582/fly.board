@@ -1366,6 +1366,11 @@ static bool resolve_asset_scope_path(cwist_db *db, const char *scope, const char
         snprintf(filename, filename_len, "%s", decoded);
         if (mime_out) *mime_out = mime_type(decoded);
         ok = true;
+    } else if (!strcmp(scope ? scope : "", "profile") && is_safe_filename_simple(decoded)) {
+        snprintf(storage_path, storage_len, "public/profile/%s", decoded);
+        snprintf(filename, filename_len, "%s", decoded);
+        if (mime_out) *mime_out = mime_type(decoded);
+        ok = true;
     }
     cwist_free(decoded);
     return ok;
@@ -3459,9 +3464,14 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
 void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response *res) {
     char path[PATH_MAX], filename[512];
     const char *mime = NULL;
-    if (!resolve_asset_scope_path(req->db, cwist_query_map_get(req->path_params, "scope"),
+    const char *scope = cwist_query_map_get(req->path_params, "scope");
+    if (!resolve_asset_scope_path(req->db, scope,
                                   cwist_query_map_get(req->path_params, "filename"),
                                   path, sizeof(path), filename, sizeof(filename), &mime)) {
+        send_json_response(res, session_error_json("asset not found"), CWIST_HTTP_NOT_FOUND);
+        return;
+    }
+    if (!strcmp(scope ? scope : "", "profile") && !is_profile_pic_asset(req->db, filename)) {
         send_json_response(res, session_error_json("asset not found"), CWIST_HTTP_NOT_FOUND);
         return;
     }
@@ -3484,7 +3494,6 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
                 if (h > 3072) h = 3072;
 
                 char scope_fname[512] = {0};
-                const char *scope = cwist_query_map_get(req->path_params, "scope");
                 const char *raw_fname = cwist_query_map_get(req->path_params, "filename");
                 snprintf(scope_fname, sizeof(scope_fname), "%s_", scope ? scope : "unknown");
                 char *p_sf = scope_fname + strlen(scope_fname);
@@ -3530,7 +3539,6 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
     );
     cJSON *obj = NULL;
     char media_name[512];
-    const char *scope = cwist_query_map_get(req->path_params, "scope");
     const char *raw_fname = cwist_query_map_get(req->path_params, "filename");
     snprintf(media_name, sizeof(media_name), "%s_", scope ? scope : "unknown");
     char *p = media_name + strlen(media_name);

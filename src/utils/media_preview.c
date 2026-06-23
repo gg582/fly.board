@@ -253,11 +253,12 @@ typedef struct {
     int h;
 } thumb_size_t;
 
-static void generate_static_asset_thumbs(const char *src_path, const char *filename,
+static void generate_static_asset_thumbs(const char *scope_prefix, const char *src_path,
+                                         const char *filename,
                                          const thumb_size_t *sizes, size_t count,
                                          int *generated, int *failed) {
     char scope_fname[512] = {0};
-    snprintf(scope_fname, sizeof(scope_fname), "img_");
+    snprintf(scope_fname, sizeof(scope_fname), "%s_", scope_prefix);
     char *p = scope_fname + strlen(scope_fname);
     for (size_t i = 0; filename[i] && (size_t)(p - scope_fname) < sizeof(scope_fname) - 1; i++) {
         *p++ = (filename[i] == '/') ? '_' : filename[i];
@@ -278,39 +279,54 @@ static void generate_static_asset_thumbs(const char *src_path, const char *filen
     }
 }
 
+static void backfill_static_dir(const char *scope_prefix, const char *dir_path,
+                                const thumb_size_t *sizes, size_t count,
+                                int *generated, int *failed, int *scanned) {
+    DIR *d = opendir(dir_path);
+    if (!d) {
+        CWIST_LOG_WARN("Static asset pre-generation skipped: %s not found", dir_path);
+        return;
+    }
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.') continue;
+        char src_path[PATH_MAX];
+        snprintf(src_path, sizeof(src_path), "%s/%s", dir_path, ent->d_name);
+        struct stat st;
+        if (stat(src_path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) continue;
+        const char *mt = mime_type(ent->d_name);
+        if (!mt || strncmp(mt, "image/", 6) != 0) continue;
+        (*scanned)++;
+        generate_static_asset_thumbs(scope_prefix, src_path, ent->d_name, sizes, count, generated, failed);
+    }
+    closedir(d);
+}
+
 void media_preview_backfill_static_assets(void) {
     dir_ensure("public/uploads/.thumbs");
 
-    static const thumb_size_t sizes[] = {
+    static const thumb_size_t img_sizes[] = {
+        {128, 128},      /* favicon / small icon */
+        {256, 256},      /* favicon retina / small profile */
         {512, 512},      /* hero-logo */
         {2560, 1440},    /* hero-bg landscape */
         {1440, 2560},    /* hero-bg portrait */
         {3072, 2160},    /* hero-bg 4K landscape */
     };
 
-    DIR *d = opendir("public/img");
-    if (!d) {
-        CWIST_LOG_WARN("Static asset pre-generation skipped: public/img not found");
-        return;
-    }
+    static const thumb_size_t profile_sizes[] = {
+        {128, 128},      /* small profile pic */
+        {256, 256},      /* standard profile pic */
+        {512, 512},      /* large profile pic */
+    };
 
     int generated = 0;
     int failed = 0;
     int scanned = 0;
-    struct dirent *ent;
-    while ((ent = readdir(d)) != NULL) {
-        if (ent->d_name[0] == '.') continue;
-        char src_path[PATH_MAX];
-        snprintf(src_path, sizeof(src_path), "public/img/%s", ent->d_name);
-        struct stat st;
-        if (stat(src_path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) continue;
-        const char *mt = mime_type(ent->d_name);
-        if (!mt || strncmp(mt, "image/", 6) != 0) continue;
-        scanned++;
-        generate_static_asset_thumbs(src_path, ent->d_name, sizes,
-                                     sizeof(sizes) / sizeof(sizes[0]), &generated, &failed);
-    }
-    closedir(d);
+    backfill_static_dir("img", "public/img", img_sizes,
+                        sizeof(img_sizes) / sizeof(img_sizes[0]), &generated, &failed, &scanned);
+    backfill_static_dir("profile", "public/profile", profile_sizes,
+                        sizeof(profile_sizes) / sizeof(profile_sizes[0]), &generated, &failed, &scanned);
     CWIST_LOG_INFO("Static asset thumb pre-generation completed: scanned=%d generated=%d failed=%d",
                    scanned, generated, failed);
 }
