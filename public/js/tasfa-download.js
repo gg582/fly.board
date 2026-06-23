@@ -1327,18 +1327,23 @@
                 var isLogo = el.classList.contains('hero-logo');
 
                 if (isBg) {
+                    /* Server pre-generates these exact canonical sizes at startup so
+                       the handshake never blocks on ffmpeg in high-latency paths. */
                     if (displayWidth >= displayHeight) {
-                        if (displayWidth < 2560) displayWidth = 2560;
-                        if (displayHeight < 1440) displayHeight = 1440;
+                        if (window.innerWidth >= 3840 || window.innerHeight >= 2160) {
+                            displayWidth = 3072;
+                            displayHeight = 2160;
+                        } else {
+                            displayWidth = 2560;
+                            displayHeight = 1440;
+                        }
                     } else {
-                        if (displayWidth < 1440) displayWidth = 1440;
-                        if (displayHeight < 2560) displayHeight = 2560;
+                        displayWidth = 1440;
+                        displayHeight = 2560;
                     }
-                    if (displayWidth > 3072) displayWidth = 3072;
-                    if (displayHeight > 3072) displayHeight = 3072;
                 } else if (isLogo) {
-                    if (displayWidth > 512) displayWidth = 512;
-                    if (displayHeight > 512) displayHeight = 512;
+                    displayWidth = 512;
+                    displayHeight = 512;
                 } else {
                     // Guarantee a minimum resolution around 720x1080, adaptive to image orientation
                     if (displayWidth >= displayHeight) {

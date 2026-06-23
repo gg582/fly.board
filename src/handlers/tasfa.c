@@ -3496,15 +3496,17 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
                 char thumb_img_path[PATH_MAX];
                 snprintf(thumb_img_path, sizeof(thumb_img_path), "public/uploads/.thumbs/asset_%s_%dx%d.webp", scope_fname, w, h);
                 struct stat pst;
-                if (stat(thumb_img_path, &pst) != 0 || !S_ISREG(pst.st_mode) || pst.st_size <= 0) {
+                if (stat(thumb_img_path, &pst) == 0 && S_ISREG(pst.st_mode) && pst.st_size > 0) {
+                    snprintf(path, sizeof(path), "%s", thumb_img_path);
+                    mime = "image/webp";
+                } else if (strcmp(scope, "img") != 0) {
+                    /* uploads and other dynamic scopes: generate on demand if not pre-generated */
                     if (generate_image_thumb(path, thumb_img_path, w, h)) {
                         snprintf(path, sizeof(path), "%s", thumb_img_path);
                         mime = "image/webp";
                     }
-                } else {
-                    snprintf(path, sizeof(path), "%s", thumb_img_path);
-                    mime = "image/webp";
                 }
+                /* For img scope, rely on startup pre-generation; fall through to original file if thumb missing */
             }
         }
     }
