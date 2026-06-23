@@ -10,8 +10,10 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <limits.h>
 
 #include <pthread.h>
+#include <dirent.h>
 
 static pthread_mutex_t g_ffmpeg_mtx = PTHREAD_MUTEX_INITIALIZER;
 
@@ -106,7 +108,7 @@ bool generate_image_thumb(const char *src, const char *dst, int max_w, int max_h
     if (!src || !dst || max_w <= 0 || max_h <= 0) return false;
     dir_ensure("public/uploads/.thumbs");
     int quality = 60;
-    int compression = 6;
+    int compression = 5;
     if (strstr(src, "uploads") != NULL) {
         quality = 82;
         compression = 5;
@@ -244,4 +246,71 @@ void media_preview_backfill(cwist_db *db) {
     }
     CWIST_LOG_INFO("Media preview backfill completed: files=%d generated=%d failed=%d", n, generated, failed);
     cJSON_Delete(files);
+}
+
+typedef struct {
+    int w;
+    int h;
+} thumb_size_t;
+
+static void generate_static_asset_thumbs(const char *src_path, const char *filename,
+                                         const thumb_size_t *sizes, size_t count,
+                                         int *generated, int *failed) {
+    char scope_fname[512] = {0};
+    snprintf(scope_fname, sizeof(scope_fname), "img_");
+    char *p = scope_fname + strlen(scope_fname);
+    for (size_t i = 0; filename[i] && (size_t)(p - scope_fname) < sizeof(scope_fname) - 1; i++) {
+        *p++ = (filename[i] == '/') ? '_' : filename[i];
+    }
+    *p = '\0';
+
+    for (size_t i = 0; i < count; i++) {
+        char dst[PATH_MAX];
+        snprintf(dst, sizeof(dst), "public/uploads/.thumbs/asset_%s_%dx%d.webp",
+                 scope_fname, sizes[i].w, sizes[i].h);
+        if (regular_file_exists(dst)) continue;
+        if (generate_image_thumb(src_path, dst, sizes[i].w, sizes[i].h)) {
+            (*generated)++;
+        } else {
+            (*failed)++;
+            CWIST_LOG_WARN("Static asset thumb failed: %s -> %s", src_path, dst);
+        }
+    }
+}
+
+void media_preview_backfill_static_assets(void) {
+    dir_ensure("public/uploads/.thumbs");
+
+    static const thumb_size_t sizes[] = {
+        {512, 512},      /* hero-logo */
+        {2560, 1440},    /* hero-bg landscape */
+        {1440, 2560},    /* hero-bg portrait */
+        {3072, 2160},    /* hero-bg 4K landscape */
+    };
+
+    DIR *d = opendir("public/img");
+    if (!d) {
+        CWIST_LOG_WARN("Static asset pre-generation skipped: public/img not found");
+        return;
+    }
+
+    int generated = 0;
+    int failed = 0;
+    int scanned = 0;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.') continue;
+        char src_path[PATH_MAX];
+        snprintf(src_path, sizeof(src_path), "public/img/%s", ent->d_name);
+        struct stat st;
+        if (stat(src_path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) continue;
+        const char *mt = mime_type(ent->d_name);
+        if (!mt || strncmp(mt, "image/", 6) != 0) continue;
+        scanned++;
+        generate_static_asset_thumbs(src_path, ent->d_name, sizes,
+                                     sizeof(sizes) / sizeof(sizes[0]), &generated, &failed);
+    }
+    closedir(d);
+    CWIST_LOG_INFO("Static asset thumb pre-generation completed: scanned=%d generated=%d failed=%d",
+                   scanned, generated, failed);
 }

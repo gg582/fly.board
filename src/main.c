@@ -246,6 +246,7 @@ int main(void) {
 
     db_file_cleanup_duplicates(db);
     media_preview_backfill(db);
+    media_preview_backfill_static_assets();
     db_cleanup_orphaned_files(db);
     CWIST_LOG_INFO("Orphaned files cleanup completed");
 
