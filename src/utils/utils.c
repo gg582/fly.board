@@ -56,6 +56,7 @@ const char *mime_type(const char *filename) {
     if (strcasecmp(dot, ".gif") == 0) return "image/gif";
     if (strcasecmp(dot, ".svg") == 0) return "image/svg+xml";
     if (strcasecmp(dot, ".webp") == 0) return "image/webp";
+    if (strcasecmp(dot, ".ico") == 0) return "image/x-icon";
     if (strcasecmp(dot, ".mp4") == 0) return "video/mp4";
     if (strcasecmp(dot, ".webm") == 0) return "video/webm";
     if (strcasecmp(dot, ".mp3") == 0) return "audio/mpeg";

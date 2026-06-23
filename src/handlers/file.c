@@ -228,6 +228,61 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
     return true;
 }
 
+static bool client_accepts_webp(cwist_http_request *req) {
+    const char *accept = cwist_http_header_get(req->headers, "Accept");
+    return accept && strstr(accept, "image/webp") != NULL;
+}
+
+static void build_static_asset_thumb_path(const char *scope, const char *filename,
+                                          int w, int h, char *out, size_t out_len) {
+    char scope_fname[512] = {0};
+    snprintf(scope_fname, sizeof(scope_fname), "%s_", scope);
+    char *p = scope_fname + strlen(scope_fname);
+    for (size_t i = 0; filename[i] && (size_t)(p - scope_fname) < sizeof(scope_fname) - 1; i++) {
+        *p++ = (filename[i] == '/') ? '_' : filename[i];
+    }
+    *p = '\0';
+    snprintf(out, out_len, "public/uploads/.thumbs/asset_%s_%dx%d.webp", scope_fname, w, h);
+}
+
+/* Serve a static image asset (img or profile scope) as a webp file with
+   aggressive compression. Falls back to the original file when the client does
+   not accept webp or when conversion fails. */
+static bool send_static_asset_webp_response(cwist_http_request *req, cwist_http_response *res,
+                                            const char *scope, const char *path, const char *filename,
+                                            int default_w, int default_h) {
+    const char *orig_mime = mime_type(filename);
+    bool is_image = orig_mime && strncmp(orig_mime, "image/", 6) == 0;
+    if (!is_image || !client_accepts_webp(req)) {
+        return send_cached_file_response(req, res, path, orig_mime, IMAGE_CACHE_CONTROL, NULL);
+    }
+
+    int w = default_w;
+    int h = default_h;
+    const char *w_str = cwist_query_map_get(req->query_params, "w");
+    const char *h_str = cwist_query_map_get(req->query_params, "h");
+    if (w_str && h_str) {
+        int qw = atoi(w_str);
+        int qh = atoi(h_str);
+        if (qw > 0 && qh > 0) {
+            if (qw > 3072) qw = 3072;
+            if (qh > 3072) qh = 3072;
+            w = qw;
+            h = qh;
+        }
+    }
+
+    char thumb_path[PATH_MAX];
+    build_static_asset_thumb_path(scope, filename, w, h, thumb_path, sizeof(thumb_path));
+    struct stat st;
+    if (stat(thumb_path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) {
+        if (!generate_static_asset_webp(path, thumb_path, w, h)) {
+            return send_cached_file_response(req, res, path, orig_mime, IMAGE_CACHE_CONTROL, NULL);
+        }
+    }
+    return send_cached_file_response(req, res, thumb_path, "image/webp", IMAGE_CACHE_CONTROL, NULL);
+}
+
 static char *decode_upload_path_segment(const char *src) {
     size_t len = strlen(src);
     char *out = (char *)cwist_alloc(len + 1);
@@ -299,7 +354,7 @@ void handler_asset_img(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    if (!send_cached_file_response(req, res, path, mime_type(decoded), IMAGE_CACHE_CONTROL, NULL)) {
+    if (!send_static_asset_webp_response(req, res, "img", path, decoded, 1920, 1920)) {
         cwist_free(decoded);
         send_upload_not_found(res);
         return;
@@ -396,14 +451,7 @@ void handler_asset_profile_upload(cwist_http_request *req, cwist_http_response *
         }
     }
 
-    char detected_mime[128] = {0};
-    const char *response_mime = mime_type(decoded);
-    if (mime_type_from_data(path, detected_mime, sizeof(detected_mime)) &&
-        strncmp(detected_mime, "image/", 6) == 0) {
-        response_mime = detected_mime;
-    }
-
-    if (!send_cached_file_response(req, res, path, response_mime, IMAGE_CACHE_CONTROL, NULL)) {
+    if (!send_static_asset_webp_response(req, res, "profile", path, decoded, 512, 512)) {
         cwist_free(decoded);
         send_upload_not_found(res);
         return;

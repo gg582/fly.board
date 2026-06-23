@@ -14,6 +14,7 @@ void media_preview_dimensions_from_score(int score, int src_w, int src_h,
 
 bool get_media_dimensions(const char *src, bool is_video, int *w, int *h);
 bool generate_image_thumb(const char *src, const char *dst, int max_w, int max_h);
+bool generate_static_asset_webp(const char *src, const char *dst, int max_w, int max_h);
 bool generate_video_thumb(const char *src, const char *dst, int max_w, int max_h);
 bool generate_video_preview(const char *src, const char *dst, int max_h);
 bool generate_audio_preview(const char *src, const char *dst, int bitrate_kbps);
