@@ -548,7 +548,10 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     cJSON_Delete(post);
-    db_post_delete(req->db, atoi(id_str));
+    int post_id = atoi(id_str);
+    db_file_delete_by_post(req->db, post_id);
+    db_comment_delete_by_target("post", post_id);
+    db_post_delete(req->db, post_id);
     CWIST_LOG_INFO("Post deleted: id=%s uid=%d", id_str, uid);
     redirect(res, "/");
 }

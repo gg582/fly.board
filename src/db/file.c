@@ -243,3 +243,59 @@ void db_cleanup_orphaned_files(cwist_db *db) {
     cleanup_upload_dir(db, "public/uploads/.thumbs", false);
     cleanup_upload_dir(db, "public/uploads/.previews", false);
 }
+
+void db_file_delete_by_post(cwist_db *db, int post_id) {
+    const char *sql = "SELECT id, file_path, thumb_path, preview_path FROM files WHERE post_id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return;
+    sqlite3_bind_int(stmt, 1, post_id);
+
+    int ids[256];
+    char paths[256][PATH_MAX];
+    char thumbs[256][PATH_MAX];
+    char previews[256][PATH_MAX];
+    int count = 0;
+
+    while (sqlite3_step(stmt) == SQLITE_ROW && count < 256) {
+        ids[count] = sqlite3_column_int(stmt, 0);
+        const char *p1 = (const char *)sqlite3_column_text(stmt, 1);
+        const char *p2 = (const char *)sqlite3_column_text(stmt, 2);
+        const char *p3 = (const char *)sqlite3_column_text(stmt, 3);
+        paths[count][0] = '\0';
+        thumbs[count][0] = '\0';
+        previews[count][0] = '\0';
+        if (p1) snprintf(paths[count], PATH_MAX, "%s", p1);
+        if (p2) snprintf(thumbs[count], PATH_MAX, "%s", p2);
+        if (p3) snprintf(previews[count], PATH_MAX, "%s", p3);
+        count++;
+    }
+    sqlite3_finalize(stmt);
+
+    for (int i = 0; i < count; i++) {
+        if (paths[i][0]) unlink(paths[i]);
+        if (thumbs[i][0]) unlink(thumbs[i]);
+        if (previews[i][0]) {
+            if (paths[i][0] == '\0' || strcmp(previews[i], paths[i]) != 0) {
+                unlink(previews[i]);
+            }
+        }
+
+        DIR *dir = opendir("public/uploads/.thumbs");
+        if (dir) {
+            char prefix[64];
+            snprintf(prefix, sizeof(prefix), "%d_", ids[i]);
+            size_t prefix_len = strlen(prefix);
+            struct dirent *ent;
+            while ((ent = readdir(dir)) != NULL) {
+                if (strncmp(ent->d_name, prefix, prefix_len) == 0) {
+                    char full_path[PATH_MAX];
+                    snprintf(full_path, sizeof(full_path), "public/uploads/.thumbs/%s", ent->d_name);
+                    unlink(full_path);
+                }
+            }
+            closedir(dir);
+        }
+
+        db_file_delete(db, ids[i]);
+    }
+}
