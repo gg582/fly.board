@@ -900,7 +900,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         cwist_sstring_append(b, pid_buf);
         cwist_sstring_append(b, "' class='btn btn-outline' data-confirm='Delete this post?'>Delete</a>");
     }
-    if (json_int(post, "user_id", 0) == 0) {
+    if (json_int(post, "user_id", 0) == 0 && !(user_role && strcmp(user_role, "admin") == 0)) {
         cwist_sstring_append(b, "<form action='/post/delete/");
         cwist_sstring_append(b, pid_buf);
         cwist_sstring_append(b, "' method='get' style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>");
