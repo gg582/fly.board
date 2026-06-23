@@ -1040,7 +1040,7 @@ void rule_components(cJSON *rules) {
     add_decl(imgDlBtn, "display", "none");
     add_decl(imgDlBtn, "padding", "6px 12px");
     add_decl(imgDlBtn, "background", "color-mix(in srgb, var(--shadow-base) 70%, transparent)");
-    add_decl(imgDlBtn, "color", "var(--panel)");
+    add_decl(imgDlBtn, "color", "#ffffff");
     add_decl(imgDlBtn, "border-radius", radius_str(4));
     add_decl(imgDlBtn, "font-size", "12px");
     add_decl(imgDlBtn, "font-weight", "600");
