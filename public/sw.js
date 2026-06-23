@@ -184,6 +184,14 @@ function handleRangeRequest(request, response) {
     });
 }
 
+function isFirefox() {
+    try {
+        return /Firefox\//i.test(self.navigator.userAgent || '');
+    } catch (e) {
+        return false;
+    }
+}
+
 function fetchWithRetry(request, options) {
     options = options || {};
     var maxRetries = options.maxRetries || 12;
@@ -193,6 +201,7 @@ function fetchWithRetry(request, options) {
     var baseDelay = options.baseDelay || 5000;
     var maxDelay = options.maxDelay || 90000;
     var retries = 0;
+    var triedFirefoxFallback = false;
 
     function delay() {
         var exp = Math.min(retries, 4); // 5s * 2^4 = 80s, clamped to 90s ceiling
@@ -203,15 +212,45 @@ function fetchWithRetry(request, options) {
         return new Promise(function(resolve) { setTimeout(resolve, d); });
     }
 
-    function attempt() {
-        return fetch(request, { credentials: 'same-origin' }).then(function(response) {
+    function doFetch(req) {
+        return fetch(req, { credentials: 'same-origin' }).then(function(response) {
             // Only retry on server-side errors. 4xx client errors should not be retried.
             if (response.status >= 500 && retries < maxRetries) {
                 retries++;
                 return delay().then(attempt);
             }
             return response;
-        }).catch(function(err) {
+        });
+    }
+
+    function attempt() {
+        return doFetch(request).catch(function(err) {
+            // Firefox HTTP/2 and HTTP/3 connections occasionally fail with
+            // NS_ERROR_NET_RESET / NS_ERROR_NET_TIMEOUT / NS_ERROR_PARTIAL_TRANSFER.
+            // A single cache-busting, no-store retry forces a fresh connection
+            // and often recovers without waiting through the full backoff loop.
+            if (!triedFirefoxFallback && options.firefoxFallback && isFirefox()) {
+                triedFirefoxFallback = true;
+                try {
+                    var url = new URL(request.url);
+                    url.searchParams.set('_ffcb', Date.now().toString());
+                    var ffReq = new Request(url.href, {
+                        method: request.method,
+                        headers: request.headers,
+                        mode: request.mode,
+                        credentials: request.credentials,
+                        cache: 'no-store'
+                    });
+                    return doFetch(ffReq).catch(function() {
+                        // Fallback also failed; continue normal retry loop.
+                        if (retries < maxRetries) {
+                            retries++;
+                            return delay().then(attempt);
+                        }
+                        throw err;
+                    });
+                } catch (e) {}
+            }
             // Network errors (ERR_CONNECTION_RESET, ERR_CONNECTION_REFUSED,
             // ERR_NETWORK_CHANGED, etc.) — always retry with backoff.
             if (retries < maxRetries) {
@@ -340,7 +379,7 @@ self.addEventListener('fetch', function(event) {
                             return withoutCsp(cachedResponse);
                         }
                     }
-                    return fetchWithRetry(event.request, { maxRetries: 3, baseDelay: 150 }).then(function(networkResponse) {
+                    return fetchWithRetry(event.request, { maxRetries: 3, baseDelay: 150, firefoxFallback: true }).then(function(networkResponse) {
                         if (!networkResponse.ok) {
                             return cachedResponse && cachedResponse.ok ? withoutCsp(cachedResponse) : networkResponse;
                         }
@@ -389,7 +428,7 @@ self.addEventListener('fetch', function(event) {
     var isThemesFetch = url === self.location.origin + '/themes.json';
     if ((!isTasfa && !isDirectImageAsset && !isStaticScript && !isThemesFetch) || event.request.method !== 'GET') return;
     if (event.request.headers.get('Range') || event.request.destination === 'video' || event.request.destination === 'audio') return;
-    var promise = fetchWithRetry(event.request, { maxRetries: 5, baseDelay: 200 }).catch(function(err) {
+    var promise = fetchWithRetry(event.request, { maxRetries: 5, baseDelay: 200, firefoxFallback: !isTasfa }).catch(function(err) {
         if (isDirectImageAsset) {
             /* For image assets, returning JSON causes Firefox to report a
                decoding/error mismatch. Return a valid 1x1 transparent PNG so

@@ -120,6 +120,21 @@ bool generate_image_thumb(const char *src, const char *dst, int max_w, int max_h
     return run_ffmpeg(cmd);
 }
 
+bool generate_static_asset_webp(const char *src, const char *dst, int max_w, int max_h) {
+    if (!src || !dst || max_w <= 0 || max_h <= 0) return false;
+    dir_ensure("public/uploads/.thumbs");
+    /* Aggressive but visually acceptable compression for static site assets
+       (hero background, logo, favicon, profile pictures). These are re-rendered
+       once at deploy time, so we trade a little fidelity for much smaller bytes. */
+    int quality = 55;
+    int compression = 6;
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd),
+        "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vf 'scale=%d:%d:force_original_aspect_ratio=decrease' -frames:v 1 -c:v libwebp -quality %d -compression_level %d -y '%s'",
+        src, max_w, max_h, quality, compression, dst);
+    return run_ffmpeg(cmd);
+}
+
 bool generate_video_thumb(const char *src, const char *dst, int max_w, int max_h) {
     if (!src || !dst || max_w <= 0 || max_h <= 0) return false;
     dir_ensure("public/uploads/.thumbs");
@@ -306,18 +321,16 @@ void media_preview_backfill_static_assets(void) {
     dir_ensure("public/uploads/.thumbs");
 
     static const thumb_size_t img_sizes[] = {
-        {128, 128},      /* favicon / small icon */
-        {256, 256},      /* favicon retina / small profile */
-        {512, 512},      /* hero-logo */
-        {2560, 1440},    /* hero-bg landscape */
-        {1440, 2560},    /* hero-bg portrait */
-        {3072, 2160},    /* hero-bg 4K landscape */
+        {128, 128},      /* favicon */
+        {256, 256},      /* favicon retina */
+        {512, 512},      /* logo */
+        {1920, 1920},    /* default hero-bg / direct asset response (aspect preserved, no upscale) */
     };
 
     static const thumb_size_t profile_sizes[] = {
         {128, 128},      /* small profile pic */
         {256, 256},      /* standard profile pic */
-        {512, 512},      /* large profile pic */
+        {512, 512},      /* large profile pic / default direct asset response */
     };
 
     int generated = 0;
