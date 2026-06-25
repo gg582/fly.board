@@ -19,7 +19,7 @@ SRCS := src/main.c \
         src/crypto/fly_crypto.c \
         src/render/theme/theme.c src/render/theme/rules.c src/render/theme/json.c src/render/theme/css.c \
         src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c \
-        src/handlers/handlers.c src/handlers/home.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/file.c src/handlers/tasfa.c src/handlers/admin.c src/handlers/api.c \
+        src/handlers/handlers.c src/handlers/home.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/file.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c \
         src/utils/utils.c \
         src/utils/legal.c \
         src/utils/image_contrast.c \
@@ -28,6 +28,11 @@ SRCS := src/main.c \
         src/nats/fly_nats.c \
         src/core/log.c \
         src/config/config.c \
+        src/engine/pool.c \
+        src/engine/nats.c \
+        src/engine/db.c \
+        src/engine/settings.c \
+        src/engine/routes.c \
         $(MULTIPART_DIR)/multipart_parser.c
 OBJS := $(SRCS:.c=.o)
 
