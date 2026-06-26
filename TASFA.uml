@@ -37,6 +37,10 @@ Download:
 GET /file/download/:id/handshake
 GET /file/download/:id/chunk/:chunk_index
 GET /file/download/:id
+GET /assets/tasfa/img/:filename/handshake
+GET /assets/tasfa/img/:filename/chunk/:chunk_index
+GET /assets/tasfa/uploads/:filename/handshake
+GET /assets/tasfa/uploads/:filename/chunk/:chunk_index
 end note
 
 == File-Level Sequential Upload Queue ==
@@ -155,6 +159,10 @@ else All chunks received
     UploadAPI -> HTP: load per-chunk records from htp.bin
     HTP -> HTP: validate only complete\n6-slot groups
 
+    alt Scalar order permuted in a group
+        HTP -> HTP: brute-force 720 permutations\nreorder htp.bin records if invariant restored
+    end
+
     alt All complete groups pass
         HTP --> UploadAPI: validation OK
         UploadAPI -> Storage: SHA-256 finalization\ncommit file and store delete PIN hash
@@ -163,6 +171,7 @@ else All chunks received
         Queue -> Uploader: start next queued file
 
     else One or more groups fail
+        HTP -> HTP: hybrid HTP-XOR recovery\nlocate suspect via topology scores\nreconstruct single missing chunk via parity P\nmulti-erasure falls back to ARQ
         HTP -> HTP: derive per-slot suspicion scores\nscore = in_fail / total_fail
         note right of HTP
         Slot line coverage:
@@ -232,6 +241,14 @@ loop Adaptive chunk groups
     Downloader -> Downloader: requeue short reads,\ntimeouts, and network errors by chunk index
     Downloader -> Downloader: grow span and parallelism\nafter successful chunk groups
 end
+
+note right of Downloader
+For progressive video/audio the client assembles
+chunks sequentially inside a bounded forward window.
+Failed chunks record a retry time and release the slot;
+the scheduler never skips a byte range or closes
+the stream early.
+end note
 
 Downloader -> Client: assemble one contiguous buffer
 
