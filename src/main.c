@@ -13,6 +13,7 @@
 #include "engine/settings.h"
 #include "engine/routes.h"
 #include <cwist/sys/app/app.h>
+#include <cwist/sys/app/compress.h>
 #include <ttak/async/task.h>
 #include <ttak/timing/timing.h>
 #include <signal.h>
@@ -217,6 +218,16 @@ int main(void) {
         }
         CWIST_LOG_INFO("ECH initialized");
     }
+
+    /* Register payload compression backends in preference order:
+     * zstd (fastest + best ratio) → brotli (best ratio for text) → gzip (widest compat).
+     * cwist_mw_compress picks the first backend the client's Accept-Encoding supports. */
+    cwist_compress_unregister_all();
+    cwist_compress_register_backend(cwist_compress_backend_zstd());
+    cwist_compress_register_backend(cwist_compress_backend_brotli());
+    cwist_compress_register_backend(cwist_compress_backend_gzip());
+    cwist_app_use(app, cwist_mw_compress(1024));
+    CWIST_LOG_INFO("Compression middleware registered (zstd > brotli > gzip, min 1 KiB)");
 
     engine_routes_register(app);
 

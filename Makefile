@@ -13,6 +13,8 @@ LIBTTAK_A := $(LIBTTAK_DIR)/lib/libttak.a
 LIBMAGIC_DIR := third_party/file
 LIBMAGIC_A := $(LIBMAGIC_DIR)/src/.libs/libmagic.a
 
+CWIST_ROOT ?= /home/yjlee/cwist
+
 SRCS := src/main.c \
         src/db/db.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/vote.c src/db/tag.c src/db/sql_escape.c src/db/orm.c \
         src/auth/auth.c \
@@ -39,6 +41,7 @@ OBJS := $(SRCS:.c=.o)
 CFLAGS := -Wall -Wextra -O2 \
           -Iinclude \
           -Isrc \
+          -I$(CWIST_ROOT)/include \
           -I$(CWIST_PREFIX)/include \
           -I$(MD4C_DIR)/src \
           -I$(MULTIPART_DIR) \
@@ -56,14 +59,13 @@ endif
 LDFLAGS := -L$(CWIST_PREFIX)/lib \
            -Wl,-rpath,$(CWIST_PREFIX)/lib
 
-CWIST_ROOT ?= /home/yjlee/cwist
 
 CWIST_LIB := $(CWIST_PREFIX)/lib/libcwist.a
 ifeq ($(wildcard $(CWIST_LIB)),)
   CWIST_LIB := $(CWIST_ROOT)/libcwist.a
 endif
 
-LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++ -lz -lm $(shell pkg-config --libs libcurl 2>/dev/null || echo -lcurl)
+LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++ -lz -lzstd -lm $(shell pkg-config --libs libcurl 2>/dev/null || echo -lcurl)
 HAS_NGHTTP2 := $(shell pkg-config --exists libnghttp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGTCP2 := $(shell pkg-config --exists libngtcp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGHTTP3 := $(shell pkg-config --exists libnghttp3 2>/dev/null && echo 1 || echo 0)
