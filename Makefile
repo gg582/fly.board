@@ -65,7 +65,7 @@ ifeq ($(wildcard $(CWIST_LIB)),)
   CWIST_LIB := $(CWIST_ROOT)/libcwist.a
 endif
 
-LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++ -lz -lzstd -lbrotlienc -lbrotlide -lm $(shell pkg-config --libs libcurl 2>/dev/null || echo -lcurl)
+LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++ -lz -lzstd -lbrotlienc -lbrotlidec -lm $(shell pkg-config --libs libcurl 2>/dev/null || echo -lcurl)
 HAS_NGHTTP2 := $(shell pkg-config --exists libnghttp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGTCP2 := $(shell pkg-config --exists libngtcp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGHTTP3 := $(shell pkg-config --exists libnghttp3 2>/dev/null && echo 1 || echo 0)
