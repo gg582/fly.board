@@ -1583,18 +1583,8 @@
                 var isAudio = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'wma'].indexOf(ext) !== -1 || /^audio\//.test(mimeType);
 
                 if (isVideo || isAudio) {
-                    fetchVideoProgressive(baseUrl, {
-                        session: session,
-                        onReady: function(streamUrl) {
-                            replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
-                        },
-                        onProgress: function(percent) {
-                            el.setAttribute('data-tasfa-progress', String(percent));
-                        }
-                    }).catch(function(err) {
-                        var streamUrl = directMediaUrl(baseUrl, session);
-                        if (streamUrl) replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
-                    });
+                    var streamUrl = directMediaUrl(baseUrl, session);
+                    if (streamUrl) replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
                     return;
                 }
 
