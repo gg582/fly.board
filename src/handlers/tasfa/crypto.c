@@ -109,8 +109,73 @@ char *ensure_read_buf(size_t need) {
     return g_tasfa_read_buf;
 }
 
-bool tasfa_gzip_compress_alloc(const unsigned char *input, size_t input_len,
-                               unsigned char **out, size_t *out_len) {
+/* --- zstd compression --- */
+static bool tasfa_zstd_compress_alloc(const unsigned char *input, size_t input_len,
+                                      unsigned char **out, size_t *out_len) {
+    if (!input || input_len == 0 || !out || !out_len) return false;
+    *out = NULL;
+    *out_len = 0;
+
+    size_t cap = ZSTD_compressBound(input_len);
+    if (ZSTD_isError(cap)) return false;
+
+    unsigned char *buf = (unsigned char *)cwist_alloc(cap);
+    if (!buf) return false;
+
+    size_t rc = ZSTD_compress(buf, cap, input, input_len, 3); /* level 3: good balance */
+    if (ZSTD_isError(rc)) {
+        cwist_free(buf);
+        return false;
+    }
+
+    *out_len = rc;
+    *out = buf;
+    return true;
+}
+
+static bool tasfa_zstd_decompress_to(const unsigned char *input, size_t input_len,
+                                     unsigned char *out, size_t expected_len) {
+    if (!input || input_len == 0 || !out) return false;
+    size_t rc = ZSTD_decompress(out, expected_len, input, input_len);
+    return !ZSTD_isError(rc) && rc == expected_len;
+}
+
+/* --- brotli compression --- */
+static bool tasfa_brotli_compress_alloc(const unsigned char *input, size_t input_len,
+                                        unsigned char **out, size_t *out_len) {
+    if (!input || input_len == 0 || !out || !out_len) return false;
+    *out = NULL;
+    *out_len = 0;
+
+    size_t cap = BrotliEncoderMaxCompressedSize(input_len);
+    if (cap == 0) cap = input_len + 1024;
+
+    unsigned char *buf = (unsigned char *)cwist_alloc(cap);
+    if (!buf) return false;
+
+    size_t encoded_size = cap;
+    if (!BrotliEncoderCompress(4, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_GENERIC,
+                               input_len, input, &encoded_size, buf)) {
+        cwist_free(buf);
+        return false;
+    }
+
+    *out_len = encoded_size;
+    *out = buf;
+    return true;
+}
+
+static bool tasfa_brotli_decompress_to(const unsigned char *input, size_t input_len,
+                                       unsigned char *out, size_t expected_len) {
+    if (!input || input_len == 0 || !out) return false;
+    size_t decoded_size = expected_len;
+    BrotliDecoderResult result = BrotliDecoderDecompress(input_len, input, &decoded_size, out);
+    return result == BROTLI_DECODER_RESULT_SUCCESS && decoded_size == expected_len;
+}
+
+/* --- gzip compression (fallback) --- */
+static bool tasfa_gzip_compress_alloc(const unsigned char *input, size_t input_len,
+                                      unsigned char **out, size_t *out_len) {
     if (!input || input_len == 0 || !out || !out_len) return false;
     *out = NULL;
     *out_len = 0;
@@ -145,8 +210,8 @@ bool tasfa_gzip_compress_alloc(const unsigned char *input, size_t input_len,
     return true;
 }
 
-bool tasfa_gzip_decompress_to(const unsigned char *input, size_t input_len,
-                              unsigned char *out, size_t expected_len) {
+static bool tasfa_gzip_decompress_to(const unsigned char *input, size_t input_len,
+                                     unsigned char *out, size_t expected_len) {
     if (!input || input_len == 0 || !out) return false;
 
     z_stream zs;
@@ -161,4 +226,66 @@ bool tasfa_gzip_decompress_to(const unsigned char *input, size_t input_len,
     bool ok = (rc == Z_STREAM_END && zs.total_out == expected_len);
     inflateEnd(&zs);
     return ok;
+}
+
+/* --- Unified compression with fallback: zstd -> brotli -> gzip --- */
+bool tasfa_compress_alloc(const unsigned char *input, size_t input_len,
+                          unsigned char **out, size_t *out_len, tasfa_compress_type_t *out_type) {
+    if (!input || input_len == 0 || !out || !out_len || !out_type) return false;
+    *out = NULL;
+    *out_len = 0;
+    *out_type = TASFA_COMPRESS_NONE;
+
+    /* Try zstd first (fastest, good ratio) */
+    unsigned char *zstd_buf = NULL;
+    size_t zstd_len = 0;
+    if (tasfa_zstd_compress_alloc(input, input_len, &zstd_buf, &zstd_len) &&
+        zstd_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
+        *out = zstd_buf;
+        *out_len = zstd_len;
+        *out_type = TASFA_COMPRESS_ZSTD;
+        return true;
+    }
+    if (zstd_buf) { cwist_free(zstd_buf); zstd_buf = NULL; }
+
+    /* Fallback to brotli (better ratio, slower) */
+    unsigned char *brotli_buf = NULL;
+    size_t brotli_len = 0;
+    if (tasfa_brotli_compress_alloc(input, input_len, &brotli_buf, &brotli_len) &&
+        brotli_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
+        *out = brotli_buf;
+        *out_len = brotli_len;
+        *out_type = TASFA_COMPRESS_BROTLI;
+        return true;
+    }
+    if (brotli_buf) { cwist_free(brotli_buf); brotli_buf = NULL; }
+
+    /* Final fallback to gzip (universal compatibility) */
+    unsigned char *gzip_buf = NULL;
+    size_t gzip_len = 0;
+    if (tasfa_gzip_compress_alloc(input, input_len, &gzip_buf, &gzip_len) &&
+        gzip_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
+        *out = gzip_buf;
+        *out_len = gzip_len;
+        *out_type = TASFA_COMPRESS_GZIP;
+        return true;
+    }
+    if (gzip_buf) { cwist_free(gzip_buf); gzip_buf = NULL; }
+
+    return false;
+}
+
+bool tasfa_decompress_to(const unsigned char *input, size_t input_len,
+                         unsigned char *out, size_t expected_len, tasfa_compress_type_t type) {
+    if (!input || input_len == 0 || !out) return false;
+    switch (type) {
+        case TASFA_COMPRESS_ZSTD:
+            return tasfa_zstd_decompress_to(input, input_len, out, expected_len);
+        case TASFA_COMPRESS_BROTLI:
+            return tasfa_brotli_decompress_to(input, input_len, out, expected_len);
+        case TASFA_COMPRESS_GZIP:
+            return tasfa_gzip_decompress_to(input, input_len, out, expected_len);
+        default:
+            return false;
+    }
 }

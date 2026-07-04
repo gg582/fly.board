@@ -24,6 +24,9 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <zlib.h>
+#include <zstd.h>
+#include <brotli/encode.h>
+#include <brotli/decode.h>
 
 /* --- Constants --- */
 
@@ -41,7 +44,7 @@
 #define TASFA_DOWNLOAD_CHUNK_SIZE_FAST_MAX (48 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_ULTRA_MAX (64 * 1024 * 1024)
 #define TASFA_DOWNLOAD_RESPONSE_BYTES_MAX (128 * 1024 * 1024)
-#define TASFA_GZIP_MIN_GAIN_BYTES         1024
+#define TASFA_COMPRESS_MIN_GAIN_BYTES     1024
 
 #define TASFA_UPLOAD_TTL 86400
 #define TASFA_DOWNLOAD_TTL 86400
@@ -112,6 +115,14 @@ typedef struct {
     time_t expires;
 } finalize_slot_t;
 
+/* Compression with zstd -> brotli -> gzip fallback */
+typedef enum {
+    TASFA_COMPRESS_NONE = 0,
+    TASFA_COMPRESS_ZSTD,
+    TASFA_COMPRESS_BROTLI,
+    TASFA_COMPRESS_GZIP
+} tasfa_compress_type_t;
+
 typedef struct tasfa_job {
     void (*func)(void *);
     void *arg;
@@ -128,6 +139,7 @@ typedef struct {
     const void *body_data;
     size_t body_size;
     bool compressed;
+    tasfa_compress_type_t compress_type;
     long long offset;
     long long expected_size;
     int chunk_count;
@@ -219,10 +231,10 @@ bool encrypt_stream_block(const unsigned char *key, const unsigned char *iv_seed
 bool decrypt_stream_block(const unsigned char *key, const unsigned char *iv_seed, int chunk_index,
                           const char *upload_id, const unsigned char *ciphertext, size_t ciphertext_len,
                           unsigned char *plaintext, size_t plaintext_len);
-bool tasfa_gzip_compress_alloc(const unsigned char *input, size_t input_len,
-                               unsigned char **out, size_t *out_len);
-bool tasfa_gzip_decompress_to(const unsigned char *input, size_t input_len,
-                              unsigned char *out, size_t expected_len);
+bool tasfa_compress_alloc(const unsigned char *input, size_t input_len,
+                          unsigned char **out, size_t *out_len, tasfa_compress_type_t *out_type);
+bool tasfa_decompress_to(const unsigned char *input, size_t input_len,
+                         unsigned char *out, size_t expected_len, tasfa_compress_type_t type);
 unsigned char *ensure_decrypt_buf(size_t need);
 unsigned char *ensure_inflate_buf(size_t need);
 char *ensure_read_buf(size_t need);
