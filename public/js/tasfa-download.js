@@ -1425,6 +1425,7 @@
 
         var existingTag = el.tagName ? el.tagName.toLowerCase() : '';
         if (existingTag === 'video' || existingTag === 'audio') {
+            el.setAttribute('crossorigin', 'use-credentials');
             el.src = playUrl;
             el.style.opacity = '1';
             bindLoaderRemoval(el);
@@ -1434,6 +1435,7 @@
         var mediaEl = document.createElement(isAudio ? 'audio' : 'video');
         mediaEl.setAttribute('controls', '');
         mediaEl.setAttribute('playsinline', '');
+        mediaEl.setAttribute('crossorigin', 'use-credentials');
         mediaEl.src = playUrl;
         mediaEl.style.maxWidth = '100%';
         mediaEl.style.display = 'block';
