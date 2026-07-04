@@ -30,7 +30,7 @@
        fall back to a plain browser GET so the user is not left with a
        permanently-spinning download (especially on Firefox where
        NS_ERROR_NET_PARTIAL_TRANSFER can block chunked XHR entirely). */
-    var TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD = 3;
+    var TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD = 5;
 
     /* Concurrency guard for direct image loads.
        On high-RTT links each image occupies a connection slot for much longer;
