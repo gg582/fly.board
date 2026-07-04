@@ -383,21 +383,33 @@ self.addEventListener('fetch', function(event) {
                         if (!networkResponse.ok) {
                             return cachedResponse && cachedResponse.ok ? withoutCsp(cachedResponse) : networkResponse;
                         }
-                        // Use blob() for Firefox compatibility when reconstructing Response
+                        // Use blob() for Firefox compatibility when reconstructing Response.
+                        // IMPORTANT: strip Content-Length from the stored/served headers so
+                        // Firefox does not see a mismatch between the declared length (which
+                        // may reflect the compressed network body) and the decompressed blob.
+                        // A mismatch triggers NS_ERROR_NET_PARTIAL_TRANSFER in Firefox.
                         return networkResponse.blob().then(function(blob) {
-                            var headers = new Headers(networkResponse.headers);
-                            headers.set('x-sw-fetched', now.toString());
+                            var storeHeaders = new Headers(networkResponse.headers);
+                            storeHeaders.set('x-sw-fetched', now.toString());
+                            storeHeaders.delete('content-length');  /* avoid FF partial-transfer */
+                            storeHeaders.delete('content-encoding'); /* blob is already decoded */
                             var modified = new Response(blob, {
                                 status: networkResponse.status,
                                 statusText: networkResponse.statusText,
-                                headers: headers
+                                headers: storeHeaders
                             });
                             cache.put(event.request, modified);
-                            return withoutCsp(new Response(blob, {
+                            /* Serve response: set Content-Length to actual blob byte size
+                               so the browser never receives fewer bytes than advertised. */
+                            var serveHeaders = new Headers(networkResponse.headers);
+                            serveHeaders.delete('content-security-policy');
+                            serveHeaders.delete('content-encoding');
+                            serveHeaders.set('content-length', String(blob.size));
+                            return new Response(blob, {
                                 status: networkResponse.status,
                                 statusText: networkResponse.statusText,
-                                headers: networkResponse.headers
-                            }));
+                                headers: serveHeaders
+                            });
                         });
                     }).catch(function(err) {
                         if (cachedResponse && cachedResponse.ok) {
@@ -428,7 +440,10 @@ self.addEventListener('fetch', function(event) {
     var isThemesFetch = url === self.location.origin + '/themes.json';
     if ((!isTasfa && !isDirectImageAsset && !isStaticScript && !isThemesFetch) || event.request.method !== 'GET') return;
     if (event.request.headers.get('Range') || event.request.destination === 'video' || event.request.destination === 'audio') return;
-    var promise = fetchWithRetry(event.request, { maxRetries: 5, baseDelay: 200, firefoxFallback: !isTasfa }).catch(function(err) {
+    /* Enable firefoxFallback for TASFA chunk/handshake requests too: Firefox
+       NS_ERROR_NET_PARTIAL_TRANSFER on a chunk XHR often resolves with a
+       cache-busted retry that forces a fresh TCP+TLS connection. */
+    var promise = fetchWithRetry(event.request, { maxRetries: 5, baseDelay: 200, firefoxFallback: true }).catch(function(err) {
         if (isDirectImageAsset) {
             /* For image assets, returning JSON causes Firefox to report a
                decoding/error mismatch. Return a valid 1x1 transparent PNG so
