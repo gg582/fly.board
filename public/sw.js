@@ -287,7 +287,7 @@ self.addEventListener('fetch', function(event) {
             headers.set('X-TASFA-Session-ID', session.sessionId);
             headers.set('X-TASFA-Session-Token', session.sessionToken);
             event.respondWith(
-                fetch(new Request(url, { headers: headers, credentials: 'same-origin' })).then(function(response) {
+                fetch(new Request(event.request, { headers: headers })).then(function(response) {
                     if (event.request.headers.get('Range')) {
                         if (response.status === 206) return response;
                         if (session.ultraFastConnection) return response;
