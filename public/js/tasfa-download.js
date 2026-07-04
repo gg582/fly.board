@@ -820,6 +820,7 @@
                 nextChunk: 0,
                 completedChunks: 0,
                 downloadedBytes: 0,
+                consecutiveFailures: 0,
                 failed: null
             };
             downloadStates[baseUrl] = {
@@ -867,6 +868,7 @@
                         releaseSpan(claim.idx, claim.span);
                         activeFetches = Math.max(0, activeFetches - 1);
                         tuneDownloadSuccess(session, received.bytes || 0, received.durationMs || 0);
+                        sharedState.consecutiveFailures = 0; // reset consecutive failures on success
                         for (var i = 0; i < claim.span; i++) {
                             var doneIdx = claim.idx + i;
                             if (doneIdx < session.chunkCount && !bitmap[doneIdx]) {
@@ -884,6 +886,7 @@
                         activeFetches = Math.max(0, activeFetches - 1);
                         var msg = e && e.message ? e.message : 'network';
                         tuneDownloadFailure(session, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
+                        sharedState.consecutiveFailures = (sharedState.consecutiveFailures || 0) + 1;
                         // KR<->NG worst case: 4000 ms RTT, TCP+TLS reconnect ~12 s.
                         // Use exponential backoff starting at 5 s so the first
                         // retry lands after a full reconnect cycle; cap at 60 s.
@@ -897,11 +900,8 @@
                             var ci = claim.idx + k;
                             if (ci >= session.chunkCount || bitmap[ci]) continue;
                             retryCounts[ci] = (retryCounts[ci] || 0) + 1;
-                            /* Switch to native browser download after N consecutive
-                               failures for this chunk. On Firefox with
-                               NS_ERROR_NET_PARTIAL_TRANSFER the XHR path is broken
-                               for this session; a direct GET will succeed. */
-                            if (retryCounts[ci] >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD || msg === 'tasfa_fallback_needed') needsFallback = true;
+                            /* Switch to native browser download after N consecutive failures globally */
+                            if (sharedState.consecutiveFailures >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD || msg === 'tasfa_fallback_needed') needsFallback = true;
                             // 200 retries × 60 s ceiling = up to ~3.3 hours of persistence
                             // on a badly degraded intercontinental path
                             if (retryCounts[ci] > 200) exhausted = true;
@@ -1237,7 +1237,7 @@
         return new Blob(parts, { type: session.mimeType });
     }
 
-    function triggerDownload(baseUrl) {
+    function triggerDownload(baseUrl, fallbackWebpUrl) {
         return fetchBlobViaTasfa(baseUrl).then(function(result) {
             var objectUrl = URL.createObjectURL(result.blob);
             var a = document.createElement('a');
@@ -1247,6 +1247,33 @@
             a.click();
             a.remove();
             setTimeout(function() { URL.revokeObjectURL(objectUrl); }, 1000);
+        }).catch(function(error) {
+            console.warn('TASFA download failed, falling back to direct download:', error);
+            var fallbackUrl = baseUrl;
+            fallbackUrl += (fallbackUrl.indexOf('?') === -1 ? '?' : '&') + 'tasfa_fallback=1';
+            
+            var a = document.createElement('a');
+            a.href = fallbackUrl;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+
+            // Setup a fallback chain: if the direct download link fetch fails (which is rare but possible),
+            // try downloading the WebP assembled version if it exists.
+            if (fallbackWebpUrl) {
+                setTimeout(function() {
+                    // Try to download the WebP fallback as well
+                    var webpFallback = fallbackWebpUrl;
+                    webpFallback += (webpFallback.indexOf('?') === -1 ? '?' : '&') + 'tasfa_fallback=1';
+                    var wa = document.createElement('a');
+                    wa.href = webpFallback;
+                    wa.download = 'fallback.webp';
+                    document.body.appendChild(wa);
+                    wa.click();
+                    wa.remove();
+                }, 1000);
+            }
         });
     }
 
@@ -1436,7 +1463,7 @@
                 dlBtn.href = 'javascript:void(0);';
                 dlBtn.addEventListener('click', function(event) {
                     event.preventDefault();
-                    triggerDownload(originalUrl).catch(function(){});
+                    triggerDownload(originalUrl, displayUrl).catch(function(){});
                 });
                 wrap.appendChild(dlBtn);
             }
