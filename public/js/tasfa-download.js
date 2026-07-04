@@ -1265,7 +1265,9 @@
                 setTimeout(function() {
                     // Try to download the WebP fallback as well
                     var webpFallback = fallbackWebpUrl;
-                    webpFallback += (webpFallback.indexOf('?') === -1 ? '?' : '&') + 'tasfa_fallback=1';
+                    if (webpFallback.indexOf('blob:') !== 0 && webpFallback.indexOf('/__tasfa_media__/') === -1) {
+                        webpFallback += (webpFallback.indexOf('?') === -1 ? '?' : '&') + 'tasfa_fallback=1';
+                    }
                     var wa = document.createElement('a');
                     wa.href = webpFallback;
                     wa.download = 'fallback.webp';
@@ -1463,7 +1465,8 @@
                 dlBtn.href = 'javascript:void(0);';
                 dlBtn.addEventListener('click', function(event) {
                     event.preventDefault();
-                    triggerDownload(originalUrl, displayUrl).catch(function(){});
+                    var currentSrc = el.getAttribute('src') || el.src || displayUrl;
+                    triggerDownload(originalUrl, currentSrc).catch(function(){});
                 });
                 wrap.appendChild(dlBtn);
             }
