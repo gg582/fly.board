@@ -1589,12 +1589,8 @@
                 var isAudio = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'wma'].indexOf(ext) !== -1 || /^audio\//.test(mimeType);
 
                 if (isVideo || isAudio) {
-                    fetchBlobViaTasfa(baseUrl, { handshakeOnly: true, session: session }).then(function() {
-                        replaceWithEmbeddedPlayer(el, baseUrl, isAudio);
-                    }).catch(function() {
-                        var streamUrl = directMediaUrl(baseUrl, session);
-                        if (streamUrl) replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
-                    });
+                    var streamUrl = directMediaUrl(baseUrl, session);
+                    replaceWithEmbeddedPlayer(el, streamUrl || baseUrl, isAudio);
                     return;
                 }
 
