@@ -86,6 +86,7 @@ function _openModal(blobUrl, title, isAudio, isLoading) {
     mediaEl.setAttribute('playsinline', '');
     mediaEl.setAttribute('controls', '');
     mediaEl.setAttribute('preload', 'auto');
+    mediaEl.setAttribute('crossorigin', 'use-credentials');
     if (blobUrl) {
         mediaEl.src = blobUrl;
     } else {
