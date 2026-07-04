@@ -26,6 +26,11 @@
     var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
     var objectUrls = new WeakMap();
     var videoPlayerModule = null;
+    /* After this many consecutive per-chunk failures, abandon TASFA and
+       fall back to a plain browser GET so the user is not left with a
+       permanently-spinning download (especially on Firefox where
+       NS_ERROR_NET_PARTIAL_TRANSFER can block chunked XHR entirely). */
+    var TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD = 3;
 
     /* Concurrency guard for direct image loads.
        On high-RTT links each image occupies a connection slot for much longer;
@@ -533,8 +538,28 @@
         return { arm: arm, clear: clear };
     }
 
+    function isFirefoxBrowser() {
+        try { return /Firefox\//i.test(navigator.userAgent || ''); } catch (e) { return false; }
+    }
+
     function supportsGzipStreams() {
         return typeof DecompressionStream !== 'undefined';
+    }
+
+    /* Build a direct (non-TASFA) URL for a file download endpoint.
+       Appends ?tasfa_fallback=1 so the server bypasses the session check. */
+    function buildFallbackUrl(baseUrl) {
+        var path = normalizeUrl(baseUrl);
+        if (!path) return null;
+        /* /file/download/:id  -> already a download endpoint */
+        if (/^\/file\/download\/\d+$/.test(path)) {
+            return path + '?tasfa_fallback=1';
+        }
+        /* /assets/uploads/:filename -> direct upload asset */
+        if (path.indexOf('/assets/uploads/') === 0) {
+            return path + '?tasfa_fallback=1';
+        }
+        return null;
     }
 
     async function gunzipArrayBuffer(buffer) {
@@ -579,88 +604,104 @@
         return new Promise(function(resolve, reject) {
             var startedAt = Date.now();
             var url = chunkUrl(baseUrl, session.sessionId, session.sessionToken, chunkIndex, span);
-            var xhr = new XMLHttpRequest();
-            xhr.open('GET', url, true);
-            xhr.responseType = 'arraybuffer';
-            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-            if (supportsGzipStreams()) {
-                xhr.setRequestHeader('X-TASFA-Accept-Encoding', 'gzip');
-            }
-            var expectedBytes = 0;
-            for (var e = 0; e < span; e++) {
-                if (chunkIndex + e >= session.chunkCount) break;
-                expectedBytes += chunkByteSize(session, chunkIndex + e);
-            }
-            var timeoutMs = session && session.largeMedia ? DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS : DOWNLOAD_CONNECT_TIMEOUT_MS;
-            var watchdog = armXhrIdleTimeout(xhr, timeoutMs);
-            xhr.onprogress = function() {
-                watchdog.arm();
-            };
-            xhr.onload = function() {
-                watchdog.clear();
-                if (xhr.status === 429 && retries < 15) {
-                    // Default 8 s so the server can shed load across a 4 s RTT path
-                    var delay = 8000;
-                    try {
-                        var resp = JSON.parse(xhr.responseText);
-                        if (resp.retry_after) delay = resp.retry_after * 1000;
-                    } catch(e) {}
-                    setTimeout(function() {
-                        fetchChunk(baseUrl, session, parts, chunkIndex, span, retries + 1).then(resolve).catch(reject);
-                    }, delay);
-                    return;
-                }
-                if (xhr.status < 200 || xhr.status >= 300) {
-                    reject(new Error('chunk:' + xhr.status));
-                    return;
-                }
-                var buffer = xhr.response;
-                if (!buffer) { reject(new Error('empty response')); return; }
 
-                decryptBuffer(session, chunkIndex, buffer).then(function(data) {
-                    var encoding = xhr.getResponseHeader('X-TASFA-Content-Encoding') || '';
-                    if (encoding.toLowerCase().indexOf('gzip') !== -1) {
-                        return gunzipArrayBuffer(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
-                    }
-                    return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-                }).then(function(plainBuffer) {
-                    var data = new Uint8Array(plainBuffer);
-                    if (data.byteLength !== expectedBytes) {
-                        reject(new Error('short response'));
+            function doXhr(xhrUrl) {
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', xhrUrl, true);
+                xhr.responseType = 'arraybuffer';
+                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                if (supportsGzipStreams()) {
+                    xhr.setRequestHeader('X-TASFA-Accept-Encoding', 'gzip');
+                }
+                var expectedBytes = 0;
+                for (var e = 0; e < span; e++) {
+                    if (chunkIndex + e >= session.chunkCount) break;
+                    expectedBytes += chunkByteSize(session, chunkIndex + e);
+                }
+                var timeoutMs = session && session.largeMedia ? DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS : DOWNLOAD_CONNECT_TIMEOUT_MS;
+                var watchdog = armXhrIdleTimeout(xhr, timeoutMs);
+                xhr.onprogress = function() {
+                    watchdog.arm();
+                };
+                xhr.onload = function() {
+                    watchdog.clear();
+                    if (xhr.status === 429 && retries < 15) {
+                        var delay = 8000;
+                        try {
+                            var resp = JSON.parse(xhr.responseText);
+                            if (resp.retry_after) delay = resp.retry_after * 1000;
+                        } catch(e) {}
+                        setTimeout(function() {
+                            fetchChunk(baseUrl, session, parts, chunkIndex, span, retries + 1).then(resolve).catch(reject);
+                        }, delay);
                         return;
                     }
-                    var offset = 0;
-                    var totalReceived = 0;
-                    for (var i = 0; i < span; i++) {
-                        var idx = chunkIndex + i;
-                        if (idx >= session.chunkCount) break;
-                        var size = chunkByteSize(session, idx);
-                        if (offset + size > data.byteLength) {
-                            size = data.byteLength - offset;
-                        }
-                        if (size > 0) {
-                            parts[idx] = new Uint8Array(data.subarray(offset, offset + size));
-                        }
-                        offset += size;
-                        totalReceived += size;
+                    if (xhr.status < 200 || xhr.status >= 300) {
+                        reject(new Error('chunk:' + xhr.status));
+                        return;
                     }
-                    resolve({ bytes: totalReceived, durationMs: Date.now() - startedAt });
-                }).catch(reject);
-            };
-            xhr.onerror = function() {
-                watchdog.clear();
-                reject(new Error('network'));
-            };
-            xhr.ontimeout = function() {
-                watchdog.clear();
-                reject(new Error('timeout'));
-            };
-            xhr.onabort = function() {
-                watchdog.clear();
-                if (xhr._tasfaIdleTimeout) reject(new Error('timeout'));
-                else reject(new Error('abort'));
-            };
-            xhr.send();
+                    var buffer = xhr.response;
+                    if (!buffer) { reject(new Error('empty response')); return; }
+
+                    decryptBuffer(session, chunkIndex, buffer).then(function(data) {
+                        var encoding = xhr.getResponseHeader('X-TASFA-Content-Encoding') || '';
+                        if (encoding.toLowerCase().indexOf('gzip') !== -1) {
+                            return gunzipArrayBuffer(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+                        }
+                        return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+                    }).then(function(plainBuffer) {
+                        var data = new Uint8Array(plainBuffer);
+                        if (data.byteLength !== expectedBytes) {
+                            reject(new Error('short response'));
+                            return;
+                        }
+                        var offset = 0;
+                        var totalReceived = 0;
+                        for (var i = 0; i < span; i++) {
+                            var idx = chunkIndex + i;
+                            if (idx >= session.chunkCount) break;
+                            var size = chunkByteSize(session, idx);
+                            if (offset + size > data.byteLength) {
+                                size = data.byteLength - offset;
+                            }
+                            if (size > 0) {
+                                parts[idx] = new Uint8Array(data.subarray(offset, offset + size));
+                            }
+                            offset += size;
+                            totalReceived += size;
+                        }
+                        resolve({ bytes: totalReceived, durationMs: Date.now() - startedAt });
+                    }).catch(reject);
+                };
+                xhr.onerror = function() {
+                    watchdog.clear();
+                    /* Firefox NS_ERROR_NET_PARTIAL_TRANSFER / NS_ERROR_NET_RESET:
+                       The connection was dropped mid-stream (common with HTTP/2+HTTP/3
+                       multiplexing on Firefox). A single cache-busting retry using a
+                       fresh URL forces a new connection and usually recovers. */
+                    if (isFirefoxBrowser() && !xhr._ffRetried) {
+                        xhr._ffRetried = true;
+                        try {
+                            var cbUrl = xhrUrl + '&_ffcb=' + Date.now();
+                            doXhr(cbUrl);
+                            return;
+                        } catch (e) {}
+                    }
+                    reject(new Error('network'));
+                };
+                xhr.ontimeout = function() {
+                    watchdog.clear();
+                    reject(new Error('timeout'));
+                };
+                xhr.onabort = function() {
+                    watchdog.clear();
+                    if (xhr._tasfaIdleTimeout) reject(new Error('timeout'));
+                    else reject(new Error('abort'));
+                };
+                xhr.send();
+            }
+
+            doXhr(url);
         });
     }
 
@@ -781,16 +822,23 @@
                                           + Math.floor(Math.random() * 2000);
                         await new Promise(function(r) { setTimeout(r, workerDelay); });
                         var exhausted = false;
+                        var needsFallback = false;
                         for (var k = 0; k < claim.span; k++) {
                             var ci = claim.idx + k;
                             if (ci >= session.chunkCount || bitmap[ci]) continue;
                             retryCounts[ci] = (retryCounts[ci] || 0) + 1;
+                            /* Switch to native browser download after N consecutive
+                               failures for this chunk. On Firefox with
+                               NS_ERROR_NET_PARTIAL_TRANSFER the XHR path is broken
+                               for this session; a direct GET will succeed. */
+                            if (retryCounts[ci] >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) needsFallback = true;
                             // 200 retries × 60 s ceiling = up to ~3.3 hours of persistence
                             // on a badly degraded intercontinental path
                             if (retryCounts[ci] > 200) exhausted = true;
                             pending.push(ci);
                         }
-                        if (exhausted) sharedState.failed = e || new Error('download failed');
+                        if (needsFallback) sharedState.failed = new Error('tasfa_fallback_needed');
+                        else if (exhausted) sharedState.failed = e || new Error('download failed');
                     }
                 }
             }
@@ -858,6 +906,37 @@
             }
             if (!handshakeOnly) {
                 cache.delete(baseUrl);
+            }
+            /* If chunk failures crossed the fallback threshold, attempt a
+               plain browser GET instead of propagating a download error.
+               This is the escape hatch for Firefox NS_ERROR_NET_PARTIAL_TRANSFER
+               and any other browser-level XHR blockage. */
+            if (error && error.message === 'tasfa_fallback_needed') {
+                var fbUrl = buildFallbackUrl(baseUrl);
+                if (fbUrl) {
+                    return new Promise(function(resolve, reject) {
+                        var fbXhr = new XMLHttpRequest();
+                        fbXhr.open('GET', fbUrl, true);
+                        fbXhr.responseType = 'blob';
+                        fbXhr.onload = function() {
+                            if (fbXhr.status >= 200 && fbXhr.status < 300 && fbXhr.response) {
+                                var blob = fbXhr.response;
+                                /* Extract filename from Content-Disposition if available */
+                                var fbFilename = 'download';
+                                try {
+                                    var cd = fbXhr.getResponseHeader('Content-Disposition') || '';
+                                    var m = cd.match(/filename="?([^"\s;]+)"?/i);
+                                    if (m) fbFilename = decodeURIComponent(m[1]);
+                                } catch (ex) {}
+                                resolve({ blob: blob, filename: fbFilename, native: true });
+                            } else {
+                                reject(new Error('fallback:' + fbXhr.status));
+                            }
+                        };
+                        fbXhr.onerror = function() { reject(new Error('fallback network')); };
+                        fbXhr.send();
+                    });
+                }
             }
             throw error;
         }

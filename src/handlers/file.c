@@ -395,7 +395,10 @@ void handler_asset_upload(cwist_http_request *req, cwist_http_response *res) {
         response_mime = detected_mime;
     }
 
-    if (top_level_upload && (!is_profile_pic_asset(req->db, decoded) || strncmp(response_mime, "image/", 6) != 0)) {
+    const char *fallback = cwist_query_map_get(req->query_params, "tasfa_fallback");
+    bool is_fallback = fallback && strcmp(fallback, "1") == 0;
+
+    if (!is_fallback && top_level_upload && (!is_profile_pic_asset(req->db, decoded) || strncmp(response_mime, "image/", 6) != 0)) {
         cwist_free(decoded);
         res->status_code = CWIST_HTTP_FORBIDDEN;
         cwist_sstring_assign(res->body, "Direct asset fetch disabled; use the reliable transfer path.");
@@ -672,7 +675,10 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
         is_media = true;
     }
 
-    if (g_config.use_tasfa && !is_image) {
+    const char *fallback = cwist_query_map_get(req->query_params, "tasfa_fallback");
+    bool is_fallback = fallback && strcmp(fallback, "1") == 0;
+
+    if (!is_fallback && g_config.use_tasfa && !is_image) {
         bool has_valid_session = false;
         const char *session_id = cwist_http_header_get(req->headers, "X-TASFA-Session-ID");
         const char *session_token = cwist_http_header_get(req->headers, "X-TASFA-Session-Token");
