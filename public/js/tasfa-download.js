@@ -1400,6 +1400,10 @@
      * Replaces the element inline with an embedded player.
      */
     function replaceWithEmbeddedPlayer(el, playUrl, isAudio) {
+        if (el.parentNode && el.parentNode.tagName &&
+            (el.parentNode.tagName.toLowerCase() === 'video' || el.parentNode.tagName.toLowerCase() === 'audio')) {
+            el = el.parentNode;
+        }
         el.setAttribute('data-tasfa-ready', '1');
         el.removeAttribute('data-tasfa-progress');
 
