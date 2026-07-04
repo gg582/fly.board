@@ -33,6 +33,25 @@ function lookupTasfaSession(rawUrl) {
     return null;
 }
 
+function waitForSession(rawUrl, timeoutMs) {
+    return new Promise(function(resolve) {
+        var start = Date.now();
+        function check() {
+            var session = lookupTasfaSession(rawUrl);
+            if (session) {
+                resolve(session);
+                return;
+            }
+            if (Date.now() - start > timeoutMs) {
+                resolve(null);
+                return;
+            }
+            setTimeout(check, 50);
+        }
+        check();
+    });
+}
+
 self.addEventListener('message', function(event) {
     if (!event.data) return;
 
@@ -281,24 +300,26 @@ self.addEventListener('fetch', function(event) {
         }
 
         if (url.indexOf(self.location.origin + '/file/download/') === 0 && event.request.method === 'GET') {
-        var session = lookupTasfaSession(url);
-        if (session) {
-            var headers = new Headers(event.request.headers);
-            headers.set('X-TASFA-Session-ID', session.sessionId);
-            headers.set('X-TASFA-Session-Token', session.sessionToken);
             event.respondWith(
-                fetch(new Request(event.request, { headers: headers })).then(function(response) {
-                    if (event.request.headers.get('Range')) {
-                        if (response.status === 206) return response;
-                        if (session.ultraFastConnection) return response;
-                        return handleRangeRequest(event.request, response);
+                waitForSession(url, 2000).then(function(session) {
+                    if (session) {
+                        var headers = new Headers(event.request.headers);
+                        headers.set('X-TASFA-Session-ID', session.sessionId);
+                        headers.set('X-TASFA-Session-Token', session.sessionToken);
+                        return fetch(new Request(event.request, { headers: headers })).then(function(response) {
+                            if (event.request.headers.get('Range')) {
+                                if (response.status === 206) return response;
+                                if (session.ultraFastConnection) return response;
+                                return handleRangeRequest(event.request, response);
+                            }
+                            return response;
+                        });
                     }
-                    return response;
+                    return fetch(event.request);
                 })
             );
             return;
         }
-    }
 
     if (url.indexOf(self.location.origin + '/__tasfa_media__/') === 0 && event.request.method === 'GET') {
         event.respondWith(
