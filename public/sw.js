@@ -270,6 +270,16 @@ self.addEventListener('fetch', function(event) {
         // Don't intercept cross-origin requests (multi-port)
         if (new URL(url).origin !== self.location.origin) return;
 
+        // Bypass SW interception for direct chunk transfers, handshakes, uploads,
+        // and requests with query credentials to prevent Firefox connection pooling/partial-transfer bugs.
+        if (url.includes('/chunk/') ||
+            url.includes('/handshake') ||
+            url.includes('/file/upload') ||
+            url.includes('tasfa_fallback=1') ||
+            url.includes('session_id=')) {
+            return;
+        }
+
         if (url.indexOf(self.location.origin + '/file/download/') === 0 && event.request.method === 'GET') {
         var session = lookupTasfaSession(url);
         if (session) {
