@@ -542,8 +542,26 @@
         try { return /Firefox\//i.test(navigator.userAgent || ''); } catch (e) { return false; }
     }
 
+    function supportsCompression(type) {
+        if (typeof DecompressionStream === 'undefined') return false;
+        try {
+            var ds = new DecompressionStream(type);
+            return !!ds;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function getSupportedEncodings() {
+        var encodings = [];
+        if (supportsCompression('zstd')) encodings.push('zstd');
+        if (supportsCompression('br')) encodings.push('br');
+        if (supportsCompression('gzip')) encodings.push('gzip');
+        return encodings.join(', ');
+    }
+
     function supportsGzipStreams() {
-        return typeof DecompressionStream !== 'undefined';
+        return supportsCompression('gzip');
     }
 
     /* Build a direct (non-TASFA) URL for a file download endpoint.
@@ -562,10 +580,18 @@
         return null;
     }
 
+    async function decompressArrayBuffer(buffer, encoding) {
+        if (!encoding || !supportsCompression(encoding)) return buffer;
+        try {
+            var stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream(encoding));
+            return new Response(stream).arrayBuffer();
+        } catch (e) {
+            throw new Error('decompression_failed:' + encoding);
+        }
+    }
+
     async function gunzipArrayBuffer(buffer) {
-        if (!supportsGzipStreams()) return buffer;
-        var stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
-        return new Response(stream).arrayBuffer();
+        return decompressArrayBuffer(buffer, 'gzip');
     }
 
     async function decryptBuffer(session, chunkIndex, buffer) {
@@ -605,13 +631,15 @@
             var startedAt = Date.now();
             var url = chunkUrl(baseUrl, session.sessionId, session.sessionToken, chunkIndex, span);
 
-            function doXhr(xhrUrl) {
+            function doXhr(xhrUrl, attemptCount) {
+                attemptCount = attemptCount || 0;
                 var xhr = new XMLHttpRequest();
                 xhr.open('GET', xhrUrl, true);
                 xhr.responseType = 'arraybuffer';
                 xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-                if (supportsGzipStreams()) {
-                    xhr.setRequestHeader('X-TASFA-Accept-Encoding', 'gzip');
+                var supportedEncodings = getSupportedEncodings();
+                if (supportedEncodings) {
+                    xhr.setRequestHeader('X-TASFA-Accept-Encoding', supportedEncodings);
                 }
                 var expectedBytes = 0;
                 for (var e = 0; e < span; e++) {
@@ -625,34 +653,56 @@
                 };
                 xhr.onload = function() {
                     watchdog.clear();
-                    if (xhr.status === 429 && retries < 15) {
-                        var delay = 8000;
-                        try {
-                            var resp = JSON.parse(xhr.responseText);
-                            if (resp.retry_after) delay = resp.retry_after * 1000;
-                        } catch(e) {}
-                        setTimeout(function() {
-                            fetchChunk(baseUrl, session, parts, chunkIndex, span, retries + 1).then(resolve).catch(reject);
-                        }, delay);
-                        return;
+                    if (xhr.status === 429) {
+                        if (retries + attemptCount >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) {
+                            reject(new Error('tasfa_fallback_needed'));
+                            return;
+                        }
+                        if (retries + attemptCount < 15) {
+                            var delay = 8000;
+                            try {
+                                var resp = JSON.parse(xhr.responseText);
+                                if (resp.retry_after) delay = resp.retry_after * 1000;
+                            } catch(e) {}
+                            setTimeout(function() {
+                                fetchChunk(baseUrl, session, parts, chunkIndex, span, retries + attemptCount + 1).then(resolve).catch(reject);
+                            }, delay);
+                            return;
+                        }
                     }
                     if (xhr.status < 200 || xhr.status >= 300) {
-                        reject(new Error('chunk:' + xhr.status));
+                        if (retries + attemptCount >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) {
+                            reject(new Error('tasfa_fallback_needed'));
+                        } else {
+                            reject(new Error('chunk:' + xhr.status));
+                        }
                         return;
                     }
                     var buffer = xhr.response;
-                    if (!buffer) { reject(new Error('empty response')); return; }
+                    if (!buffer) {
+                        if (retries + attemptCount >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) {
+                            reject(new Error('tasfa_fallback_needed'));
+                        } else {
+                            reject(new Error('empty response'));
+                        }
+                        return;
+                    }
 
                     decryptBuffer(session, chunkIndex, buffer).then(function(data) {
                         var encoding = xhr.getResponseHeader('X-TASFA-Content-Encoding') || '';
-                        if (encoding.toLowerCase().indexOf('gzip') !== -1) {
-                            return gunzipArrayBuffer(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+                        var enc = encoding.toLowerCase().trim();
+                        if (enc === 'zstd' || enc === 'br' || enc === 'gzip') {
+                            return decompressArrayBuffer(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), enc);
                         }
                         return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
                     }).then(function(plainBuffer) {
                         var data = new Uint8Array(plainBuffer);
                         if (data.byteLength !== expectedBytes) {
-                            reject(new Error('short response'));
+                            if (retries + attemptCount >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) {
+                                reject(new Error('tasfa_fallback_needed'));
+                            } else {
+                                reject(new Error('short response'));
+                            }
                             return;
                         }
                         var offset = 0;
@@ -671,7 +721,13 @@
                             totalReceived += size;
                         }
                         resolve({ bytes: totalReceived, durationMs: Date.now() - startedAt });
-                    }).catch(reject);
+                    }).catch(function(e) {
+                        if (retries + attemptCount >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) {
+                            reject(new Error('tasfa_fallback_needed'));
+                        } else {
+                            reject(e);
+                        }
+                    });
                 };
                 xhr.onerror = function() {
                     watchdog.clear();
@@ -679,29 +735,43 @@
                        The connection was dropped mid-stream (common with HTTP/2+HTTP/3
                        multiplexing on Firefox). A single cache-busting retry using a
                        fresh URL forces a new connection and usually recovers. */
-                    if (isFirefoxBrowser() && !xhr._ffRetried) {
-                        xhr._ffRetried = true;
+                    if (isFirefoxBrowser() && attemptCount < TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) {
                         try {
                             var cbUrl = xhrUrl + '&_ffcb=' + Date.now();
-                            doXhr(cbUrl);
+                            doXhr(cbUrl, attemptCount + 1);
                             return;
                         } catch (e) {}
                     }
-                    reject(new Error('network'));
+                    if (retries + attemptCount >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) {
+                        reject(new Error('tasfa_fallback_needed'));
+                    } else {
+                        reject(new Error('network'));
+                    }
                 };
                 xhr.ontimeout = function() {
                     watchdog.clear();
-                    reject(new Error('timeout'));
+                    if (retries + attemptCount >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) {
+                        reject(new Error('tasfa_fallback_needed'));
+                    } else {
+                        reject(new Error('timeout'));
+                    }
                 };
                 xhr.onabort = function() {
                     watchdog.clear();
-                    if (xhr._tasfaIdleTimeout) reject(new Error('timeout'));
-                    else reject(new Error('abort'));
+                    if (xhr._tasfaIdleTimeout) {
+                        if (retries + attemptCount >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) {
+                            reject(new Error('tasfa_fallback_needed'));
+                        } else {
+                            reject(new Error('timeout'));
+                        }
+                    } else {
+                        reject(new Error('abort'));
+                    }
                 };
                 xhr.send();
             }
 
-            doXhr(url);
+            doXhr(url, 0);
         });
     }
 
@@ -831,7 +901,7 @@
                                failures for this chunk. On Firefox with
                                NS_ERROR_NET_PARTIAL_TRANSFER the XHR path is broken
                                for this session; a direct GET will succeed. */
-                            if (retryCounts[ci] >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) needsFallback = true;
+                            if (retryCounts[ci] >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD || msg === 'tasfa_fallback_needed') needsFallback = true;
                             // 200 retries × 60 s ceiling = up to ~3.3 hours of persistence
                             // on a badly degraded intercontinental path
                             if (retryCounts[ci] > 200) exhausted = true;
