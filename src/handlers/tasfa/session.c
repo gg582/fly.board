@@ -349,25 +349,49 @@ bool send_file_slice_response(cwist_http_request *req, cwist_http_response *res,
     close(fd);
     if (total != amount) return false;
     const char *accept_tasfa_encoding = cwist_http_header_get(req->headers, "X-TASFA-Accept-Encoding");
+    bool client_accepts_zstd = str_contains_ci_local(accept_tasfa_encoding, "zstd");
+    bool client_accepts_brotli = str_contains_ci_local(accept_tasfa_encoding, "br");
     bool client_accepts_gzip = str_contains_ci_local(accept_tasfa_encoding, "gzip");
-    unsigned char *gzip_buf = NULL;
-    size_t gzip_len = 0;
+    unsigned char *comp_buf = NULL;
+    size_t comp_len = 0;
     const unsigned char *payload = (const unsigned char *)buf;
     size_t payload_len = total;
-    bool payload_gzip = false;
-    if (client_accepts_gzip && total >= TASFA_GZIP_MIN_GAIN_BYTES &&
-        tasfa_gzip_compress_alloc((const unsigned char *)buf, total, &gzip_buf, &gzip_len) &&
-        gzip_len + TASFA_GZIP_MIN_GAIN_BYTES < total) {
-        payload = gzip_buf;
-        payload_len = gzip_len;
-        payload_gzip = true;
-        cwist_http_header_add(&res->headers, "X-TASFA-Content-Encoding", "gzip");
+    tasfa_compress_type_t comp_type = TASFA_COMPRESS_NONE;
+    const char *encoding_name = NULL;
+
+    if (total >= TASFA_COMPRESS_MIN_GAIN_BYTES) {
+        if (client_accepts_zstd) {
+            if (tasfa_compress_alloc((const unsigned char *)buf, total, &comp_buf, &comp_len, &comp_type) &&
+                comp_type == TASFA_COMPRESS_ZSTD && comp_len + TASFA_COMPRESS_MIN_GAIN_BYTES < total) {
+                payload = comp_buf;
+                payload_len = comp_len;
+                encoding_name = "zstd";
+            }
+        } else if (client_accepts_brotli) {
+            if (tasfa_compress_alloc((const unsigned char *)buf, total, &comp_buf, &comp_len, &comp_type) &&
+                comp_type == TASFA_COMPRESS_BROTLI && comp_len + TASFA_COMPRESS_MIN_GAIN_BYTES < total) {
+                payload = comp_buf;
+                payload_len = comp_len;
+                encoding_name = "br";
+            }
+        } else if (client_accepts_gzip) {
+            if (tasfa_compress_alloc((const unsigned char *)buf, total, &comp_buf, &comp_len, &comp_type) &&
+                comp_type == TASFA_COMPRESS_GZIP && comp_len + TASFA_COMPRESS_MIN_GAIN_BYTES < total) {
+                payload = comp_buf;
+                payload_len = comp_len;
+                encoding_name = "gzip";
+            }
+        }
+        if (comp_buf && !encoding_name) {
+            cwist_free(comp_buf);
+            comp_buf = NULL;
+        }
+    }
+    if (encoding_name) {
+        cwist_http_header_add(&res->headers, "X-TASFA-Content-Encoding", encoding_name);
         char plain_len_buf[32];
         snprintf(plain_len_buf, sizeof(plain_len_buf), "%zu", total);
         cwist_http_header_add(&res->headers, "X-TASFA-Uncompressed-Length", plain_len_buf);
-    } else if (gzip_buf) {
-        cwist_free(gzip_buf);
-        gzip_buf = NULL;
     }
     cwist_http_header_add(&res->headers, "Content-Type", mime ? mime : "application/octet-stream");
     /* TASFA chunks are session-bound and must never be cached by shared or private caches. */
@@ -443,7 +467,7 @@ bool send_file_slice_response(cwist_http_request *req, cwist_http_response *res,
             snprintf(len_buf, sizeof(len_buf), "%zu", actual_cipher_len);
             cwist_http_header_add(&res->headers, "Content-Length", len_buf);
             cwist_free(cipher_buf);
-            if (gzip_buf) cwist_free(gzip_buf);
+            if (comp_buf) cwist_free(comp_buf);
             return true;
         }
         cwist_free(cipher_buf);
@@ -454,8 +478,8 @@ bool send_file_slice_response(cwist_http_request *req, cwist_http_response *res,
     cwist_http_header_add(&res->headers, "Content-Length", len_buf);
     cwist_sstring_assign(res->body, "");
     if (payload_len > 0) cwist_sstring_append_len(res->body, (const char *)payload, payload_len);
-    if (gzip_buf) cwist_free(gzip_buf);
-    (void)payload_gzip;
+    if (comp_buf) cwist_free(comp_buf);
+    (void)comp_type;
     return true;
 }
 

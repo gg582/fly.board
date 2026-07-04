@@ -292,7 +292,7 @@ static void upload_work_func(void *arg) {
                                  plaintext, encrypted_plain_len)) {
             if (w->compressed) {
                 unsigned char *inflated = ensure_inflate_buf((size_t)w->expected_size);
-                if (inflated && tasfa_gzip_decompress_to(plaintext, encrypted_plain_len, inflated, (size_t)w->expected_size)) {
+                if (inflated && tasfa_decompress_to(plaintext, encrypted_plain_len, inflated, (size_t)w->expected_size, w->compress_type)) {
                     w->stored = pwrite_all(fd, inflated, (size_t)w->expected_size, write_offset);
                 }
             } else if (encrypted_plain_len == (size_t)w->expected_size) {
@@ -301,8 +301,8 @@ static void upload_work_func(void *arg) {
         }
     } else if (w->compressed) {
         unsigned char *inflated = ensure_inflate_buf((size_t)w->expected_size);
-        if (inflated && tasfa_gzip_decompress_to((const unsigned char *)w->body_data, w->body_size,
-                                                 inflated, (size_t)w->expected_size)) {
+        if (inflated && tasfa_decompress_to((const unsigned char *)w->body_data, w->body_size,
+                                            inflated, (size_t)w->expected_size, w->compress_type)) {
             w->stored = pwrite_all(fd, inflated, (size_t)w->expected_size, write_offset);
         }
     } else if ((long long)w->body_size == w->expected_size) {
@@ -415,11 +415,22 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     }
     bool encrypted_stream = stream_mode && strcmp(stream_mode, "aes-256-gcm") == 0;
     const char *content_encoding = cwist_http_header_get(req->headers, "X-TASFA-Content-Encoding");
-    bool compressed_chunk = content_encoding && str_contains_ci_local(content_encoding, "gzip");
+    bool compressed_chunk = content_encoding && (
+        str_contains_ci_local(content_encoding, "zstd") ||
+        str_contains_ci_local(content_encoding, "br") ||
+        str_contains_ci_local(content_encoding, "gzip")
+    );
+    tasfa_compress_type_t compress_type = TASFA_COMPRESS_NONE;
+    if (compressed_chunk) {
+        if (str_contains_ci_local(content_encoding, "zstd")) compress_type = TASFA_COMPRESS_ZSTD;
+        else if (str_contains_ci_local(content_encoding, "br")) compress_type = TASFA_COMPRESS_BROTLI;
+        else if (str_contains_ci_local(content_encoding, "gzip")) compress_type = TASFA_COMPRESS_GZIP;
+    }
     long long expected_body_size = encrypted_stream ? expected_size + 16 : expected_size;
     bool size_ok = compressed_chunk
         ? (req->body->size > (encrypted_stream ? 16U : 0U) && (long long)req->body->size <= expected_body_size)
         : ((long long)req->body->size == expected_body_size);
+    /* For compressed chunks, the body size varies by algorithm; allow up to expected_body_size */
     if (!size_ok) {
         FLY_LOG_ERROR("[TASFA] chunk size mismatch: upload_id=%s index=%d mode=%s expected=%lld got=%zu",
                       upload_id, chunk_index, encrypted_stream ? "aes-256-gcm" : "plain",
@@ -438,6 +449,7 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     work.body_data = req->body->data;
     work.body_size = req->body->size;
     work.compressed = compressed_chunk;
+    work.compress_type = compress_type;
     work.offset = offset;
     work.expected_size = expected_size;
     work.chunk_count = mbin.chunk_count;
