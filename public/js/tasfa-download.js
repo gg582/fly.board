@@ -1126,13 +1126,13 @@
         var activeFetches = 0;
 
         function progressiveParallelLimit() {
+            var limit = 4;
             if (session.ultraFastConnection && session.largeMedia) {
-                return Math.max(1, Math.min(isLikelyMobile() ? 2 : 3, session.maxParallel || 1, session.chunkCount));
+                limit = isLikelyMobile() ? 3 : 4;
+            } else {
+                limit = isLikelyMobile() ? 4 : 6;
             }
-            var base = isLikelyMobile() ? (session.largeMedia ? 6 : 2) : (session.largeMedia ? 6 : 4);
-            var multiplier = session.largeMedia ? 3 : 2;
-            var adaptive = Math.max(base, Math.min(session.targetParallel || base, base * multiplier));
-            return Math.max(1, Math.min(adaptive, session.maxParallel || adaptive, session.chunkCount));
+            return Math.max(1, Math.min(limit, session.chunkCount));
         }
 
         function progressiveWindowSize() {
@@ -1583,8 +1583,18 @@
                 var isAudio = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'wma'].indexOf(ext) !== -1 || /^audio\//.test(mimeType);
 
                 if (isVideo || isAudio) {
-                    var streamUrl = directMediaUrl(baseUrl, session);
-                    if (streamUrl) replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
+                    fetchVideoProgressive(baseUrl, {
+                        session: session,
+                        onReady: function(streamUrl) {
+                            replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
+                        },
+                        onProgress: function(percent) {
+                            el.setAttribute('data-tasfa-progress', String(percent));
+                        }
+                    }).catch(function(err) {
+                        var streamUrl = directMediaUrl(baseUrl, session);
+                        if (streamUrl) replaceWithEmbeddedPlayer(el, streamUrl, isAudio);
+                    });
                     return;
                 }
 
