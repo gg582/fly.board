@@ -927,8 +927,13 @@
             }
             if (missing > 0) throw new Error('incomplete download: ' + missing + ' chunks missing');
 
+            var assembledBlob = new Blob(parts, { type: session.mimeType });
+            if (assembledBlob.size !== session.totalSize) {
+                throw new Error('blob size mismatch: expected ' + session.totalSize + ' but got ' + assembledBlob.size);
+            }
+
             var result = {
-                blob: new Blob(parts, { type: session.mimeType }),
+                blob: assembledBlob,
                 filename: session.filename
             };
 
