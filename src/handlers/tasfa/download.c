@@ -197,6 +197,14 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
     if (end > total_size) end = total_size;
     size_t amount = (size_t)(end - offset);
 
+    const char *storage_path = json_string(meta, "storage_path", "");
+    struct stat st;
+    if (stat(storage_path, &st) != 0 || st.st_size != total_size) {
+        cJSON_Delete(meta);
+        send_json_response(res, session_error_json("file size consistency check failed"), CWIST_HTTP_INTERNAL_ERROR);
+        return;
+    }
+
     /* Approximate progress tracking for tail prediction */
     int received_so_far = json_int(meta, "received_chunks", 0);
     if (chunk_index + span > received_so_far) {
@@ -209,7 +217,7 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
     }
     save_download_session(session_id, meta);
 
-    bool ok = send_file_slice_response(req, res, json_string(meta, "storage_path", ""),
+    bool ok = send_file_slice_response(req, res, storage_path,
                                        json_string(meta, "mime_type", "application/octet-stream"), offset, amount,
                                        chunk_index, chunk_count, span);
     double pred = predict_remaining_ms(meta);
@@ -220,7 +228,7 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
         cwist_http_header_add(&res->headers, "X-TASFA-Predicted-Remaining-Ms", pred_buf);
     }
     if (!ok) {
-        send_json_response(res, session_error_json("download not found"), CWIST_HTTP_NOT_FOUND);
+        send_json_response(res, session_error_json("download slice read failed"), CWIST_HTTP_INTERNAL_ERROR);
     }
 }
 

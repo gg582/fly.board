@@ -26,11 +26,7 @@
     var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
     var objectUrls = new WeakMap();
     var videoPlayerModule = null;
-    /* After this many consecutive per-chunk failures, abandon TASFA and
-       fall back to a plain browser GET so the user is not left with a
-       permanently-spinning download (especially on Firefox where
-       NS_ERROR_NET_PARTIAL_TRANSFER can block chunked XHR entirely). */
-    var TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD = 5;
+    var TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD = 10;
 
     /* Concurrency guard for direct image loads.
        On high-RTT links each image occupies a connection slot for much longer;
@@ -671,7 +667,10 @@
                         }
                     }
                     if (xhr.status < 200 || xhr.status >= 300) {
-                        if (retries + attemptCount >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) {
+                        /* Fatal, non-retryable server statuses must trigger direct fallback immediately */
+                        if (xhr.status === 400 || xhr.status === 403 || xhr.status === 404 || xhr.status === 410) {
+                            reject(new Error('tasfa_fallback_needed'));
+                        } else if (retries + attemptCount >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) {
                             reject(new Error('tasfa_fallback_needed'));
                         } else {
                             reject(new Error('chunk:' + xhr.status));

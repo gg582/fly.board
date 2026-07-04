@@ -332,7 +332,13 @@ cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
 
 bool send_file_slice_response(cwist_http_request *req, cwist_http_response *res, const char *path, const char *mime, long long offset, size_t amount,
                               int chunk_index, int chunk_count, int span) {
-    int fd = open(path, O_RDONLY);
+    int fd = -1;
+    for (int retry = 0; retry < 3; retry++) {
+        fd = open(path, O_RDONLY);
+        if (fd >= 0) break;
+        struct timespec ts = {0, 10000000}; // 10ms
+        nanosleep(&ts, NULL);
+    }
     if (fd < 0) return false;
 
     char *buf = amount > 0 ? ensure_read_buf(amount) : NULL;
