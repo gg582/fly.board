@@ -736,7 +736,12 @@
                        fresh URL forces a new connection and usually recovers. */
                     if (isFirefoxBrowser() && attemptCount < TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) {
                         try {
-                            var cbUrl = xhrUrl + '&_ffcb=' + Date.now();
+                            // Strip any existing _ffcb query parameters to prevent query accumulation
+                            var cleanUrl = xhrUrl.replace(/&_ffcb=[^&]*/g, '').replace(/\?_ffcb=[^&]*&?/g, '?');
+                            if (cleanUrl.endsWith('?') || cleanUrl.endsWith('&')) {
+                                cleanUrl = cleanUrl.slice(0, -1);
+                            }
+                            var cbUrl = cleanUrl + (cleanUrl.indexOf('?') === -1 ? '?' : '&') + '_ffcb=' + Date.now();
                             doXhr(cbUrl, attemptCount + 1);
                             return;
                         } catch (e) {}
