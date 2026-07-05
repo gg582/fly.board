@@ -24,8 +24,17 @@
 #include <sqlite3.h>
 
 bool is_dark(cwist_http_request *req) {
-    const char *cookie = cwist_http_header_get(req->headers, "Cookie");
-    return cookie && strstr(cookie, "theme=dark") != NULL;
+    cwist_http_header_node *curr = req->headers;
+    while (curr) {
+        if (curr->key && curr->key->data && strcasecmp(curr->key->data, "Cookie") == 0) {
+            const char *cookie_val = curr->value ? curr->value->data : NULL;
+            if (cookie_val && strstr(cookie_val, "theme=dark") != NULL) {
+                return true;
+            }
+        }
+        curr = curr->next;
+    }
+    return false;
 }
 
 void redirect(cwist_http_response *res, const char *url) {
