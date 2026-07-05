@@ -4,13 +4,37 @@
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
 
+#include <cwist/core/template/template.h>
+
 cwist_sstring *render_login(bool dark, const char *error, bool is_mobile) {
-    const char *fields =
-        "<label>Username</label><input name='username' placeholder='username' required>"
-        "<label>Password</label><input name='password' type='password' placeholder='password' required>";
-    cwist_sstring *body = build_form("Login", "/login", "post", fields, "Login", error, dark);
-    cwist_sstring_append(body, "<p style='text-align:center'><a href='/register'>Create account</a></p>");
-    cwist_sstring_append(body, login_register_script);
+    const char *tmpl = 
+        "<div class='card' style='max-width:420px;margin:40px auto;'>"
+        "  <h2 style='margin-top:0'>Login</h2>"
+        "  {% if error %}<div class='alert'>{{ error }}</div>{% endif %}"
+        "  <form action='/login' method='post'>"
+        "    <label>Username</label><input name='username' placeholder='username' required>"
+        "    <label>Password</label><input name='password' type='password' placeholder='password' required>"
+        "    <button type='submit' class='btn' style='margin-top:8px;width:100%'>Login</button>"
+        "  </form>"
+        "</div>"
+        "<p style='text-align:center'><a href='/register'>Create account</a></p>"
+        "<script src='/assets/js/auth.js' defer></script>";
+
+    cJSON *ctx = cJSON_CreateObject();
+    if (error && error[0]) {
+        cJSON_AddStringToObject(ctx, "error", error);
+    } else {
+        cJSON_AddNullToObject(ctx, "error");
+    }
+
+    cwist_sstring *body = cwist_template_render(tmpl, ctx);
+    cJSON_Delete(ctx);
+
+    if (!body) {
+        body = cwist_sstring_create();
+        cwist_sstring_assign(body, "Template render error");
+    }
+
     cwist_sstring *page = render_page("Login", body->data, dark, NULL, NULL, is_mobile);
     cwist_sstring_destroy(body);
     return page;
