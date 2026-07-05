@@ -203,48 +203,89 @@ char *auth_jwt_issue(int user_id, const char *username, const char *role) {
     return cwist_jwt_sign(payload, JWT_SECRET, 86400 * 7); /* 7 days */
 }
 
+/* Extract the next session-cookie token from a Cookie header value.
+ * cookie_val is scanned from the current position; on success *out_next is
+ * set to the character after the consumed cookie (or NULL at end of string).
+ * Returns true if a token was copied into token/token_size. */
+static bool extract_next_session_token(const char *cookie_val, const char **out_next,
+                                       char *token, size_t token_size) {
+    const char *p = cookie_val;
+    size_t name_len = strlen(SESSION_COOKIE_NAME);
+
+    while (p && *p) {
+        while (*p == ' ' || *p == '\t') p++;
+
+        const char *end = strchr(p, ';');
+        const char *eq  = strchr(p, '=');
+        if (eq && (!end || eq < end)) {
+            const char *name_end = eq;
+            while (name_end > p && (name_end[-1] == ' ' || name_end[-1] == '\t')) name_end--;
+
+            if ((size_t)(name_end - p) == name_len &&
+                strncmp(p, SESSION_COOKIE_NAME, name_len) == 0) {
+                const char *val_start = eq + 1;
+                while (*val_start == ' ' || *val_start == '\t') val_start++;
+
+                size_t val_len = end ? (size_t)(end - val_start) : strlen(val_start);
+                while (val_len > 0 && (val_start[val_len - 1] == ' ' || val_start[val_len - 1] == '\t')) val_len--;
+
+                if (val_len > 0 && val_len < token_size) {
+                    memcpy(token, val_start, val_len);
+                    token[val_len] = '\0';
+                    *out_next = end ? end + 1 : NULL;
+                    return true;
+                }
+            }
+        }
+
+        if (!end) break;
+        p = end + 1;
+    }
+    return false;
+}
+
 bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
-    const char *target_cookie_val = NULL;
     cwist_http_header_node *curr = req->headers;
+    int cookie_header_count = 0;
+    int token_attempts = 0;
+
     while (curr) {
         if (curr->key && curr->key->data && strcasecmp(curr->key->data, "Cookie") == 0) {
+            cookie_header_count++;
             const char *cookie_val = curr->value ? curr->value->data : NULL;
-            if (cookie_val && strstr(cookie_val, SESSION_COOKIE_NAME "=")) {
-                target_cookie_val = cookie_val;
-                break;
+            const char *scan = cookie_val;
+
+            while (scan && *scan) {
+                char token[1024];
+                const char *next = NULL;
+                if (!extract_next_session_token(scan, &next, token, sizeof(token))) break;
+
+                token_attempts++;
+                cwist_jwt_claims *claims = cwist_jwt_verify(token, JWT_SECRET);
+                if (claims) {
+                    const char *sub = cwist_jwt_claims_get(claims, "sub");
+                    const char *role = cwist_jwt_claims_get(claims, "role");
+                    if (sub && sub[0] && role && role[0]) {
+                        *out_user_id = atoi(sub);
+                        if (out_role) snprintf(out_role, role_len, "%s", role);
+                        cwist_jwt_claims_destroy(claims);
+                        CWIST_LOG_DEBUG("auth: validated session on attempt %d across %d Cookie header(s)",
+                                        token_attempts, cookie_header_count);
+                        return true;
+                    }
+                    cwist_jwt_claims_destroy(claims);
+                }
+
+                if (!next) break;
+                scan = next;
             }
         }
         curr = curr->next;
     }
-    if (!target_cookie_val) return false;
 
-    const char *start = strstr(target_cookie_val, SESSION_COOKIE_NAME "=");
-    start += strlen(SESSION_COOKIE_NAME "=");
-    const char *end = strchr(start, ';');
-    size_t len = end ? (size_t)(end - start) : strlen(start);
-    if (len == 0 || len > 1024) return false;
-
-    char token[1024];
-    memcpy(token, start, len);
-    token[len] = '\0';
-
-    cwist_jwt_claims *claims = cwist_jwt_verify(token, JWT_SECRET);
-    if (!claims) return false;
-
-    const char *sub = cwist_jwt_claims_get(claims, "sub");
-    if (!sub || sub[0] == '\0') {
-        cwist_jwt_claims_destroy(claims);
-        return false;
-    }
-    const char *role = cwist_jwt_claims_get(claims, "role");
-    if (!role || role[0] == '\0') {
-        cwist_jwt_claims_destroy(claims);
-        return false;
-    }
-    if (sub) *out_user_id = atoi(sub);
-    if (role && out_role) snprintf(out_role, role_len, "%s", role);
-    cwist_jwt_claims_destroy(claims);
-    return true;
+    CWIST_LOG_DEBUG("auth: no valid %s cookie found (headers=%d, attempts=%d)",
+                    SESSION_COOKIE_NAME, cookie_header_count, token_attempts);
+    return false;
 }
 
 bool auth_is_logged_in(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
