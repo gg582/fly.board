@@ -244,7 +244,14 @@ static bool env_flag_enabled(const char *name, bool def) {
     return def;
 }
 
+#include <malloc.h>
+#include <time.h>
+
+static int g_active_requests = 0;
+static time_t g_last_trim_time = 0;
+
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
+    __sync_add_and_fetch(&g_active_requests, 1);
     res->keep_alive = req->keep_alive;
     if (res->keep_alive) {
         int keepalive_timeout = env_int_clamped("FLYBOARD_KEEPALIVE_TIMEOUT", 25, 5, 300);
@@ -343,6 +350,14 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
     if (req->method == CWIST_HTTP_OPTIONS) {
         res->status_code = CWIST_HTTP_NO_CONTENT;
         cwist_sstring_assign(res->body, "");
+        int active = __sync_sub_and_fetch(&g_active_requests, 1);
+        if (active == 0) {
+            time_t now = time(NULL);
+            if (now - g_last_trim_time >= 5) {
+                g_last_trim_time = now;
+                malloc_trim(0);
+            }
+        }
         return;
     }
 
@@ -411,6 +426,15 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
         cwist_http_header_add(&res->headers, "X-Robots-Tag", "noindex, nofollow");
     } else {
         cwist_http_header_add(&res->headers, "X-Robots-Tag", "all");
+    }
+
+    int active = __sync_sub_and_fetch(&g_active_requests, 1);
+    if (active == 0) {
+        time_t now = time(NULL);
+        if (now - g_last_trim_time >= 5) {
+            g_last_trim_time = now;
+            malloc_trim(0);
+        }
     }
 }
 
