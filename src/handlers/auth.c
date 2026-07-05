@@ -1,6 +1,20 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 #include <ctype.h>
+#include <stdbool.h>
+#include <string.h>
+
+static bool is_valid_sha512_hex(const char *str) {
+    if (!str) return false;
+    if (strlen(str) != 128) return false;
+    for (int i = 0; i < 128; i++) {
+        char c = str[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+            return false;
+        }
+    }
+    return true;
+}
 
 void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
     send_html_res(res, render_login(is_dark(req), NULL, is_mobile_request(req)));
@@ -15,6 +29,12 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     if (!username || !password) {
         CWIST_LOG_WARN("Login failed: missing fields");
         send_html_res(res, render_login(dark, "Missing fields", is_mobile_request(req)));
+        cwist_query_map_destroy(kv);
+        return;
+    }
+    if (!is_valid_sha512_hex(password)) {
+        CWIST_LOG_WARN("Login failed: invalid password format");
+        send_html_res(res, render_login(dark, "Invalid credentials", is_mobile_request(req)));
         cwist_query_map_destroy(kv);
         return;
     }
@@ -91,6 +111,14 @@ void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
         CWIST_LOG_WARN("Registration failed: invalid input username='%s'", username ? username : "NULL");
         cJSON *legal = legal_load_docs();
         send_html_res(res, render_register(dark, "Invalid input (password min 6 chars)", is_mobile_request(req), legal));
+        if (legal) cJSON_Delete(legal);
+        cwist_query_map_destroy(kv);
+        return;
+    }
+    if (!is_valid_sha512_hex(password)) {
+        CWIST_LOG_WARN("Registration failed: invalid password format username='%s'", username ? username : "NULL");
+        cJSON *legal = legal_load_docs();
+        send_html_res(res, render_register(dark, "Invalid password format", is_mobile_request(req), legal));
         if (legal) cJSON_Delete(legal);
         cwist_query_map_destroy(kv);
         return;
@@ -404,6 +432,13 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
     if (!current || !new_pw || !confirm || strlen(new_pw) < 6) {
         CWIST_LOG_WARN("Password change failed: invalid input uid=%d", uid);
         send_html_res(res, render_password_change(dark, role, pp, "Invalid input (password min 6 chars)", is_mobile_request(req)));
+        free(pp);
+        cwist_query_map_destroy(kv);
+        return;
+    }
+    if (!is_valid_sha512_hex(current) || !is_valid_sha512_hex(new_pw) || !is_valid_sha512_hex(confirm)) {
+        CWIST_LOG_WARN("Password change failed: invalid password format uid=%d", uid);
+        send_html_res(res, render_password_change(dark, role, pp, "Invalid password format", is_mobile_request(req)));
         free(pp);
         cwist_query_map_destroy(kv);
         return;

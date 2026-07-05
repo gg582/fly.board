@@ -12,6 +12,7 @@
 #include <openssl/params.h>
 #endif
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -203,22 +204,43 @@ char *auth_jwt_issue(int user_id, const char *username, const char *role) {
 }
 
 bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
-    const char *cookie = cwist_http_header_get(req->headers, "Cookie");
-    if (!cookie) return false;
-    const char *start = strstr(cookie, SESSION_COOKIE_NAME "=");
-    if (!start) return false;
+    const char *target_cookie_val = NULL;
+    cwist_http_header_node *curr = req->headers;
+    while (curr) {
+        if (curr->key && curr->key->data && strcasecmp(curr->key->data, "Cookie") == 0) {
+            const char *cookie_val = curr->value ? curr->value->data : NULL;
+            if (cookie_val && strstr(cookie_val, SESSION_COOKIE_NAME "=")) {
+                target_cookie_val = cookie_val;
+                break;
+            }
+        }
+        curr = curr->next;
+    }
+    if (!target_cookie_val) return false;
+
+    const char *start = strstr(target_cookie_val, SESSION_COOKIE_NAME "=");
     start += strlen(SESSION_COOKIE_NAME "=");
     const char *end = strchr(start, ';');
     size_t len = end ? (size_t)(end - start) : strlen(start);
-    if (len > 1024) return false;
+    if (len == 0 || len > 1024) return false;
+
     char token[1024];
     memcpy(token, start, len);
     token[len] = '\0';
 
     cwist_jwt_claims *claims = cwist_jwt_verify(token, JWT_SECRET);
     if (!claims) return false;
+
     const char *sub = cwist_jwt_claims_get(claims, "sub");
+    if (!sub || sub[0] == '\0') {
+        cwist_jwt_claims_destroy(claims);
+        return false;
+    }
     const char *role = cwist_jwt_claims_get(claims, "role");
+    if (!role || role[0] == '\0') {
+        cwist_jwt_claims_destroy(claims);
+        return false;
+    }
     if (sub) *out_user_id = atoi(sub);
     if (role && out_role) snprintf(out_role, role_len, "%s", role);
     cwist_jwt_claims_destroy(claims);
