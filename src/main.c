@@ -223,8 +223,6 @@ int main(void) {
      * zstd (fastest + best ratio) → brotli (best ratio for text) → gzip (widest compat).
      * cwist_mw_compress picks the first backend the client's Accept-Encoding supports. */
     cwist_compress_unregister_all();
-    cwist_compress_register_backend(cwist_compress_backend_zstd());
-    cwist_compress_register_backend(cwist_compress_backend_brotli());
     cwist_compress_register_backend(cwist_compress_backend_gzip());
     cwist_app_use(app, cwist_mw_compress(1024));
     CWIST_LOG_INFO("Compression middleware registered (zstd > brotli > gzip, min 1 KiB)");
