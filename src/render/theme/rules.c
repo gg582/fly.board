@@ -44,6 +44,10 @@ void rule_root(cJSON *vars, theme_color_t *t) {
     cJSON_AddStringToObject(vars, "--panel", t->panel);
     cJSON_AddStringToObject(vars, "--accent", t->accent);
     cJSON_AddStringToObject(vars, "--accent2", t->accent2);
+    cJSON_AddStringToObject(vars, "--accent-high", "color-mix(in srgb, var(--accent) 100%, black 0%)");
+    cJSON_AddStringToObject(vars, "--accent-medium", "color-mix(in srgb, var(--accent) 85%, var(--fg) 15%)");
+    cJSON_AddStringToObject(vars, "--accent-low", "color-mix(in srgb, var(--accent) 70%, var(--muted) 30%)");
+    cJSON_AddStringToObject(vars, "--accent-bg-tint", "color-mix(in srgb, var(--accent) 12%, var(--bg) 88%)");
     cJSON_AddStringToObject(vars, "--border", t->border);
     cJSON_AddStringToObject(vars, "--shadow", t->shadow);
     cJSON_AddStringToObject(vars, "--hover", t->hover);
@@ -141,13 +145,13 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, topbar_title);
 
     cJSON *link = create_rule("a");
-    add_decl(link, "color", "var(--accent)");
+    add_decl(link, "color", "var(--accent-medium)");
     add_decl(link, "text-decoration", "none");
     add_decl(link, "transition", "color 0.2s ease");
     cJSON_AddItemToArray(rules, link);
 
     cJSON *linkh = create_rule("a:hover");
-    add_decl(linkh, "color", "var(--accent2)");
+    add_decl(linkh, "color", "var(--accent-high)");
     cJSON_AddItemToArray(rules, linkh);
 
     cJSON *sel = create_rule("::selection");
@@ -1110,14 +1114,14 @@ void rule_home(cJSON *rules) {
     add_decl(tag, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
     add_decl(tag, "font-size", "12px");
     add_decl(tag, "font-weight", "600");
-    add_decl(tag, "color", "var(--accent)");
+    add_decl(tag, "color", "var(--accent-low)");
     add_decl(tag, "margin", "4px 6px");
     add_decl(tag, "transition", "background 0.5s ease, color 0.5s ease, border-color 0.5s ease, transform 0.2s ease");
     cJSON_AddItemToArray(rules, tag);
 
     cJSON *tagh = create_rule(".tag:hover");
     add_decl(tagh, "transform", "translateY(-1px)");
-    add_decl(tagh, "border-color", "var(--accent)");
+    add_decl(tagh, "border-color", "var(--accent-medium)");
     add_decl(tagh, "background", "color-mix(in srgb, var(--hover) 60%, transparent)");
     cJSON_AddItemToArray(rules, tagh);
 
