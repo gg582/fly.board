@@ -118,6 +118,7 @@ static void *cleanup_worker(void *arg) {
 }
 
 int main(void) {
+    setenv("CWIST_C1M_MODE", "0", 1);
     signal(SIGPIPE, SIG_IGN);
     fly_log_init();
     if (!ensure_asset_workdir()) {
@@ -229,9 +230,7 @@ int main(void) {
 
     engine_routes_register(app);
 
-    /* Disable io_uring-based async reactor to prevent CPU spin loops and connection refused errors
-     * in restricted environments (e.g. Docker, VM). Falls back to standard epoll/kqueue. */
-    setenv("CWIST_C1M_MODE", "0", 1);
+
 
     if (g_config.use_tls) {
         if (g_config.use_http3) {
