@@ -16,6 +16,55 @@ static bool is_valid_sha512_hex(const char *str) {
     return true;
 }
 
+/* Extract host (without port) from root_url like https://example.com:8443/ */
+static void session_cookie_domain(char *out, size_t out_len) {
+    out[0] = '\0';
+    const char *url = g_config.root_url;
+    if (!url || !url[0]) return;
+    const char *p = strstr(url, "://");
+    if (!p) p = url;
+    else p += 3;
+    const char *end = p;
+    while (*end && *end != '/' && *end != '?' && *end != '#') end++;
+    const char *port = strchr(p, ':');
+    size_t len = port && port < end ? (size_t)(port - p) : (size_t)(end - p);
+    if (len > 0 && len < out_len) {
+        memcpy(out, p, len);
+        out[len] = '\0';
+    }
+}
+
+static void set_session_cookie(cwist_http_response *res, const char *token, int max_age) {
+    char domain[256] = {0};
+    session_cookie_domain(domain, sizeof(domain));
+    const char *secure_attr = g_config.use_tls ? "; Secure" : "";
+    const char *domain_attr = domain[0] ? domain : NULL;
+    char cookie[2048];
+
+    /* Clear a possible stale host-only cookie so it cannot shadow the new one. */
+    if (domain_attr && max_age > 0) {
+        snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax%s",
+                 SESSION_COOKIE_NAME, secure_attr);
+        cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+    }
+
+    if (domain_attr) {
+        snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Domain=%s; Max-Age=%d; HttpOnly; SameSite=Lax%s",
+                 SESSION_COOKIE_NAME, token, domain_attr, max_age, secure_attr);
+    } else {
+        snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax%s",
+                 SESSION_COOKIE_NAME, token, max_age, secure_attr);
+    }
+    cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+
+    /* On logout also clear the domain-scoped cookie. */
+    if (max_age == 0 && domain_attr) {
+        snprintf(cookie, sizeof(cookie), "%s=; Path=/; Domain=%s; Max-Age=0; HttpOnly; SameSite=Lax%s",
+                 SESSION_COOKIE_NAME, domain_attr, secure_attr);
+        cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+    }
+}
+
 void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
     send_html_res(res, render_login(is_dark(req), NULL, is_mobile_request(req)));
 }
@@ -43,10 +92,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         CWIST_LOG_INFO("Admin login success: username='%s'", username);
         char *token = auth_jwt_issue(1, username, "admin");
         if (token) {
-            char cookie[2048];
-            const char *secure_attr = g_config.use_tls ? "; Secure" : "";
-            snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, token, secure_attr);
-            cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+            set_session_cookie(res, token, 604800);
             cwist_free(token);
         }
         cwist_query_map_destroy(kv);
@@ -74,10 +120,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     cJSON *role = cJSON_GetObjectItem(user, "role");
     char *token = auth_jwt_issue(user_id, uname->valuestring, role->valuestring);
     if (token) {
-        char cookie[2048];
-        const char *secure_attr = g_config.use_tls ? "; Secure" : "";
-        snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, token, secure_attr);
-        cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+        set_session_cookie(res, token, 604800);
         cwist_free(token);
     }
     cJSON_Delete(user);
@@ -87,10 +130,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
 
 void handler_logout(cwist_http_request *req, cwist_http_response *res) {
     (void)req;
-    char cookie[256];
-    const char *secure_attr = g_config.use_tls ? "; Secure" : "";
-    snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, secure_attr);
-    cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+    set_session_cookie(res, "", 0);
     redirect(res, "/");
 }
 
