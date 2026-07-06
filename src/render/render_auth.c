@@ -10,7 +10,7 @@ cwist_sstring *render_login(bool dark, const char *error, bool is_mobile) {
     const char *tmpl = 
         "<div class='card' style='max-width:420px;margin:40px auto;'>"
         "  <h2 style='margin-top:0'>Login</h2>"
-        "  {% if error %}<div class='alert'>{{ error }}</div>{% endif %}"
+        "  {% if error %}<div class='alert'>{{ error | escape }}</div>{% endif %}"
         "  <form action='/login' method='post'>"
         "    <label>Username</label><input name='username' placeholder='username' required>"
         "    <label>Password</label><input name='password' type='password' placeholder='password' required>"
@@ -41,15 +41,47 @@ cwist_sstring *render_login(bool dark, const char *error, bool is_mobile) {
 }
 
 cwist_sstring *render_register(bool dark, const char *error, bool is_mobile, cJSON *legal_docs) {
-    cwist_sstring *fields = cwist_sstring_create();
-    cwist_sstring_append(fields,
-        "<label>Username</label><input name='username' placeholder='username' required>"
-        "<label>Email</label><input name='email' type='email' placeholder='email' required>"
-        "<label>Password</label><input name='password' type='password' placeholder='password' required>");
+    const char *tmpl =
+        "<div class='card' style='max-width:420px;margin:40px auto;'>"
+        "  <h2 style='margin-top:0'>Register</h2>"
+        "  {% if error %}<div class='alert'>{{ error | escape }}</div>{% endif %}"
+        "  <form action='/register' method='post'>"
+        "    <label>Username</label><input name='username' placeholder='username' required>"
+        "    <label>Email</label><input name='email' type='email' placeholder='email' required>"
+        "    <label>Password</label><input name='password' type='password' placeholder='password' required>"
+        "    {% if legal_docs %}"
+        "    <hr style='border:0;border-top:1px solid var(--border);margin:16px 0'>"
+        "    <h3 style='margin:0 0 8px;font-size:16px'>Terms &amp; Conditions</h3>"
+        "    {% for doc in legal_docs %}"
+        "    <div style='margin-bottom:12px'>"
+        "      <div style='font-weight:600;font-size:14px;margin-bottom:4px'>{{ doc.title | escape }}"
+        "        {% if doc.required %} <span style='color:var(--accent)'>*</span>{% endif %}"
+        "      </div>"
+        "      <div style='max-height:160px;overflow-y:auto;border:1px solid var(--border);"
+        "           padding:8px;border-radius:4px;background:var(--bg)'>"
+        "        <div class='markdown-body' style='font-size:13px'>{{ doc.html }}</div>"
+        "      </div>"
+        "      <label style='display:flex;align-items:center;gap:6px;margin-top:6px;font-size:13px;cursor:pointer'>"
+        "        <input type='checkbox' name='legal_{{ doc.name }}' {% if doc.required %}required{% endif %}>"
+        "        Agree"
+        "      </label>"
+        "    </div>"
+        "    {% endfor %}"
+        "    {% endif %}"
+        "    <button type='submit' class='btn' style='margin-top:8px;width:100%'>Register</button>"
+        "  </form>"
+        "</div>"
+        "<p style='text-align:center'><a href='/login'>Already have an account?</a></p>"
+        "<script src='/assets/js/auth.js' defer></script>";
 
+    cJSON *ctx = cJSON_CreateObject();
+    if (error && error[0]) {
+        cJSON_AddStringToObject(ctx, "error", error);
+    } else {
+        cJSON_AddNullToObject(ctx, "error");
+    }
     if (legal_docs && cJSON_GetArraySize(legal_docs) > 0) {
-        cwist_sstring_append(fields, "<hr style='border:0;border-top:1px solid var(--border);margin:16px 0'>");
-        cwist_sstring_append(fields, "<h3 style='margin:0 0 8px;font-size:16px'>Terms &amp; Conditions</h3>");
+        cJSON *docs = cJSON_CreateArray();
         cJSON *doc;
         cJSON_ArrayForEach(doc, legal_docs) {
             cJSON *name = cJSON_GetObjectItem(doc, "name");
@@ -57,52 +89,59 @@ cwist_sstring *render_register(bool dark, const char *error, bool is_mobile, cJS
             cJSON *html = cJSON_GetObjectItem(doc, "html");
             cJSON *req = cJSON_GetObjectItem(doc, "required");
             if (!name || !title || !html) continue;
-
-            cwist_sstring_append(fields, "<div style='margin-bottom:12px'>");
-            cwist_sstring_append(fields, "<div style='font-weight:600;font-size:14px;margin-bottom:4px'>");
-            cwist_sstring_append_escaped(fields, title->valuestring);
-            if (req && req->valueint) {
-                cwist_sstring_append(fields, " <span style='color:var(--accent)'>*</span>");
-            }
-            cwist_sstring_append(fields, "</div>");
-
-            cwist_sstring_append(fields,
-                "<div style='max-height:160px;overflow-y:auto;border:1px solid var(--border);"
-                "padding:8px;border-radius:4px;background:var(--bg)'>");
-            cwist_sstring_append(fields, "<div class='markdown-body' style='font-size:13px'>");
-            cwist_sstring_append(fields, html->valuestring);
-            cwist_sstring_append(fields, "</div></div>");
-
-            char checkbox[512];
-            snprintf(checkbox, sizeof(checkbox),
-                "<label style='display:flex;align-items:center;gap:6px;margin-top:6px;font-size:13px;cursor:pointer'>"
-                "<input type='checkbox' name='legal_%s' %s>"
-                "Agree"
-                "</label>",
-                name->valuestring,
-                (req && req->valueint) ? "required" : "");
-            cwist_sstring_append(fields, checkbox);
-            cwist_sstring_append(fields, "</div>");
+            cJSON *item = cJSON_CreateObject();
+            cJSON_AddStringToObject(item, "name", name->valuestring);
+            cJSON_AddStringToObject(item, "title", title->valuestring);
+            cJSON_AddStringToObject(item, "html", html->valuestring);
+            cJSON_AddBoolToObject(item, "required", req && cJSON_IsTrue(req));
+            cJSON_AddItemToArray(docs, item);
         }
+        cJSON_AddItemToObject(ctx, "legal_docs", docs);
     }
 
-    cwist_sstring *body = build_form("Register", "/register", "post", fields->data, "Register", error, dark);
-    cwist_sstring_append(body, "<p style='text-align:center'><a href='/login'>Already have an account?</a></p>");
-    cwist_sstring_append(body, login_register_script);
+    cwist_sstring *body = cwist_template_render(tmpl, ctx);
+    cJSON_Delete(ctx);
+
+    if (!body) {
+        body = cwist_sstring_create();
+        cwist_sstring_assign(body, "Template render error");
+    }
+
     cwist_sstring *page = render_page("Register", body->data, dark, NULL, NULL, is_mobile);
     cwist_sstring_destroy(body);
-    cwist_sstring_destroy(fields);
     return page;
 }
 
 cwist_sstring *render_password_change(bool dark, const char *user_role, const char *profile_pic, const char *error, bool is_mobile) {
-    const char *fields =
-        "<label>Current Password</label><input name='current_password' type='password' placeholder='Current password' required>"
-        "<label>New Password</label><input name='new_password' type='password' placeholder='min 6 chars' required>"
-        "<label>Confirm New Password</label><input name='confirm_password' type='password' placeholder='Confirm new password' required>";
-    cwist_sstring *body = build_form("Change Password", "/account/password", "post", fields, "Update Password", error, dark);
-    cwist_sstring_append(body, "<p style='text-align:center'><a href='/account/settings'>Back to settings</a></p>");
-    cwist_sstring_append(body, login_register_script);
+    const char *tmpl =
+        "<div class='card' style='max-width:420px;margin:40px auto;'>"
+        "  <h2 style='margin-top:0'>Change Password</h2>"
+        "  {% if error %}<div class='alert'>{{ error | escape }}</div>{% endif %}"
+        "  <form action='/account/password' method='post'>"
+        "    <label>Current Password</label><input name='current_password' type='password' placeholder='Current password' required>"
+        "    <label>New Password</label><input name='new_password' type='password' placeholder='min 6 chars' required>"
+        "    <label>Confirm New Password</label><input name='confirm_password' type='password' placeholder='Confirm new password' required>"
+        "    <button type='submit' class='btn' style='margin-top:8px;width:100%'>Update Password</button>"
+        "  </form>"
+        "</div>"
+        "<p style='text-align:center'><a href='/account/settings'>Back to settings</a></p>"
+        "<script src='/assets/js/auth.js' defer></script>";
+
+    cJSON *ctx = cJSON_CreateObject();
+    if (error && error[0]) {
+        cJSON_AddStringToObject(ctx, "error", error);
+    } else {
+        cJSON_AddNullToObject(ctx, "error");
+    }
+
+    cwist_sstring *body = cwist_template_render(tmpl, ctx);
+    cJSON_Delete(ctx);
+
+    if (!body) {
+        body = cwist_sstring_create();
+        cwist_sstring_assign(body, "Template render error");
+    }
+
     cwist_sstring *page = render_page("Change Password", body->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(body);
     return page;
