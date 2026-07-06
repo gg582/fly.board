@@ -254,7 +254,16 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
 void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    auth_is_logged_in(req, &uid, role, sizeof(role));
+    bool logged_in = auth_is_logged_in(req, &uid, role, sizeof(role));
+
+    /* If the browser sent a session cookie but we could not verify it, do not
+     * silently fall back to anonymous posting. The auth layer already logged
+     * the precise failure reason. */
+    if (!logged_in && auth_has_session_cookie(req)) {
+        res->status_code = CWIST_HTTP_UNAUTHORIZED;
+        cwist_sstring_assign(res->body, "Unauthorized. Session lost during post creation. Please <a href='/login'>login</a>.");
+        return;
+    }
 
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
     char *title = NULL, *content = NULL, *summary = NULL, *board_id_str = NULL, *media_meta = NULL;
@@ -531,9 +540,18 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
 void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    auth_is_logged_in(req, &uid, role, sizeof(role));
+    bool logged_in = auth_is_logged_in(req, &uid, role, sizeof(role));
     const char *id_str = cwist_query_map_get(req->path_params, "id");
     const char *delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
+
+    /* A request that carried a session cookie but failed verification is a
+     * logged-in flow that lost auth, not an anonymous delete attempt. */
+    if (!logged_in && auth_has_session_cookie(req)) {
+        res->status_code = CWIST_HTTP_UNAUTHORIZED;
+        cwist_sstring_assign(res->body, "Unauthorized. Session lost. Please <a href='/login'>login</a>.");
+        return;
+    }
+
     if (!id_str) { redirect(res, "/"); return; }
     cJSON *post = db_post_get_by_id(req->db, atoi(id_str));
     if (!post) { CWIST_LOG_WARN("Post delete failed: not found id=%s uid=%d", id_str, uid); redirect(res, "/"); return; }
