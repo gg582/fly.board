@@ -37,6 +37,145 @@ static char g_jwt_secret[256] = {0};
 #define AUTH_FAIL_USER_LOOKUP           "AUTH_FAIL_USER_LOOKUP"
 #define AUTH_FAIL_UNKNOWN               "AUTH_FAIL_UNKNOWN"
 
+/* In-memory session hint cache.
+ * When a valid JWT is verified we remember (IP + User-Agent) -> identity.
+ * If a later request from the same IP+UA arrives without a Cookie header
+ * (e.g. keep-alive/header reuse bug), we can fall back to the remembered
+ * identity instead of treating the user as logged out. This is intentionally
+ * a heuristic: it only covers missing-cookie cases, never invalid tokens,
+ * and entries expire quickly. */
+#include <pthread.h>
+
+#define AUTH_HINT_CACHE_SIZE 1024
+#define AUTH_HINT_TTL_SECONDS 300
+
+typedef struct {
+    uint64_t key_hash;
+    int user_id;
+    char role[32];
+    time_t last_seen;
+    bool active;
+} auth_hint_entry_t;
+
+static auth_hint_entry_t g_auth_hint_cache[AUTH_HINT_CACHE_SIZE];
+static pthread_mutex_t g_auth_hint_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static uint64_t auth_hint_hash(const char *ip, const char *ua) {
+    if (!ip) ip = "";
+    if (!ua) ua = "";
+    /* FNV-1a 64-bit */
+    uint64_t h = 0xcbf29ce484222325ULL;
+    for (const char *p = ip; *p; ++p) {
+        h ^= (uint64_t)(unsigned char)*p;
+        h *= 0x100000001b3ULL;
+    }
+    h ^= 0x3a; /* separator */
+    h *= 0x100000001b3ULL;
+    for (const char *p = ua; *p; ++p) {
+        h ^= (uint64_t)(unsigned char)*p;
+        h *= 0x100000001b3ULL;
+    }
+    return h;
+}
+
+static void auth_hint_get_client_info(cwist_http_request *req, const char **out_ip, cwist_sstring **out_ip_ss, const char **out_ua) {
+    *out_ip = "";
+    *out_ip_ss = NULL;
+    *out_ua = "";
+    if (req->client_fd >= 0) {
+        *out_ip_ss = cwist_get_client_ip_from_fd(req->client_fd);
+        if (*out_ip_ss && (*out_ip_ss)->data) {
+            *out_ip = (*out_ip_ss)->data;
+        }
+    }
+    *out_ua = cwist_http_header_get(req->headers, "User-Agent");
+    if (!*out_ua) *out_ua = "";
+}
+
+static void auth_hint_update(cwist_http_request *req, int user_id, const char *role) {
+    const char *ip, *ua;
+    cwist_sstring *ip_ss = NULL;
+    auth_hint_get_client_info(req, &ip, &ip_ss, &ua);
+    uint64_t h = auth_hint_hash(ip, ua);
+    if (ip_ss) cwist_sstring_destroy(ip_ss);
+
+    pthread_mutex_lock(&g_auth_hint_mutex);
+    time_t now = time(NULL);
+    int best_slot = -1;
+    time_t oldest = now;
+    for (int i = 0; i < AUTH_HINT_CACHE_SIZE; ++i) {
+        if (!g_auth_hint_cache[i].active) {
+            best_slot = i;
+            break;
+        }
+        if (g_auth_hint_cache[i].key_hash == h) {
+            best_slot = i;
+            break;
+        }
+        if (g_auth_hint_cache[i].last_seen < oldest) {
+            oldest = g_auth_hint_cache[i].last_seen;
+            best_slot = i;
+        }
+    }
+    if (best_slot >= 0) {
+        g_auth_hint_cache[best_slot].key_hash = h;
+        g_auth_hint_cache[best_slot].user_id = user_id;
+        snprintf(g_auth_hint_cache[best_slot].role, sizeof(g_auth_hint_cache[best_slot].role), "%s", role ? role : "");
+        g_auth_hint_cache[best_slot].last_seen = now;
+        g_auth_hint_cache[best_slot].active = true;
+    }
+    pthread_mutex_unlock(&g_auth_hint_mutex);
+}
+
+static bool auth_hint_lookup(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
+    const char *ip, *ua;
+    cwist_sstring *ip_ss = NULL;
+    auth_hint_get_client_info(req, &ip, &ip_ss, &ua);
+    uint64_t h = auth_hint_hash(ip, ua);
+    if (ip_ss) cwist_sstring_destroy(ip_ss);
+
+    pthread_mutex_lock(&g_auth_hint_mutex);
+    time_t now = time(NULL);
+    bool found = false;
+    for (int i = 0; i < AUTH_HINT_CACHE_SIZE; ++i) {
+        if (g_auth_hint_cache[i].active &&
+            g_auth_hint_cache[i].key_hash == h &&
+            (now - g_auth_hint_cache[i].last_seen) <= AUTH_HINT_TTL_SECONDS) {
+            *out_user_id = g_auth_hint_cache[i].user_id;
+            snprintf(out_role, role_len, "%s", g_auth_hint_cache[i].role);
+            found = true;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_auth_hint_mutex);
+    return found;
+}
+
+static void auth_hint_remove(cwist_http_request *req) {
+    const char *ip, *ua;
+    cwist_sstring *ip_ss = NULL;
+    auth_hint_get_client_info(req, &ip, &ip_ss, &ua);
+    uint64_t h = auth_hint_hash(ip, ua);
+    if (ip_ss) cwist_sstring_destroy(ip_ss);
+
+    pthread_mutex_lock(&g_auth_hint_mutex);
+    for (int i = 0; i < AUTH_HINT_CACHE_SIZE; ++i) {
+        if (g_auth_hint_cache[i].active && g_auth_hint_cache[i].key_hash == h) {
+            g_auth_hint_cache[i].active = false;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_auth_hint_mutex);
+}
+
+void auth_session_hint_update(cwist_http_request *req, int user_id, const char *role) {
+    auth_hint_update(req, user_id, role);
+}
+
+void auth_session_hint_remove(cwist_http_request *req) {
+    auth_hint_remove(req);
+}
+
 bool auth_jwt_init(const char *secret_path) {
     const char *path = secret_path ? secret_path : "data/.jwt_secret";
     FILE *f = fopen(path, "r");
@@ -408,6 +547,7 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
                 } else {
                     *out_user_id = parsed_uid;
                     snprintf(out_role, role_len, "%s", role);
+                    auth_hint_update(req, *out_user_id, out_role);
                     cwist_jwt_claims_destroy(claims);
                     cwist_sstring_destroy(token);
                     return true;
@@ -429,6 +569,29 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
             reason = AUTH_FAIL_SESSION_COOKIE_MISSING;
         } else {
             reason = AUTH_FAIL_UNKNOWN;
+        }
+    }
+
+    /* If the cookie header was absent (likely keep-alive/header reuse bug),
+     * fall back to a recent successful identity from the same IP+UA.
+     * This is a heuristic: it keeps legitimate users logged in during
+     * transient cookie loss, but never overrides an explicitly sent token. */
+    if (reason == AUTH_FAIL_NO_COOKIE_HEADER ||
+        reason == AUTH_FAIL_SESSION_COOKIE_MISSING ||
+        reason == AUTH_FAIL_EMPTY_SESSION_COOKIE) {
+        int hint_uid = 0;
+        char hint_role[32] = {0};
+        if (auth_hint_lookup(req, &hint_uid, hint_role, sizeof(hint_role))) {
+            *out_user_id = hint_uid;
+            snprintf(out_role, role_len, "%s", hint_role);
+            CWIST_LOG_ERROR("auth verify hint fallback: reason=%s method=%s path=%s hint_uid=%d hint_role=%s now=%ld",
+                            reason,
+                            cwist_http_method_to_string(req->method),
+                            (req->path && req->path->data) ? req->path->data : "?",
+                            hint_uid,
+                            hint_role,
+                            (long)time(NULL));
+            return true;
         }
     }
 

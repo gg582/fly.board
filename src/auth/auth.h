@@ -24,4 +24,7 @@ bool auth_require_admin(cwist_http_request *req, cwist_http_response *res);
 bool auth_admin_load(const char *path);
 bool auth_admin_check(const char *username, const char *password);
 
+void auth_session_hint_update(cwist_http_request *req, int user_id, const char *role);
+void auth_session_hint_remove(cwist_http_request *req);
+
 #endif

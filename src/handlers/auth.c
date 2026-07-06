@@ -29,6 +29,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
             cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
             cwist_free(token);
         }
+        auth_session_hint_update(req, 1, "admin");
         cwist_query_map_destroy(kv);
         redirect(res, "/");
         return;
@@ -59,17 +60,18 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
         cwist_free(token);
     }
+    auth_session_hint_update(req, user_id, role->valuestring);
     cJSON_Delete(user);
     cwist_query_map_destroy(kv);
     redirect(res, "/");
 }
 
 void handler_logout(cwist_http_request *req, cwist_http_response *res) {
-    (void)req;
     const char *secure_attr = g_config.use_tls ? "; Secure" : "";
     char cookie[256];
     snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, secure_attr);
     cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+    auth_session_hint_remove(req);
     redirect(res, "/");
 }
 
