@@ -138,6 +138,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(katex_css, "href", "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css");
     cwist_html_element_add_child(head, katex_css);
 
+    cwist_html_element_t *jwt_js = cwist_html_element_create("script");
+    cwist_html_element_add_attr(jwt_js, "src", "/assets/js/jwt.js?v=1");
+    cwist_html_element_add_attr(jwt_js, "defer", NULL);
+    cwist_html_element_add_child(head, jwt_js);
+
     cwist_html_element_t *layout_js = cwist_html_element_create("script");
     cwist_html_element_add_attr(layout_js, "src", "/assets/js/layout.js");
     cwist_html_element_add_attr(layout_js, "defer", NULL);
