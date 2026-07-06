@@ -242,7 +242,7 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
 void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    auth_is_logged_in(req, &uid, role, sizeof(role));
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *boards = db_board_list(req->db);
     cwist_sstring *page = render_post_editor(boards, NULL, NULL, is_dark(req), role, NULL, pp, is_mobile_request(req));
@@ -254,7 +254,7 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
 void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    auth_is_logged_in(req, &uid, role, sizeof(role));
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
 
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
     char *title = NULL, *content = NULL, *summary = NULL, *board_id_str = NULL, *media_meta = NULL;
