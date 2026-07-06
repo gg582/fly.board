@@ -253,10 +253,15 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
 
     const char *name_eq = SESSION_COOKIE_NAME "=";
     size_t name_eq_len = strlen(name_eq);
+    int cookie_headers = 0;
+    int token_attempts = 0;
+    int valid_claims = 0;
+    int missing_role = 0;
 
     for (cwist_http_header_node *h = req->headers; h; h = h->next) {
         if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
         if (strcasecmp(h->key->data, "Cookie") != 0) continue;
+        cookie_headers++;
 
         /* Scan every occurrence of the session cookie in this header value.
          * Browsers may send duplicate session cookies (e.g. a stale domain-scoped
@@ -266,6 +271,7 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
             const char *start = scan + name_eq_len;
             const char *end = strchr(start, ';');
             size_t len = end ? (size_t)(end - start) : strlen(start);
+            token_attempts++;
 
             if (len > 0 && len < 1024) {
                 char token[1024];
@@ -274,9 +280,11 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
 
                 cwist_jwt_claims *claims = cwist_jwt_verify(token, secret);
                 if (claims) {
+                    valid_claims++;
                     const char *sub = cwist_jwt_claims_get(claims, "sub");
                     const char *role = cwist_jwt_claims_get(claims, "role");
                     bool ok = sub && role;
+                    if (!ok) missing_role++;
                     if (ok) {
                         *out_user_id = atoi(sub);
                         snprintf(out_role, role_len, "%s", role);
@@ -290,6 +298,9 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
             scan = end + 1;
         }
     }
+
+    CWIST_LOG_WARN("auth verify failed: cookie_headers=%d token_attempts=%d valid_claims=%d missing_role=%d",
+                   cookie_headers, token_attempts, valid_claims, missing_role);
     return false;
 }
 
