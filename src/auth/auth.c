@@ -506,3 +506,17 @@ bool auth_require_admin(cwist_http_request *req, cwist_http_response *res) {
     }
     return true;
 }
+
+/* Returns true if the request carries at least one Cookie header that
+ * contains the session cookie name. This is used by handlers that allow
+ * anonymous fallback (e.g. post creation) to distinguish "anonymous by
+ * choice" from "logged-in session unexpectedly missing/invalid". */
+bool auth_has_session_cookie(cwist_http_request *req) {
+    const char *name_eq = SESSION_COOKIE_NAME "=";
+    for (cwist_http_header_node *h = req->headers; h; h = h->next) {
+        if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
+        if (strcasecmp(h->key->data, "Cookie") != 0) continue;
+        if (strstr(h->value->data, name_eq) != NULL) return true;
+    }
+    return false;
+}
