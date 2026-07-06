@@ -2,6 +2,7 @@
 #include "auth.h"
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/log.h>
+#include <cwist/core/sstring/sstring.h>
 #include <cwist/security/jwt/jwt.h>
 #include <openssl/rand.h>
 #include <openssl/evp.h>
@@ -20,6 +21,21 @@
 static const char *CLIENT_NONCE = "fly.board";
 
 static char g_jwt_secret[256] = {0};
+
+/* Precise 401 reason codes for auth failure instrumentation.
+ * These strings are intentionally stable; do not localize or change. */
+#define AUTH_FAIL_NO_COOKIE_HEADER      "AUTH_FAIL_NO_COOKIE_HEADER"
+#define AUTH_FAIL_SESSION_COOKIE_MISSING "AUTH_FAIL_SESSION_COOKIE_MISSING"
+#define AUTH_FAIL_EMPTY_SESSION_COOKIE  "AUTH_FAIL_EMPTY_SESSION_COOKIE"
+#define AUTH_FAIL_TOKEN_TOO_LONG        "AUTH_FAIL_TOKEN_TOO_LONG"
+#define AUTH_FAIL_JWT_VERIFY_NULL       "AUTH_FAIL_JWT_VERIFY_NULL"
+#define AUTH_FAIL_MISSING_SUB           "AUTH_FAIL_MISSING_SUB"
+#define AUTH_FAIL_BAD_SUB               "AUTH_FAIL_BAD_SUB"
+#define AUTH_FAIL_MISSING_USERNAME      "AUTH_FAIL_MISSING_USERNAME"
+#define AUTH_FAIL_MISSING_ROLE          "AUTH_FAIL_MISSING_ROLE"
+#define AUTH_FAIL_ROLE_NOT_ADMIN        "AUTH_FAIL_ROLE_NOT_ADMIN"
+#define AUTH_FAIL_USER_LOOKUP           "AUTH_FAIL_USER_LOOKUP"
+#define AUTH_FAIL_UNKNOWN               "AUTH_FAIL_UNKNOWN"
 
 bool auth_jwt_init(const char *secret_path) {
     const char *path = secret_path ? secret_path : "data/.jwt_secret";
@@ -239,24 +255,75 @@ bool auth_verify_password(const char *password, const char *hash) {
     return legacy_verify_password(prehash, hash);
 }
 
+/* Append a string to an sstring with minimal JSON string escaping.
+ * Escapes backslash, double quote, and ASCII control characters so that
+ * usernames/roles containing JSON metacharacters do not corrupt the JWT
+ * payload and cause cwist_jwt_sign() to fail. */
+static void append_json_escaped(cwist_sstring *ss, const char *s) {
+    if (!s) return;
+    for (const char *p = s; *p; ++p) {
+        if (*p == '"') {
+            cwist_sstring_append(ss, "\\\"");
+        } else if (*p == '\\') {
+            cwist_sstring_append(ss, "\\\\");
+        } else if ((unsigned char)*p < 0x20) {
+            char buf[7];
+            snprintf(buf, sizeof(buf), "\\u%04x", (unsigned char)*p);
+            cwist_sstring_append(ss, buf);
+        } else {
+            char buf[2] = { *p, '\0' };
+            cwist_sstring_append(ss, buf);
+        }
+    }
+}
+
 char *auth_jwt_issue(int user_id, const char *username, const char *role) {
     const char *secret = auth_jwt_secret();
     if (!secret) return NULL;
-    char payload[512];
-    snprintf(payload, sizeof(payload), "{\"sub\":\"%d\",\"username\":\"%s\",\"role\":\"%s\"}", user_id, username, role);
-    return cwist_jwt_sign(payload, secret, 86400 * 7); /* 7 days */
+
+    cwist_sstring *payload = cwist_sstring_create();
+    if (!payload) return NULL;
+
+    char sub[32];
+    snprintf(sub, sizeof(sub), "%d", user_id);
+
+    cwist_sstring_append(payload, "{\"sub\":\"");
+    cwist_sstring_append(payload, sub);
+    cwist_sstring_append(payload, "\",\"username\":\"");
+    append_json_escaped(payload, username);
+    cwist_sstring_append(payload, "\",\"role\":\"");
+    append_json_escaped(payload, role);
+    cwist_sstring_append(payload, "\"}");
+
+    char *token = cwist_jwt_sign(payload->data, secret, 86400 * 7); /* 7 days */
+    cwist_sstring_destroy(payload);
+    return token;
 }
 
 bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
     const char *secret = auth_jwt_secret();
-    if (!secret) return false;
+    if (!secret) {
+        CWIST_LOG_ERROR("auth verify failed: reason=%s method=%s path=%s detail=%s",
+                        AUTH_FAIL_UNKNOWN,
+                        cwist_http_method_to_string(req->method),
+                        (req->path && req->path->data) ? req->path->data : "?",
+                        "no_jwt_secret");
+        return false;
+    }
 
     const char *name_eq = SESSION_COOKIE_NAME "=";
     size_t name_eq_len = strlen(name_eq);
     int cookie_headers = 0;
     int token_attempts = 0;
     int valid_claims = 0;
-    int missing_role = 0;
+    bool session_cookie_found = false;
+    size_t session_token_len = 0;
+    const char *reason = NULL;
+    int parsed_uid = 0;
+    const char *last_role = NULL;
+    const char *last_iat = NULL;
+    const char *last_nbf = NULL;
+    const char *last_exp = NULL;
 
     for (cwist_http_header_node *h = req->headers; h; h = h->next) {
         if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
@@ -268,39 +335,106 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
          * cookie left over from a previous deployment plus the current one). */
         const char *scan = h->value->data;
         while ((scan = strstr(scan, name_eq)) != NULL) {
+            session_cookie_found = true;
             const char *start = scan + name_eq_len;
             const char *end = strchr(start, ';');
             size_t len = end ? (size_t)(end - start) : strlen(start);
+            session_token_len = len;
             token_attempts++;
 
-            if (len > 0 && len < 1024) {
-                char token[1024];
-                memcpy(token, start, len);
-                token[len] = '\0';
+            if (len == 0) {
+                reason = AUTH_FAIL_EMPTY_SESSION_COOKIE;
+                if (!end) break;
+                scan = end + 1;
+                continue;
+            }
+            if (len >= 1024) {
+                reason = AUTH_FAIL_TOKEN_TOO_LONG;
+                if (!end) break;
+                scan = end + 1;
+                continue;
+            }
 
-                cwist_jwt_claims *claims = cwist_jwt_verify(token, secret);
-                if (claims) {
-                    valid_claims++;
-                    const char *sub = cwist_jwt_claims_get(claims, "sub");
-                    const char *role = cwist_jwt_claims_get(claims, "role");
-                    bool ok = sub && role;
-                    if (!ok) missing_role++;
-                    if (ok) {
-                        *out_user_id = atoi(sub);
-                        snprintf(out_role, role_len, "%s", role);
-                    }
+            cwist_sstring *token = cwist_sstring_create();
+            if (!token) {
+                if (!end) break;
+                scan = end + 1;
+                continue;
+            }
+            cwist_sstring_assign_len(token, start, len);
+
+            cwist_jwt_claims *claims = cwist_jwt_verify(token->data, secret);
+            if (!claims) {
+                reason = AUTH_FAIL_JWT_VERIFY_NULL;
+                cwist_sstring_destroy(token);
+                if (!end) break;
+                scan = end + 1;
+                continue;
+            }
+
+            valid_claims++;
+            const char *sub = cwist_jwt_claims_get(claims, "sub");
+            const char *username = cwist_jwt_claims_get(claims, "username");
+            const char *role = cwist_jwt_claims_get(claims, "role");
+            last_iat = cwist_jwt_claims_get(claims, "iat");
+            last_nbf = cwist_jwt_claims_get(claims, "nbf");
+            last_exp = cwist_jwt_claims_get(claims, "exp");
+
+            if (!sub) {
+                reason = AUTH_FAIL_MISSING_SUB;
+            } else {
+                parsed_uid = atoi(sub);
+                if (parsed_uid <= 0) {
+                    reason = AUTH_FAIL_BAD_SUB;
+                } else if (!username) {
+                    reason = AUTH_FAIL_MISSING_USERNAME;
+                } else if (!role) {
+                    reason = AUTH_FAIL_MISSING_ROLE;
+                } else {
+                    *out_user_id = parsed_uid;
+                    snprintf(out_role, role_len, "%s", role);
                     cwist_jwt_claims_destroy(claims);
-                    if (ok) return true;
+                    cwist_sstring_destroy(token);
+                    return true;
                 }
             }
 
+            last_role = role;
+            cwist_jwt_claims_destroy(claims);
+            cwist_sstring_destroy(token);
             if (!end) break;
             scan = end + 1;
         }
     }
 
-    CWIST_LOG_WARN("auth verify failed: cookie_headers=%d token_attempts=%d valid_claims=%d missing_role=%d",
-                   cookie_headers, token_attempts, valid_claims, missing_role);
+    if (!reason) {
+        if (cookie_headers == 0) {
+            reason = AUTH_FAIL_NO_COOKIE_HEADER;
+        } else if (!session_cookie_found) {
+            reason = AUTH_FAIL_SESSION_COOKIE_MISSING;
+        } else {
+            reason = AUTH_FAIL_UNKNOWN;
+        }
+    }
+
+    CWIST_LOG_ERROR("auth verify failed: reason=%s method=%s path=%s "
+                    "cookie_headers=%d session_found=%d token_len=%zu "
+                    "token_attempts=%d valid_claims=%d parsed_uid=%d "
+                    "parsed_role=%s iat=%s nbf=%s exp=%s now=%ld",
+                    reason,
+                    cwist_http_method_to_string(req->method),
+                    (req->path && req->path->data) ? req->path->data : "?",
+                    cookie_headers,
+                    session_cookie_found ? 1 : 0,
+                    session_token_len,
+                    token_attempts,
+                    valid_claims,
+                    parsed_uid,
+                    last_role ? last_role : "(none)",
+                    last_iat ? last_iat : "(none)",
+                    last_nbf ? last_nbf : "(none)",
+                    last_exp ? last_exp : "(none)",
+                    (long)time(NULL));
     return false;
 }
 
@@ -359,6 +493,13 @@ bool auth_require_admin(cwist_http_request *req, cwist_http_response *res) {
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return false;
     if (strcmp(role, "admin") != 0) {
+        CWIST_LOG_ERROR("auth admin failed: reason=%s method=%s path=%s parsed_uid=%d parsed_role=%s now=%ld",
+                        AUTH_FAIL_ROLE_NOT_ADMIN,
+                        cwist_http_method_to_string(req->method),
+                        (req->path && req->path->data) ? req->path->data : "?",
+                        uid,
+                        role[0] ? role : "(none)",
+                        (long)time(NULL));
         res->status_code = CWIST_HTTP_FORBIDDEN;
         cwist_sstring_assign(res->body, "Forbidden. Admin only.");
         return false;
