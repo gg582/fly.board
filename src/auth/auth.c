@@ -287,15 +287,30 @@ char *auth_jwt_issue(int user_id, const char *username, const char *role) {
     char sub[32];
     snprintf(sub, sizeof(sub), "%d", user_id);
 
+    /* Use a single timestamp for all time claims so iat, nbf, and exp are
+     * perfectly aligned and not subject to clock drift between claim adds. */
+    time_t now = time(NULL);
+    time_t exp = now + AUTH_SESSION_LIFETIME;
+    char iat_str[32], nbf_str[32], exp_str[32];
+    snprintf(iat_str, sizeof(iat_str), "%ld", (long)now);
+    snprintf(nbf_str, sizeof(nbf_str), "%ld", (long)now);
+    snprintf(exp_str, sizeof(exp_str), "%ld", (long)exp);
+
     cwist_sstring_append(payload, "{\"sub\":\"");
     cwist_sstring_append(payload, sub);
     cwist_sstring_append(payload, "\",\"username\":\"");
     append_json_escaped(payload, username);
     cwist_sstring_append(payload, "\",\"role\":\"");
     append_json_escaped(payload, role);
-    cwist_sstring_append(payload, "\"}");
+    cwist_sstring_append(payload, "\",\"iat\":");
+    cwist_sstring_append(payload, iat_str);
+    cwist_sstring_append(payload, ",\"nbf\":");
+    cwist_sstring_append(payload, nbf_str);
+    cwist_sstring_append(payload, ",\"exp\":");
+    cwist_sstring_append(payload, exp_str);
+    cwist_sstring_append(payload, "}");
 
-    char *token = cwist_jwt_sign(payload->data, secret, 3600); /* 1 hour */
+    char *token = cwist_jwt_sign(payload->data, secret, AUTH_SESSION_LIFETIME);
     cwist_sstring_destroy(payload);
     return token;
 }
