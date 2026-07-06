@@ -576,9 +576,10 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
      * fall back to a recent successful identity from the same IP+UA.
      * This is a heuristic: it keeps legitimate users logged in during
      * transient cookie loss, but never overrides an explicitly sent token. */
-    if (reason == AUTH_FAIL_NO_COOKIE_HEADER ||
-        reason == AUTH_FAIL_SESSION_COOKIE_MISSING ||
-        reason == AUTH_FAIL_EMPTY_SESSION_COOKIE) {
+    if (reason &&
+        (strcmp(reason, AUTH_FAIL_NO_COOKIE_HEADER) == 0 ||
+         strcmp(reason, AUTH_FAIL_SESSION_COOKIE_MISSING) == 0 ||
+         strcmp(reason, AUTH_FAIL_EMPTY_SESSION_COOKIE) == 0)) {
         int hint_uid = 0;
         char hint_role[32] = {0};
         if (auth_hint_lookup(req, &hint_uid, hint_role, sizeof(hint_role))) {
