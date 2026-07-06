@@ -465,6 +465,35 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
         return false;
     }
 
+    /* Authorization: Bearer <token> fallback. Some clients (e.g. the post
+     * editor after transient cookie loss) send the JWT explicitly so the
+     * request can still be authenticated even when the Cookie header is
+     * dropped by the framework/transport layer. */
+    const char *auth_header = cwist_http_header_get(req->headers, "Authorization");
+    if (auth_header && strncasecmp(auth_header, "Bearer ", 7) == 0) {
+        const char *bearer_token = auth_header + 7;
+        while (*bearer_token == ' ' || *bearer_token == '\t') bearer_token++;
+        if (bearer_token[0]) {
+            cwist_jwt_claims *claims = cwist_jwt_verify(bearer_token, secret);
+            if (claims) {
+                const char *sub = cwist_jwt_claims_get(claims, "sub");
+                const char *username = cwist_jwt_claims_get(claims, "username");
+                const char *role = cwist_jwt_claims_get(claims, "role");
+                if (sub && username && role) {
+                    int uid = atoi(sub);
+                    if (uid > 0) {
+                        *out_user_id = uid;
+                        snprintf(out_role, role_len, "%s", role);
+                        auth_hint_update(req, uid, role);
+                        cwist_jwt_claims_destroy(claims);
+                        return true;
+                    }
+                }
+                cwist_jwt_claims_destroy(claims);
+            }
+        }
+    }
+
     const char *name_eq = SESSION_COOKIE_NAME "=";
     size_t name_eq_len = strlen(name_eq);
     int cookie_headers = 0;

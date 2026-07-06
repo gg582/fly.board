@@ -2,13 +2,36 @@
 #include "handlers_internal.h"
 #include <ctype.h>
 
+/* Set both the HttpOnly session cookie and a JS-readable access cookie.
+ * The access cookie lets the frontend attach an Authorization header when
+ * the framework/transport drops the Cookie header on keep-alive connections. */
+static void set_auth_cookies(cwist_http_response *res, const char *token, bool use_tls) {
+    if (!token) return;
+    const char *secure_attr = use_tls ? "; Secure" : "";
+    char cookie[2048];
+    snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax%s",
+             SESSION_COOKIE_NAME, token, AUTH_SESSION_LIFETIME, secure_attr);
+    cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+    snprintf(cookie, sizeof(cookie), "jwt_access=%s; Path=/; Max-Age=%d; SameSite=Lax%s",
+             token, AUTH_SESSION_LIFETIME, secure_attr);
+    cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+}
+
+static void clear_auth_cookies(cwist_http_response *res, bool use_tls) {
+    const char *secure_attr = use_tls ? "; Secure" : "";
+    char cookie[256];
+    snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, secure_attr);
+    cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+    snprintf(cookie, sizeof(cookie), "jwt_access=; Path=/; Max-Age=0; SameSite=Lax%s", secure_attr);
+    cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+}
+
 void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
     send_html_res(res, render_login(is_dark(req), NULL, is_mobile_request(req)));
 }
 
 void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     bool dark = is_dark(req);
-    const char *secure_attr = g_config.use_tls ? "; Secure" : "";
     cwist_query_map *kv = cwist_query_map_create();
     cwist_query_map_parse(kv, req->body->data);
     const char *username = cwist_query_map_get(kv, "username");
@@ -23,12 +46,8 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     if (auth_admin_check(username, password)) {
         CWIST_LOG_INFO("Admin login success: username='%s'", username);
         char *token = auth_jwt_issue(1, username, "admin");
-        if (token) {
-            char cookie[2048];
-            snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, token, AUTH_SESSION_LIFETIME, secure_attr);
-            cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
-            cwist_free(token);
-        }
+        set_auth_cookies(res, token, g_config.use_tls);
+        cwist_free(token);
         auth_session_hint_update(req, 1, "admin");
         cwist_query_map_destroy(kv);
         redirect(res, "/");
@@ -54,12 +73,8 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     cJSON *uname = cJSON_GetObjectItem(user, "username");
     cJSON *role = cJSON_GetObjectItem(user, "role");
     char *token = auth_jwt_issue(user_id, uname->valuestring, role->valuestring);
-    if (token) {
-        char cookie[2048];
-        snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, token, AUTH_SESSION_LIFETIME, secure_attr);
-        cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
-        cwist_free(token);
-    }
+    set_auth_cookies(res, token, g_config.use_tls);
+    cwist_free(token);
     auth_session_hint_update(req, user_id, role->valuestring);
     cJSON_Delete(user);
     cwist_query_map_destroy(kv);
@@ -67,10 +82,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
 }
 
 void handler_logout(cwist_http_request *req, cwist_http_response *res) {
-    const char *secure_attr = g_config.use_tls ? "; Secure" : "";
-    char cookie[256];
-    snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, secure_attr);
-    cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+    clear_auth_cookies(res, g_config.use_tls);
     auth_session_hint_remove(req);
     redirect(res, "/");
 }
