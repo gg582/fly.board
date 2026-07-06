@@ -1,69 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 #include <ctype.h>
-#include <stdbool.h>
-#include <string.h>
-
-static bool is_valid_sha512_hex(const char *str) {
-    if (!str) return false;
-    if (strlen(str) != 128) return false;
-    for (int i = 0; i < 128; i++) {
-        char c = str[i];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
-            return false;
-        }
-    }
-    return true;
-}
-
-/* Extract host (without port) from root_url like https://example.com:8443/ */
-static void session_cookie_domain(char *out, size_t out_len) {
-    out[0] = '\0';
-    const char *url = g_config.root_url;
-    if (!url || !url[0]) return;
-    const char *p = strstr(url, "://");
-    if (!p) p = url;
-    else p += 3;
-    const char *end = p;
-    while (*end && *end != '/' && *end != '?' && *end != '#') end++;
-    const char *port = strchr(p, ':');
-    size_t len = port && port < end ? (size_t)(port - p) : (size_t)(end - p);
-    if (len > 0 && len < out_len) {
-        memcpy(out, p, len);
-        out[len] = '\0';
-    }
-}
-
-static void set_session_cookie(cwist_http_response *res, const char *token, int max_age) {
-    char domain[256] = {0};
-    session_cookie_domain(domain, sizeof(domain));
-    const char *secure_attr = g_config.use_tls ? "; Secure" : "";
-    const char *domain_attr = domain[0] ? domain : NULL;
-    char cookie[2048];
-
-    /* Clear a possible stale host-only cookie so it cannot shadow the new one. */
-    if (domain_attr && max_age > 0) {
-        snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax%s",
-                 SESSION_COOKIE_NAME, secure_attr);
-        cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
-    }
-
-    if (domain_attr) {
-        snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Domain=%s; Max-Age=%d; HttpOnly; SameSite=Lax%s",
-                 SESSION_COOKIE_NAME, token, domain_attr, max_age, secure_attr);
-    } else {
-        snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax%s",
-                 SESSION_COOKIE_NAME, token, max_age, secure_attr);
-    }
-    cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
-
-    /* On logout also clear the domain-scoped cookie. */
-    if (max_age == 0 && domain_attr) {
-        snprintf(cookie, sizeof(cookie), "%s=; Path=/; Domain=%s; Max-Age=0; HttpOnly; SameSite=Lax%s",
-                 SESSION_COOKIE_NAME, domain_attr, secure_attr);
-        cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
-    }
-}
 
 void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
     send_html_res(res, render_login(is_dark(req), NULL, is_mobile_request(req)));
@@ -71,6 +8,7 @@ void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
 
 void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     bool dark = is_dark(req);
+    const char *secure_attr = g_config.use_tls ? "; Secure" : "";
     cwist_query_map *kv = cwist_query_map_create();
     cwist_query_map_parse(kv, req->body->data);
     const char *username = cwist_query_map_get(kv, "username");
@@ -81,18 +19,14 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         cwist_query_map_destroy(kv);
         return;
     }
-    if (!is_valid_sha512_hex(password)) {
-        CWIST_LOG_WARN("Login failed: invalid password format");
-        send_html_res(res, render_login(dark, "Invalid credentials", is_mobile_request(req)));
-        cwist_query_map_destroy(kv);
-        return;
-    }
     /* Admin login via admin.settings */
     if (auth_admin_check(username, password)) {
         CWIST_LOG_INFO("Admin login success: username='%s'", username);
         char *token = auth_jwt_issue(1, username, "admin");
         if (token) {
-            set_session_cookie(res, token, 604800);
+            char cookie[2048];
+            snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, token, secure_attr);
+            cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
             cwist_free(token);
         }
         cwist_query_map_destroy(kv);
@@ -120,7 +54,9 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     cJSON *role = cJSON_GetObjectItem(user, "role");
     char *token = auth_jwt_issue(user_id, uname->valuestring, role->valuestring);
     if (token) {
-        set_session_cookie(res, token, 604800);
+        char cookie[2048];
+        snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, token, secure_attr);
+        cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
         cwist_free(token);
     }
     cJSON_Delete(user);
@@ -130,18 +66,22 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
 
 void handler_logout(cwist_http_request *req, cwist_http_response *res) {
     (void)req;
-    set_session_cookie(res, "", 0);
+    const char *secure_attr = g_config.use_tls ? "; Secure" : "";
+    char cookie[256];
+    snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, secure_attr);
+    cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
     redirect(res, "/");
 }
 
 void handler_register_get(cwist_http_request *req, cwist_http_response *res) {
-    cJSON *legal = legal_load_docs();
-    send_html_res(res, render_register(is_dark(req), NULL, is_mobile_request(req), legal));
-    if (legal) cJSON_Delete(legal);
+    cJSON *legal_docs = legal_load_docs();
+    send_html_res(res, render_register(is_dark(req), NULL, is_mobile_request(req), legal_docs));
+    if (legal_docs) cJSON_Delete(legal_docs);
 }
 
 void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
     bool dark = is_dark(req);
+    cJSON *legal_docs = legal_load_docs();
     cwist_query_map *kv = cwist_query_map_create();
     cwist_query_map_parse(kv, req->body->data);
     const char *username = cwist_query_map_get(kv, "username");
@@ -149,64 +89,28 @@ void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
     const char *password = cwist_query_map_get(kv, "password");
     if (!username || !email || !password || strlen(password) < 6) {
         CWIST_LOG_WARN("Registration failed: invalid input username='%s'", username ? username : "NULL");
-        cJSON *legal = legal_load_docs();
-        send_html_res(res, render_register(dark, "Invalid input (password min 6 chars)", is_mobile_request(req), legal));
-        if (legal) cJSON_Delete(legal);
+        send_html_res(res, render_register(dark, "Invalid input (password min 6 chars)", is_mobile_request(req), legal_docs));
         cwist_query_map_destroy(kv);
+        if (legal_docs) cJSON_Delete(legal_docs);
         return;
     }
-    if (!is_valid_sha512_hex(password)) {
-        CWIST_LOG_WARN("Registration failed: invalid password format username='%s'", username ? username : "NULL");
-        cJSON *legal = legal_load_docs();
-        send_html_res(res, render_register(dark, "Invalid password format", is_mobile_request(req), legal));
-        if (legal) cJSON_Delete(legal);
-        cwist_query_map_destroy(kv);
-        return;
-    }
-
-    cJSON *legal = legal_load_docs();
-    if (legal) {
-        bool all_required = true;
-        cJSON *doc;
-        cJSON_ArrayForEach(doc, legal) {
-            cJSON *req_j = cJSON_GetObjectItem(doc, "required");
-            if (!req_j || !req_j->valueint) continue;
-            cJSON *name_j = cJSON_GetObjectItem(doc, "name");
-            if (!name_j || !name_j->valuestring) continue;
-            char field_name[256];
-            snprintf(field_name, sizeof(field_name), "legal_%s", name_j->valuestring);
-            const char *val = cwist_query_map_get(kv, field_name);
-            if (!val || strcmp(val, "on") != 0) {
-                all_required = false;
-                break;
-            }
-        }
-        if (!all_required) {
-            send_html_res(res, render_register(dark, "You must agree to all required terms", is_mobile_request(req), legal));
-            cJSON_Delete(legal);
-            cwist_query_map_destroy(kv);
-            return;
-        }
-    }
-
     char hash[256];
     if (!auth_hash_password(password, hash, sizeof(hash))) {
         CWIST_LOG_ERROR("Registration failed: password hash error username='%s'", username);
-        send_html_res(res, render_register(dark, "Server error", is_mobile_request(req), legal));
-        if (legal) cJSON_Delete(legal);
+        send_html_res(res, render_register(dark, "Server error", is_mobile_request(req), legal_docs));
         cwist_query_map_destroy(kv);
+        if (legal_docs) cJSON_Delete(legal_docs);
         return;
     }
     bool ok = db_user_create(req->db, username, email, hash);
+    cwist_query_map_destroy(kv);
     if (!ok) {
         CWIST_LOG_WARN("Registration failed: username or email exists username='%s' email='%s'", username, email);
-        send_html_res(res, render_register(dark, "Username or email already exists", is_mobile_request(req), legal));
-        if (legal) cJSON_Delete(legal);
-        cwist_query_map_destroy(kv);
+        send_html_res(res, render_register(dark, "Username or email already exists", is_mobile_request(req), legal_docs));
+        if (legal_docs) cJSON_Delete(legal_docs);
         return;
     }
-    if (legal) cJSON_Delete(legal);
-    cwist_query_map_destroy(kv);
+    if (legal_docs) cJSON_Delete(legal_docs);
     CWIST_LOG_INFO("User registered: username='%s' email='%s'", username, email);
     redirect(res, "/login");
 }
@@ -472,13 +376,6 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
     if (!current || !new_pw || !confirm || strlen(new_pw) < 6) {
         CWIST_LOG_WARN("Password change failed: invalid input uid=%d", uid);
         send_html_res(res, render_password_change(dark, role, pp, "Invalid input (password min 6 chars)", is_mobile_request(req)));
-        free(pp);
-        cwist_query_map_destroy(kv);
-        return;
-    }
-    if (!is_valid_sha512_hex(current) || !is_valid_sha512_hex(new_pw) || !is_valid_sha512_hex(confirm)) {
-        CWIST_LOG_WARN("Password change failed: invalid password format uid=%d", uid);
-        send_html_res(res, render_password_change(dark, role, pp, "Invalid password format", is_mobile_request(req)));
         free(pp);
         cwist_query_map_destroy(kv);
         return;
