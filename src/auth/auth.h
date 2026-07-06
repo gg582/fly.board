@@ -4,8 +4,10 @@
 #include <cwist/net/http/http.h>
 #include <stdbool.h>
 
-#define JWT_SECRET "docker_blog_secret_key_change_in_production_2024"
 #define SESSION_COOKIE_NAME "docker_blog_session"
+
+bool auth_jwt_init(const char *secret_path);
+const char *auth_jwt_secret(void);
 
 bool auth_hash_password(const char *password, char *out_hash, size_t out_len);
 bool auth_verify_password(const char *password, const char *hash);
