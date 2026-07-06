@@ -252,15 +252,12 @@ static time_t g_last_trim_time = 0;
 
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
     __sync_add_and_fetch(&g_active_requests, 1);
-    res->keep_alive = req->keep_alive;
-    if (res->keep_alive) {
-        int keepalive_timeout = env_int_clamped("FLYBOARD_KEEPALIVE_TIMEOUT", 25, 5, 300);
-        int keepalive_max = env_int_clamped("FLYBOARD_KEEPALIVE_MAX", 1000, 1, 100000);
-        char keepalive[64];
-        snprintf(keepalive, sizeof(keepalive), "timeout=%d, max=%d", keepalive_timeout, keepalive_max);
-        cwist_http_header_add(&res->headers, "Connection", "keep-alive");
-        cwist_http_header_add(&res->headers, "Keep-Alive", keepalive);
-    }
+    /* Keep-alive is disabled process-wide to prevent request object/header
+     * reuse issues in the framework from stripping Cookie headers on reused
+     * connections. Each request gets a fresh connection. */
+    req->keep_alive = false;
+    res->keep_alive = false;
+    cwist_http_header_add(&res->headers, "Connection", "close");
 
     if (g_config.use_http3 && env_flag_enabled("FLYBOARD_ADVERTISE_H3", true)) {
         char altsvc[128];

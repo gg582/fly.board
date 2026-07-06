@@ -25,7 +25,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         char *token = auth_jwt_issue(1, username, "admin");
         if (token) {
             char cookie[2048];
-            snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, token, secure_attr);
+            snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=3600; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, token, secure_attr);
             cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
             cwist_free(token);
         }
@@ -55,7 +55,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     char *token = auth_jwt_issue(user_id, uname->valuestring, role->valuestring);
     if (token) {
         char cookie[2048];
-        snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, token, secure_attr);
+        snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=3600; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, token, secure_attr);
         cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
         cwist_free(token);
     }

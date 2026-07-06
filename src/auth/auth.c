@@ -295,7 +295,7 @@ char *auth_jwt_issue(int user_id, const char *username, const char *role) {
     append_json_escaped(payload, role);
     cwist_sstring_append(payload, "\"}");
 
-    char *token = cwist_jwt_sign(payload->data, secret, 86400 * 7); /* 7 days */
+    char *token = cwist_jwt_sign(payload->data, secret, 3600); /* 1 hour */
     cwist_sstring_destroy(payload);
     return token;
 }
