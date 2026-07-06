@@ -6,6 +6,9 @@
 
 #define SESSION_COOKIE_NAME "docker_blog_session"
 
+/* Session lifetime in seconds. Used for both JWT claims and cookie Max-Age. */
+#define AUTH_SESSION_LIFETIME 3600
+
 bool auth_jwt_init(const char *secret_path);
 const char *auth_jwt_secret(void);
 
