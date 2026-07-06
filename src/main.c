@@ -132,6 +132,13 @@ int main(void) {
     }
     CWIST_LOG_INFO("Crypto initialized");
 
+    if (!auth_jwt_init("data/.jwt_secret")) {
+        FLY_LOG_ERROR("JWT secret initialization failed");
+        fly_crypto_cleanup();
+        return 1;
+    }
+    CWIST_LOG_INFO("JWT secret initialized");
+
     if (!engine_settings_load()) {
         fly_crypto_cleanup();
         return 1;

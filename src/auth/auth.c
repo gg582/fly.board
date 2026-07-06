@@ -15,8 +15,50 @@
 #include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 
 static const char *CLIENT_NONCE = "fly.board";
+
+static char g_jwt_secret[256] = {0};
+
+bool auth_jwt_init(const char *secret_path) {
+    const char *path = secret_path ? secret_path : "data/.jwt_secret";
+    FILE *f = fopen(path, "r");
+    if (f) {
+        if (fgets(g_jwt_secret, sizeof(g_jwt_secret), f)) {
+            size_t len = strlen(g_jwt_secret);
+            while (len > 0 && (g_jwt_secret[len - 1] == '\n' || g_jwt_secret[len - 1] == '\r')) {
+                g_jwt_secret[len - 1] = '\0';
+                len--;
+            }
+        }
+        fclose(f);
+        if (g_jwt_secret[0]) return true;
+    }
+
+    unsigned char rand_bytes[32];
+    if (RAND_bytes(rand_bytes, sizeof(rand_bytes)) != 1) {
+        CWIST_LOG_ERROR("Failed to generate JWT secret");
+        return false;
+    }
+    for (int i = 0; i < 32; i++) snprintf(g_jwt_secret + i * 2, 3, "%02x", rand_bytes[i]);
+    g_jwt_secret[64] = '\0';
+
+    f = fopen(path, "w");
+    if (!f) {
+        CWIST_LOG_ERROR("Failed to write JWT secret file: %s", path);
+        return false;
+    }
+    fprintf(f, "%s\n", g_jwt_secret);
+    fclose(f);
+    chmod(path, 0600);
+    CWIST_LOG_INFO("Generated new JWT secret: %s", path);
+    return true;
+}
+
+const char *auth_jwt_secret(void) {
+    return g_jwt_secret[0] ? g_jwt_secret : NULL;
+}
 
 static bool sha512_string_hex(const char *input, char *out, size_t out_len) {
     EVP_MD_CTX *ctx = EVP_MD_CTX_new();
@@ -198,12 +240,17 @@ bool auth_verify_password(const char *password, const char *hash) {
 }
 
 char *auth_jwt_issue(int user_id, const char *username, const char *role) {
+    const char *secret = auth_jwt_secret();
+    if (!secret) return NULL;
     char payload[512];
     snprintf(payload, sizeof(payload), "{\"sub\":\"%d\",\"username\":\"%s\",\"role\":\"%s\"}", user_id, username, role);
-    return cwist_jwt_sign(payload, JWT_SECRET, 86400 * 7); /* 7 days */
+    return cwist_jwt_sign(payload, secret, 86400 * 7); /* 7 days */
 }
 
 bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
+    const char *secret = auth_jwt_secret();
+    if (!secret) return false;
+
     const char *name_eq = SESSION_COOKIE_NAME "=";
     size_t name_eq_len = strlen(name_eq);
 
@@ -225,7 +272,7 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
                 memcpy(token, start, len);
                 token[len] = '\0';
 
-                cwist_jwt_claims *claims = cwist_jwt_verify(token, JWT_SECRET);
+                cwist_jwt_claims *claims = cwist_jwt_verify(token, secret);
                 if (claims) {
                     const char *sub = cwist_jwt_claims_get(claims, "sub");
                     const char *role = cwist_jwt_claims_get(claims, "role");
