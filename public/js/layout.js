@@ -97,6 +97,8 @@
     var CACHE_TTL_MS=300000; // 5 minutes: long enough to avoid FOUC, short enough to pick up config changes
     var HL_LIGHT='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css';
     var HL_DARK='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css';
+    // monotonic generation counter so async theme operations never overwrite a newer toggle
+    var themeGen=0;
     function buildCss(t){
         var css='';
         for(var k in t.vars)css+=k+':'+t.vars[k]+';';
@@ -106,14 +108,19 @@
     }
     function applyTheme(t){var s=document.getElementById('dyn-theme');if(s)s.textContent=buildCss(t);}
     function findTheme(arr,name){for(var i=0;i<arr.length;i++)if(arr[i].name===name)return arr[i];return arr[0];}
-    function setHlCss(name){
+    function setHlCss(name,gen){
+        if(gen!==undefined&&gen!==themeGen)return;
         var pres=document.querySelectorAll('.markdown-body pre');
         for(var i=0;i<pres.length;i++)pres[i].style.opacity='0.5';
         var l=document.getElementById('hl-theme');
         if(l)l.href=(name==='light'?HL_LIGHT:HL_DARK);
-        setTimeout(function(){for(var i=0;i<pres.length;i++)pres[i].style.opacity='';},200);
+        setTimeout(function(){
+            if(gen!==undefined&&gen!==themeGen)return;
+            for(var i=0;i<pres.length;i++)pres[i].style.opacity='';
+        },200);
     }
-    function updateBtn(name){
+    function updateBtn(name,gen){
+        if(gen!==undefined&&gen!==themeGen)return;
         var btn=document.getElementById('theme-toggle-btn');
         if(btn)btn.textContent=(name==='dark'?'●':'○');
     }
@@ -138,6 +145,7 @@
     applyCached();
     if (!themes) {
         fetch('/themes.json',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
+            if(themeGen!==0)return;
             saveThemes(arr);
             themes=arr;
             applyTheme(findTheme(arr,mode));
@@ -148,19 +156,22 @@
         var isSlowTheme = isMobileTheme || (connTheme.rtt && connTheme.rtt > 1000);
         setTimeout(function() {
             fetch('/themes.json',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
+                if(themeGen!==0)return;
                 saveThemes(arr);
                 themes=arr;
             }).catch(function(){});
         }, isSlowTheme ? 5000 : 2000);
     }
     window.toggleTheme=function(name){
+        var myGen=++themeGen;
         if(!name)name=(mode==='light'?'dark':'light');
         mode=name;
         document.cookie='theme='+mode+';path=/;max-age=31536000';
-        setHlCss(mode);
-        updateBtn(mode);
+        setHlCss(mode,myGen);
+        updateBtn(mode,myGen);
         if(themes){applyTheme(findTheme(themes,mode));return;}
         fetch('/themes.json',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
+            if(myGen!==themeGen)return;
             saveThemes(arr);
             themes=arr;
             applyTheme(findTheme(arr,mode));
