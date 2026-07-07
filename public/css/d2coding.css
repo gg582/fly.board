@@ -1,0 +1,7 @@
+@font-face {
+  font-family: 'D2 coding';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local('D2Coding'), url('https://cdn.jsdelivr.net/gh/Joungkyun/font-d2coding-ligature-subset@master/D2Coding-ligature-subset.woff2') format('woff2');
+}

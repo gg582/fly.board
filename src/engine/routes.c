@@ -13,6 +13,7 @@ void engine_routes_register(cwist_app *app) {
     cwist_app_static_with_cache(app, "/assets/images", "public/images", "public, max-age=31536000, immutable");
     cwist_app_static_with_cache(app, "/assets/js", "public/js", "public, max-age=31536000, immutable");
     cwist_app_static_with_cache(app, "/js", "public/js", "public, max-age=31536000, immutable");
+    cwist_app_static_with_cache(app, "/assets/css", "public/css", "public, max-age=31536000, immutable");
     cwist_app_static_with_cache(app, "/assets/media", "public/media", "public, max-age=31536000, immutable");
     cwist_app_get(app, "/sw.js", handler_sw_js);
     cwist_app_get(app, "/__tasfa_stream__/:stream_id", handler_tasfa_stream_placeholder);
