@@ -32,9 +32,33 @@ def encode_data_url(data, mime):
     return f"data:{mime};base64,{b64}"
 
 
+def resolve_font_urls(css_text, base_url=None):
+    """Make font URLs absolute so the CSS can be served from any path.
+
+    Keeps the original format(...) qualifier; only relative URLs are rewritten
+    against base_url."""
+    from urllib.parse import urljoin
+
+    def repl(match):
+        raw_url = match.group(1).strip("'\"")
+        if raw_url.startswith("data:"):
+            return match.group(0)
+        url = raw_url
+        if base_url and not url.startswith(("http:", "https:")):
+            url = urljoin(base_url, url)
+        if not url.startswith(("http:", "https:")):
+            return match.group(0)
+        fmt = (" " + match.group(2)) if match.group(2) else ""
+        return f"url('{url}'){fmt}"
+
+    # Match url(...) optionally followed by format(...).
+    return re.sub(r"url\(([^)]+)\)\s*(format\([^)]+\))?", repl, css_text)
+
+
 def inline_font_urls(css_text, base_url=None):
     """Replace WOFF2 font url(...) format(...) references with base64 data URLs.
 
+    Used for KaTeX CSS so math pages do not trigger separate font requests.
     Non-WOFF2 fallbacks (woff, ttf, eot) are dropped because modern browsers
     support WOFF2 and keeping every format multiplies the inline payload.
     """
@@ -100,10 +124,15 @@ def main():
     katex_css = inline_font_urls(katex_css, base_url=katex_url)
     save(os.path.join(INLINE_DIR, "katex.css"), katex_css)
 
-    print("Downloading Google Fonts and inlining WOFF2 files...")
-    # Body/UI Korean coverage is provided by the inlined Pretendard Variable
-    # font below, so IBM Plex Sans KR is intentionally omitted here to avoid
-    # loading two large Korean families on every page.
+    # Fonts are served as separate cached stylesheets rather than inlined into
+    # every HTML response. The WOFF2 URLs inside the CSS still point to the CDN,
+    # so the browser can cache the font files independently.
+    os.makedirs("public/css", exist_ok=True)
+
+    print("Downloading Google Fonts CSS...")
+    # Body/UI Korean coverage is provided by the Pretendard Variable font below,
+    # so IBM Plex Sans KR is intentionally omitted here to avoid loading two
+    # large Korean families on every page.
     google_fonts_url = (
         "https://fonts.googleapis.com/css2"
         "?family=Space+Grotesk:wght@400;500;700"
@@ -112,35 +141,33 @@ def main():
         "&display=swap"
     )
     google_css = fetch(google_fonts_url).decode("utf-8", errors="replace")
-    google_css = inline_font_urls(google_css)
-    save(os.path.join(INLINE_DIR, "google-fonts.css"), google_css)
+    google_css = resolve_font_urls(google_css, base_url=google_fonts_url)
+    save(os.path.join("public/css", "google-fonts.css"), google_css)
 
-    print("Downloading Pretendard variable font CSS and inlining WOFF2 files...")
+    print("Downloading Pretendard variable font CSS...")
     pretendard_url = (
         "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9"
         "/dist/web/variable/pretendardvariable.min.css"
     )
     pretendard_css = fetch(pretendard_url).decode("utf-8", errors="replace")
-    pretendard_css = inline_font_urls(pretendard_css, base_url=pretendard_url)
-    save(os.path.join(INLINE_DIR, "pretendard.css"), pretendard_css)
+    pretendard_css = resolve_font_urls(pretendard_css, base_url=pretendard_url)
+    save(os.path.join("public/css", "pretendard.css"), pretendard_css)
 
-    print("Downloading D2Coding ligature-subset font and inlining...")
+    print("Writing D2Coding font-face CSS...")
     d2coding_url = (
         "https://cdn.jsdelivr.net/gh/Joungkyun/font-d2coding-ligature-subset@master"
         "/D2Coding-ligature-subset.woff2"
     )
-    d2coding_data = fetch(d2coding_url)
-    d2coding_b64 = encode_data_url(d2coding_data, "font/woff2")
     d2coding_css = (
         "@font-face {\n"
         "  font-family: 'D2 coding';\n"
         "  font-style: normal;\n"
         "  font-weight: 400;\n"
         "  font-display: swap;\n"
-        f"  src: local('D2Coding'), url({d2coding_b64}) format('woff2');\n"
+        f"  src: local('D2Coding'), url('{d2coding_url}') format('woff2');\n"
         "}\n"
     )
-    save(os.path.join(INLINE_DIR, "d2coding.css"), d2coding_css)
+    save(os.path.join("public/css", "d2coding.css"), d2coding_css)
 
     print("Done.")
 

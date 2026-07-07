@@ -13,11 +13,10 @@
 #include <pthread.h>
 
 /* Inlined static asset cache. Loaded once on first use so every HTML response
- * can embed fonts, syntax highlighting, and scripts without extra round trips. */
+ * can embed syntax highlighting, KaTeX, and application scripts without extra
+ * round trips. Fonts are served as separate cached files to avoid bloating the
+ * initial HTML payload on high-RTT links. */
 typedef struct {
-    char *google_fonts_css;
-    char *pretendard_css;
-    char *d2coding_css;
     char *hl_light_css;
     char *hl_dark_css;
     char *hl_js;
@@ -36,9 +35,6 @@ static pthread_once_t g_inline_assets_once = PTHREAD_ONCE_INIT;
 static char *read_file_to_string(const char *path);
 
 static void load_inline_assets(void) {
-    g_inline_assets.google_fonts_css  = read_file_to_string("public/inline_assets/google-fonts.css");
-    g_inline_assets.pretendard_css    = read_file_to_string("public/inline_assets/pretendard.css");
-    g_inline_assets.d2coding_css      = read_file_to_string("public/inline_assets/d2coding.css");
     g_inline_assets.hl_light_css      = read_file_to_string("public/inline_assets/highlight-light.css");
     g_inline_assets.hl_dark_css       = read_file_to_string("public/inline_assets/highlight-dark.css");
     g_inline_assets.hl_js             = read_file_to_string("public/inline_assets/highlight.js");
@@ -464,17 +460,18 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             cwist_sstring_append_sstring(doc, out);
         }
 
-        /* Replace the inline-head marker with inlined fonts, highlight CSS,
-         * and the critical jwt.js + layout.js bundle. */
+        /* Replace the inline-head marker with cached external font stylesheets,
+         * inlined highlight CSS, and the critical jwt.js + layout.js bundle. */
         const char *head_marker = "<meta data-inline-head=\"1\">";
         char *pos_head = strstr(doc->data, head_marker);
         if (pos_head) {
             inline_assets_t *a = get_inline_assets();
             cwist_sstring *head_inline = cwist_sstring_create();
             if (head_inline) {
-                append_inline_style(head_inline, NULL, a->google_fonts_css, NULL);
-                append_inline_style(head_inline, NULL, a->pretendard_css, NULL);
-                append_inline_style(head_inline, NULL, a->d2coding_css, NULL);
+                cwist_sstring_append(head_inline,
+                    "<link rel=\"stylesheet\" href=\"/assets/css/google-fonts.css\" crossorigin=\"anonymous\">"
+                    "<link rel=\"stylesheet\" href=\"/assets/css/pretendard.css\" crossorigin=\"anonymous\">"
+                    "<link rel=\"stylesheet\" href=\"/assets/css/d2coding.css\" crossorigin=\"anonymous\">");
                 /* Always create the hl-theme element so the client-side toggle can
                  * find it even on pages that were rendered without code blocks.
                  * Include the current mode's CSS and mark data-active so the JS
