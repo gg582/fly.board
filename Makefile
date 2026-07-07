@@ -23,6 +23,7 @@ SRCS := src/main.c \
         src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c \
         src/handlers/handlers.c src/handlers/home.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/file.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c \
         src/utils/utils.c \
+        src/utils/tcp_cork_wrap.c \
         src/utils/legal.c \
         src/utils/image_contrast.c \
         src/utils/image_size.c \
@@ -57,7 +58,9 @@ CFLAGS += -DDEBUG=1
 endif
 
 LDFLAGS := -L$(CWIST_PREFIX)/lib \
-           -Wl,-rpath,$(CWIST_PREFIX)/lib
+           -Wl,-rpath,$(CWIST_PREFIX)/lib \
+           -Wl,--wrap=cwist_http_send_response \
+           -Wl,--wrap=cwist_https_send_response
 
 
 CWIST_LIB := $(CWIST_PREFIX)/lib/libcwist.a
