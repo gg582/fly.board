@@ -1,6 +1,26 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 
+static void invalidate_comment_target(cwist_db *db, const char *target_type, int target_id) {
+    if (!target_type || !target_type[0] || target_id <= 0) return;
+    if (strcmp(target_type, "post") == 0) {
+        cJSON *post = db_post_get_by_id(db, target_id);
+        if (post) {
+            cJSON *slug = cJSON_GetObjectItem(post, "slug");
+            if (slug && cJSON_IsString(slug) && slug->valuestring) {
+                page_cache_invalidate_post(slug->valuestring);
+            } else {
+                page_cache_invalidate_all();
+            }
+            cJSON_Delete(post);
+        }
+    } else if (strcmp(target_type, "file") == 0) {
+        /* File detail pages are cached by id; comment events are rare enough
+         * that clearing everything is acceptable. */
+        page_cache_invalidate_all();
+    }
+}
+
 void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -33,6 +53,7 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
         }
         if (db_comment_create(req->db, target_type, target_id, uid, author_name, parent_id, content)) {
             CWIST_LOG_INFO("Comment created: target_type=%s target_id=%d uid=%d", target_type, target_id, uid);
+            invalidate_comment_target(req->db, target_type, target_id);
         } else {
             CWIST_LOG_ERROR("Comment creation failed: target_type=%s target_id=%d uid=%d", target_type, target_id, uid);
         }
@@ -53,11 +74,20 @@ void handler_comment_edit_post(cwist_http_request *req, cwist_http_response *res
     const char *content = cwist_query_map_get(kv, "content");
     const char *referer = cwist_http_header_get(req->headers, "Referer");
     if (id_str && content && content[0]) {
+        cJSON *comment = db_comment_get_by_id(req->db, atoi(id_str));
         if (db_comment_update(req->db, atoi(id_str), uid, content)) {
             CWIST_LOG_INFO("Comment updated: id=%s uid=%d", id_str, uid);
+            if (comment) {
+                cJSON *tt = cJSON_GetObjectItem(comment, "target_type");
+                cJSON *ti = cJSON_GetObjectItem(comment, "target_id");
+                if (tt && cJSON_IsString(tt) && ti && cJSON_IsNumber(ti)) {
+                    invalidate_comment_target(req->db, tt->valuestring, ti->valueint);
+                }
+            }
         } else {
             CWIST_LOG_ERROR("Comment update failed: id=%s uid=%d", id_str, uid);
         }
+        if (comment) cJSON_Delete(comment);
     } else {
         CWIST_LOG_WARN("Comment update failed: missing fields");
     }
@@ -73,10 +103,21 @@ void handler_comment_delete_get(cwist_http_request *req, cwist_http_response *re
     const char *referer = cwist_http_header_get(req->headers, "Referer");
     if (id_str) {
         int cid = atoi(id_str);
-        if (db_comment_delete(req->db, cid, uid)) {
-            CWIST_LOG_INFO("Comment deleted: id=%d uid=%d", cid, uid);
+        cJSON *comment = db_comment_get_by_id(req->db, cid);
+        if (comment) {
+            cJSON *tt = cJSON_GetObjectItem(comment, "target_type");
+            cJSON *ti = cJSON_GetObjectItem(comment, "target_id");
+            if (db_comment_delete(req->db, cid, uid)) {
+                CWIST_LOG_INFO("Comment deleted: id=%d uid=%d", cid, uid);
+                if (tt && cJSON_IsString(tt) && ti && cJSON_IsNumber(ti)) {
+                    invalidate_comment_target(req->db, tt->valuestring, ti->valueint);
+                }
+            } else {
+                CWIST_LOG_WARN("Comment delete failed: id=%d uid=%d", cid, uid);
+            }
+            cJSON_Delete(comment);
         } else {
-            CWIST_LOG_WARN("Comment delete failed: id=%d uid=%d", cid, uid);
+            db_comment_delete(req->db, cid, uid);
         }
     }
     redirect(res, referer && referer[0] ? referer : "/");

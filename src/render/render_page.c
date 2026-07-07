@@ -3,14 +3,166 @@
 #include "render_internal.h"
 #include "theme.h"
 #include "config/config.h"
+#include "utils/image_inline.h"
 #include <cwist/core/html/builder.h>
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/sstring/sstring.h>
 #include <string.h>
 #include <stdio.h>
+#include <sys/stat.h>
+#include <pthread.h>
+
+/* Inlined static asset cache. Loaded once on first use so every HTML response
+ * can embed fonts, syntax highlighting, and scripts without extra round trips. */
+typedef struct {
+    char *google_fonts_css;
+    char *pretendard_css;
+    char *d2coding_css;
+    char *hl_light_css;
+    char *hl_dark_css;
+    char *hl_js;
+    char *hl_fortran_js;
+    char *katex_css;
+    char *katex_js;
+    char *katex_render_js;
+    char *tasfa_js;
+    char *jwt_js;
+    char *layout_js;
+} inline_assets_t;
+
+static inline_assets_t g_inline_assets;
+static pthread_once_t g_inline_assets_once = PTHREAD_ONCE_INIT;
+
+static char *read_file_to_string(const char *path);
+
+static void load_inline_assets(void) {
+    g_inline_assets.google_fonts_css  = read_file_to_string("public/inline_assets/google-fonts.css");
+    g_inline_assets.pretendard_css    = read_file_to_string("public/inline_assets/pretendard.css");
+    g_inline_assets.d2coding_css      = read_file_to_string("public/inline_assets/d2coding.css");
+    g_inline_assets.hl_light_css      = read_file_to_string("public/inline_assets/highlight-light.css");
+    g_inline_assets.hl_dark_css       = read_file_to_string("public/inline_assets/highlight-dark.css");
+    g_inline_assets.hl_js             = read_file_to_string("public/inline_assets/highlight.js");
+    g_inline_assets.hl_fortran_js     = read_file_to_string("public/inline_assets/highlight-fortran.js");
+    g_inline_assets.katex_css         = read_file_to_string("public/inline_assets/katex.css");
+    g_inline_assets.katex_js          = read_file_to_string("public/inline_assets/katex.js");
+    g_inline_assets.katex_render_js   = read_file_to_string("public/js/katex-render.js");
+    g_inline_assets.tasfa_js          = read_file_to_string("public/js/tasfa-download.js");
+    g_inline_assets.jwt_js            = read_file_to_string("public/js/jwt.js");
+    g_inline_assets.layout_js         = read_file_to_string("public/js/layout.js");
+}
+
+static inline_assets_t *get_inline_assets(void) {
+    pthread_once(&g_inline_assets_once, load_inline_assets);
+    return &g_inline_assets;
+}
 
 static __thread char g_nav_profile_name[128];
 static __thread char g_nav_profile_account[128];
+
+static char *read_file_to_string(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    struct stat st;
+    if (fstat(fileno(f), &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) {
+        fclose(f);
+        return NULL;
+    }
+    char *buf = (char *)malloc((size_t)st.st_size + 1);
+    if (!buf) { fclose(f); return NULL; }
+    size_t n = fread(buf, 1, (size_t)st.st_size, f);
+    fclose(f);
+    if (n != (size_t)st.st_size) { free(buf); return NULL; }
+    buf[n] = '\0';
+    return buf;
+}
+
+/* Append a raw inline <style> block. id and data_active may be NULL. */
+static void append_inline_style(cwist_sstring *s, const char *id, const char *css,
+                                  const char *data_active) {
+    if (!css) return;
+    cwist_sstring_append(s, "<style");
+    if (id && id[0]) {
+        cwist_sstring_append(s, " id=\"");
+        cwist_sstring_append(s, id);
+        cwist_sstring_append(s, "\"");
+    }
+    if (data_active && data_active[0]) {
+        cwist_sstring_append(s, " data-active=\"");
+        cwist_sstring_append(s, data_active);
+        cwist_sstring_append(s, "\"");
+    }
+    cwist_sstring_append(s, ">");
+    cwist_sstring_append(s, css);
+    cwist_sstring_append(s, "</style>");
+}
+
+/* Append a raw inline <script> block. The content is defensively rewritten so
+ * the literal sequence "</script>" cannot prematurely close the tag. */
+static void append_inline_script(cwist_sstring *s, const char *js) {
+    if (!js) return;
+    cwist_sstring_append(s, "<script>");
+    /* Scan for </script> (case-insensitive end tag) and break it with a
+     * backslash so the HTML parser cannot close the script block early. */
+    const char *p = js;
+    while (*p) {
+        if (p[0] == '<' && p[1] == '/' &&
+            (p[2] == 's' || p[2] == 'S') &&
+            (p[3] == 'c' || p[3] == 'C') &&
+            (p[4] == 'r' || p[4] == 'R') &&
+            (p[5] == 'i' || p[5] == 'I') &&
+            (p[6] == 'p' || p[6] == 'P') &&
+            (p[7] == 't' || p[7] == 'T') &&
+            p[8] == '>') {
+            cwist_sstring_append_len(s, js, (size_t)(p - js) + 1);
+            cwist_sstring_append(s, "\\");
+            p += 1;
+            js = p;
+        } else {
+            p++;
+        }
+    }
+    cwist_sstring_append(s, js);
+    cwist_sstring_append(s, "</script>");
+}
+
+/* Append a JS double-quoted string literal with JSON-style escaping. */
+static void append_js_string_literal(cwist_sstring *s, const char *str) {
+    cwist_sstring_append(s, "\"");
+    if (str) {
+        for (const char *p = str; *p; p++) {
+            unsigned char c = (unsigned char)*p;
+            switch (c) {
+                case '"':  cwist_sstring_append(s, "\\\""); break;
+                case '\\': cwist_sstring_append(s, "\\\\"); break;
+                case '\n': cwist_sstring_append(s, "\\n"); break;
+                case '\r': cwist_sstring_append(s, "\\r"); break;
+                case '\t': cwist_sstring_append(s, "\\t"); break;
+                case '<':  cwist_sstring_append(s, "\\u003c"); break;
+                case '>':  cwist_sstring_append(s, "\\u003e"); break;
+                case '&':  cwist_sstring_append(s, "\\u0026"); break;
+                default:
+                    if (c < 0x20) {
+                        char buf[8];
+                        snprintf(buf, sizeof(buf), "\\u%04x", c);
+                        cwist_sstring_append(s, buf);
+                    } else {
+                        char buf[2] = {(char)c, '\0'};
+                        cwist_sstring_append(s, buf);
+                    }
+            }
+        }
+    }
+    cwist_sstring_append(s, "\"");
+}
+
+static bool body_needs_highlight(const char *html) {
+    return html && strstr(html, "<code class=\"language-") != NULL;
+}
+
+static bool body_needs_katex(const char *html) {
+    return html && (strstr(html, "class=\"math-block\"") != NULL ||
+                    strstr(html, "class=\"math-inline\"") != NULL);
+}
 
 void render_set_nav_profile(const char *display_name, const char *account_name) {
     if (display_name && display_name[0]) {
@@ -44,85 +196,16 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(head, vp);
     cwist_html_element_add_child(head, title_el);
 
-    if (g_config.favicon[0]) {
+    const char *favicon_url = image_inline_favicon();
+    if (favicon_url) {
         cwist_html_element_t *favicon_el = cwist_html_element_create("link");
         cwist_html_element_add_attr(favicon_el, "rel", "icon");
-        char favicon_url[512];
-        snprintf(favicon_url, sizeof(favicon_url), "/assets/img/%s", g_config.favicon);
         cwist_html_element_add_attr(favicon_el, "href", favicon_url);
         cwist_html_element_add_child(head, favicon_el);
     }
 
-    /* Preconnect + dns-prefetch to critical origins */
-    cwist_html_element_t *preconnect_jsdelivr = cwist_html_element_create("link");
-    cwist_html_element_add_attr(preconnect_jsdelivr, "rel", "preconnect");
-    cwist_html_element_add_attr(preconnect_jsdelivr, "href", "https://cdn.jsdelivr.net");
-    cwist_html_element_add_attr(preconnect_jsdelivr, "crossorigin", "");
-    cwist_html_element_add_child(head, preconnect_jsdelivr);
-
-    cwist_html_element_t *dns_jsdelivr = cwist_html_element_create("link");
-    cwist_html_element_add_attr(dns_jsdelivr, "rel", "dns-prefetch");
-    cwist_html_element_add_attr(dns_jsdelivr, "href", "https://cdn.jsdelivr.net");
-    cwist_html_element_add_child(head, dns_jsdelivr);
-
-    cwist_html_element_t *preconnect_cdnjs = cwist_html_element_create("link");
-    cwist_html_element_add_attr(preconnect_cdnjs, "rel", "preconnect");
-    cwist_html_element_add_attr(preconnect_cdnjs, "href", "https://cdnjs.cloudflare.com");
-    cwist_html_element_add_attr(preconnect_cdnjs, "crossorigin", "");
-    cwist_html_element_add_child(head, preconnect_cdnjs);
-
-    cwist_html_element_t *dns_cdnjs = cwist_html_element_create("link");
-    cwist_html_element_add_attr(dns_cdnjs, "rel", "dns-prefetch");
-    cwist_html_element_add_attr(dns_cdnjs, "href", "https://cdnjs.cloudflare.com");
-    cwist_html_element_add_child(head, dns_cdnjs);
-
-
-    /* Web Fonts */
-    cwist_html_element_t *font_preconnect_google = cwist_html_element_create("link");
-    cwist_html_element_add_attr(font_preconnect_google, "rel", "preconnect");
-    cwist_html_element_add_attr(font_preconnect_google, "href", "https://fonts.googleapis.com");
-    cwist_html_element_add_child(head, font_preconnect_google);
-
-    cwist_html_element_t *font_preconnect_gstatic = cwist_html_element_create("link");
-    cwist_html_element_add_attr(font_preconnect_gstatic, "rel", "preconnect");
-    cwist_html_element_add_attr(font_preconnect_gstatic, "href", "https://fonts.gstatic.com");
-    cwist_html_element_add_attr(font_preconnect_gstatic, "crossorigin", "");
-    cwist_html_element_add_child(head, font_preconnect_gstatic);
-
-    cwist_html_element_t *font_space = cwist_html_element_create("link");
-    cwist_html_element_add_attr(font_space, "rel", "stylesheet");
-    cwist_html_element_add_attr(font_space, "href", "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Sans+KR:wght@400;500;700&family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap");
-    cwist_html_element_add_child(head, font_space);
-
-    cwist_html_element_t *font_pretendard = cwist_html_element_create("link");
-    cwist_html_element_add_attr(font_pretendard, "rel", "stylesheet");
-    cwist_html_element_add_attr(font_pretendard, "href", "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css");
-    cwist_html_element_add_child(head, font_pretendard);
-
-    cwist_html_element_t *font_d2coding = cwist_html_element_create("link");
-    cwist_html_element_add_attr(font_d2coding, "rel", "stylesheet");
-    cwist_html_element_add_attr(font_d2coding, "href", "https://cdn.jsdelivr.net/gh/joungkyun/font-d2coding@master/d2coding.css");
-    cwist_html_element_add_child(head, font_d2coding);
-
-    /* Highlight.js syntax highlighting */
-    cwist_html_element_t *hl_css = cwist_html_element_create("link");
-    cwist_html_element_add_attr(hl_css, "rel", "stylesheet");
-    cwist_html_element_add_attr(hl_css, "id", "hl-theme");
-    cwist_html_element_add_attr(hl_css, "href",
-        dark
-        ? "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
-        : "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css");
-    cwist_html_element_add_child(head, hl_css);
-
-    cwist_html_element_t *hl_js = cwist_html_element_create("script");
-    cwist_html_element_add_attr(hl_js, "src",
-        "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js");
-    cwist_html_element_add_child(head, hl_js);
-
-    cwist_html_element_t *hl_fortran = cwist_html_element_create("script");
-    cwist_html_element_add_attr(hl_fortran, "src",
-        "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/fortran.min.js");
-    cwist_html_element_add_child(head, hl_fortran);
+    bool needs_hl = body_needs_highlight(body_html);
+    bool needs_katex = body_needs_katex(body_html);
 
     /* Progressive multi-theme loader: inline critical CSS to prevent FOUC */
     char *critical_css = theme_build_css(dark);
@@ -132,21 +215,10 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(head, dyn_style);
     free(critical_css);
 
-    /* KaTeX for math rendering */
-    cwist_html_element_t *katex_css = cwist_html_element_create("link");
-    cwist_html_element_add_attr(katex_css, "rel", "stylesheet");
-    cwist_html_element_add_attr(katex_css, "href", "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css");
-    cwist_html_element_add_child(head, katex_css);
-
-    cwist_html_element_t *jwt_js = cwist_html_element_create("script");
-    cwist_html_element_add_attr(jwt_js, "src", "/assets/js/jwt.js?v=1");
-    cwist_html_element_add_attr(jwt_js, "defer", NULL);
-    cwist_html_element_add_child(head, jwt_js);
-
-    cwist_html_element_t *layout_js = cwist_html_element_create("script");
-    cwist_html_element_add_attr(layout_js, "src", "/assets/js/layout.js");
-    cwist_html_element_add_attr(layout_js, "defer", NULL);
-    cwist_html_element_add_child(head, layout_js);
+    /* Placeholder for inlined fonts, conditional highlight CSS, and critical scripts. */
+    cwist_html_element_t *inline_head = cwist_html_element_create("meta");
+    cwist_html_element_add_attr(inline_head, "data-inline-head", "1");
+    cwist_html_element_add_child(head, inline_head);
 
     cwist_html_element_t *body = cwist_html_element_create("body");
     if (dark) cwist_html_element_add_class(body, "dark");
@@ -336,13 +408,9 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
     cwist_html_element_t *footer_logo = cwist_html_element_create("img");
     if (footer_logo) {
-        char footer_logo_path[512];
-        if (g_config.blog_logo[0]) {
-            snprintf(footer_logo_path, sizeof(footer_logo_path), "/assets/img/%s", g_config.blog_logo);
-        } else {
-            strcpy(footer_logo_path, "/assets/img/logo.png");
-        }
-        cwist_html_element_add_attr(footer_logo, "src", footer_logo_path);
+        const char *footer_logo_url = image_inline_logo();
+        if (!footer_logo_url) footer_logo_url = "/assets/img/logo.png";
+        cwist_html_element_add_attr(footer_logo, "src", footer_logo_url);
         cwist_html_element_add_attr(footer_logo, "alt", "Logo");
         cwist_html_element_add_attr(footer_logo, "width", "24");
         cwist_html_element_add_attr(footer_logo, "height", "16");
@@ -366,25 +434,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         if (shell) cwist_html_element_add_child(body, shell);
         if (footer) cwist_html_element_add_child(body, footer);
 
-        cwist_html_element_t *katex_js = cwist_html_element_create("script");
-        if (katex_js) {
-            cwist_html_element_add_attr(katex_js, "src", "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js");
-            cwist_html_element_add_attr(katex_js, "defer", NULL);
-            cwist_html_element_add_child(body, katex_js);
-        }
-
-        cwist_html_element_t *katex_render_js = cwist_html_element_create("script");
-        if (katex_render_js) {
-            cwist_html_element_add_attr(katex_render_js, "src", "/assets/js/katex-render.js");
-            cwist_html_element_add_attr(katex_render_js, "defer", NULL);
-            cwist_html_element_add_child(body, katex_render_js);
-        }
-
-        cwist_html_element_t *tasfa_script = cwist_html_element_create("script");
-        if (tasfa_script) {
-            cwist_html_element_add_attr(tasfa_script, "src", "/assets/js/tasfa-download.js?v=5");
-            cwist_html_element_add_attr(tasfa_script, "defer", NULL);
-            cwist_html_element_add_child(body, tasfa_script);
+        /* Placeholder for inlined conditional scripts (highlight, katex, tasfa). */
+        cwist_html_element_t *inline_body = cwist_html_element_create("meta");
+        if (inline_body) {
+            cwist_html_element_add_attr(inline_body, "data-inline-body", "1");
+            cwist_html_element_add_child(body, inline_body);
         }
     }
 
@@ -409,7 +463,88 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         } else {
             cwist_sstring_append_sstring(doc, out);
         }
-        
+
+        /* Replace the inline-head marker with inlined fonts, highlight CSS,
+         * and the critical jwt.js + layout.js bundle. */
+        const char *head_marker = "<meta data-inline-head=\"1\">";
+        char *pos_head = strstr(doc->data, head_marker);
+        if (pos_head) {
+            inline_assets_t *a = get_inline_assets();
+            cwist_sstring *head_inline = cwist_sstring_create();
+            if (head_inline) {
+                append_inline_style(head_inline, NULL, a->google_fonts_css, NULL);
+                append_inline_style(head_inline, NULL, a->pretendard_css, NULL);
+                append_inline_style(head_inline, NULL, a->d2coding_css, NULL);
+                /* Always create the hl-theme element so the client-side toggle can
+                 * find it even on pages that were rendered without code blocks.
+                 * Include the current mode's CSS and mark data-active so the JS
+                 * can skip redundant updates and detect stale state. */
+                append_inline_style(head_inline, "hl-theme",
+                                    dark ? a->hl_dark_css : a->hl_light_css,
+                                    dark ? "dark" : "light");
+
+                cwist_sstring_append(head_inline, "<script>");
+                cwist_sstring_append(head_inline, "window.HL_LIGHT_CSS=");
+                append_js_string_literal(head_inline, a->hl_light_css);
+                cwist_sstring_append(head_inline, ";\nwindow.HL_DARK_CSS=");
+                append_js_string_literal(head_inline, a->hl_dark_css);
+                cwist_sstring_append(head_inline, ";\n");
+                if (a->jwt_js) cwist_sstring_append(head_inline, a->jwt_js);
+                if (a->jwt_js && a->layout_js) cwist_sstring_append(head_inline, "\n");
+                if (a->layout_js) cwist_sstring_append(head_inline, a->layout_js);
+                cwist_sstring_append(head_inline, "</script>");
+
+                if (!a->jwt_js) {
+                    cwist_sstring_append(head_inline, "<script src=\"/assets/js/jwt.js?v=1\" defer></script>");
+                }
+                if (!a->layout_js) {
+                    cwist_sstring_append(head_inline, "<script src=\"/assets/js/layout.js\" defer></script>");
+                }
+
+                cwist_sstring *doc2 = cwist_sstring_create();
+                if (doc2) {
+                    size_t before = (size_t)(pos_head - doc->data);
+                    cwist_sstring_append_len(doc2, doc->data, before);
+                    cwist_sstring_append(doc2, head_inline->data);
+                    cwist_sstring_append(doc2, pos_head + strlen(head_marker));
+                    cwist_sstring_assign(doc, doc2->data);
+                    cwist_sstring_destroy(doc2);
+                }
+                cwist_sstring_destroy(head_inline);
+            }
+        }
+
+        /* Replace the inline-body marker with inlined conditional scripts. */
+        const char *body_marker = "<meta data-inline-body=\"1\">";
+        char *pos_body = strstr(doc->data, body_marker);
+        if (pos_body) {
+            inline_assets_t *a = get_inline_assets();
+            cwist_sstring *body_inline = cwist_sstring_create();
+            if (body_inline) {
+                if (needs_hl) {
+                    append_inline_script(body_inline, a->hl_js);
+                    append_inline_script(body_inline, a->hl_fortran_js);
+                    append_inline_script(body_inline, "hljs.highlightAll();");
+                }
+                if (needs_katex) {
+                    append_inline_script(body_inline, a->katex_js);
+                    append_inline_script(body_inline, a->katex_render_js);
+                }
+                append_inline_script(body_inline, a->tasfa_js);
+
+                cwist_sstring *doc2 = cwist_sstring_create();
+                if (doc2) {
+                    size_t before = (size_t)(pos_body - doc->data);
+                    cwist_sstring_append_len(doc2, doc->data, before);
+                    cwist_sstring_append(doc2, body_inline->data);
+                    cwist_sstring_append(doc2, pos_body + strlen(body_marker));
+                    cwist_sstring_assign(doc, doc2->data);
+                    cwist_sstring_destroy(doc2);
+                }
+                cwist_sstring_destroy(body_inline);
+            }
+        }
+
         cwist_sstring_destroy(out);
         return doc;
     }

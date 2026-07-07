@@ -110,6 +110,7 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
+    bool mobile = is_mobile_request(req);
     cJSON *posts = NULL;
     int page = 1, total_pages = 1;
     const char *page_str = cwist_query_map_get(req->query_params, "page");
@@ -119,6 +120,16 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     const char *search = cwist_query_map_get(req->query_params, "search");
     const char *search_type = cwist_query_map_get(req->query_params, "search_type");
     bool empty_search = search && !search[0];
+
+    char key[512];
+    page_cache_key_board(key, sizeof(key), slug ? slug : "", page, dark, mobile, role, uid, search, search_type);
+    const char *cached = NULL;
+    size_t cached_len = 0;
+    uint32_t ttl = 0;
+    if (page_cache_get(key, &cached, &cached_len, &ttl)) {
+        send_cached_html_res(res, cached, cached_len, ttl);
+        return;
+    }
 
     cJSON *children = NULL;
     if (slug) {
@@ -173,9 +184,12 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     }
 
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page_html = render_post_list(posts, NULL, dark, role, page, total_pages, slug, search, search_type, pp, uid, is_mobile_request(req), children);
+    cwist_sstring *page_html = render_post_list(posts, NULL, dark, role, page, total_pages, slug, search, search_type, pp, uid, mobile, children);
     if (posts) cJSON_Delete(posts);
     if (children) cJSON_Delete(children);
+    if (page_html) {
+        page_cache_set(key, page_html->data, page_html->size, 60);
+    }
     send_html_res(res, page_html);
     free(pp);
 }
@@ -187,6 +201,18 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
+    bool mobile = is_mobile_request(req);
+
+    char key[512];
+    page_cache_key_post(key, sizeof(key), slug, dark, mobile, role, uid);
+    const char *cached = NULL;
+    size_t cached_len = 0;
+    uint32_t ttl = 0;
+    if (page_cache_get(key, &cached, &cached_len, &ttl)) {
+        send_cached_html_res(res, cached, cached_len, ttl);
+        return;
+    }
+
     cJSON *post = db_post_get_by_slug(req->db, slug);
     if (!post) { res->status_code = CWIST_HTTP_NOT_FOUND; cwist_sstring_assign(res->body, "Not found"); return; }
     int post_id = json_int(post, "id", 0);
@@ -230,7 +256,10 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
         }
     }
     const char *ephemeral_delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
-    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, author_pp, uid, ephemeral_delete_pin, is_mobile_request(req));
+    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, author_pp, uid, ephemeral_delete_pin, mobile);
+    if (page) {
+        page_cache_set(key, page->data, page->size, 60);
+    }
     if (author_pp) free(author_pp);
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
@@ -404,6 +433,9 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     int post_id = (int)sqlite3_last_insert_rowid(req->db->conn);
     attach_media_meta_to_post(req->db, media_meta, post_id, uid, role);
 
+    /* New posts appear on home and board listings, so clear those caches. */
+    page_cache_invalidate_all();
+
     cwist_free(sl);
     cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
     multipart_free(files);
@@ -533,6 +565,19 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
 
     attach_media_meta_to_post(req->db, media_meta, atoi(id_str), uid, role);
 
+    cJSON *updated_post = db_post_get_by_id(req->db, atoi(id_str));
+    if (updated_post) {
+        cJSON *slug_item = cJSON_GetObjectItem(updated_post, "slug");
+        if (slug_item && cJSON_IsString(slug_item) && slug_item->valuestring) {
+            page_cache_invalidate_post(slug_item->valuestring);
+        } else {
+            page_cache_invalidate_all();
+        }
+        cJSON_Delete(updated_post);
+    } else {
+        page_cache_invalidate_all();
+    }
+
     cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
     multipart_free(files);
     redirect(res, "/");
@@ -566,11 +611,19 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
         cJSON_Delete(post);
         return;
     }
+    cJSON *slug_item = cJSON_GetObjectItem(post, "slug");
+    char *deleted_slug = (slug_item && cJSON_IsString(slug_item) && slug_item->valuestring) ? strdup(slug_item->valuestring) : NULL;
     cJSON_Delete(post);
     int post_id = atoi(id_str);
     db_file_delete_by_post(req->db, post_id);
     db_comment_delete_by_target("post", post_id);
     db_post_delete(req->db, post_id);
+    if (deleted_slug) {
+        page_cache_invalidate_post(deleted_slug);
+        free(deleted_slug);
+    } else {
+        page_cache_invalidate_all();
+    }
     CWIST_LOG_INFO("Post deleted: id=%s uid=%d", id_str, uid);
     redirect(res, "/");
 }

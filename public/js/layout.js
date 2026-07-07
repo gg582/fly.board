@@ -1,14 +1,5 @@
 (function(){
-    // 1. Highlight.js init
-    if (window.hljs) {
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function(){ hljs.highlightAll(); });
-        } else {
-            hljs.highlightAll();
-        }
-    }
-
-    // 2. Mobile Layout
+    // 1. Mobile Layout
     function hasMobileUa(){
         var n=window.navigator||{};
         if(n.userAgentData&&n.userAgentData.mobile===true)return true;
@@ -92,11 +83,9 @@
         bindMobileNav();
     }
 
-    // 3. Theme toggle (simple click-to-toggle)
+    // 2. Theme toggle (simple click-to-toggle)
     var CACHE_KEY='fly_themes_v2';
     var CACHE_TTL_MS=300000; // 5 minutes: long enough to avoid FOUC, short enough to pick up config changes
-    var HL_LIGHT='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css';
-    var HL_DARK='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css';
     // monotonic generation counter so async theme operations never overwrite a newer toggle
     var themeGen=0;
     function buildCss(t){
@@ -108,16 +97,31 @@
     }
     function applyTheme(t){var s=document.getElementById('dyn-theme');if(s)s.textContent=buildCss(t);}
     function findTheme(arr,name){for(var i=0;i<arr.length;i++)if(arr[i].name===name)return arr[i];return arr[0];}
+    function createHlStyle(){
+        var style=document.getElementById('hl-theme');
+        if(style)return style;
+        style=document.createElement('style');
+        style.id='hl-theme';
+        var head=document.head||document.documentElement;
+        if(head)head.appendChild(style);
+        return style;
+    }
     function setHlCss(name,gen){
         if(gen!==undefined&&gen!==themeGen)return;
-        var pres=document.querySelectorAll('.markdown-body pre');
-        for(var i=0;i<pres.length;i++)pres[i].style.opacity='0.5';
-        var l=document.getElementById('hl-theme');
-        if(l)l.href=(name==='light'?HL_LIGHT:HL_DARK);
-        setTimeout(function(){
-            if(gen!==undefined&&gen!==themeGen)return;
-            for(var i=0;i<pres.length;i++)pres[i].style.opacity='';
-        },200);
+        var css=(name==='light')?(window.HL_LIGHT_CSS||''):(window.HL_DARK_CSS||'');
+        var style=createHlStyle();
+        if(!style)return;
+        // Skip if the requested highlight theme is already active.
+        if(style.dataset.active===name)return;
+        style.textContent=css;
+        style.dataset.active=name;
+    }
+    function syncHlTheme(){
+        // Guard against stale highlight state after navigation or cache restore.
+        var style=document.getElementById('hl-theme');
+        if(style && style.dataset.active!==mode){
+            setHlCss(mode);
+        }
     }
     function updateBtn(name,gen){
         if(gen!==undefined&&gen!==themeGen)return;
@@ -141,14 +145,23 @@
     var c=document.cookie.match(/theme=(\w+)/);
     var mode=c?c[1]:(d.classList.contains('dark')?'dark':'light');
     if(!/^(light|dark|ocean|forest|sepia)$/.test(mode))mode='light';
-    function applyCached(){if(themes){applyTheme(findTheme(themes,mode));}}
+    function applyCached(){
+        if(!themes)return;
+        applyTheme(findTheme(themes,mode));
+        syncHlTheme();
+    }
     applyCached();
+    // Ensure highlight theme matches the resolved mode on every full page load.
+    // This covers navigation from pages that had no code blocks (and therefore
+    // no hl-theme element) and stale back/forward cache restorations.
+    syncHlTheme();
     if (!themes) {
         fetch('/themes.json',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
             if(themeGen!==0)return;
             saveThemes(arr);
             themes=arr;
             applyTheme(findTheme(arr,mode));
+            syncHlTheme();
         }).catch(function(){/* network error: use cached or skip */});
     } else {
         var isMobileTheme = shouldUseMobileNav();
@@ -193,7 +206,7 @@
         bindThemeToggle();
     }
 
-    // 4. Boards Dropdown
+    // 3. Boards dropdown
     function renderBoardsDropdown(arr){
         var list=document.getElementById('boards-dropdown-list');
         if(!list)return;
@@ -228,7 +241,7 @@
         }).catch(function(){});
     }
 
-    // 5. Boards Dropdown hover helper (desktop)
+    // 4. Boards dropdown hover helper (desktop)
     function bindBoardsDropdown(){
         var dd=document.querySelector('.nav-board-dropdown');
         var menu=document.getElementById('boards-dropdown');
@@ -255,7 +268,7 @@
         bindBoardsDropdown();
     }
 
-    // 6. Admin Dropdown hover helper (desktop)
+    // 5. Admin dropdown hover helper (desktop)
     function bindAdminDropdown(){
         var dd=document.querySelector('.nav-admin-dropdown');
         var menu=dd?dd.querySelector('.nav-admin-menu'):null;
@@ -281,7 +294,7 @@
         bindAdminDropdown();
     }
 
-    // 7. Advanced search toggle (replaces inline onclick for CSP)
+    // 6. Advanced search toggle (replaces inline onclick for CSP)
     function bindAdvSearchToggle(){
         var btn=document.querySelector('.adv-toggle-btn');
         var el=document.getElementById('adv-search');
@@ -299,7 +312,7 @@
         bindAdvSearchToggle();
     }
 
-    // 8. Generic toggle buttons (replaces inline onclick for edit/reply panels)
+    // 7. Generic toggle buttons (replaces inline onclick for edit/reply panels)
     function bindToggleButtons(){
         document.querySelectorAll('[data-toggle-target]').forEach(function(btn){
             if(btn.dataset.toggleBound)return;
@@ -317,7 +330,7 @@
         bindToggleButtons();
     }
 
-    // 9. Confirm dialogs (replaces inline onclick/onsubmit for delete actions)
+    // 8. Confirm dialogs (replaces inline onclick/onsubmit for delete actions)
     function bindConfirmActions(){
         document.querySelectorAll('a[data-confirm], button[data-confirm], form[data-confirm]').forEach(function(el){
             if(el.dataset.confirmBound)return;
@@ -339,7 +352,7 @@
         bindConfirmActions();
     }
 
-    // 10. Service Worker
+    // 9. Service Worker
     if('serviceWorker'in navigator){
         function registerSw(attempt){
             navigator.serviceWorker.register('/sw.js').then(function(reg){
@@ -369,7 +382,7 @@
         }
     }
 
-    // 11. Sub-resource load failure recovery.
+    // 10. Sub-resource load failure recovery.
     //     Covers Firefox tracking-protection drops, .zip-TLD heuristic blocks,
     //     and high-RTT first-connection races that produce ERR_CONNECTION_REFUSED
     //     before the SW is active enough to intercept.

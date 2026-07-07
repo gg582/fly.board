@@ -71,19 +71,8 @@ void rule_base(cJSON *rules) {
     add_decl(b, "scrollbar-color", "var(--border) transparent");
     cJSON_AddItemToArray(rules, b);
 
-    /* Font imports */
-    cJSON *ff_outfit = create_rule("@import");
-    add_decl(ff_outfit, "url", g_font_settings.import_url[0] ? g_font_settings.import_url : "'https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&family=Space+Grotesk:wght@300..700&family=IBM+Plex+Sans+KR:wght@300..700&family=Inter:wght@400..700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap'");
-    cJSON_AddItemToArray(rules, ff_outfit);
-
-    /* JetBrains Mono @font-face for code */
-    cJSON *ff = create_rule("@font-face");
-    add_decl(ff, "font-family", g_font_settings.face_family[0] ? g_font_settings.face_family : "'JetBrains Mono'");
-    add_decl(ff, "src", g_font_settings.face_src[0] ? g_font_settings.face_src : "url('https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@master/web/websites/JetBrainsMono-Regular.woff2') format('woff2')");
-    add_decl(ff, "font-weight", "400");
-    add_decl(ff, "font-style", "normal");
-    add_decl(ff, "font-display", "swap");
-    cJSON_AddItemToArray(rules, ff);
+    /* Web fonts are inlined into every HTML response by render_page.c, so no
+     * @import or @font-face declarations are emitted here. */
 
     cJSON *body = create_rule("body");
     add_decl(body, "background", "var(--bg)");

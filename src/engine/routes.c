@@ -10,10 +10,10 @@ void engine_routes_register(cwist_app *app) {
     cwist_app_get(app, "/assets/profile/:filename", handler_asset_profile_upload);
     cwist_app_get(app, "/assets/tasfa/:scope/:filename/handshake", handler_asset_tasfa_handshake);
     cwist_app_get(app, "/assets/tasfa/:scope/:filename/chunk/:chunk_index", handler_asset_tasfa_chunk);
-    cwist_app_static(app, "/assets/images", "public/images");
-    cwist_app_static(app, "/assets/js", "public/js");
-    cwist_app_static(app, "/js", "public/js");
-    cwist_app_static(app, "/assets/media", "public/media");
+    cwist_app_static_with_cache(app, "/assets/images", "public/images", "public, max-age=31536000, immutable");
+    cwist_app_static_with_cache(app, "/assets/js", "public/js", "public, max-age=31536000, immutable");
+    cwist_app_static_with_cache(app, "/js", "public/js", "public, max-age=31536000, immutable");
+    cwist_app_static_with_cache(app, "/assets/media", "public/media", "public, max-age=31536000, immutable");
     cwist_app_get(app, "/sw.js", handler_sw_js);
     cwist_app_get(app, "/__tasfa_stream__/:stream_id", handler_tasfa_stream_placeholder);
 

@@ -12,6 +12,11 @@
 #include "engine/db.h"
 #include "engine/settings.h"
 #include "engine/routes.h"
+#include "engine/warmup.h"
+#include "utils/cache.h"
+#include "utils/image_inline.h"
+#include <cwist/net/http/http3.h>
+#include <openssl/ssl.h>
 #include <cwist/sys/app/app.h>
 #include <cwist/sys/app/compress.h>
 #include <ttak/async/task.h>
@@ -143,6 +148,8 @@ int main(void) {
         fly_crypto_cleanup();
         return 1;
     }
+    image_inline_cache_build();
+    CWIST_LOG_INFO("Inline image cache built");
 
     if (!engine_pool_init()) {
         fly_crypto_cleanup();
@@ -180,6 +187,9 @@ int main(void) {
     db_cleanup_orphaned_files(db);
     CWIST_LOG_INFO("Orphaned files cleanup completed");
 
+    page_cache_init();
+    page_cache_warmup(db);
+
     g_cleanup_running = true;
     if (!engine_pool_schedule(cleanup_worker, db, 0x434c45414e5550ULL, TTAK_TASK_DOMAIN_IO, 10)) {
         g_cleanup_running = false;
@@ -196,6 +206,16 @@ int main(void) {
     if (g_config.use_http3) {
         cwist_app_use_https3(app, true);
         CWIST_LOG_INFO("HTTP/3 enabled");
+        if (app->h3_ctx && app->h3_ctx->ssl_ctx) {
+#if defined(SSL_CTX_set_early_data_enabled)
+            SSL_CTX_set_early_data_enabled(app->h3_ctx->ssl_ctx, 1);
+#elif defined(SSL_CTX_set_max_early_data)
+            SSL_CTX_set_max_early_data(app->h3_ctx->ssl_ctx, 0xFFFFFFFF);
+#endif
+            SSL_CTX_set_session_cache_mode(app->h3_ctx->ssl_ctx, SSL_SESS_CACHE_SERVER);
+            SSL_CTX_set_num_tickets(app->h3_ctx->ssl_ctx, 2);
+            CWIST_LOG_INFO("HTTP/3 0-RTT early data and session resumption enabled");
+        }
     }
     if (g_config.use_tls) {
         cwist_error_t tls = cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);

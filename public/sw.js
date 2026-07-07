@@ -1,7 +1,23 @@
 var LOGO_CACHE = 'logo-cache-v4';
 var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
+var STATIC_CACHE = 'fly-static-v3';
+var CDN_CACHE = 'fly-cdn-v2';
+var PRECACHE = 'fly-precache-v1';
 var LOGO_MAX_AGE = 3600000; // 1 hour in milliseconds
+var STATIC_MAX_AGE = 24 * 60 * 60 * 1000; // 1 day
+var CDN_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
 var tasfaSessions = {};
+
+/* Assets to prefetch on SW install so repeat navigations never hit the network
+   for the shell JS/CSS and the theme config. */
+var PRECACHE_URLS = [
+    '/',
+    '/assets/js/jwt.js',
+    '/assets/js/layout.js',
+    '/assets/js/katex-render.js',
+    '/assets/js/tasfa-download.js',
+    '/themes.json'
+];
 
 /* Progressive video streaming streams managed by the Service Worker */
 var tasfaStreams = {};
@@ -106,11 +122,28 @@ self.addEventListener('message', function(event) {
 });
 
 self.addEventListener('install', function(e) {
-    self.skipWaiting();
+    e.waitUntil(
+        caches.open(PRECACHE).then(function(cache) {
+            return cache.addAll(PRECACHE_URLS);
+        }).then(function() {
+            return self.skipWaiting();
+        })
+    );
 });
 
 self.addEventListener('activate', function(e) {
-    e.waitUntil(self.clients.claim());
+    var allowedCaches = [LOGO_CACHE, TASFA_MEDIA_CACHE, STATIC_CACHE, CDN_CACHE, PRECACHE];
+    e.waitUntil(
+        caches.keys().then(function(keys) {
+            return Promise.all(keys.map(function(key) {
+                if (allowedCaches.indexOf(key) === -1) {
+                    return caches.delete(key);
+                }
+            }));
+        }).then(function() {
+            return self.clients.claim();
+        })
+    );
 });
 
 function emptyPngResponse(status, statusText) {
@@ -209,6 +242,64 @@ function isFirefox() {
     } catch (e) {
         return false;
     }
+}
+
+function isCdnUrl(url) {
+    return url.startsWith('https://fonts.googleapis.com') ||
+           url.startsWith('https://fonts.gstatic.com') ||
+           url.startsWith('https://cdn.jsdelivr.net') ||
+           url.startsWith('https://cdnjs.cloudflare.com') ||
+           url.startsWith('https://cdn.plyr.io');
+}
+
+function shouldSkipCaching(response) {
+    if (!response || !response.ok) return true;
+    var cc = response.headers.get('Cache-Control') || '';
+    return cc.indexOf('no-store') !== -1;
+}
+
+function fetchAndCache(request, cacheName, maxAge, fetchOptions) {
+    fetchOptions = fetchOptions || {};
+    return fetchWithRetry(request, fetchOptions).then(function(response) {
+        if (!shouldSkipCaching(response)) {
+            var cloned = response.clone();
+            caches.open(cacheName).then(function(cache) {
+                var headers = new Headers(cloned.headers);
+                headers.set('x-sw-fetched', Date.now().toString());
+                headers.set('x-sw-max-age', maxAge.toString());
+                // Remove encoding/length that may mismatch the stored blob.
+                headers.delete('content-encoding');
+                cloned.blob().then(function(blob) {
+                    headers.set('content-length', blob.size.toString());
+                    cache.put(request, new Response(blob, {
+                        status: cloned.status,
+                        statusText: cloned.statusText,
+                        headers: headers
+                    }));
+                });
+            });
+        }
+        return response;
+    });
+}
+
+function cachedOrFetch(request, cacheName, maxAge, fetchOptions) {
+    return caches.open(cacheName).then(function(cache) {
+        return cache.match(request).then(function(cachedResponse) {
+            var now = Date.now();
+            if (cachedResponse) {
+                var fetched = cachedResponse.headers.get('x-sw-fetched');
+                var age = fetched ? (now - parseInt(fetched, 10)) : Infinity;
+                if (age < maxAge) {
+                    return cachedResponse;
+                }
+            }
+            return fetchAndCache(request, cacheName, maxAge, fetchOptions).catch(function(err) {
+                if (cachedResponse) return cachedResponse;
+                throw err;
+            });
+        });
+    });
 }
 
 function fetchWithRetry(request, options) {
@@ -341,6 +432,19 @@ self.addEventListener('fetch', function(event) {
        because the ReadableStream is always fed from byte 0. Firefox in
        particular treats a Content-Length/range mismatch as a partial
        transfer error (NS_ERROR_PARTIAL_TRANSFER). */
+    /* Cache CDN fonts, styles and scripts aggressively. High-RTT links suffer
+     * most on these cross-origin resources because they are fetched on every
+     * cold navigation. */
+    if (isCdnUrl(url) && event.request.method === 'GET' && !event.request.headers.get('Range')) {
+        event.respondWith(
+            cachedOrFetch(event.request, CDN_CACHE, CDN_MAX_AGE).catch(function(err) {
+                if (typeof console !== 'undefined' && console.warn) console.warn('[SW] CDN fetch failed:', url, err);
+                throw err;
+            })
+        );
+        return;
+    }
+
     if (url.indexOf(self.location.origin + '/__tasfa_stream__/') === 0 && event.request.method === 'GET') {
         var pathParts = new URL(url).pathname.split('/');
         var streamId = pathParts[pathParts.length - 1];
@@ -471,31 +575,32 @@ self.addEventListener('fetch', function(event) {
     var isThemesFetch = url === self.location.origin + '/themes.json';
     if ((!isTasfa && !isDirectImageAsset && !isStaticScript && !isThemesFetch) || event.request.method !== 'GET') return;
     if (event.request.headers.get('Range') || event.request.destination === 'video' || event.request.destination === 'audio') return;
-    /* Enable firefoxFallback for TASFA chunk/handshake requests too: Firefox
-       NS_ERROR_NET_PARTIAL_TRANSFER on a chunk XHR often resolves with a
-       cache-busted retry that forces a fresh TCP+TLS connection. */
-    var promise = fetchWithRetry(event.request, { maxRetries: 5, baseDelay: 200, firefoxFallback: true }).catch(function(err) {
-        if (isDirectImageAsset) {
-            /* For image assets, returning JSON causes Firefox to report a
-               decoding/error mismatch. Return a valid 1x1 transparent PNG so
-               the browser shows a clean broken-image placeholder. */
-            return emptyPngResponse(503, 'Service Unavailable');
-        }
-        if (isStaticScript) {
-            /* Return an empty script body so the browser does not block on a
-               parse error, and so that layout.js error-event retry logic can
-               still fire a second attempt if needed. */
-            return new Response('/* SW: fetch failed after retries */', {
+    /* Cache same-origin static assets. On high-RTT links this avoids a full
+     * round trip for JS/CSS/images that rarely change. Stale responses are
+     * still served from cache when the network is down. */
+    event.respondWith(
+        cachedOrFetch(event.request, STATIC_CACHE, STATIC_MAX_AGE, { maxRetries: 5, baseDelay: 200, firefoxFallback: true }).catch(function(err) {
+            if (isDirectImageAsset) {
+                /* For image assets, returning JSON causes Firefox to report a
+                   decoding/error mismatch. Return a valid 1x1 transparent PNG so
+                   the browser shows a clean broken-image placeholder. */
+                return emptyPngResponse(503, 'Service Unavailable');
+            }
+            if (isStaticScript) {
+                /* Return an empty script body so the browser does not block on a
+                   parse error, and so that layout.js error-event retry logic can
+                   still fire a second attempt if needed. */
+                return new Response('/* SW: fetch failed after retries */', {
+                    status: 503,
+                    headers: {'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store'}
+                });
+            }
+            return new Response(JSON.stringify({ok:false, error:'network', retry:true}), {
                 status: 503,
-                headers: {'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store'}
+                headers: {'Content-Type':'application/json'}
             });
-        }
-        return new Response(JSON.stringify({ok:false, error:'network', retry:true}), {
-            status: 503,
-            headers: {'Content-Type':'application/json'}
-        });
-    });
-    event.respondWith(promise);
+        })
+    );
     } catch (e) {
         // Never let a service-worker exception break a page request.
         if (typeof console !== 'undefined' && console.error) console.error('[SW] fetch handler error:', e);

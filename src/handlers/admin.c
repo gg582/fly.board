@@ -33,6 +33,7 @@ void handler_admin_user_role(cwist_http_request *req, cwist_http_response *res) 
         int target_uid = atoi(id_str);
         if (target_uid > 0 && db_user_update_role(req->db, target_uid, role)) {
             CWIST_LOG_INFO("User role updated: uid=%d role='%s'", target_uid, role);
+            page_cache_invalidate_all();
         } else {
             CWIST_LOG_ERROR("User role update failed: uid=%d role='%s'", target_uid, role);
         }
@@ -48,6 +49,7 @@ void handler_admin_files_drop(cwist_http_request *req, cwist_http_response *res)
     if (!auth_require_admin(req, res)) return;
     int count = db_file_drop_all(req->db);
     CWIST_LOG_INFO("Admin dropped all files: count=%d", count);
+    page_cache_invalidate_all();
     const char *referer = cwist_http_header_get(req->headers, "Referer");
     redirect(res, referer && referer[0] ? referer : "/files");
 }
