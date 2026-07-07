@@ -11,8 +11,8 @@
    - Static user content (images/uploads/profile): public caches allowed, 1-day freshness,
      must revalidate after that. ETag is always provided for validation.
    - Generic downloads: same policy. */ 
-#define IMAGE_CACHE_CONTROL "public, max-age=86400, must-revalidate"
-#define FILE_CACHE_CONTROL  "public, max-age=86400, must-revalidate"
+#define IMAGE_CACHE_CONTROL "public, max-age=31536000, immutable"
+#define FILE_CACHE_CONTROL  "public, max-age=31536000, immutable"
 
 static void send_upload_not_found(cwist_http_response *res) {
     res->status_code = CWIST_HTTP_NOT_FOUND;
@@ -752,6 +752,7 @@ void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
                 int fid = atoi(id_str);
                 if (db_file_delete(req->db, fid)) {
                     CWIST_LOG_INFO("File deleted: fid=%d by_uid=%d", fid, uid);
+                    page_cache_invalidate_all();
                 } else {
                     CWIST_LOG_ERROR("File delete failed: fid=%d by_uid=%d", fid, uid);
                 }

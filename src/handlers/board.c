@@ -149,6 +149,7 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
             cJSON_Delete(created);
         }
         CWIST_LOG_INFO("Board created: name='%s' slug='%s'", name, slug);
+        page_cache_invalidate_board(slug);
     } else {
         CWIST_LOG_ERROR("Board creation failed: name='%s' slug='%s'", name, slug);
     }
@@ -254,18 +255,29 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
     if (parent_id_str) parent_id = atoi(parent_id_str);
     if (parent_id > 0 && parent_id == bid) parent_id = 0;
 
+    cJSON *old_slug_obj = cJSON_GetObjectItem(board, "slug");
+    char *old_slug = (old_slug_obj && cJSON_IsString(old_slug_obj) && old_slug_obj->valuestring)
+        ? strdup(old_slug_obj->valuestring) : NULL;
+
     bool admin_only_val = is_admin ? (ao != NULL) : json_int(board, "admin_only", 0);
     if (!db_board_update(req->db, bid, name, slug, desc ? desc : "", admin_only_val, 0, 0, 0)) {
         CWIST_LOG_ERROR("Board update failed: bid=%d", bid);
         cwist_sstring *page = render_board_form(board, NULL, is_dark(req), "Failed to update board.", pp, is_mobile_request(req), role);
         send_html_res(res, page);
         cJSON_Delete(board);
+        free(old_slug);
         free(pp);
         cwist_query_map_destroy(kv);
         return;
     }
     db_board_tree_set_parent(bid, parent_id);
     CWIST_LOG_INFO("Board updated: bid=%d name='%s' slug='%s' parent=%d", bid, name, slug, parent_id);
+
+    page_cache_invalidate_board(slug);
+    if (old_slug && (!slug || strcmp(old_slug, slug) != 0)) {
+        page_cache_invalidate_board(old_slug);
+    }
+    free(old_slug);
 
     cJSON *slug_obj = cJSON_GetObjectItem(board, "slug");
     char redirect_url[128];
@@ -286,6 +298,16 @@ void handler_board_delete(cwist_http_request *req, cwist_http_response *res) {
     const char *id_str = cwist_query_map_get(req->path_params, "id");
     if (id_str) {
         int bid = atoi(id_str);
+        cJSON *board = db_board_get_by_id(req->db, bid);
+        if (board) {
+            cJSON *slug_obj = cJSON_GetObjectItem(board, "slug");
+            if (slug_obj && cJSON_IsString(slug_obj) && slug_obj->valuestring) {
+                page_cache_invalidate_board(slug_obj->valuestring);
+            } else {
+                page_cache_invalidate_all();
+            }
+            cJSON_Delete(board);
+        }
         db_board_tree_promote_children(bid);
         db_board_delete(req->db, bid);
         db_board_tree_remove(bid);
@@ -330,6 +352,14 @@ void handler_board_perms_post(cwist_http_request *req, cwist_http_response *res)
             if (db_board_perm_grant(req->db, board_id, user_id)) {
                 msg = "granted";
                 CWIST_LOG_INFO("Board permission granted: board_id=%d user_id=%d", board_id, user_id);
+                cJSON *board = db_board_get_by_id(req->db, board_id);
+                if (board) {
+                    cJSON *slug = cJSON_GetObjectItem(board, "slug");
+                    if (slug && cJSON_IsString(slug) && slug->valuestring) {
+                        page_cache_invalidate_board(slug->valuestring);
+                    }
+                    cJSON_Delete(board);
+                }
             } else {
                 msg = "exists";
                 CWIST_LOG_WARN("Board permission already exists: board_id=%d user_id=%d", board_id, user_id);
@@ -355,6 +385,14 @@ void handler_board_perms_revoke_post(cwist_http_request *req, cwist_http_respons
         if (board_id > 0 && user_id > 0 && db_board_perm_revoke(req->db, board_id, user_id)) {
             msg = "revoked";
             CWIST_LOG_INFO("Board permission revoked: board_id=%d user_id=%d", board_id, user_id);
+            cJSON *board = db_board_get_by_id(req->db, board_id);
+            if (board) {
+                cJSON *slug = cJSON_GetObjectItem(board, "slug");
+                if (slug && cJSON_IsString(slug) && slug->valuestring) {
+                    page_cache_invalidate_board(slug->valuestring);
+                }
+                cJSON_Delete(board);
+            }
         }
     }
     cwist_query_map_destroy(kv);

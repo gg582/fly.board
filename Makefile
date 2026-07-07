@@ -23,10 +23,13 @@ SRCS := src/main.c \
         src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c \
         src/handlers/handlers.c src/handlers/home.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/file.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c \
         src/utils/utils.c \
+        src/utils/cache.c \
         src/utils/tcp_cork_wrap.c \
         src/utils/legal.c \
+        src/utils/stb_image_impl.c \
         src/utils/image_contrast.c \
         src/utils/image_size.c \
+        src/utils/image_inline.c \
         src/utils/media_preview.c \
         src/nats/fly_nats.c \
         src/core/log.c \
@@ -36,10 +39,15 @@ SRCS := src/main.c \
         src/engine/db.c \
         src/engine/settings.c \
         src/engine/routes.c \
+        src/engine/warmup.c \
         $(MULTIPART_DIR)/multipart_parser.c
 OBJS := $(SRCS:.c=.o)
 
 CFLAGS := -Wall -Wextra -O2 \
+		  -march=native \
+		  -mtune=native \
+		  -fno-plt \
+		  -fomit-frame-pointer \
           -Iinclude \
           -Isrc \
           -I$(CWIST_ROOT)/include \
@@ -68,7 +76,9 @@ ifeq ($(wildcard $(CWIST_LIB)),)
   CWIST_LIB := $(CWIST_ROOT)/libcwist.a
 endif
 
-LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++ -lz -lzstd -lbrotlienc -lbrotlidec -lm $(shell pkg-config --libs libcurl 2>/dev/null || echo -lcurl)
+LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++ -lz -lzstd -lbrotlienc -lbrotlidec -lm \
+        $(shell pkg-config --libs libwebp libwebpmux 2>/dev/null || echo -lwebpmux -lwebp) \
+        $(shell pkg-config --libs libcurl 2>/dev/null || echo -lcurl)
 HAS_NGHTTP2 := $(shell pkg-config --exists libnghttp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGTCP2 := $(shell pkg-config --exists libngtcp2 2>/dev/null && echo 1 || echo 0)
 HAS_NGHTTP3 := $(shell pkg-config --exists libnghttp3 2>/dev/null && echo 1 || echo 0)
@@ -95,11 +105,14 @@ endif
 
 TARGET := fly_board
 
-.PHONY: all clean distclean deps
+.PHONY: all clean distclean deps prepare_assets
 
 all: deps $(TARGET)
 
-deps: $(MD4C_LIB) $(LIBMAGIC_A) $(LIBTTAK_A)
+deps: $(MD4C_LIB) $(LIBMAGIC_A) $(LIBTTAK_A) prepare_assets
+
+prepare_assets: tools/prepare_assets.py
+	python3 tools/prepare_assets.py
 
 $(LIBTTAK_A):
 	cp src/utils/libttak_worker.c $(LIBTTAK_DIR)/src/thread/worker.c

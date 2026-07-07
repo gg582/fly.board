@@ -137,5 +137,12 @@ bool db_migrate(cwist_db *db) {
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_votes_anon (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, vote_type INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_tags (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, UNIQUE(post_id, tag_id), FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE, FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE)");
+
+    /* Performance indexes for hot read paths. */
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC)");
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_posts_board_created ON posts(board_id, created_at DESC)");
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_posts_slug ON posts(slug)");
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_boards_slug ON boards(slug)");
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_comments_target ON comments(target_type, target_id, created_at DESC)");
     return true;
 }

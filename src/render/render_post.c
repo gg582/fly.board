@@ -3,6 +3,7 @@
 #include "render_internal.h"
 #include "config/config.h"
 #include "utils/utils.h"
+#include "utils/image_inline.h"
 #include "db/sql_escape.h"
 #include "cwist/image_contrast.h"
 #include <cwist/core/sstring/sstring.h>
@@ -354,18 +355,17 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
 
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id, bool is_mobile, cJSON *children) {
     cwist_sstring *b = cwist_sstring_create();
-    int has_home_bg = g_config.home_img[0];
+    const char *home_bg_url = image_inline_home_bg();
+    int has_home_bg = home_bg_url ? 1 : 0;
     char shell_style[768] = {0};
     char text_style[256] = {0};
     char logo_filter[128] = {0};
     char overlay_style[256] = {0};
-    char img_url[512] = {0};
     if (!board_slug || board_slug[0] == '\0') {
         if (has_home_bg) {
             char img_path[512];
             snprintf(img_path, sizeof(img_path), "public/img/%s", g_config.home_img);
-            snprintf(img_url, sizeof(img_url), "/assets/img/%s", g_config.home_img);
-            get_image_text_style(img_path, img_url, shell_style, sizeof(shell_style),
+            get_image_text_style(img_path, home_bg_url, shell_style, sizeof(shell_style),
                                  text_style, sizeof(text_style),
                                  logo_filter, sizeof(logo_filter),
                                  overlay_style, sizeof(overlay_style));
@@ -375,7 +375,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cwist_sstring_append(b, text_style);
             cwist_sstring_append(b, "\">");
             cwist_sstring_append(b, "<img class='hero-bg' fetchpriority='high' src='");
-            cwist_sstring_append(b, img_url);
+            cwist_sstring_append(b, home_bg_url);
             cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0'>");
             if (overlay_style[0]) {
                 cwist_sstring_append(b, "<div style=\"position:absolute;inset:0;z-index:1;");
@@ -385,9 +385,10 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         }
         cwist_sstring_append(b, "<div class='hero' ");
         if (has_home_bg) cwist_sstring_append(b, "style='position:relative;z-index:2;background:none;' ");
-        cwist_sstring_append(b, "><img class='hero-logo' src='/assets/img/");
-        if (g_config.blog_logo[0]) cwist_sstring_append_escaped(b, g_config.blog_logo);
-        else cwist_sstring_append(b, "logo.png");
+        const char *logo_url = image_inline_logo();
+        if (!logo_url) logo_url = "/assets/img/logo.png";
+        cwist_sstring_append(b, "><img class='hero-logo' src='");
+        cwist_sstring_append(b, logo_url);
         cwist_sstring_append(b, "' alt='Logo'");
         if (has_home_bg) {
             cwist_sstring_append(b, " style='filter:");

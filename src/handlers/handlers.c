@@ -8,6 +8,7 @@
 #include "../render/render.h"
 #include "../render/theme.h"
 #include "../utils/utils.h"
+#include "../utils/image_inline.h"
 #include "../config/config.h"
 #include <cwist/core/sstring/sstring.h>
 #include <unistd.h>
@@ -23,13 +24,32 @@
 #include <time.h>
 #include <sqlite3.h>
 
+/* Returns true when the requested theme needs the dark highlight.js stylesheet.
+   This includes the explicit dark theme as well as the dark-themed variants
+   (ocean, forest, sepia). A missing or unrecognized theme defaults to light. */
 bool is_dark(cwist_http_request *req) {
     cwist_http_header_node *curr = req->headers;
     while (curr) {
         if (curr->key && curr->key->data && strcasecmp(curr->key->data, "Cookie") == 0) {
             const char *cookie_val = curr->value ? curr->value->data : NULL;
-            if (cookie_val && strstr(cookie_val, "theme=dark") != NULL) {
-                return true;
+            if (cookie_val) {
+                const char *p = cookie_val;
+                while (*p) {
+                    while (*p == ' ' || *p == '\t') p++;
+                    if (strncmp(p, "theme=", 6) == 0) {
+                        p += 6;
+                        const char *end = p;
+                        while (*end && *end != ';' && *end != ' ' && *end != '\t') end++;
+                        size_t len = (size_t)(end - p);
+                        if (len == 4 && strncmp(p, "dark", 4) == 0) return true;
+                        if (len == 5 && strncmp(p, "ocean", 5) == 0) return true;
+                        if (len == 6 && strncmp(p, "forest", 6) == 0) return true;
+                        if (len == 5 && strncmp(p, "sepia", 5) == 0) return true;
+                        return false;
+                    }
+                    while (*p && *p != ';') p++;
+                    if (*p == ';') p++;
+                }
             }
         }
         curr = curr->next;
@@ -80,11 +100,8 @@ char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     if (uid <= 0) {
         if (role && strcmp(role, "admin") == 0) {
             render_set_nav_profile("Admin", "@admin");
-            if (g_config.blog_logo[0]) {
-                char *buf = (char *)malloc(512);
-                snprintf(buf, 512, "/assets/img/%s", g_config.blog_logo);
-                return buf;
-            }
+            const char *logo_url = image_inline_logo();
+            if (logo_url) return strdup(logo_url);
             return strdup("/assets/img/logo.png");
         }
         render_set_nav_profile(NULL, NULL);
@@ -94,11 +111,8 @@ char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     if (!user) {
         if (role && strcmp(role, "admin") == 0) {
             render_set_nav_profile("Admin", "@admin");
-            if (g_config.blog_logo[0]) {
-                char *buf = (char *)malloc(512);
-                snprintf(buf, 512, "/assets/img/%s", g_config.blog_logo);
-                return buf;
-            }
+            const char *logo_url = image_inline_logo();
+            if (logo_url) return strdup(logo_url);
             return strdup("/assets/img/logo.png");
         }
         render_set_nav_profile(NULL, NULL);
@@ -118,12 +132,9 @@ char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     if (pp && pp->type == cJSON_String && pp->valuestring[0]) {
         res = strdup(pp->valuestring);
     } else if (role && strcmp(role, "admin") == 0) {
-        if (g_config.blog_logo[0]) {
-            res = (char *)malloc(512);
-            snprintf(res, 512, "/assets/img/%s", g_config.blog_logo);
-        } else {
-            res = strdup("/assets/img/logo.png");
-        }
+        const char *logo_url = image_inline_logo();
+        if (logo_url) res = strdup(logo_url);
+        else res = strdup("/assets/img/logo.png");
     }
     cJSON_Delete(user);
     return res;
@@ -139,6 +150,19 @@ void send_html_res(cwist_http_response *res, cwist_sstring *html) {
         res->status_code = CWIST_HTTP_INTERNAL_ERROR;
         cwist_sstring_assign(res->body, "render error");
     }
+}
+
+void send_cached_html_res(cwist_http_response *res, const char *html, size_t len, uint32_t ttl_remaining) {
+    cwist_http_header_add(&res->headers, "Content-Type", "text/html; charset=utf-8");
+    char cc[128];
+    uint32_t max_age = ttl_remaining > 0 ? ttl_remaining : 60;
+    snprintf(cc, sizeof(cc), "public, max-age=%u, s-maxage=%u, stale-while-revalidate=300", max_age, max_age);
+    cwist_http_header_add(&res->headers, "Cache-Control", cc);
+    /* Vary on Cookie so the browser does not reuse a cached light-theme page
+       after the user toggles to dark mode (and vice versa). */
+    cwist_http_header_add(&res->headers, "Vary", "Cookie");
+    cwist_sstring_assign(res->body, "");
+    cwist_sstring_append_len(res->body, html, len);
 }
 
 /* Apply the modern security header set consistently. This helper is used both by
@@ -483,7 +507,7 @@ void handler_not_found(cwist_http_request *req, cwist_http_response *res, cwist_
         } else if (strncmp(path, "/assets/images/", 15) == 0 && path[15]) {
             char full_path[PATH_MAX];
             snprintf(full_path, sizeof(full_path), "public/images/%s", path + 15);
-            if (!send_cached_file_response(req, res, full_path, mime_type(path + 15), "public, max-age=86400, must-revalidate", NULL)) {
+            if (!send_cached_file_response(req, res, full_path, mime_type(path + 15), "public, max-age=31536000, immutable", NULL)) {
                 res->status_code = CWIST_HTTP_NOT_FOUND;
                 cwist_sstring_assign(res->status_text, "Not Found");
                 cwist_sstring_assign(res->body, "Not found");
@@ -492,7 +516,7 @@ void handler_not_found(cwist_http_request *req, cwist_http_response *res, cwist_
         } else if (strncmp(path, "/assets/js/", 11) == 0 && path[11]) {
             char full_path[PATH_MAX];
             snprintf(full_path, sizeof(full_path), "public/js/%s", path + 11);
-            if (!send_cached_file_response(req, res, full_path, "application/javascript; charset=utf-8", "public, max-age=86400, must-revalidate", NULL)) {
+            if (!send_cached_file_response(req, res, full_path, "application/javascript; charset=utf-8", "public, max-age=31536000, immutable", NULL)) {
                 res->status_code = CWIST_HTTP_NOT_FOUND;
                 cwist_sstring_assign(res->status_text, "Not Found");
                 cwist_sstring_assign(res->body, "Not found");
@@ -501,7 +525,7 @@ void handler_not_found(cwist_http_request *req, cwist_http_response *res, cwist_
         } else if (strncmp(path, "/assets/media/", 14) == 0 && path[14]) {
             char full_path[PATH_MAX];
             snprintf(full_path, sizeof(full_path), "public/media/%s", path + 14);
-            if (!send_cached_file_response(req, res, full_path, mime_type(path + 14), "public, max-age=86400, must-revalidate", NULL)) {
+            if (!send_cached_file_response(req, res, full_path, mime_type(path + 14), "public, max-age=31536000, immutable", NULL)) {
                 res->status_code = CWIST_HTTP_NOT_FOUND;
                 cwist_sstring_assign(res->status_text, "Not Found");
                 cwist_sstring_assign(res->body, "Not found");

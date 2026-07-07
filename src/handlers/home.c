@@ -7,10 +7,25 @@ void handler_home(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
+    bool mobile = is_mobile_request(req);
+
+    char key[256];
+    page_cache_key_home(key, sizeof(key), dark, mobile, role, uid);
+    const char *cached = NULL;
+    size_t cached_len = 0;
+    uint32_t ttl = 0;
+    if (page_cache_get(key, &cached, &cached_len, &ttl)) {
+        send_cached_html_res(res, cached, cached_len, ttl);
+        return;
+    }
+
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *posts = db_post_recent(req->db, 12);
-    cwist_sstring *page = render_post_list(posts, NULL, dark, role, 1, 1, "", NULL, NULL, pp, uid, is_mobile_request(req), NULL);
+    cwist_sstring *page = render_post_list(posts, NULL, dark, role, 1, 1, "", NULL, NULL, pp, uid, mobile, NULL);
     if (posts) cJSON_Delete(posts);
+    if (page) {
+        page_cache_set(key, page->data, page->size, 60);
+    }
     send_html_res(res, page);
     free(pp);
 }

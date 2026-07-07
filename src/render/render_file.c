@@ -3,6 +3,7 @@
 #include "render_internal.h"
 #include "config/config.h"
 #include "utils/utils.h"
+#include "utils/image_inline.h"
 #include "cwist/image_contrast.h"
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
@@ -79,17 +80,16 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
 
 cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, int user_id, const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
-    int has_files_bg = g_config.files_img[0];
+    const char *files_bg_url = image_inline_files_bg();
+    int has_files_bg = files_bg_url ? 1 : 0;
     char shell_style[768] = {0};
     char text_style[256] = {0};
     char overlay_style[256] = {0};
-    char img_url[512] = {0};
     if (has_files_bg) {
         char img_path[512];
         snprintf(img_path, sizeof(img_path), "public/img/%s", g_config.files_img);
-        snprintf(img_url, sizeof(img_url), "/assets/img/%s", g_config.files_img);
         char logo_dummy[64];
-        get_image_text_style(img_path, img_url, shell_style, sizeof(shell_style),
+        get_image_text_style(img_path, files_bg_url, shell_style, sizeof(shell_style),
                              text_style, sizeof(text_style),
                              logo_dummy, sizeof(logo_dummy),
                              overlay_style, sizeof(overlay_style));
@@ -99,7 +99,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
         cwist_sstring_append(b, text_style);
         cwist_sstring_append(b, "\">");
         cwist_sstring_append(b, "<img class='hero-bg' fetchpriority='high' src='");
-        cwist_sstring_append(b, img_url);
+        cwist_sstring_append(b, files_bg_url);
         cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0'>");
         if (overlay_style[0]) {
             cwist_sstring_append(b, "<div style=\"position:absolute;inset:0;z-index:1;");

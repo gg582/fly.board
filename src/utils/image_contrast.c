@@ -1,5 +1,4 @@
 #define _POSIX_C_SOURCE 200809L
-#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "cwist/image_contrast.h"
 #include <math.h>
@@ -122,6 +121,7 @@ int get_image_text_style(const char *image_path, const char *image_url,
                          char *logo_filter_out, size_t logo_filter_len,
                          char *overlay_style_out, size_t overlay_style_len)
 {
+    (void)image_url;
     static style_cache_t cache = {0};
 
     struct stat st;

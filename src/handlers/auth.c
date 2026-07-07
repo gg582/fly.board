@@ -156,6 +156,7 @@ void handler_unregister_post(cwist_http_request *req, cwist_http_response *res) 
             bool cascade_del = cascade && atoi(cascade) == 1;
             db_user_delete_with_cascade(req->db, target, cascade_del);
             CWIST_LOG_INFO("User unregistered: target_uid=%d by_uid=%d cascade=%d", target, uid, cascade_del);
+            page_cache_invalidate_all();
             if (target == uid) {
                 handler_logout(req, res);
                 cwist_query_map_destroy(kv);
@@ -370,7 +371,10 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
         db_user_update_profile(req->db, target_uid, nickname, bio, profile_pic_url ? profile_pic_url : "");
     }
     cwist_free(nickname); cwist_free(bio); cwist_free(profile_pic_url);
-    
+
+    /* Profile changes affect navigation bars and author bylines across pages. */
+    page_cache_invalidate_all();
+
     if (target_uid != uid) {
         redirect(res, "/admin/users");
     } else {

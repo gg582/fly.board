@@ -192,11 +192,12 @@ bool blog_config_load(const char *path) {
 }
 
 static void font_set_default(void) {
-    snprintf(g_font_settings.import_url, sizeof(g_font_settings.import_url),
-             "https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&family=Space+Grotesk:wght@300..700&family=IBM+Plex+Sans+KR:wght@300..700&family=Inter:wght@400..700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap");
+    /* Web fonts are inlined into every HTML response by render_page.c, so no
+     * external @import or @font-face URLs are needed by default. Leaving these
+     * empty avoids extra round trips and keeps the page self-contained. */
+    g_font_settings.import_url[0] = '\0';
     snprintf(g_font_settings.face_family, sizeof(g_font_settings.face_family), "JetBrains Mono");
-    snprintf(g_font_settings.face_src, sizeof(g_font_settings.face_src),
-             "url('https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@master/web/websites/JetBrainsMono-Regular.woff2') format('woff2')");
+    g_font_settings.face_src[0] = '\0';
     snprintf(g_font_settings.body, sizeof(g_font_settings.body),
              "'Space Grotesk', 'IBM Plex Sans KR', 'Pretendard Variable', 'Pretendard', sans-serif");
     snprintf(g_font_settings.heading, sizeof(g_font_settings.heading), "'Outfit', sans-serif");
