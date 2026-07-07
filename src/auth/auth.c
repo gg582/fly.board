@@ -46,8 +46,8 @@ static char g_jwt_secret[256] = {0};
  * and entries expire quickly. */
 #include <pthread.h>
 
-#define AUTH_HINT_CACHE_SIZE 1024
-#define AUTH_HINT_TTL_SECONDS 300
+#define AUTH_HINT_CACHE_SIZE 8192
+#define AUTH_HINT_TTL_SECONDS 3600
 
 typedef struct {
     uint64_t key_hash;

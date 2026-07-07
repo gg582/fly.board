@@ -46,6 +46,12 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     if (auth_admin_check(username, password)) {
         CWIST_LOG_INFO("Admin login success: username='%s'", username);
         char *token = auth_jwt_issue(1, username, "admin");
+        if (!token) {
+            CWIST_LOG_ERROR("Admin login failed: token issue error username='%s'", username);
+            send_html_res(res, render_login(dark, "Server error", is_mobile_request(req)));
+            cwist_query_map_destroy(kv);
+            return;
+        }
         set_auth_cookies(res, token, g_config.use_tls);
         cwist_free(token);
         auth_session_hint_update(req, 1, "admin");
@@ -73,6 +79,13 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     cJSON *uname = cJSON_GetObjectItem(user, "username");
     cJSON *role = cJSON_GetObjectItem(user, "role");
     char *token = auth_jwt_issue(user_id, uname->valuestring, role->valuestring);
+    if (!token) {
+        CWIST_LOG_ERROR("User login failed: token issue error username='%s'", username);
+        cJSON_Delete(user);
+        send_html_res(res, render_login(dark, "Server error", is_mobile_request(req)));
+        cwist_query_map_destroy(kv);
+        return;
+    }
     set_auth_cookies(res, token, g_config.use_tls);
     cwist_free(token);
     auth_session_hint_update(req, user_id, role->valuestring);
