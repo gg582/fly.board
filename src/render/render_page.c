@@ -379,17 +379,16 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     "<link rel=\"stylesheet\" href=\"/assets/css/pretendard.css\" crossorigin=\"anonymous\">"
                     "<link rel=\"stylesheet\" href=\"/assets/css/d2coding.css\" crossorigin=\"anonymous\">");
 
-                /* Load the current highlight theme as an external stylesheet so
-                 * the browser can cache it. The client-side toggle switches the
-                 * link href when the user changes theme. */
-                cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"/assets/inline/highlight-");
-                cwist_sstring_append(head_inline, dark ? "dark" : "light");
-                cwist_sstring_append(head_inline, ".css\" id=\"hl-theme\" data-active=\"");
+                /* Load the current highlight theme from cdnjs. The client-side
+                 * toggle switches the link href when the user changes theme. */
+                cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github");
+                cwist_sstring_append(head_inline, dark ? "-dark" : "");
+                cwist_sstring_append(head_inline, ".min.css\" id=\"hl-theme\" data-active=\"");
                 cwist_sstring_append(head_inline, dark ? "dark" : "light");
                 cwist_sstring_append(head_inline, "\">");
 
                 if (needs_katex) {
-                    cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"/assets/inline/katex.css\">");
+                    cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css\">");
                 }
 
                 cwist_sstring_append(head_inline, "<script>");
@@ -432,14 +431,14 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             if (body_inline) {
                 if (needs_hl) {
                     cwist_sstring_append(body_inline,
-                        "<script src=\"/assets/inline/highlight.js\"></script>"
-                        "<script src=\"/assets/inline/highlight-fortran.js\"></script>"
+                        "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js\"></script>"
+                        "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/fortran.min.js\"></script>"
                         "<script>hljs.highlightAll();</script>");
                 }
                 if (needs_katex) {
                     cwist_sstring_append(body_inline,
-                        "<script src=\"/assets/inline/katex.js\" defer></script>"
-                        "<script src=\"/assets/js/katex-render.js\" defer></script>");
+                        "<script src=\"https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js\"></script>"
+                        "<script src=\"/assets/js/katex-render.js\"></script>");
                 }
                 if (g_config.use_tasfa) {
                     cwist_sstring_append(body_inline,
