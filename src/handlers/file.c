@@ -6,6 +6,9 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <time.h>
+#include <zstd.h>
+#include <brotli/encode.h>
+#include <zlib.h>
 
 /* Production-grade cache control:
    - Static user content (images/uploads/profile): public caches allowed, 1-day freshness,
@@ -45,9 +48,173 @@ static bool request_cache_fresh(cwist_http_request *req, const char *etag, const
     return false;
 }
 
+/* Compression support for text-based static assets. */
+#define COMPRESS_CACHE_DIR "data/.compress"
+
+static bool is_compressible_mime(const char *mime) {
+    if (!mime) return false;
+    return strncmp(mime, "text/", 5) == 0 ||
+           strncmp(mime, "application/javascript", 22) == 0 ||
+           strncmp(mime, "application/json", 16) == 0;
+}
+
+static const char *choose_encoding(const char *accept_encoding) {
+    if (!accept_encoding || !accept_encoding[0]) return NULL;
+    if (strstr(accept_encoding, "zstd")) return "zstd";
+    if (strstr(accept_encoding, "br")) return "br";
+    if (strstr(accept_encoding, "gzip")) return "gzip";
+    return NULL;
+}
+
+static char *compress_buffer_zstd(const char *data, size_t len, size_t *out_len) {
+    size_t bound = ZSTD_compressBound(len);
+    char *out = (char *)malloc(bound);
+    if (!out) return NULL;
+    size_t rc = ZSTD_compress(out, bound, data, len, 3);
+    if (ZSTD_isError(rc)) { free(out); return NULL; }
+    *out_len = rc;
+    return out;
+}
+
+static char *compress_buffer_brotli(const char *data, size_t len, size_t *out_len) {
+    size_t encoded_size = len + (len >> 2) + 1024;
+    if (encoded_size < len) encoded_size = len + 1024;
+    uint8_t *out = (uint8_t *)malloc(encoded_size);
+    if (!out) return NULL;
+    if (!BrotliEncoderCompress(BROTLI_DEFAULT_QUALITY, BROTLI_DEFAULT_WINDOW, BROTLI_DEFAULT_MODE,
+                               len, (const uint8_t *)data, &encoded_size, out)) {
+        free(out);
+        return NULL;
+    }
+    *out_len = encoded_size;
+    return (char *)out;
+}
+
+static char *compress_buffer_gzip(const char *data, size_t len, size_t *out_len) {
+    z_stream strm = {0};
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+    if (deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) return NULL;
+
+    size_t bound = deflateBound(&strm, len);
+    char *out = (char *)malloc(bound);
+    if (!out) { deflateEnd(&strm); return NULL; }
+
+    strm.next_in = (Bytef *)data;
+    strm.avail_in = len;
+    strm.next_out = (Bytef *)out;
+    strm.avail_out = bound;
+
+    int rc = deflate(&strm, Z_FINISH);
+    if (rc != Z_STREAM_END) { free(out); deflateEnd(&strm); return NULL; }
+    *out_len = strm.total_out;
+    deflateEnd(&strm);
+    return out;
+}
+
+static bool ensure_compress_cache_dir(void) {
+    struct stat st;
+    if (stat(COMPRESS_CACHE_DIR, &st) == 0 && S_ISDIR(st.st_mode)) return true;
+    return mkdir(COMPRESS_CACHE_DIR, 0755) == 0;
+}
+
+static bool compress_cache_path(const char *src_path, const char *encoding, char *out, size_t out_len) {
+    size_t prefix_len = strlen(COMPRESS_CACHE_DIR);
+    size_t enc_len = strlen(encoding);
+    if (out_len < prefix_len + enc_len + 3) return false;
+    size_t safe_cap = out_len - prefix_len - enc_len - 3;
+    char *safe = (char *)malloc(out_len);
+    if (!safe) return false;
+    size_t j = 0;
+    for (size_t i = 0; src_path[i] && j < safe_cap; i++) {
+        safe[j++] = (src_path[i] == '/') ? '_' : src_path[i];
+    }
+    safe[j] = '\0';
+    int rc = snprintf(out, out_len, "%s/%s.%s", COMPRESS_CACHE_DIR, safe, encoding);
+    free(safe);
+    return (size_t)rc < out_len;
+}
+
+static bool write_compressed_file(const char *path, const char *data, size_t len) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return false;
+    size_t n = fwrite(data, 1, len, f);
+    fclose(f);
+    return n == len;
+}
+
+static bool read_file_to_buf(const char *path, char **out_data, size_t *out_len) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    struct stat st;
+    if (fstat(fileno(f), &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) { fclose(f); return false; }
+    char *buf = (char *)malloc((size_t)st.st_size);
+    if (!buf) { fclose(f); return false; }
+    size_t n = fread(buf, 1, (size_t)st.st_size, f);
+    fclose(f);
+    if (n != (size_t)st.st_size) { free(buf); return false; }
+    *out_data = buf;
+    *out_len = n;
+    return true;
+}
+
+static bool ensure_compressed_cache(const char *src_path, const char *encoding, char *out_path, size_t out_path_len) {
+    if (!ensure_compress_cache_dir()) return false;
+    if (!compress_cache_path(src_path, encoding, out_path, out_path_len)) return false;
+
+    struct stat st_src, st_cache;
+    if (stat(src_path, &st_src) != 0 || !S_ISREG(st_src.st_mode)) return false;
+    if (stat(out_path, &st_cache) == 0 && S_ISREG(st_cache.st_mode) && st_cache.st_mtime >= st_src.st_mtime) {
+        return true;
+    }
+
+    char *data = NULL;
+    size_t len = 0;
+    if (!read_file_to_buf(src_path, &data, &len)) return false;
+
+    char *compressed = NULL;
+    size_t compressed_len = 0;
+    if (strcmp(encoding, "zstd") == 0) {
+        compressed = compress_buffer_zstd(data, len, &compressed_len);
+    } else if (strcmp(encoding, "br") == 0) {
+        compressed = compress_buffer_brotli(data, len, &compressed_len);
+    } else if (strcmp(encoding, "gzip") == 0) {
+        compressed = compress_buffer_gzip(data, len, &compressed_len);
+    }
+    free(data);
+    if (!compressed) return false;
+
+    bool ok = write_compressed_file(out_path, compressed, compressed_len);
+    free(compressed);
+    if (!ok) return false;
+
+    struct timespec times[2];
+    times[0].tv_sec = st_src.st_atime;
+    times[0].tv_nsec = 0;
+    times[1].tv_sec = st_src.st_mtime;
+    times[1].tv_nsec = 0;
+    utimensat(AT_FDCWD, out_path, times, 0);
+
+    return true;
+}
+
 bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res,
                                const char *path, const char *mime,
                                const char *cache_control, bool *not_modified) {
+    const char *accept_encoding = cwist_http_header_get(req->headers, "Accept-Encoding");
+    const char *encoding = NULL;
+    char compressed_path_buf[PATH_MAX];
+
+    if (is_compressible_mime(mime) && accept_encoding && accept_encoding[0]) {
+        encoding = choose_encoding(accept_encoding);
+        if (encoding && ensure_compressed_cache(path, encoding, compressed_path_buf, sizeof(compressed_path_buf))) {
+            path = compressed_path_buf;
+        } else {
+            encoding = NULL;
+        }
+    }
+
     struct stat st;
     if (not_modified) *not_modified = false;
     if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0) return false;
@@ -58,6 +225,9 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
     http_date(st.st_mtime, last_modified, sizeof(last_modified));
 
     cwist_http_header_add(&res->headers, "Content-Type", mime ? mime : "application/octet-stream");
+    if (encoding) {
+        cwist_http_header_add(&res->headers, "Content-Encoding", encoding);
+    }
     cwist_http_header_add(&res->headers, "Cache-Control", cache_control ? cache_control : FILE_CACHE_CONTROL);
     cwist_http_header_add(&res->headers, "ETag", etag);
     cwist_http_header_add(&res->headers, "Accept-Ranges", "bytes");
