@@ -97,32 +97,19 @@
     }
     function applyTheme(t){var s=document.getElementById('dyn-theme');if(s)s.textContent=buildCss(t);}
     function findTheme(arr,name){for(var i=0;i<arr.length;i++)if(arr[i].name===name)return arr[i];return arr[0];}
-    function createHlStyle(){
-        var style=document.getElementById('hl-theme');
-        if(style)return style;
-        style=document.createElement('style');
-        style.id='hl-theme';
-        var head=document.head||document.documentElement;
-        if(head)head.appendChild(style);
-        return style;
-    }
     function setHlCss(name,gen){
         if(gen!==undefined&&gen!==themeGen)return;
-        var style=createHlStyle();
-        if(!style)return;
+        var link=document.getElementById('hl-theme');
+        if(!link)return;
         // Skip if the requested highlight theme is already active.
-        if(style.dataset.active===name)return;
-        var url=(name==='light')?'/assets/inline/highlight-light.css':'/assets/inline/highlight-dark.css';
-        fetch(url,{cache:'force-cache',credentials:'same-origin'}).then(function(r){return r.text();}).then(function(css){
-            if(gen!==undefined&&gen!==themeGen)return;
-            style.textContent=css;
-            style.dataset.active=name;
-        }).catch(function(){});
+        if(link.dataset.active===name)return;
+        link.href=(name==='light')?'/assets/inline/highlight-light.css':'/assets/inline/highlight-dark.css';
+        link.dataset.active=name;
     }
     function syncHlTheme(){
         // Guard against stale highlight state after navigation or cache restore.
-        var style=document.getElementById('hl-theme');
-        if(style && style.dataset.active!==mode){
+        var link=document.getElementById('hl-theme');
+        if(link && link.dataset.active!==mode){
             setHlCss(mode);
         }
     }

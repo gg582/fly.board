@@ -18,8 +18,6 @@
  * browser can reuse them across navigations. Fonts are also kept external
  * to avoid bloating the initial HTML payload. */
 typedef struct {
-    char *hl_light_css;
-    char *hl_dark_css;
     char *jwt_js;
     char *layout_js;
 } inline_assets_t;
@@ -30,8 +28,6 @@ static pthread_once_t g_inline_assets_once = PTHREAD_ONCE_INIT;
 static char *read_file_to_string(const char *path);
 
 static void load_inline_assets(void) {
-    g_inline_assets.hl_light_css      = read_file_to_string("public/inline_assets/highlight-light.css");
-    g_inline_assets.hl_dark_css       = read_file_to_string("public/inline_assets/highlight-dark.css");
     g_inline_assets.jwt_js            = read_file_to_string("public/js/jwt.js");
     g_inline_assets.layout_js         = read_file_to_string("public/js/layout.js");
 }
@@ -59,26 +55,6 @@ static char *read_file_to_string(const char *path) {
     if (n != (size_t)st.st_size) { free(buf); return NULL; }
     buf[n] = '\0';
     return buf;
-}
-
-/* Append a raw inline <style> block. id and data_active may be NULL. */
-static void append_inline_style(cwist_sstring *s, const char *id, const char *css,
-                                  const char *data_active) {
-    if (!css) return;
-    cwist_sstring_append(s, "<style");
-    if (id && id[0]) {
-        cwist_sstring_append(s, " id=\"");
-        cwist_sstring_append(s, id);
-        cwist_sstring_append(s, "\"");
-    }
-    if (data_active && data_active[0]) {
-        cwist_sstring_append(s, " data-active=\"");
-        cwist_sstring_append(s, data_active);
-        cwist_sstring_append(s, "\"");
-    }
-    cwist_sstring_append(s, ">");
-    cwist_sstring_append(s, css);
-    cwist_sstring_append(s, "</style>");
 }
 
 static bool body_needs_highlight(const char *html) {
@@ -403,11 +379,14 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     "<link rel=\"stylesheet\" href=\"/assets/css/pretendard.css\" crossorigin=\"anonymous\">"
                     "<link rel=\"stylesheet\" href=\"/assets/css/d2coding.css\" crossorigin=\"anonymous\">");
 
-                /* Inline only the current highlight theme to avoid FOUC; the
-                 * alternate theme is fetched on demand when the user toggles. */
-                append_inline_style(head_inline, "hl-theme",
-                                    dark ? a->hl_dark_css : a->hl_light_css,
-                                    dark ? "dark" : "light");
+                /* Load the current highlight theme as an external stylesheet so
+                 * the browser can cache it. The client-side toggle switches the
+                 * link href when the user changes theme. */
+                cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"/assets/inline/highlight-");
+                cwist_sstring_append(head_inline, dark ? "dark" : "light");
+                cwist_sstring_append(head_inline, ".css\" id=\"hl-theme\" data-active=\"");
+                cwist_sstring_append(head_inline, dark ? "dark" : "light");
+                cwist_sstring_append(head_inline, "\">");
 
                 if (needs_katex) {
                     cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"/assets/inline/katex.css\">");
@@ -439,9 +418,10 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             }
         }
 
-        /* Replace the inline-body marker with conditional external scripts.
-         * Large libraries are cached by the browser across navigations instead of
-         * being duplicated in every HTML payload. */
+        /* Replace the inline-body marker with conditional scripts.
+         * highlight.js is loaded as a normal external script so it runs in
+         * order before highlight-fortran.js and hljs.highlightAll(). KaTeX and
+         * TASFA remain deferred and cached across navigations. */
         const char *body_marker = "<meta data-inline-body=\"1\">";
         char *pos_body = strstr(doc->data, body_marker);
         if (pos_body) {
@@ -452,13 +432,9 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             if (body_inline) {
                 if (needs_hl) {
                     cwist_sstring_append(body_inline,
-                        "<script src=\"/assets/inline/highlight.js\" defer></script>"
-                        "<script src=\"/assets/inline/highlight-fortran.js\" defer></script>"
-                        "<script>"
-                        "document.addEventListener('DOMContentLoaded',function(){"
-                        "if(typeof hljs!=='undefined')hljs.highlightAll();"
-                        "});"
-                        "</script>");
+                        "<script src=\"/assets/inline/highlight.js\"></script>"
+                        "<script src=\"/assets/inline/highlight-fortran.js\"></script>"
+                        "<script>hljs.highlightAll();</script>");
                 }
                 if (needs_katex) {
                     cwist_sstring_append(body_inline,
