@@ -108,13 +108,16 @@
     }
     function setHlCss(name,gen){
         if(gen!==undefined&&gen!==themeGen)return;
-        var css=(name==='light')?(window.HL_LIGHT_CSS||''):(window.HL_DARK_CSS||'');
         var style=createHlStyle();
         if(!style)return;
         // Skip if the requested highlight theme is already active.
         if(style.dataset.active===name)return;
-        style.textContent=css;
-        style.dataset.active=name;
+        var url=(name==='light')?'/assets/inline/highlight-light.css':'/assets/inline/highlight-dark.css';
+        fetch(url,{cache:'force-cache',credentials:'same-origin'}).then(function(r){return r.text();}).then(function(css){
+            if(gen!==undefined&&gen!==themeGen)return;
+            style.textContent=css;
+            style.dataset.active=name;
+        }).catch(function(){});
     }
     function syncHlTheme(){
         // Guard against stale highlight state after navigation or cache restore.

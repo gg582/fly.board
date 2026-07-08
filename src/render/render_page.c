@@ -12,19 +12,14 @@
 #include <sys/stat.h>
 #include <pthread.h>
 
-/* Inlined static asset cache. Loaded once on first use so every HTML response
- * can embed syntax highlighting, KaTeX, and application scripts without extra
- * round trips. Fonts are served as separate cached files to avoid bloating the
- * initial HTML payload on high-RTT links. */
+/* Inlined static asset cache. Only small, page-critical scripts and the
+ * current highlight theme are embedded directly; larger libraries
+ * (highlight.js, KaTeX, TASFA) are served as separate cached files so the
+ * browser can reuse them across navigations. Fonts are also kept external
+ * to avoid bloating the initial HTML payload. */
 typedef struct {
     char *hl_light_css;
     char *hl_dark_css;
-    char *hl_js;
-    char *hl_fortran_js;
-    char *katex_css;
-    char *katex_js;
-    char *katex_render_js;
-    char *tasfa_js;
     char *jwt_js;
     char *layout_js;
 } inline_assets_t;
@@ -37,12 +32,6 @@ static char *read_file_to_string(const char *path);
 static void load_inline_assets(void) {
     g_inline_assets.hl_light_css      = read_file_to_string("public/inline_assets/highlight-light.css");
     g_inline_assets.hl_dark_css       = read_file_to_string("public/inline_assets/highlight-dark.css");
-    g_inline_assets.hl_js             = read_file_to_string("public/inline_assets/highlight.js");
-    g_inline_assets.hl_fortran_js     = read_file_to_string("public/inline_assets/highlight-fortran.js");
-    g_inline_assets.katex_css         = read_file_to_string("public/inline_assets/katex.css");
-    g_inline_assets.katex_js          = read_file_to_string("public/inline_assets/katex.js");
-    g_inline_assets.katex_render_js   = read_file_to_string("public/js/katex-render.js");
-    g_inline_assets.tasfa_js          = read_file_to_string("public/js/tasfa-download.js");
     g_inline_assets.jwt_js            = read_file_to_string("public/js/jwt.js");
     g_inline_assets.layout_js         = read_file_to_string("public/js/layout.js");
 }
@@ -90,65 +79,6 @@ static void append_inline_style(cwist_sstring *s, const char *id, const char *cs
     cwist_sstring_append(s, ">");
     cwist_sstring_append(s, css);
     cwist_sstring_append(s, "</style>");
-}
-
-/* Append a raw inline <script> block. The content is defensively rewritten so
- * the literal sequence "</script>" cannot prematurely close the tag. */
-static void append_inline_script(cwist_sstring *s, const char *js) {
-    if (!js) return;
-    cwist_sstring_append(s, "<script>");
-    /* Scan for </script> (case-insensitive end tag) and break it with a
-     * backslash so the HTML parser cannot close the script block early. */
-    const char *p = js;
-    while (*p) {
-        if (p[0] == '<' && p[1] == '/' &&
-            (p[2] == 's' || p[2] == 'S') &&
-            (p[3] == 'c' || p[3] == 'C') &&
-            (p[4] == 'r' || p[4] == 'R') &&
-            (p[5] == 'i' || p[5] == 'I') &&
-            (p[6] == 'p' || p[6] == 'P') &&
-            (p[7] == 't' || p[7] == 'T') &&
-            p[8] == '>') {
-            cwist_sstring_append_len(s, js, (size_t)(p - js) + 1);
-            cwist_sstring_append(s, "\\");
-            p += 1;
-            js = p;
-        } else {
-            p++;
-        }
-    }
-    cwist_sstring_append(s, js);
-    cwist_sstring_append(s, "</script>");
-}
-
-/* Append a JS double-quoted string literal with JSON-style escaping. */
-static void append_js_string_literal(cwist_sstring *s, const char *str) {
-    cwist_sstring_append(s, "\"");
-    if (str) {
-        for (const char *p = str; *p; p++) {
-            unsigned char c = (unsigned char)*p;
-            switch (c) {
-                case '"':  cwist_sstring_append(s, "\\\""); break;
-                case '\\': cwist_sstring_append(s, "\\\\"); break;
-                case '\n': cwist_sstring_append(s, "\\n"); break;
-                case '\r': cwist_sstring_append(s, "\\r"); break;
-                case '\t': cwist_sstring_append(s, "\\t"); break;
-                case '<':  cwist_sstring_append(s, "\\u003c"); break;
-                case '>':  cwist_sstring_append(s, "\\u003e"); break;
-                case '&':  cwist_sstring_append(s, "\\u0026"); break;
-                default:
-                    if (c < 0x20) {
-                        char buf[8];
-                        snprintf(buf, sizeof(buf), "\\u%04x", c);
-                        cwist_sstring_append(s, buf);
-                    } else {
-                        char buf[2] = {(char)c, '\0'};
-                        cwist_sstring_append(s, buf);
-                    }
-            }
-        }
-    }
-    cwist_sstring_append(s, "\"");
 }
 
 static bool body_needs_highlight(const char *html) {
@@ -472,20 +402,18 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     "<link rel=\"stylesheet\" href=\"/assets/css/google-fonts.css\" crossorigin=\"anonymous\">"
                     "<link rel=\"stylesheet\" href=\"/assets/css/pretendard.css\" crossorigin=\"anonymous\">"
                     "<link rel=\"stylesheet\" href=\"/assets/css/d2coding.css\" crossorigin=\"anonymous\">");
-                /* Always create the hl-theme element so the client-side toggle can
-                 * find it even on pages that were rendered without code blocks.
-                 * Include the current mode's CSS and mark data-active so the JS
-                 * can skip redundant updates and detect stale state. */
+
+                /* Inline only the current highlight theme to avoid FOUC; the
+                 * alternate theme is fetched on demand when the user toggles. */
                 append_inline_style(head_inline, "hl-theme",
                                     dark ? a->hl_dark_css : a->hl_light_css,
                                     dark ? "dark" : "light");
 
+                if (needs_katex) {
+                    cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"/assets/inline/katex.css\">");
+                }
+
                 cwist_sstring_append(head_inline, "<script>");
-                cwist_sstring_append(head_inline, "window.HL_LIGHT_CSS=");
-                append_js_string_literal(head_inline, a->hl_light_css);
-                cwist_sstring_append(head_inline, ";\nwindow.HL_DARK_CSS=");
-                append_js_string_literal(head_inline, a->hl_dark_css);
-                cwist_sstring_append(head_inline, ";\n");
                 if (a->jwt_js) cwist_sstring_append(head_inline, a->jwt_js);
                 if (a->jwt_js && a->layout_js) cwist_sstring_append(head_inline, "\n");
                 if (a->layout_js) cwist_sstring_append(head_inline, a->layout_js);
@@ -511,23 +439,32 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             }
         }
 
-        /* Replace the inline-body marker with inlined conditional scripts. */
+        /* Replace the inline-body marker with conditional external scripts.
+         * Large libraries are cached by the browser across navigations instead of
+         * being duplicated in every HTML payload. */
         const char *body_marker = "<meta data-inline-body=\"1\">";
         char *pos_body = strstr(doc->data, body_marker);
         if (pos_body) {
-            inline_assets_t *a = get_inline_assets();
+            /* Ensure the inline asset cache is warmed even when no inlined
+             * scripts are needed on this page. */
+            (void)get_inline_assets();
             cwist_sstring *body_inline = cwist_sstring_create();
             if (body_inline) {
                 if (needs_hl) {
-                    append_inline_script(body_inline, a->hl_js);
-                    append_inline_script(body_inline, a->hl_fortran_js);
-                    append_inline_script(body_inline, "hljs.highlightAll();");
+                    cwist_sstring_append(body_inline,
+                        "<script src=\"/assets/inline/highlight.js\" defer></script>"
+                        "<script src=\"/assets/inline/highlight-fortran.js\" defer></script>"
+                        "<script defer>hljs.highlightAll();</script>");
                 }
                 if (needs_katex) {
-                    append_inline_script(body_inline, a->katex_js);
-                    append_inline_script(body_inline, a->katex_render_js);
+                    cwist_sstring_append(body_inline,
+                        "<script src=\"/assets/inline/katex.js\" defer></script>"
+                        "<script src=\"/assets/js/katex-render.js\" defer></script>");
                 }
-                append_inline_script(body_inline, a->tasfa_js);
+                if (g_config.use_tasfa) {
+                    cwist_sstring_append(body_inline,
+                        "<script src=\"/assets/js/tasfa-download.js\" defer></script>");
+                }
 
                 cwist_sstring *doc2 = cwist_sstring_create();
                 if (doc2) {

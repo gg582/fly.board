@@ -522,6 +522,15 @@ void handler_not_found(cwist_http_request *req, cwist_http_response *res, cwist_
                 cwist_sstring_assign(res->body, "Not found");
             }
             dispatched = true;
+        } else if (strncmp(path, "/assets/inline/", 15) == 0 && path[15]) {
+            char full_path[PATH_MAX];
+            snprintf(full_path, sizeof(full_path), "public/inline_assets/%s", path + 15);
+            if (!send_cached_file_response(req, res, full_path, mime_type(path + 15), "public, max-age=31536000, immutable", NULL)) {
+                res->status_code = CWIST_HTTP_NOT_FOUND;
+                cwist_sstring_assign(res->status_text, "Not Found");
+                cwist_sstring_assign(res->body, "Not found");
+            }
+            dispatched = true;
         } else if (strncmp(path, "/assets/media/", 14) == 0 && path[14]) {
             char full_path[PATH_MAX];
             snprintf(full_path, sizeof(full_path), "public/media/%s", path + 14);
