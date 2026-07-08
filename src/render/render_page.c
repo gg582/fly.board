@@ -454,7 +454,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     cwist_sstring_append(body_inline,
                         "<script src=\"/assets/inline/highlight.js\" defer></script>"
                         "<script src=\"/assets/inline/highlight-fortran.js\" defer></script>"
-                        "<script defer>hljs.highlightAll();</script>");
+                        "<script>"
+                        "document.addEventListener('DOMContentLoaded',function(){"
+                        "if(typeof hljs!=='undefined')hljs.highlightAll();"
+                        "});"
+                        "</script>");
                 }
                 if (needs_katex) {
                     cwist_sstring_append(body_inline,
