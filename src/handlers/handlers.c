@@ -276,12 +276,9 @@ static time_t g_last_trim_time = 0;
 
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
     __sync_add_and_fetch(&g_active_requests, 1);
-    /* Keep-alive is disabled process-wide to prevent request object/header
-     * reuse issues in the framework from stripping Cookie headers on reused
-     * connections. Each request gets a fresh connection. */
-    req->keep_alive = false;
-    res->keep_alive = false;
-    cwist_http_header_add(&res->headers, "Connection", "close");
+    /* Keep-alive is enabled. The CWIST framework patch fixes the bug that
+     * stripped Cookie headers on reused connections, so sessions stay valid
+     * across connection reuse. */
 
     if (g_config.use_http3 && env_flag_enabled("FLYBOARD_ADVERTISE_H3", true)) {
         char altsvc[128];
