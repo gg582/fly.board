@@ -173,11 +173,9 @@
         setHlCss(mode,myGen);
         updateBtn(mode,myGen);
         if(themes){applyTheme(findTheme(themes,mode));return;}
-        fetch('/themes.json',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
+        fetch('/theme.json?mode='+encodeURIComponent(mode),{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(t){
             if(myGen!==themeGen)return;
-            saveThemes(arr);
-            themes=arr;
-            applyTheme(findTheme(arr,mode));
+            applyTheme(t);
         }).catch(function(){/* network error: keep current theme */});
     };
     function bindThemeToggle(){
