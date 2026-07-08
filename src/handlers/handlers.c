@@ -522,7 +522,14 @@ void handler_not_found(cwist_http_request *req, cwist_http_response *res, cwist_
         } else if (strncmp(path, "/assets/inline/", 15) == 0 && path[15]) {
             char full_path[PATH_MAX];
             snprintf(full_path, sizeof(full_path), "public/inline_assets/%s", path + 15);
-            if (!send_cached_file_response(req, res, full_path, mime_type(path + 15), "public, max-age=31536000, immutable", NULL)) {
+            const char *ext = strrchr(path + 15, '.');
+            const char *inline_mime = mime_type(path + 15);
+            if (ext && strcasecmp(ext, ".js") == 0) {
+                inline_mime = "application/javascript; charset=utf-8";
+            } else if (ext && strcasecmp(ext, ".css") == 0) {
+                inline_mime = "text/css; charset=utf-8";
+            }
+            if (!send_cached_file_response(req, res, full_path, inline_mime, "public, max-age=31536000, immutable", NULL)) {
                 res->status_code = CWIST_HTTP_NOT_FOUND;
                 cwist_sstring_assign(res->status_text, "Not Found");
                 cwist_sstring_assign(res->body, "Not found");
