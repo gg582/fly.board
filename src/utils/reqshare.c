@@ -158,3 +158,73 @@ void reqshare_finish(const char *key, cwist_sstring *html) {
     }
     pthread_mutex_unlock(&g_mutex);
 }
+
+/* ---------------------------------------------------------------------------
+ * Write-request deduplication
+ *
+ * A simple hash set of keys that are currently being written.  reqshare_write_lock_try
+ * inserts the key if absent (returns true = lock acquired).  If the key is
+ * already present another write is in flight; we return false immediately so
+ * the duplicate request can be dropped without executing the DB mutation a
+ * second time.  reqshare_write_lock_release removes the key.
+ *
+ * We reuse the same global mutex as the read coalescer to keep the
+ * implementation self-contained.  Write operations are expected to be rare
+ * compared to reads, so contention on the mutex is negligible.
+ * ---------------------------------------------------------------------------*/
+
+#define WL_BUCKETS 256
+
+typedef struct wl_entry {
+    char *key;
+    struct wl_entry *next;
+} wl_entry_t;
+
+static wl_entry_t *g_wl_buckets[WL_BUCKETS];
+/* g_mutex (defined above) is reused for the write-lock table. */
+
+bool reqshare_write_lock_try(const char *key) {
+    if (!key) return true; /* no key → don't deduplicate */
+    pthread_mutex_lock(&g_mutex);
+    uint32_t h = hash_str(key) % WL_BUCKETS;
+    for (wl_entry_t *e = g_wl_buckets[h]; e; e = e->next) {
+        if (strcmp(e->key, key) == 0) {
+            /* Another write is already in flight for this key. */
+            pthread_mutex_unlock(&g_mutex);
+            return false;
+        }
+    }
+    wl_entry_t *ne = (wl_entry_t *)rs_malloc(sizeof(*ne));
+    if (!ne) {
+        pthread_mutex_unlock(&g_mutex);
+        return true; /* fail-open: allow the write rather than silently drop */
+    }
+    ne->key = strdup(key);
+    if (!ne->key) {
+        rs_free(ne);
+        pthread_mutex_unlock(&g_mutex);
+        return true;
+    }
+    ne->next = g_wl_buckets[h];
+    g_wl_buckets[h] = ne;
+    pthread_mutex_unlock(&g_mutex);
+    return true;
+}
+
+void reqshare_write_lock_release(const char *key) {
+    if (!key) return;
+    pthread_mutex_lock(&g_mutex);
+    uint32_t h = hash_str(key) % WL_BUCKETS;
+    wl_entry_t **prev = &g_wl_buckets[h];
+    while (*prev) {
+        wl_entry_t *e = *prev;
+        if (strcmp(e->key, key) == 0) {
+            *prev = e->next;
+            rs_free(e->key);
+            rs_free(e);
+            break;
+        }
+        prev = &e->next;
+    }
+    pthread_mutex_unlock(&g_mutex);
+}

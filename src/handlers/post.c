@@ -386,6 +386,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     cwist_free(msg);
 
     bool created = false;
+    int created_id = 0;
     int slug_idx = 0;
     while (!created && slug_idx < 100) {
         char *final_slug = NULL;
@@ -403,7 +404,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             slug_idx++;
             cwist_free(final_slug);
         } else {
-            int created_id = db_post_create(req->db, board_id, uid, title, final_slug, content, summary ? summary : "", sig_b64 ? sig_b64 : "", 0, 0, "");
+            created_id = db_post_create(req->db, board_id, uid, title, final_slug, content, summary ? summary : "", sig_b64 ? sig_b64 : "", 0, 0, "");
             created = created_id > 0;
 
             /* The final_slug isn't strictly needed later but we update 'sl' to point to the created slug so publish_post uses the right slug. */
@@ -445,8 +446,13 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     /* Publish post metadata to NATS for distributed subscribers */
     fly_nats_publish_post(title, sl, summary ? summary : "");
 
-    /* Link orphaned uploads to this post */
-    int post_id = (int)sqlite3_last_insert_rowid(req->db->conn);
+    /* Link orphaned uploads to this post.
+     * NOTE: Do NOT use sqlite3_last_insert_rowid() here – it reads from the
+     * shared connection and may return another thread's row ID when concurrent
+     * INSERTs are in flight.  db_post_create() already returns the correct id
+     * via its own call to sqlite3_last_insert_rowid() immediately after step(),
+     * before any other statement can run on that statement handle. */
+    int post_id = created_id;
     attach_media_meta_to_post(req->db, media_meta, post_id, uid, role);
 
     /* New posts appear on home and board listings, so clear those caches. */
@@ -499,6 +505,20 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         strcpy(id_str, path_id);
     }
 
+    /* Deduplicate concurrent Edit requests for the same post.
+     * If the user clicked Submit multiple times (or the browser retried),
+     * only the first request executes the DB write.  Subsequent in-flight
+     * duplicates receive 409 and are silently redirected by the browser. */
+    char wl_key[64];
+    snprintf(wl_key, sizeof(wl_key), "edit:post:%s", id_str ? id_str : "");
+    if (!reqshare_write_lock_try(wl_key)) {
+        CWIST_LOG_WARN("Post edit deduplicated (concurrent duplicate): id=%s uid=%d", id_str ? id_str : "", uid);
+        cwist_free(id_str);
+        res->status_code = (cwist_http_status_t)409;
+        cwist_sstring_assign(res->body, "Duplicate request – the post is already being saved.");
+        return;
+    }
+
     if (ctype && strstr(ctype, "multipart/form-data")) {
         const char *bnd = strstr(ctype, "boundary=");
         if (bnd) {
@@ -539,6 +559,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     if (!id_str || !title || !content || !title[0] || !content[0]) {
+        reqshare_write_lock_release(wl_key);
         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
         multipart_free(files);
         redirect(res, "/");
@@ -548,6 +569,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     cJSON *post = db_post_get_by_id(req->db, atoi(id_str));
     if (!post) {
         CWIST_LOG_WARN("Post edit failed: post not found id=%s uid=%d", id_str, uid);
+        reqshare_write_lock_release(wl_key);
         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
         multipart_free(files);
         redirect(res, "/");
@@ -558,6 +580,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         res->status_code = CWIST_HTTP_FORBIDDEN;
         cwist_sstring_assign(res->body, "Forbidden");
         cJSON_Delete(post);
+        reqshare_write_lock_release(wl_key);
         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
         multipart_free(files);
         return;
@@ -594,6 +617,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         page_cache_invalidate_all();
     }
 
+    reqshare_write_lock_release(wl_key);
     cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
     multipart_free(files);
     redirect(res, "/");

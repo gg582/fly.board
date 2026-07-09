@@ -33,4 +33,14 @@ cwist_sstring *reqshare_wait_or_start(const char *key, bool *leader);
  * empty result (waiters will get NULL). */
 void reqshare_finish(const char *key, cwist_sstring *html);
 
+/* Write-request deduplication (mutex-style, for POST handlers).
+ *
+ * reqshare_write_lock_try() acquires an exclusive in-flight lock for `key`.
+ * Returns true if the lock was acquired (caller must execute the write and
+ * then call reqshare_write_lock_release()).  Returns false when another
+ * request is already holding the lock for `key`; the caller should treat
+ * this as a duplicate and return 409 Conflict (or silently redirect). */
+bool reqshare_write_lock_try(const char *key);
+void reqshare_write_lock_release(const char *key);
+
 #endif
