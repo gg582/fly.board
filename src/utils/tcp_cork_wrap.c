@@ -1,5 +1,5 @@
 /*
- * TCP_CORK / TCP_NOPUSH wrapper for CWIST response senders.
+ * TCP_CORK / TCP_NOPUSH / TCP_NODELAY wrapper for CWIST response senders.
  *
  * fly.board does not own the listening socket; CWIST accepts connections
  * internally.  Instead of patching CWIST, we use the linker's --wrap feature
@@ -7,6 +7,11 @@
  * enable cork around the real send, and disable it immediately afterwards.
  * This coalesces header+body (and TLS records) into fewer TCP segments on
  * high-RTT paths without keeping the socket corked between requests.
+ *
+ * We also enable TCP_NODELAY on every send.  Nagle's algorithm otherwise
+ * delays small writes until an ACK arrives, which amplifies latency on
+ * high-RTT links.  TCP_CORK still controls when data is actually flushed,
+ * so the two options complement each other rather than conflicting.
  */
 #define _GNU_SOURCE
 #include <cwist/net/http/http.h>
@@ -44,12 +49,20 @@ static void fly_cork_disable(int fd)
 #endif
 }
 
+static void fly_nodelay_enable(int fd)
+{
+    if (fd < 0) return;
+    int on = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on));
+}
+
 /* Real implementations come from libcwist.a via --wrap linker magic. */
 extern cwist_error_t __real_cwist_http_send_response(int client_fd, cwist_http_response *res);
 extern cwist_error_t __real_cwist_https_send_response(cwist_https_connection *conn, cwist_http_response *res);
 
 cwist_error_t __wrap_cwist_http_send_response(int client_fd, cwist_http_response *res)
 {
+    fly_nodelay_enable(client_fd);
     fly_cork_enable(client_fd);
     cwist_error_t err = __real_cwist_http_send_response(client_fd, res);
     fly_cork_disable(client_fd);
@@ -59,6 +72,7 @@ cwist_error_t __wrap_cwist_http_send_response(int client_fd, cwist_http_response
 cwist_error_t __wrap_cwist_https_send_response(cwist_https_connection *conn, cwist_http_response *res)
 {
     int fd = conn ? conn->fd : -1;
+    fly_nodelay_enable(fd);
     fly_cork_enable(fd);
     cwist_error_t err = __real_cwist_https_send_response(conn, res);
     fly_cork_disable(fd);
