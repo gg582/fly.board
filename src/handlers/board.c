@@ -66,6 +66,7 @@ void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
     uint32_t ttl = 0;
     if (page_cache_get(key, &cached, &cached_len, &ttl)) {
         send_cached_html_res(res, cached, cached_len, ttl);
+        page_cache_release(key);
         return;
     }
 

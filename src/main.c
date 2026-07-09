@@ -30,6 +30,7 @@
 #  endif
 #endif
 #include <cwist/core/log.h>
+#include <sqlite3.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -125,6 +126,11 @@ static void *cleanup_worker(void *arg) {
 }
 
 int main(void) {
+    /* SQLite must be configured before any connection is opened.  Use the
+     * serialized threading mode so a single connection can be safely shared
+     * across multiple worker threads. */
+    sqlite3_config(SQLITE_CONFIG_SERIALIZED);
+
     setenv("CWIST_C1M_MODE", "0", 1);
     signal(SIGPIPE, SIG_IGN);
     fly_log_init();

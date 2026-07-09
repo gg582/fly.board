@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "cwist/board_tree.h"
+#include "db/db_internal.h"
 #include <cwist/core/log.h>
 #include <sqlite3.h>
 #include <stdlib.h>
@@ -12,6 +13,7 @@ bool db_board_tree_init(const char *path) {
         CWIST_LOG_ERROR("Failed to open board_tree db: %s", sqlite3_errmsg(g_board_tree_db));
         return false;
     }
+    db_configure_connection(g_board_tree_db);
     const char *schema =
         "CREATE TABLE IF NOT EXISTS board_tree ("
         "  board_id INTEGER PRIMARY KEY,"
@@ -34,6 +36,14 @@ void db_board_tree_close(void) {
         sqlite3_close(g_board_tree_db);
         g_board_tree_db = NULL;
     }
+}
+
+void db_board_tree_reopen(void) {
+    if (g_board_tree_db) {
+        sqlite3_close(g_board_tree_db);
+        g_board_tree_db = NULL;
+    }
+    db_board_tree_init("data/board_tree.db");
 }
 
 bool db_board_tree_set_parent(int board_id, int parent_board_id) {
