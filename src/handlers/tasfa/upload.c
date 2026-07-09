@@ -320,7 +320,7 @@ static void upload_work_func(void *arg) {
     if (!w->stored) return;
 
     long long state_start_ms = tasfa_monotonic_ms();
-    w->state_ok = mark_chunk_received_in_session_state(w->upload_id, w->chunk_index);
+    w->state_ok = mark_chunk_received_in_session_state_atomic(w->upload_id, w->chunk_index, &w->was_already_received);
     long long state_end_ms = tasfa_monotonic_ms();
     if (state_start_ms > 0 && state_end_ms >= state_start_ms) {
         w->state_ms = state_end_ms - state_start_ms;
@@ -362,8 +362,14 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
+    bool was_already_received = false;
+    if (!mark_chunk_received_in_session_state_atomic(upload_id, chunk_index, &was_already_received)) {
+        send_json_response(res, session_error_json("chunk state check failed"), CWIST_HTTP_INTERNAL_ERROR);
+        return;
+    }
+
     bool is_retry_target = false;
-    if (is_chunk_already_received(upload_id, chunk_index)) {
+    if (was_already_received) {
         /* Allow retransmission if this chunk is in the server's retry target list */
         cJSON *session_meta = load_upload_session(upload_id);
         if (session_meta) {
@@ -1063,6 +1069,17 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     close_upload_session_lock(lock_fd);
 
     if (!finalize_cache_mark_started(upload_id, upload_token)) {
+        /* May have lost a race with another completion request. Re-check the
+           cache and return the cached status if another worker already started. */
+        if (finalize_cache_get(upload_id, upload_token, &cached_status, &cached_body, &cached_active)) {
+            res->status_code = (cwist_http_status_t)(cached_active ? 202 : cached_status);
+            cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+            add_keepalive_headers(res);
+            cwist_sstring_assign(res->body, cached_body ? cached_body : "{}");
+            free(cached_body);
+            cwist_query_map_destroy(kv);
+            return;
+        }
         cwist_query_map_destroy(kv);
         send_json_response(res, session_error_json("finalize queue full"), CWIST_HTTP_SERVICE_UNAVAILABLE);
         return;

@@ -59,16 +59,34 @@ bool load_upload_session_meta_bin_cached(const char *upload_id, tasfa_meta_bin_t
     pthread_mutex_unlock(&g_tasfa_cache_mtx);
     if (load_upload_session_meta_bin(upload_id, out)) {
         pthread_mutex_lock(&g_tasfa_cache_mtx);
+        /* Re-check after loading: another thread may have inserted this entry
+           while we were reading from disk. */
+        bool already_cached = false;
         for (int i = 0; i < TASFA_CACHE_SLOTS; i++) {
             int probe = (idx + i) % TASFA_CACHE_SLOTS;
-            if (!g_tasfa_cache[probe].valid) {
-                g_tasfa_cache[probe].valid = 1;
-                g_tasfa_cache[probe].type = 1;
-                strncpy(g_tasfa_cache[probe].key, upload_id, sizeof(g_tasfa_cache[probe].key)-1);
-                g_tasfa_cache[probe].key[sizeof(g_tasfa_cache[probe].key)-1] = '\0';
-                memcpy(&g_tasfa_cache[probe].data.mbin, out, sizeof(tasfa_meta_bin_t));
-                g_tasfa_cache[probe].expires = time(NULL) + TASFA_UPLOAD_TTL;
+            if (!g_tasfa_cache[probe].valid) break;
+            if (g_tasfa_cache[probe].type == 1 && strcmp(g_tasfa_cache[probe].key, upload_id) == 0) {
+                if (time(NULL) <= g_tasfa_cache[probe].expires) {
+                    memcpy(out, &g_tasfa_cache[probe].data.mbin, sizeof(tasfa_meta_bin_t));
+                    already_cached = true;
+                } else {
+                    cache_clear_slot(&g_tasfa_cache[probe]);
+                }
                 break;
+            }
+        }
+        if (!already_cached) {
+            for (int i = 0; i < TASFA_CACHE_SLOTS; i++) {
+                int probe = (idx + i) % TASFA_CACHE_SLOTS;
+                if (!g_tasfa_cache[probe].valid) {
+                    g_tasfa_cache[probe].valid = 1;
+                    g_tasfa_cache[probe].type = 1;
+                    strncpy(g_tasfa_cache[probe].key, upload_id, sizeof(g_tasfa_cache[probe].key)-1);
+                    g_tasfa_cache[probe].key[sizeof(g_tasfa_cache[probe].key)-1] = '\0';
+                    memcpy(&g_tasfa_cache[probe].data.mbin, out, sizeof(tasfa_meta_bin_t));
+                    g_tasfa_cache[probe].expires = time(NULL) + TASFA_UPLOAD_TTL;
+                    break;
+                }
             }
         }
         pthread_mutex_unlock(&g_tasfa_cache_mtx);
@@ -97,16 +115,35 @@ cJSON *load_download_session_cached(const char *session_id) {
     cJSON *meta = load_download_session(session_id);
     if (meta) {
         pthread_mutex_lock(&g_tasfa_cache_mtx);
+        /* Re-check after loading: another thread may have inserted this entry
+           while we were reading from disk. */
+        bool already_cached = false;
         for (int i = 0; i < TASFA_CACHE_SLOTS; i++) {
             int probe = (idx + i) % TASFA_CACHE_SLOTS;
-            if (!g_tasfa_cache[probe].valid) {
-                g_tasfa_cache[probe].valid = 1;
-                g_tasfa_cache[probe].type = 3;
-                strncpy(g_tasfa_cache[probe].key, session_id, sizeof(g_tasfa_cache[probe].key)-1);
-                g_tasfa_cache[probe].key[sizeof(g_tasfa_cache[probe].key)-1] = '\0';
-                g_tasfa_cache[probe].data.json = cJSON_Duplicate(meta, 1);
-                g_tasfa_cache[probe].expires = time(NULL) + TASFA_DOWNLOAD_TTL;
+            if (!g_tasfa_cache[probe].valid) break;
+            if (g_tasfa_cache[probe].type == 3 && strcmp(g_tasfa_cache[probe].key, session_id) == 0) {
+                if (time(NULL) <= g_tasfa_cache[probe].expires) {
+                    cJSON_Delete(meta);
+                    meta = cJSON_Duplicate(g_tasfa_cache[probe].data.json, 1);
+                    already_cached = true;
+                } else {
+                    cache_clear_slot(&g_tasfa_cache[probe]);
+                }
                 break;
+            }
+        }
+        if (!already_cached) {
+            for (int i = 0; i < TASFA_CACHE_SLOTS; i++) {
+                int probe = (idx + i) % TASFA_CACHE_SLOTS;
+                if (!g_tasfa_cache[probe].valid) {
+                    g_tasfa_cache[probe].valid = 1;
+                    g_tasfa_cache[probe].type = 3;
+                    strncpy(g_tasfa_cache[probe].key, session_id, sizeof(g_tasfa_cache[probe].key)-1);
+                    g_tasfa_cache[probe].key[sizeof(g_tasfa_cache[probe].key)-1] = '\0';
+                    g_tasfa_cache[probe].data.json = cJSON_Duplicate(meta, 1);
+                    g_tasfa_cache[probe].expires = time(NULL) + TASFA_DOWNLOAD_TTL;
+                    break;
+                }
             }
         }
         pthread_mutex_unlock(&g_tasfa_cache_mtx);
@@ -152,16 +189,19 @@ bool finalize_cache_mark_started(const char *upload_id, const char *upload_token
     pthread_mutex_lock(&g_finalize_mtx);
     finalize_cache_sweep_locked();
     finalize_slot_t *slot = finalize_cache_find_locked(upload_id);
-    if (!slot) {
-        for (int i = 0; i < TASFA_FINALIZE_CACHE_SLOTS; i++) {
-            if (!g_finalize_slots[i].upload_id[0]) {
-                slot = &g_finalize_slots[i];
-                break;
-            }
+    if (slot) {
+        /* Already finalizing this upload; do not overwrite and do not schedule
+           a duplicate worker. The caller should re-check the cached status. */
+        pthread_mutex_unlock(&g_finalize_mtx);
+        return false;
+    }
+    for (int i = 0; i < TASFA_FINALIZE_CACHE_SLOTS; i++) {
+        if (!g_finalize_slots[i].upload_id[0]) {
+            slot = &g_finalize_slots[i];
+            break;
         }
     }
     if (slot) {
-        free(slot->body);
         memset(slot, 0, sizeof(*slot));
         snprintf(slot->upload_id, sizeof(slot->upload_id), "%s", upload_id);
         snprintf(slot->upload_token, sizeof(slot->upload_token), "%s", upload_token);

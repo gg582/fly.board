@@ -23,6 +23,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <zlib.h>
 #include <zstd.h>
 #include <brotli/encode.h>
@@ -150,6 +151,7 @@ typedef struct {
     /* outputs */
     bool stored;
     bool state_ok;
+    bool was_already_received;
     long long store_ms;
     long long state_ms;
 } upload_work_t;
@@ -187,9 +189,9 @@ extern pthread_mutex_t g_tasfa_queue_mtx;
 extern finalize_slot_t g_finalize_slots[TASFA_FINALIZE_CACHE_SLOTS];
 extern pthread_mutex_t g_finalize_mtx;
 
-extern ttak_thread_pool_t *g_tasfa_pool;
+extern _Atomic(ttak_thread_pool_t *) g_tasfa_pool;
 extern pthread_once_t g_scheduler_once;
-extern volatile unsigned int g_round_robin_idx;
+extern _Atomic unsigned int g_round_robin_idx;
 
 /* --- Function declarations --- */
 
@@ -273,6 +275,7 @@ char *bitmap_create(int chunk_count);
 bool save_upload_session_state_bin(const char *upload_id, int chunk_count, const char *bitmap);
 char* load_upload_session_state_bin(const char *upload_id, int chunk_count);
 bool mark_chunk_received_in_session_state(const char *upload_id, int chunk_index);
+bool mark_chunk_received_in_session_state_atomic(const char *upload_id, int chunk_index, bool *was_already_received);
 bool is_chunk_already_received(const char *upload_id, int chunk_index);
 bool save_upload_session_meta_bin(const char *upload_id, tasfa_meta_bin_t *meta);
 bool load_upload_session_meta_bin(const char *upload_id, tasfa_meta_bin_t *out);
