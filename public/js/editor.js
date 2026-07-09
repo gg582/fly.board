@@ -1160,6 +1160,7 @@
         var md = ta.value;
         if (!md.trim()) {
             preview.innerHTML = "<p style='color:var(--muted)'>Nothing to preview yet.</p>";
+            preview.setAttribute('contenteditable', 'true');
             updateMetrics();
             if (syncStatus) syncStatus.textContent = 'Preview cleared';
             return;
@@ -1175,6 +1176,7 @@
             return r.text();
         }).then(function(html) {
             preview.innerHTML = html;
+            preview.setAttribute('contenteditable', 'true');
             if (typeof window.initMarkdownAffordances === 'function') {
                 window.initMarkdownAffordances(preview);
             }
@@ -1184,6 +1186,7 @@
         }).catch(function(e) {
             if (e && e.name === 'AbortError') return;
             preview.innerHTML = "<p style='color:var(--muted)'>Preview unavailable.</p>";
+            preview.setAttribute('contenteditable', 'true');
             if (syncStatus) syncStatus.textContent = 'Preview error';
         });
     }
@@ -3186,19 +3189,127 @@
         return previewPane && previewPane.style.display !== 'none';
     }
 
+    /* Convert a rendered preview DOM tree back into Markdown so the user can
+     * edit directly in the preview pane (like MarkText).  This is intentionally
+     * a best-effort transform: plain text, headings, lists, blockquotes,
+     * code blocks and common inline formatting are preserved.  Complex elements
+     * (tables, math, raw HTML, media) are left as-is so they can be edited in
+     * the Write tab. */
+    function elementToMarkdown(node) {
+        if (!node) return '';
+        if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+        if (node.nodeType !== Node.ELEMENT_NODE) return '';
+        var tag = node.tagName.toLowerCase();
+        if (tag === 'br') return '\n';
+        var inner = '';
+        Array.prototype.forEach.call(node.childNodes, function(child) {
+            inner += elementToMarkdown(child);
+        });
+        if (tag === 'strong' || tag === 'b') return '**' + inner + '**';
+        if (tag === 'em' || tag === 'i') return '*' + inner + '*';
+        if (tag === 'code') return '`' + inner + '`';
+        if (tag === 'a') return '[' + inner + '](' + (node.getAttribute('href') || '') + ')';
+        if (tag === 'del' || tag === 's') return '~~' + inner + '~~';
+        return inner;
+    }
+
+    function blockToMarkdown(node) {
+        if (!node) return '';
+        if (node.nodeType === Node.TEXT_NODE) return node.textContent.trim();
+        if (node.nodeType !== Node.ELEMENT_NODE) return '';
+        var tag = node.tagName.toLowerCase();
+        var inner = elementToMarkdown(node).trim();
+        if (tag === 'h1') return '# ' + inner;
+        if (tag === 'h2') return '## ' + inner;
+        if (tag === 'h3') return '### ' + inner;
+        if (tag === 'h4') return '#### ' + inner;
+        if (tag === 'h5') return '##### ' + inner;
+        if (tag === 'h6') return '###### ' + inner;
+        if (tag === 'p') return inner;
+        if (tag === 'blockquote') {
+            return inner.split('\n').map(function(line) { return '> ' + line; }).join('\n');
+        }
+        if (tag === 'pre') {
+            var code = node.querySelector('code');
+            var lang = '';
+            if (code) {
+                var m = code.className.match(/language-(\w+)/);
+                if (m) lang = m[1];
+            }
+            return '```' + lang + '\n' + (code ? code.innerText : inner) + '\n```';
+        }
+        if (tag === 'ul') {
+            var lines = [];
+            Array.prototype.forEach.call(node.children, function(li) {
+                lines.push('- ' + elementToMarkdown(li).trim());
+            });
+            return lines.join('\n');
+        }
+        if (tag === 'ol') {
+            var lines = [];
+            Array.prototype.forEach.call(node.children, function(li, i) {
+                lines.push((i + 1) + '. ' + elementToMarkdown(li).trim());
+            });
+            return lines.join('\n');
+        }
+        if (tag === 'hr') return '---';
+        return inner;
+    }
+
+    function previewToMarkdown(root) {
+        var blocks = [];
+        Array.prototype.forEach.call(root.childNodes, function(node) {
+            var md = blockToMarkdown(node);
+            if (md) blocks.push(md);
+        });
+        return blocks.join('\n\n');
+    }
+
+    var previewSyncTimer = null;
+    function syncPreviewToSource(refresh) {
+        if (!preview || !ta) return;
+        var md = previewToMarkdown(preview);
+        if (ta.value === md) return;
+        ta.value = md;
+        updateMetrics();
+        if (refresh) schedulePreview();
+    }
+
     if (preview) {
+        preview.setAttribute('contenteditable', 'true');
+        preview.addEventListener('input', function() {
+            clearTimeout(previewSyncTimer);
+            // Sync to source while editing, but do not re-render the preview on
+            // every keystroke: that would reset the caret and scroll position.
+            // Re-render happens on blur or when switching back to Write.
+            previewSyncTimer = setTimeout(function() { syncPreviewToSource(false); }, 150);
+        });
+        preview.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                clearTimeout(previewSyncTimer);
+                previewSyncTimer = setTimeout(function() { syncPreviewToSource(false); }, 50);
+            }
+        });
+        preview.addEventListener('blur', function() {
+            clearTimeout(previewSyncTimer);
+            syncPreviewToSource(true);
+        });
         preview.addEventListener('click', function(event) {
             var target = event.target;
             if (!target) return;
             var tag = (target.tagName || '').toLowerCase();
             if (tag === 'a' || tag === 'button' || tag === 'video' || tag === 'audio' || tag === 'input' || tag === 'textarea') return;
             if (target.closest('a') || target.closest('button')) return;
-            focusEditorFromPreview();
+            // Keep the preview editable; focus stays inside the preview pane.
         });
     }
 
     document.addEventListener('keydown', function(event) {
         if (!isPreviewPaneActive() || !ta) return;
+        // The preview pane is now contenteditable, so keystrokes inside it
+        // should edit the preview directly. Only intercept keys when focus is
+        // outside the preview (e.g. for the old "press a key to jump to editor" flow).
+        if (event.target === preview || preview.contains(event.target)) return;
         if (event.ctrlKey || event.metaKey || event.altKey) return;
         if (event.key === 'Escape') {
             event.preventDefault();
