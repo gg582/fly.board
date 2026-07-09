@@ -64,6 +64,11 @@ static inline_assets_t *get_inline_assets(void) {
     return &g_inline_assets;
 }
 
+static bool inline_assets_enabled(void) {
+    const char *env = getenv("FLYBOARD_INLINE_ALL_ASSETS");
+    return env && (strcmp(env, "1") == 0 || strcasecmp(env, "true") == 0 || strcasecmp(env, "on") == 0);
+}
+
 static __thread char g_nav_profile_name[128];
 static __thread char g_nav_profile_account[128];
 
@@ -393,20 +398,27 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             cwist_sstring_append_sstring(doc, out);
         }
 
-        /* Replace the inline-head marker with inlined font-face stylesheets,
-         * inlined highlight CSS, and the critical jwt.js + layout.js bundle.
-         * Inlining the font CSS removes three high-RTT round trips from the
-         * critical rendering path on cold navigations. */
+        /* Replace the inline-head marker with either inlined font-face
+         * stylesheets, highlight CSS, and jwt.js + layout.js bundle, or with
+         * external links when FLYBOARD_INLINE_ALL_ASSETS is not enabled.
+         * External assets keep the initial HTML payload small; inlining removes
+         * high-RTT round trips on cold navigations when explicitly enabled. */
         const char *head_marker = "<meta data-inline-head=\"1\">";
         char *pos_head = strstr(doc->data, head_marker);
         if (pos_head) {
             inline_assets_t *a = get_inline_assets();
             cwist_sstring *head_inline = cwist_sstring_create();
             if (head_inline) {
-                if (a->font_css && a->font_css[0]) {
-                    cwist_sstring_append(head_inline, "<style>");
-                    cwist_sstring_append(head_inline, a->font_css);
-                    cwist_sstring_append(head_inline, "</style>");
+                if (inline_assets_enabled()) {
+                    if (a->font_css && a->font_css[0]) {
+                        cwist_sstring_append(head_inline, "<style>");
+                        cwist_sstring_append(head_inline, a->font_css);
+                        cwist_sstring_append(head_inline, "</style>");
+                    }
+                } else {
+                    cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"/assets/css/google-fonts.css\">");
+                    cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"/assets/css/pretendard.css\">");
+                    cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"/assets/css/d2coding.css\">");
                 }
 
                 /* Load the current highlight theme from cdnjs. The client-side
@@ -421,16 +433,21 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css\">");
                 }
 
-                cwist_sstring_append(head_inline, "<script>");
-                if (a->jwt_js) cwist_sstring_append(head_inline, a->jwt_js);
-                if (a->jwt_js && a->layout_js) cwist_sstring_append(head_inline, "\n");
-                if (a->layout_js) cwist_sstring_append(head_inline, a->layout_js);
-                cwist_sstring_append(head_inline, "</script>");
+                if (inline_assets_enabled()) {
+                    cwist_sstring_append(head_inline, "<script>");
+                    if (a->jwt_js) cwist_sstring_append(head_inline, a->jwt_js);
+                    if (a->jwt_js && a->layout_js) cwist_sstring_append(head_inline, "\n");
+                    if (a->layout_js) cwist_sstring_append(head_inline, a->layout_js);
+                    cwist_sstring_append(head_inline, "</script>");
 
-                if (!a->jwt_js) {
+                    if (!a->jwt_js) {
+                        cwist_sstring_append(head_inline, "<script src=\"/assets/js/jwt.js?v=1\" defer></script>");
+                    }
+                    if (!a->layout_js) {
+                        cwist_sstring_append(head_inline, "<script src=\"/assets/js/layout.js\" defer></script>");
+                    }
+                } else {
                     cwist_sstring_append(head_inline, "<script src=\"/assets/js/jwt.js?v=1\" defer></script>");
-                }
-                if (!a->layout_js) {
                     cwist_sstring_append(head_inline, "<script src=\"/assets/js/layout.js\" defer></script>");
                 }
 
