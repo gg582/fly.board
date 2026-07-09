@@ -151,6 +151,61 @@ bool mark_chunk_received_in_session_state(const char *upload_id, int chunk_index
     return ok;
 }
 
+/* Atomically check and set the bitmap byte for chunk_index.
+   Returns true on success. If the byte was already '1', sets
+   *was_already_received to true and does not write. Otherwise writes '1' and
+   * sets it to false. The file is locked for the whole read-modify-write
+   * sequence so concurrent chunk uploads cannot see a stale "not received"
+   * state and then both write the same byte. */
+bool mark_chunk_received_in_session_state_atomic(const char *upload_id, int chunk_index, bool *was_already_received) {
+    char path[PATH_MAX];
+    upload_session_state_bin_path(path, sizeof(path), upload_id);
+    int fd = open(path, O_RDWR);
+    if (fd < 0) return false;
+
+    bool locked = false;
+#ifdef F_OFD_SETLKW
+    struct flock fl = {
+        .l_type = F_WRLCK,
+        .l_whence = SEEK_SET,
+        .l_start = (off_t)chunk_index,
+        .l_len = 1,
+    };
+    locked = (fcntl(fd, F_OFD_SETLKW, &fl) == 0);
+#endif
+    if (!locked) {
+        locked = (flock(fd, LOCK_EX) == 0);
+    }
+
+    bool ok = false;
+    if (locked) {
+        unsigned char val = '0';
+        if (pread(fd, &val, 1, (off_t)chunk_index) == 1) {
+            if (val == '1') {
+                if (was_already_received) *was_already_received = true;
+                ok = true;
+            } else {
+                if (was_already_received) *was_already_received = false;
+                val = '1';
+                ok = (pwrite(fd, &val, 1, (off_t)chunk_index) == 1);
+            }
+        }
+#ifdef F_OFD_SETLKW
+        struct flock fl_unlock = {
+            .l_type = F_UNLCK,
+            .l_whence = SEEK_SET,
+            .l_start = (off_t)chunk_index,
+            .l_len = 1,
+        };
+        fcntl(fd, F_OFD_SETLK, &fl_unlock);
+#endif
+        flock(fd, LOCK_UN);
+    }
+
+    close(fd);
+    return ok;
+}
+
 bool is_chunk_already_received(const char *upload_id, int chunk_index) {
     char path[PATH_MAX];
     upload_session_state_bin_path(path, sizeof(path), upload_id);

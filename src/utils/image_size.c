@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <pthread.h>
 
 #define CACHE_SIZE 16
 
@@ -16,7 +17,9 @@ typedef struct {
     int valid;
 } cache_entry_t;
 
+static pthread_mutex_t g_image_size_mutex = PTHREAD_MUTEX_INITIALIZER;
 static cache_entry_t cache[CACHE_SIZE] = {0};
+static int next_slot = 0;
 
 bool get_image_dimensions(const char *path, int *w, int *h) {
     if (!path || !path[0]) return false;
@@ -26,13 +29,16 @@ bool get_image_dimensions(const char *path, int *w, int *h) {
     if (stat(path, &st) == 0) mtime = st.st_mtime;
 
     /* Check cache */
+    pthread_mutex_lock(&g_image_size_mutex);
     for (int i = 0; i < CACHE_SIZE; i++) {
         if (cache[i].valid && strcmp(cache[i].path, path) == 0 && cache[i].mtime == mtime) {
             *w = cache[i].w;
             *h = cache[i].h;
+            pthread_mutex_unlock(&g_image_size_mutex);
             return true;
         }
     }
+    pthread_mutex_unlock(&g_image_size_mutex);
 
     int ww, hh, channels;
     unsigned char *data = stbi_load(path, &ww, &hh, &channels, 0);
@@ -40,7 +46,7 @@ bool get_image_dimensions(const char *path, int *w, int *h) {
     stbi_image_free(data);
 
     /* Find empty slot or evict oldest (simple round-robin) */
-    static int next_slot = 0;
+    pthread_mutex_lock(&g_image_size_mutex);
     int slot = next_slot;
     next_slot = (next_slot + 1) % CACHE_SIZE;
 
@@ -52,5 +58,6 @@ bool get_image_dimensions(const char *path, int *w, int *h) {
 
     *w = ww;
     *h = hh;
+    pthread_mutex_unlock(&g_image_size_mutex);
     return true;
 }

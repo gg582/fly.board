@@ -33,6 +33,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <unistd.h>
 #include <poll.h>
 #include <sys/stat.h>
@@ -42,7 +43,7 @@
 #define BLOG_CERT "server.crt"
 #define BLOG_KEY  "server.key"
 
-static volatile bool g_cleanup_running = false;
+static _Atomic bool g_cleanup_running = false;
 
 static bool dir_exists(const char *path) {
     struct stat st;
@@ -110,7 +111,7 @@ static void *cleanup_worker(void *arg) {
     }
     uint64_t exp;
     struct pollfd pfd = { .fd = tfd, .events = POLLIN };
-    while (g_cleanup_running) {
+    while (atomic_load_explicit(&g_cleanup_running, memory_order_acquire)) {
         int ready = poll(&pfd, 1, 1000);
         if (ready < 0) break;
         if (ready == 0) continue;
@@ -190,9 +191,9 @@ int main(void) {
     page_cache_init();
     page_cache_warmup(db);
 
-    g_cleanup_running = true;
+    atomic_store_explicit(&g_cleanup_running, true, memory_order_release);
     if (!engine_pool_schedule(cleanup_worker, db, 0x434c45414e5550ULL, TTAK_TASK_DOMAIN_IO, 10)) {
-        g_cleanup_running = false;
+        atomic_store_explicit(&g_cleanup_running, false, memory_order_release);
         FLY_LOG_ERROR("Failed to schedule cleanup worker");
     }
 
@@ -221,7 +222,7 @@ int main(void) {
         cwist_error_t tls = cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
         if (tls.errtype != CWIST_ERR_INT16 || tls.error.err_i16 != 0) {
             FLY_LOG_ERROR("HTTPS init failed; run ./keygen.sh first");
-            g_cleanup_running = false;
+            atomic_store_explicit(&g_cleanup_running, false, memory_order_release);
             engine_nats_stop();
             engine_pool_shutdown();
             cwist_app_destroy(app);
@@ -238,7 +239,7 @@ int main(void) {
         cwist_error_t ech = cwist_app_use_ech(app, ech_key, ech_dir);
         if (ech.errtype != CWIST_ERR_INT16 || ech.error.err_i16 != 0) {
             FLY_LOG_ERROR("ECH init failed");
-            g_cleanup_running = false;
+            atomic_store_explicit(&g_cleanup_running, false, memory_order_release);
             engine_nats_stop();
             engine_pool_shutdown();
             cwist_app_destroy(app);
@@ -282,7 +283,7 @@ int main(void) {
         }
     }
     int rc = cwist_app_listen(app, g_config.port);
-    g_cleanup_running = false;
+    atomic_store_explicit(&g_cleanup_running, false, memory_order_release);
     engine_nats_stop();
     engine_pool_shutdown();
     db_comment_close();

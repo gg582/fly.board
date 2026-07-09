@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <time.h>
+#include <stdatomic.h>
 #include <sqlite3.h>
 
 /* Returns true when the requested theme needs the dark highlight.js stylesheet.
@@ -67,21 +68,41 @@ void redirect(cwist_http_response *res, const char *url) {
 }
 
 /* Extract scheme://host[:port] from root_url (e.g. https://example.com:8443/).
-   Returns a pointer to a static buffer; caller must copy if needed. */
+   Returns a pointer to a static buffer; caller must copy if needed.
+   Initialization is guarded by a CAS loop so concurrent callers cannot observe
+   a partially written buffer or race during the first write. */
 static const char *site_origin(void) {
     static char buf[256];
-    if (buf[0]) return buf;
-    const char *url = g_config.root_url;
-    if (!url || !url[0]) url = "https://localhost";
-    const char *p = strstr(url, "://");
-    if (!p) { snprintf(buf, sizeof(buf), "%s", url); return buf; }
-    p += 3;
-    const char *end = p;
-    while (*end && *end != '/' && *end != '?' && *end != '#') end++;
-    size_t len = (size_t)(end - url);
-    if (len >= sizeof(buf)) len = sizeof(buf) - 1;
-    memcpy(buf, url, len);
-    buf[len] = '\0';
+    static _Atomic int init_state = 0; /* 0=uninit, 1=in-progress, 2=done */
+
+    if (atomic_load_explicit(&init_state, memory_order_acquire) == 2)
+        return buf;
+
+    int expected = 0;
+    if (atomic_compare_exchange_strong_explicit(
+            &init_state, &expected, 1,
+            memory_order_acquire, memory_order_relaxed)) {
+        const char *url = g_config.root_url;
+        if (!url || !url[0]) url = "https://localhost";
+        const char *p = strstr(url, "://");
+        if (!p) {
+            snprintf(buf, sizeof(buf), "%s", url);
+        } else {
+            p += 3;
+            const char *end = p;
+            while (*end && *end != '/' && *end != '?' && *end != '#') end++;
+            size_t len = (size_t)(end - url);
+            if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+            memcpy(buf, url, len);
+            buf[len] = '\0';
+        }
+        atomic_store_explicit(&init_state, 2, memory_order_release);
+    } else {
+        /* Another thread is initializing; wait until it finishes. */
+        while (atomic_load_explicit(&init_state, memory_order_acquire) != 2) {
+            /* spin; initialization is short */
+        }
+    }
     return buf;
 }
 
@@ -280,11 +301,30 @@ static bool env_flag_enabled(const char *name, bool def) {
 #include <malloc.h>
 #include <time.h>
 
-static int g_active_requests = 0;
-static time_t g_last_trim_time = 0;
+static _Atomic int g_active_requests = 0;
+static _Atomic time_t g_last_trim_time = 0;
+
+/* Decrement the active-request counter and, if this was the last request,
+   release free heap memory with malloc_trim at most once every 5 seconds.
+   A CAS loop on g_last_trim_time guarantees only one thread performs the trim
+   even if multiple threads observe active == 0 simultaneously. */
+static void maybe_trim_heap(void) {
+    int active = atomic_fetch_sub_explicit(&g_active_requests, 1, memory_order_relaxed) - 1;
+    if (active != 0) return;
+
+    time_t now = time(NULL);
+    time_t last = atomic_load_explicit(&g_last_trim_time, memory_order_relaxed);
+    if (now - last < 5) return;
+
+    if (atomic_compare_exchange_strong_explicit(
+            &g_last_trim_time, &last, now,
+            memory_order_relaxed, memory_order_relaxed)) {
+        malloc_trim(0);
+    }
+}
 
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
-    __sync_add_and_fetch(&g_active_requests, 1);
+    atomic_fetch_add_explicit(&g_active_requests, 1, memory_order_relaxed);
     /* Keep-alive is enabled. The CWIST framework patch fixes the bug that
      * stripped Cookie headers on reused connections, so sessions stay valid
      * across connection reuse. */
@@ -393,14 +433,7 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
     if (req->method == CWIST_HTTP_OPTIONS) {
         res->status_code = CWIST_HTTP_NO_CONTENT;
         cwist_sstring_assign(res->body, "");
-        int active = __sync_sub_and_fetch(&g_active_requests, 1);
-        if (active == 0) {
-            time_t now = time(NULL);
-            if (now - g_last_trim_time >= 5) {
-                g_last_trim_time = now;
-                malloc_trim(0);
-            }
-        }
+        maybe_trim_heap();
         return;
     }
 
@@ -471,14 +504,7 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
         cwist_http_header_add(&res->headers, "X-Robots-Tag", "all");
     }
 
-    int active = __sync_sub_and_fetch(&g_active_requests, 1);
-    if (active == 0) {
-        time_t now = time(NULL);
-        if (now - g_last_trim_time >= 5) {
-            g_last_trim_time = now;
-            malloc_trim(0);
-        }
-    }
+    maybe_trim_heap();
 }
 
 void handler_sw_js(cwist_http_request *req, cwist_http_response *res) {

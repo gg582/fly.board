@@ -2,9 +2,9 @@
 #define _DEFAULT_SOURCE
 #include "tasfa_internal.h"
 
-ttak_thread_pool_t *g_tasfa_pool = NULL;
+_Atomic(ttak_thread_pool_t *) g_tasfa_pool = NULL;
 pthread_once_t g_scheduler_once = PTHREAD_ONCE_INIT;
-volatile unsigned int g_round_robin_idx = 0;
+_Atomic unsigned int g_round_robin_idx = 0;
 
 static unsigned int hash_upload_id(const char *id) {
     unsigned int h = 5381;
@@ -28,9 +28,11 @@ static void tasfa_scheduler_init_impl(void) {
     int n = (int)sysconf(_SC_NPROCESSORS_ONLN);
     if (n < 2) n = 2;
     if (n > TASFA_MAX_WORKERS) n = TASFA_MAX_WORKERS;
-    g_tasfa_pool = ttak_thread_pool_create((size_t)n, 0, ttak_get_tick_count());
-    if (!g_tasfa_pool) {
+    ttak_thread_pool_t *pool = ttak_thread_pool_create((size_t)n, 0, ttak_get_tick_count());
+    if (!pool) {
         fprintf(stderr, "[TASFA] Failed to initialize libttak scheduler pool.\n");
+    } else {
+        atomic_store_explicit(&g_tasfa_pool, pool, memory_order_release);
     }
 }
 
@@ -44,7 +46,7 @@ void tasfa_scheduler_submit(const char *upload_id, void (*func)(void *), void *a
     if (upload_id) {
         hash = (uint64_t)hash_upload_id(upload_id);
     } else {
-        hash = (uint64_t)__sync_fetch_and_add(&g_round_robin_idx, 1);
+        hash = (uint64_t)atomic_fetch_add_explicit(&g_round_robin_idx, 1, memory_order_relaxed);
     }
 
     job->func = func;
@@ -56,7 +58,8 @@ void tasfa_scheduler_submit(const char *upload_id, void (*func)(void *), void *a
         ttak_task_set_hash(task, hash);
         ttak_task_set_domain(task, TTAK_TASK_DOMAIN_IO);
         ttak_task_set_urgency(task, 70);
-        if (g_tasfa_pool && ttak_thread_pool_schedule_task(g_tasfa_pool, task, 0, now)) {
+        ttak_thread_pool_t *pool = atomic_load_explicit(&g_tasfa_pool, memory_order_acquire);
+        if (pool && ttak_thread_pool_schedule_task(pool, task, 0, now)) {
             return;
         }
         ttak_task_destroy(task, now);
