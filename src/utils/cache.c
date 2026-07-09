@@ -235,6 +235,13 @@ void page_cache_key_board(char *out, size_t out_len, const char *slug, int page,
              search ? search : "", search_type ? search_type : "");
 }
 
+void page_cache_key_board_list(char *out, size_t out_len, bool dark, bool mobile,
+                               const char *role, int uid) {
+    snprintf(out, out_len, "boards:d=%d:m=%d:r=%s:u=%d",
+             dark ? 1 : 0, mobile ? 1 : 0,
+             role && role[0] ? role : "guest", uid);
+}
+
 void page_cache_invalidate_post(const char *slug) {
     if (slug) {
         char prefix[256];
@@ -245,6 +252,7 @@ void page_cache_invalidate_post(const char *slug) {
      * be invalidated too. */
     page_cache_clear_prefix("home:");
     page_cache_clear_prefix("board:");
+    page_cache_clear_prefix("boards:");
 }
 
 void page_cache_invalidate_board(const char *slug) {
@@ -254,6 +262,7 @@ void page_cache_invalidate_board(const char *slug) {
         page_cache_clear_prefix(prefix);
     }
     page_cache_clear_prefix("board:");
+    page_cache_clear_prefix("boards:");
     page_cache_clear_prefix("home:");
 }
 

@@ -57,6 +57,25 @@ void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
+    bool mobile = is_mobile_request(req);
+
+    char key[256];
+    page_cache_key_board_list(key, sizeof(key), dark, mobile, role, uid);
+    const char *cached = NULL;
+    size_t cached_len = 0;
+    uint32_t ttl = 0;
+    if (page_cache_get(key, &cached, &cached_len, &ttl)) {
+        send_cached_html_res(res, cached, cached_len, ttl);
+        return;
+    }
+
+    bool leader = false;
+    cwist_sstring *shared = reqshare_wait_or_start(key, &leader);
+    if (!leader) {
+        send_html_res(res, shared);
+        return;
+    }
+
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *boards = db_board_list(req->db);
     cJSON *tree = db_board_tree_get_all();
@@ -75,10 +94,16 @@ void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
     }
     cJSON *ordered = cJSON_CreateArray();
     append_boards_flat(ordered, boards, tree, 0, 2);
-    cwist_sstring *page = render_board_list(ordered, dark, role, pp, is_mobile_request(req));
+    cwist_sstring *page = render_board_list(ordered, dark, role, pp, mobile);
     cJSON_Delete(ordered);
     if (boards) cJSON_Delete(boards);
     if (tree) cJSON_Delete(tree);
+    if (page) {
+        page_cache_set(key, page->data, page->size, 60);
+        reqshare_finish(key, page);
+    } else {
+        reqshare_finish(key, NULL);
+    }
     send_html_res(res, page);
     free(pp);
 }

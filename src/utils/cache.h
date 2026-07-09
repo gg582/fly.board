@@ -37,6 +37,8 @@ void page_cache_key_post(char *out, size_t out_len, const char *slug, bool dark,
 void page_cache_key_board(char *out, size_t out_len, const char *slug, int page,
                           bool dark, bool mobile, const char *role, int uid,
                           const char *search, const char *search_type);
+void page_cache_key_board_list(char *out, size_t out_len, bool dark, bool mobile,
+                               const char *role, int uid);
 
 /* Invalidation helpers. These clear cache entries that depend on changed data. */
 void page_cache_invalidate_post(const char *slug);

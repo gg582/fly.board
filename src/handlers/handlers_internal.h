@@ -10,6 +10,7 @@
 #include "../render/theme.h"
 #include "../utils/utils.h"
 #include "../utils/cache.h"
+#include "../utils/reqshare.h"
 #include <cwist/legal.h>
 #include <cwist/board_tree.h>
 #include "../config/config.h"

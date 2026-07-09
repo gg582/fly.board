@@ -131,7 +131,7 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    cJSON *children = NULL;
+    int bid = 0;
     if (slug) {
         cJSON *board = db_board_get_by_slug(req->db, slug);
         if (!board) {
@@ -140,47 +140,48 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
             cwist_sstring_assign(res->body, "Board not found");
             return;
         }
-        int bid = json_int(board, "id", 0);
-        if (!empty_search) {
-            int total = db_post_count_search(req->db, bid, search, search_type);
-            total_pages = (total + per_page - 1) / per_page;
-            if (total_pages < 1) total_pages = 1;
-            if (page > total_pages) page = total_pages;
-            posts = db_post_list_search(req->db, bid, search, search_type, per_page, (page - 1) * per_page);
-        }
-        if (bid > 0) {
-            cJSON *child_ids = db_board_tree_get_children(bid);
-            if (child_ids && cJSON_GetArraySize(child_ids) > 0) {
-                children = cJSON_CreateArray();
-                int n = cJSON_GetArraySize(child_ids);
-                for (int i = 0; i < n; i++) {
-                    cJSON *id_item = cJSON_GetArrayItem(child_ids, i);
-                    int cid = id_item->valueint;
-                    cJSON *cboard = db_board_get_by_id(req->db, cid);
-                    if (cboard) {
-                        cJSON *cslug = cJSON_GetObjectItem(cboard, "slug");
-                        cJSON *cname = cJSON_GetObjectItem(cboard, "name");
-                        if (cslug && cslug->valuestring && cname && cname->valuestring) {
-                            cJSON *obj = cJSON_CreateObject();
-                            cJSON_AddStringToObject(obj, "slug", cslug->valuestring);
-                            cJSON_AddStringToObject(obj, "name", cname->valuestring);
-                            cJSON_AddItemToArray(children, obj);
-                        }
-                        cJSON_Delete(cboard);
+        bid = json_int(board, "id", 0);
+        cJSON_Delete(board);
+    }
+
+    bool leader = false;
+    cwist_sstring *shared = reqshare_wait_or_start(key, &leader);
+    if (!leader) {
+        send_html_res(res, shared);
+        return;
+    }
+
+    cJSON *children = NULL;
+    if (!empty_search) {
+        int total = db_post_count_search(req->db, bid, search, search_type);
+        total_pages = (total + per_page - 1) / per_page;
+        if (total_pages < 1) total_pages = 1;
+        if (page > total_pages) page = total_pages;
+        posts = db_post_list_search(req->db, bid, search, search_type, per_page, (page - 1) * per_page);
+    }
+    if (bid > 0) {
+        cJSON *child_ids = db_board_tree_get_children(bid);
+        if (child_ids && cJSON_GetArraySize(child_ids) > 0) {
+            children = cJSON_CreateArray();
+            int n = cJSON_GetArraySize(child_ids);
+            for (int i = 0; i < n; i++) {
+                cJSON *id_item = cJSON_GetArrayItem(child_ids, i);
+                int cid = id_item->valueint;
+                cJSON *cboard = db_board_get_by_id(req->db, cid);
+                if (cboard) {
+                    cJSON *cslug = cJSON_GetObjectItem(cboard, "slug");
+                    cJSON *cname = cJSON_GetObjectItem(cboard, "name");
+                    if (cslug && cslug->valuestring && cname && cname->valuestring) {
+                        cJSON *obj = cJSON_CreateObject();
+                        cJSON_AddStringToObject(obj, "slug", cslug->valuestring);
+                        cJSON_AddStringToObject(obj, "name", cname->valuestring);
+                        cJSON_AddItemToArray(children, obj);
                     }
+                    cJSON_Delete(cboard);
                 }
             }
-            if (child_ids) cJSON_Delete(child_ids);
         }
-        cJSON_Delete(board);
-    } else {
-        if (!empty_search) {
-            int total = db_post_count_search(req->db, 0, search, search_type);
-            total_pages = (total + per_page - 1) / per_page;
-            if (total_pages < 1) total_pages = 1;
-            if (page > total_pages) page = total_pages;
-            posts = db_post_list_search(req->db, 0, search, search_type, per_page, (page - 1) * per_page);
-        }
+        if (child_ids) cJSON_Delete(child_ids);
     }
 
     char *pp = get_profile_pic(req->db, uid, role);
@@ -189,6 +190,9 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     if (children) cJSON_Delete(children);
     if (page_html) {
         page_cache_set(key, page_html->data, page_html->size, 60);
+        reqshare_finish(key, page_html);
+    } else {
+        reqshare_finish(key, NULL);
     }
     send_html_res(res, page_html);
     free(pp);
@@ -215,6 +219,15 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
 
     cJSON *post = db_post_get_by_slug(req->db, slug);
     if (!post) { res->status_code = CWIST_HTTP_NOT_FOUND; cwist_sstring_assign(res->body, "Not found"); return; }
+
+    bool leader = false;
+    cwist_sstring *shared = reqshare_wait_or_start(key, &leader);
+    if (!leader) {
+        cJSON_Delete(post);
+        send_html_res(res, shared);
+        return;
+    }
+
     int post_id = json_int(post, "id", 0);
     if (post_id > 0) db_post_increment_view(req->db, post_id);
     cJSON *files = db_file_list_by_post(req->db, post_id);
@@ -259,6 +272,9 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, author_pp, uid, ephemeral_delete_pin, mobile);
     if (page) {
         page_cache_set(key, page->data, page->size, 60);
+        reqshare_finish(key, page);
+    } else {
+        reqshare_finish(key, NULL);
     }
     if (author_pp) free(author_pp);
     cJSON_Delete(post);
