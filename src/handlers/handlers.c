@@ -164,9 +164,22 @@ char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     return res;
 }
 
+static uint32_t fnv1a_32(const char *data, size_t len) {
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < len; i++) {
+        h ^= (unsigned char)data[i];
+        h *= 16777619u;
+    }
+    return h;
+}
+
 void send_html_res(cwist_http_response *res, cwist_sstring *html) {
     cwist_http_header_add(&res->headers, "Content-Type", "text/html; charset=utf-8");
-    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
+    /* HTML pages are dynamic (theme, role, profile pic), so they must be
+     * revalidated.  ETag lets the browser get a cheap 304 Not Modified on
+     * back/forward navigations and repeat visits to the same URL. */
+    cwist_http_header_add(&res->headers, "Cache-Control", "private, max-age=0, must-revalidate");
+    cwist_http_header_add(&res->headers, "Vary", "Cookie");
     if (html) {
         cwist_sstring_assign(res->body, html->data);
         cwist_sstring_destroy(html);
@@ -174,6 +187,9 @@ void send_html_res(cwist_http_response *res, cwist_sstring *html) {
         res->status_code = CWIST_HTTP_INTERNAL_ERROR;
         cwist_sstring_assign(res->body, "render error");
     }
+    char etag[32];
+    snprintf(etag, sizeof(etag), "\"%08x\"", fnv1a_32(res->body->data, res->body->size));
+    cwist_http_header_add(&res->headers, "ETag", etag);
     char len_buf[32];
     snprintf(len_buf, sizeof(len_buf), "%zu", res->body->size);
     cwist_http_header_add(&res->headers, "Content-Length", len_buf);
