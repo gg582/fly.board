@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <strings.h>
 
 static const char *const PREFIX = "data:image/webp;base64,";
 
@@ -20,6 +21,23 @@ typedef struct {
 } inline_images_t;
 
 static inline_images_t g_inline_images;
+
+static bool image_inline_enabled(void) {
+    const char *env = getenv("FLYBOARD_INLINE_ALL_ASSETS");
+    if (env && (strcmp(env, "1") == 0 || strcasecmp(env, "true") == 0 || strcasecmp(env, "on") == 0)) return true;
+    env = getenv("FLYBOARD_INLINE_IMAGES");
+    if (env && (strcmp(env, "1") == 0 || strcasecmp(env, "true") == 0 || strcasecmp(env, "on") == 0)) return true;
+    return false;
+}
+
+static char *external_image_url(const char *filename) {
+    if (!filename || !filename[0]) return NULL;
+    size_t len = strlen("/assets/img/") + strlen(filename) + 1;
+    char *url = (char *)malloc(len);
+    if (!url) return NULL;
+    snprintf(url, len, "/assets/img/%s", filename);
+    return url;
+}
 
 static char *base64_encode(const unsigned char *data, size_t len) {
     static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -134,6 +152,10 @@ static char *encode_image_to_webp_data_url(const char *path) {
 
 static void build_one(const char *filename, char **out_url) {
     if (!filename || !filename[0]) return;
+    if (!image_inline_enabled()) {
+        *out_url = external_image_url(filename);
+        return;
+    }
     char path[512];
     snprintf(path, sizeof(path), "public/img/%s", filename);
     *out_url = encode_image_to_webp_data_url(path);
@@ -145,10 +167,14 @@ void image_inline_cache_build(void) {
     build_one(g_config.files_img,  &g_inline_images.files_bg_url);
     build_one(g_config.blog_logo,  &g_inline_images.logo_url);
     build_one(g_config.favicon,    &g_inline_images.favicon_url);
-    /* If no custom logo is configured, inline the default logo.png so the
-     * fallback also avoids an extra request. */
+    /* If no custom logo is configured, use the default logo.png. Inlining is
+     * controlled by FLYBOARD_INLINE_IMAGES / FLYBOARD_INLINE_ALL_ASSETS. */
     if (!g_inline_images.logo_url) {
-        g_inline_images.logo_url = encode_image_to_webp_data_url("public/img/logo.png");
+        if (image_inline_enabled()) {
+            g_inline_images.logo_url = encode_image_to_webp_data_url("public/img/logo.png");
+        } else {
+            g_inline_images.logo_url = external_image_url("logo.png");
+        }
     }
 }
 

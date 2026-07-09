@@ -2,7 +2,7 @@
 #define _DEFAULT_SOURCE
 #include "tasfa_internal.h"
 
-_Atomic(ttak_thread_pool_t *) g_tasfa_pool = NULL;
+ttak_thread_pool_t *_Atomic g_tasfa_pool = NULL;
 pthread_once_t g_scheduler_once = PTHREAD_ONCE_INIT;
 _Atomic unsigned int g_round_robin_idx = 0;
 
