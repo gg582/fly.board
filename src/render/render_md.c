@@ -117,40 +117,36 @@ static char *protect_math(const char *md, math_registry_t *blocks, math_registry
         }
 
         if (in_code_block) {
-            cwist_sstring_append_len(out, md + i, 1);
+            /* md4c's LaTeX math extension parses $ even inside fenced code
+             * blocks. Mask dollars so code examples containing $ stay literal. */
+            if (md[i] == '$') {
+                cwist_sstring_append(out, "@@MATHDOLLAR@@");
+            } else {
+                cwist_sstring_append_len(out, md + i, 1);
+            }
             i++;
             continue;
         }
 
-        /* Skip inline code spans (backticks) */
+        /* Skip inline code spans (backticks), masking any $ inside so inline
+         * code like `$var` is not turned into math. */
         if (md[i] == '`') {
             size_t j = i + 1;
             while (j < len && md[j] != '`') j++;
             if (j < len) {
-                while (i <= j) {
-                    cwist_sstring_append_len(out, md + i, 1);
-                    i++;
+                for (size_t k = i; k <= j; k++) {
+                    if (md[k] == '$') cwist_sstring_append(out, "@@MATHDOLLAR@@");
+                    else cwist_sstring_append_len(out, md + k, 1);
                 }
+                i = j + 1;
                 continue;
             }
         }
 
-        /* Block math: $$...$$ */
-        if (i + 1 < len && md[i] == '$' && md[i + 1] == '$' && (i == 0 || md[i - 1] != '\\')) {
-            size_t j = i + 2;
-            while (j + 1 < len && !(md[j] == '$' && md[j + 1] == '$')) j++;
-            if (j + 1 < len) {
-                size_t expr_len = j - (i + 2);
-                math_registry_add(blocks, md + i + 2, expr_len);
-                char placeholder[64];
-                snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
-                cwist_sstring_append(out, placeholder);
-                i = j + 2;
-                continue;
-            }
-        }
-
-        /* Block math: \[...\] */
+        /* Block math: \[...\]
+         * $$...$$ and $...$ are handled natively by md4c when
+         * MD_FLAG_LATEXMATHSPANS is enabled; we only protect the LaTeX-style
+         * delimiters that md4c does not understand. */
         if (i + 1 < len && md[i] == '\\' && md[i + 1] == '[') {
             size_t j = i + 2;
             while (j + 1 < len && !(md[j] == '\\' && md[j + 1] == ']')) j++;
@@ -162,23 +158,6 @@ static char *protect_math(const char *md, math_registry_t *blocks, math_registry
                 cwist_sstring_append(out, placeholder);
                 i = j + 2;
                 continue;
-            }
-        }
-
-        /* Inline math: $...$ */
-        if (md[i] == '$' && (i == 0 || md[i - 1] != '\\')) {
-            size_t j = i + 1;
-            while (j < len && md[j] != '$' && md[j] != '\n') j++;
-            if (j < len && md[j] == '$') {
-                size_t expr_len = j - (i + 1);
-                if (expr_len > 0) {
-                    math_registry_add(inlines, md + i + 1, expr_len);
-                    char placeholder[64];
-                    snprintf(placeholder, sizeof(placeholder), "@@MATH_INLINE_%d@@", inlines->count - 1);
-                    cwist_sstring_append(out, placeholder);
-                    i = j + 1;
-                    continue;
-                }
             }
         }
 
@@ -231,6 +210,10 @@ static void restore_math(cwist_sstring *html, const math_registry_t *blocks, con
                 i = j + 2;
                 continue;
             }
+        } else if (i + 14 <= len && strncmp(data + i, "@@MATHDOLLAR@@", 14) == 0) {
+            cwist_sstring_append(out, "$");
+            i += 14;
+            continue;
         } else if (i + 14 <= len && strncmp(data + i, "@@MATH_INLINE_", 14) == 0) {
             size_t j = i + 14;
             int idx = 0;
@@ -250,6 +233,35 @@ static void restore_math(cwist_sstring *html, const math_registry_t *blocks, con
         }
         cwist_sstring_append_len(out, data + i, 1);
         i++;
+    }
+
+    cwist_sstring_assign(html, out->data);
+    cwist_sstring_destroy(out);
+}
+
+/* md4c emits <x-equation> tags for $...$ and $$...$$ when MD_FLAG_LATEXMATHSPANS
+ * is enabled. Convert them to the spans the client-side KaTeX renderer expects. */
+static void rewrite_x_equation(cwist_sstring *html) {
+    const char *data = html->data;
+    size_t len = strlen(data);
+    cwist_sstring *out = cwist_sstring_create();
+    if (!out) return;
+    size_t i = 0;
+
+    while (i < len) {
+        if (i + 27 <= len && strncmp(data + i, "<x-equation type=\"display\">", 27) == 0) {
+            cwist_sstring_append(out, "<span class=\"math-block\">");
+            i += 27;
+        } else if (i + 12 <= len && strncmp(data + i, "<x-equation>", 12) == 0) {
+            cwist_sstring_append(out, "<span class=\"math-inline\">");
+            i += 12;
+        } else if (i + 13 <= len && strncmp(data + i, "</x-equation>", 13) == 0) {
+            cwist_sstring_append(out, "</span>");
+            i += 13;
+        } else {
+            cwist_sstring_append_len(out, data + i, 1);
+            i++;
+        }
     }
 
     cwist_sstring_assign(html, out->data);
@@ -477,7 +489,7 @@ cwist_sstring *render_markdown_to_html(const char *md) {
         return NULL;
     }
     cwist_sstring_assign(html, "");
-    unsigned flags = MD_DIALECT_GITHUB | MD_FLAG_TABLES | MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS;
+    unsigned flags = MD_DIALECT_GITHUB | MD_FLAG_TABLES | MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS | MD_FLAG_LATEXMATHSPANS;
     int rc = md_html(protected, (MD_SIZE)strlen(protected), md_output_cb, html, flags, 0);
     free(protected);
     if (rc != 0) {
@@ -489,6 +501,7 @@ cwist_sstring *render_markdown_to_html(const char *md) {
     restore_math(html, &blocks, &inlines);
     math_registry_free(&blocks);
     math_registry_free(&inlines);
+    rewrite_x_equation(html);
     inject_img_attrs(html);
     rewrite_tasfa_bootstrap(html);
     return html;
