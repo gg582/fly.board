@@ -350,13 +350,29 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
         cwist_http_header_add(&res->headers, "Timing-Allow-Origin", "*");
     }
 
-    /* Preconnect to common third-party origins so fonts/scripts load faster.
-       These origins are already allowed by the CSP. */
+    /* Resource hints for the critical rendering path. Preconnect removes the
+     * TCP+TLS handshake latency for third-party fonts and scripts on high-RTT
+     * links; dns-prefetch acts as a fallback for older browsers. Preloading the
+     * site logo lets the browser start the image fetch before the HTML parser
+     * reaches the footer. */
     if (!is_static_asset) {
         cwist_http_header_add(&res->headers, "Link", "<https://fonts.googleapis.com>; rel=preconnect");
+        cwist_http_header_add(&res->headers, "Link", "<https://fonts.googleapis.com>; rel=dns-prefetch");
         cwist_http_header_add(&res->headers, "Link", "<https://fonts.gstatic.com>; rel=preconnect; crossorigin");
+        cwist_http_header_add(&res->headers, "Link", "<https://fonts.gstatic.com>; rel=dns-prefetch; crossorigin");
         cwist_http_header_add(&res->headers, "Link", "<https://cdnjs.cloudflare.com>; rel=preconnect");
+        cwist_http_header_add(&res->headers, "Link", "<https://cdnjs.cloudflare.com>; rel=dns-prefetch");
         cwist_http_header_add(&res->headers, "Link", "<https://cdn.jsdelivr.net>; rel=preconnect");
+        cwist_http_header_add(&res->headers, "Link", "<https://cdn.jsdelivr.net>; rel=dns-prefetch");
+        const char *logo_url = image_inline_logo();
+        if (!logo_url) logo_url = "/assets/img/logo.png";
+        /* Only preload external logo URLs; data-URIs are already inline and
+         * preloading them would waste a high-RTT Link header slot. */
+        if (strncmp(logo_url, "data:", 5) != 0) {
+            char logo_link[384];
+            snprintf(logo_link, sizeof(logo_link), "<%s>; rel=preload; as=image; fetchpriority=high", logo_url);
+            cwist_http_header_add(&res->headers, "Link", logo_link);
+        }
         if (g_config.use_rss) {
             char rss_link[320];
             snprintf(rss_link, sizeof(rss_link), "</rss.xml>; rel=alternate; type=\"application/rss+xml\"; title=\"%s RSS\"",
@@ -460,6 +476,47 @@ void handler_sw_js(cwist_http_request *req, cwist_http_response *res) {
     if (!send_cached_file_response(req, res, "public/sw.js",
                                    "application/javascript; charset=utf-8",
                                    "no-cache", NULL)) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+    }
+}
+
+/* Serve static JS/CSS through send_cached_file_response so high-RTT clients
+ * get pre-compressed (zstd/br/gzip) immutable assets over HTTP/2 and HTTP/3.
+ * CWIST's built-in static directory helper bypasses the compression cache. */
+static bool safe_static_filename(const char *name) {
+    if (!name || !name[0]) return false;
+    if (name[0] == '.') return false;
+    if (strstr(name, "..")) return false;
+    if (strchr(name, '/')) return false;
+    return true;
+}
+
+void handler_static_js(cwist_http_request *req, cwist_http_response *res) {
+    const char *filename = cwist_query_map_get(req->path_params, "filename");
+    if (!safe_static_filename(filename)) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        return;
+    }
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "public/js/%s", filename);
+    if (!send_cached_file_response(req, res, path,
+                                   "application/javascript; charset=utf-8",
+                                   "public, max-age=31536000, immutable", NULL)) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+    }
+}
+
+void handler_static_css(cwist_http_request *req, cwist_http_response *res) {
+    const char *filename = cwist_query_map_get(req->path_params, "filename");
+    if (!safe_static_filename(filename)) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        return;
+    }
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "public/css/%s", filename);
+    if (!send_cached_file_response(req, res, path,
+                                   "text/css; charset=utf-8",
+                                   "public, max-age=31536000, immutable", NULL)) {
         res->status_code = CWIST_HTTP_NOT_FOUND;
     }
 }
