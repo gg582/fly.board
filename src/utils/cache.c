@@ -19,6 +19,7 @@ typedef struct cache_entry {
     char *data;
     size_t len;
     time_t expires_at;
+    int pin_count;
     struct cache_entry *next;
 } cache_entry_t;
 
@@ -83,18 +84,28 @@ bool page_cache_set(const char *key, const char *data, size_t len, uint32_t ttl_
         prev = &(*prev)->next;
     }
 
-    /* Simple eviction: drop oldest entries one bucket at a time until there is
-     * room. This is O(n) worst case but keeps the implementation small. */
+    /* Simple eviction: drop the oldest unpinned entry one bucket at a time
+     * until there is room.  Pinned entries (currently being read by another
+     * thread) must never be freed from under the reader. */
     while (g_total_bytes + len > g_max_bytes && g_total_bytes > 0) {
         bool evicted = false;
         for (int i = 0; i < CACHE_BUCKETS; i++) {
-            if (g_buckets[i]) {
-                cache_entry_t *tail = g_buckets[i];
-                cache_entry_t *tail_prev = NULL;
-                while (tail->next) { tail_prev = tail; tail = tail->next; }
-                if (tail_prev) tail_prev->next = NULL;
-                else g_buckets[i] = NULL;
-                free_entry(tail);
+            cache_entry_t *chosen = NULL;
+            cache_entry_t *chosen_prev = NULL;
+            cache_entry_t *cur = g_buckets[i];
+            cache_entry_t *prev = NULL;
+            while (cur) {
+                if (cur->pin_count == 0) {
+                    chosen = cur;
+                    chosen_prev = prev;
+                }
+                prev = cur;
+                cur = cur->next;
+            }
+            if (chosen) {
+                if (chosen_prev) chosen_prev->next = chosen->next;
+                else g_buckets[i] = chosen->next;
+                free_entry(chosen);
                 evicted = true;
                 break;
             }
@@ -144,11 +155,19 @@ bool page_cache_get(const char *key, const char **out_data, size_t *out_len, uin
         cache_entry_t *e = *prev;
         if (strcmp(e->key, key) == 0) {
             if (e->expires_at <= now) {
+                if (e->pin_count > 0) {
+                    /* In use by another thread; do not delete yet.  Report a miss
+                     * so the caller computes its own copy and releases the pin
+                     * later. */
+                    pthread_mutex_unlock(&g_mutex);
+                    return false;
+                }
                 *prev = e->next;
                 free_entry(e);
                 pthread_mutex_unlock(&g_mutex);
                 return false;
             }
+            e->pin_count++;
             if (out_data) *out_data = e->data;
             if (out_len) *out_len = e->len;
             if (out_ttl_remaining) *out_ttl_remaining = (uint32_t)(e->expires_at - now);
@@ -161,6 +180,29 @@ bool page_cache_get(const char *key, const char **out_data, size_t *out_len, uin
     return false;
 }
 
+void page_cache_release(const char *key) {
+    if (!key) return;
+    pthread_mutex_lock(&g_mutex);
+    uint32_t h = hash_str(key) % CACHE_BUCKETS;
+    time_t now = time(NULL);
+    cache_entry_t **prev = &g_buckets[h];
+    while (*prev) {
+        cache_entry_t *e = *prev;
+        if (strcmp(e->key, key) == 0) {
+            if (e->pin_count > 0) e->pin_count--;
+            /* If the entry expired while pinned, free it now that the last pin
+             * is gone. */
+            if (e->pin_count == 0 && e->expires_at <= now) {
+                *prev = e->next;
+                free_entry(e);
+            }
+            break;
+        }
+        prev = &e->next;
+    }
+    pthread_mutex_unlock(&g_mutex);
+}
+
 void page_cache_delete(const char *key) {
     if (!key) return;
     pthread_mutex_lock(&g_mutex);
@@ -169,8 +211,13 @@ void page_cache_delete(const char *key) {
     while (*prev) {
         if (strcmp((*prev)->key, key) == 0) {
             cache_entry_t *old = *prev;
-            *prev = old->next;
-            free_entry(old);
+            if (old->pin_count > 0) {
+                /* Mark it expired so it is freed once the last reader releases. */
+                old->expires_at = 0;
+            } else {
+                *prev = old->next;
+                free_entry(old);
+            }
             break;
         }
         prev = &(*prev)->next;
@@ -180,18 +227,27 @@ void page_cache_delete(const char *key) {
 
 void page_cache_clear(void) {
     pthread_mutex_lock(&g_mutex);
+    size_t remaining = 0;
     for (int i = 0; i < CACHE_BUCKETS; i++) {
         cache_entry_t *e = g_buckets[i];
+        cache_entry_t *prev = NULL;
         while (e) {
             cache_entry_t *next = e->next;
-            cache_free(e->key);
-            cache_free(e->data);
-            cache_free(e);
+            if (e->pin_count > 0) {
+                e->expires_at = 0;
+                remaining += e->len;
+                prev = e;
+            } else {
+                if (prev) prev->next = next;
+                else g_buckets[i] = next;
+                cache_free(e->key);
+                cache_free(e->data);
+                cache_free(e);
+            }
             e = next;
         }
-        g_buckets[i] = NULL;
     }
-    g_total_bytes = 0;
+    g_total_bytes = remaining;
     pthread_mutex_unlock(&g_mutex);
 }
 
@@ -204,8 +260,13 @@ void page_cache_clear_prefix(const char *prefix) {
         while (*prev) {
             if (strncmp((*prev)->key, prefix, plen) == 0) {
                 cache_entry_t *old = *prev;
-                *prev = old->next;
-                free_entry(old);
+                if (old->pin_count > 0) {
+                    old->expires_at = 0;
+                    prev = &old->next;
+                } else {
+                    *prev = old->next;
+                    free_entry(old);
+                }
             } else {
                 prev = &(*prev)->next;
             }

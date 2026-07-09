@@ -31,6 +31,11 @@ void page_cache_delete(const char *key);
 void page_cache_clear(void);
 void page_cache_clear_prefix(const char *prefix);
 
+/* Release a pin acquired by page_cache_get().  Each successful get must be
+ * paired with a release so the entry can be evicted once it is no longer in
+ * use. */
+void page_cache_release(const char *key);
+
 /* Convenience key builders. All write a NUL-terminated key into out. */
 void page_cache_key_home(char *out, size_t out_len, bool dark, bool mobile, const char *role, int uid);
 void page_cache_key_post(char *out, size_t out_len, const char *slug, bool dark, bool mobile, const char *role, int uid);

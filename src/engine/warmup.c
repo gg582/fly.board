@@ -20,7 +20,10 @@ void page_cache_warmup(cwist_db *db) {
         bool mobile = variants[i].mobile;
         char key[256];
         page_cache_key_home(key, sizeof(key), dark, mobile, "", 0);
-        if (page_cache_get(key, NULL, NULL, NULL)) continue;
+        if (page_cache_get(key, NULL, NULL, NULL)) {
+            page_cache_release(key);
+            continue;
+        }
 
         cJSON *posts = db_post_recent(db, 12);
         cwist_sstring *page = render_post_list(posts, NULL, dark, "", 1, 1, "", NULL, NULL, NULL, 0, mobile, NULL);

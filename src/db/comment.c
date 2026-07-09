@@ -10,6 +10,7 @@ static sqlite3 *g_comments_db = NULL;
 
 bool db_comment_init(const char *path) {
     if (sqlite3_open(path, &g_comments_db) != SQLITE_OK) return false;
+    db_configure_connection(g_comments_db);
     const char *schema =
         "CREATE TABLE IF NOT EXISTS comments ("
         "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -31,6 +32,14 @@ bool db_comment_init(const char *path) {
 
 void db_comment_close(void) {
     if (g_comments_db) { sqlite3_close(g_comments_db); g_comments_db = NULL; }
+}
+
+void db_comment_reopen(void) {
+    if (g_comments_db) {
+        sqlite3_close(g_comments_db);
+        g_comments_db = NULL;
+    }
+    db_comment_init("data/comments.db");
 }
 
 bool db_comment_create(cwist_db *db, const char *target_type, int target_id, int user_id, const char *author_name, int parent_id, const char *content) {

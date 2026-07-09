@@ -1,5 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "db.h"
+#include "db_internal.h"
+#include <cwist/core/log.h>
 #include <cwist/core/mem/alloc.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +45,26 @@ cJSON *db_sqlite3_row_to_json(sqlite3_stmt *stmt) {
     }
     if (arr) cJSON_Delete(arr);
     return NULL;
+}
+
+void db_configure_connection(sqlite3 *conn) {
+    if (!conn) return;
+    /* Wait up to 5s when the database is locked by another worker instead of
+     * returning SQLITE_BUSY immediately. */
+    sqlite3_busy_timeout(conn, 5000);
+
+    char *err = NULL;
+    sqlite3_exec(conn, "PRAGMA journal_mode=WAL;", NULL, NULL, &err);
+    if (err) {
+        CWIST_LOG_WARN("Failed to set WAL mode: %s", err);
+        sqlite3_free(err);
+        err = NULL;
+    }
+    sqlite3_exec(conn, "PRAGMA synchronous=NORMAL;", NULL, NULL, &err);
+    if (err) {
+        CWIST_LOG_WARN("Failed to set synchronous level: %s", err);
+        sqlite3_free(err);
+    }
 }
 
 bool db_init(cwist_db *db) {
