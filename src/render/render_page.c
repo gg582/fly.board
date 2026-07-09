@@ -22,6 +22,13 @@ typedef struct {
     char *jwt_js;
     char *layout_js;
     char *font_css;
+    /* Optional CDN libraries that can be inlined when FLYBOARD_INLINE_CDN is set */
+    char *highlight_light_css;
+    char *highlight_dark_css;
+    char *highlight_js;
+    char *highlight_fortran_js;
+    char *katex_js;
+    char *katex_css;
 } inline_assets_t;
 
 static inline_assets_t g_inline_assets;
@@ -37,6 +44,12 @@ static void load_inline_assets(void) {
     g_inline_assets.font_css          = concat_three_files("public/css/google-fonts.css",
                                                              "public/css/pretendard.css",
                                                              "public/css/d2coding.css");
+    g_inline_assets.highlight_light_css = read_file_to_string("public/inline_assets/highlight-light.css");
+    g_inline_assets.highlight_dark_css  = read_file_to_string("public/inline_assets/highlight-dark.css");
+    g_inline_assets.highlight_js        = read_file_to_string("public/inline_assets/highlight.js");
+    g_inline_assets.highlight_fortran_js = read_file_to_string("public/inline_assets/highlight-fortran.js");
+    g_inline_assets.katex_js            = read_file_to_string("public/inline_assets/katex.js");
+    g_inline_assets.katex_css           = read_file_to_string("public/inline_assets/katex.css");
 }
 
 static char *concat_three_files(const char *a, const char *b, const char *c) {
@@ -65,10 +78,14 @@ static inline_assets_t *get_inline_assets(void) {
     return &g_inline_assets;
 }
 
-static bool inline_assets_enabled(void) {
-    const char *env = getenv("FLYBOARD_INLINE_ALL_ASSETS");
+static bool env_flag_on(const char *name) {
+    const char *env = getenv(name);
     return env && (strcmp(env, "1") == 0 || strcasecmp(env, "true") == 0 || strcasecmp(env, "on") == 0);
 }
+
+static bool inline_all_enabled(void)     { return env_flag_on("FLYBOARD_INLINE_ALL_ASSETS"); }
+static bool inline_shell_enabled(void)   { return inline_all_enabled() || env_flag_on("FLYBOARD_INLINE_SHELL"); }
+static bool inline_cdn_enabled(void)     { return inline_all_enabled() || env_flag_on("FLYBOARD_INLINE_CDN"); }
 
 static __thread char g_nav_profile_name[128];
 static __thread char g_nav_profile_account[128];
@@ -150,10 +167,17 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(head, dyn_style);
     free(critical_css);
 
-    /* Placeholder for inlined fonts, conditional highlight CSS, and critical scripts. */
-    cwist_html_element_t *inline_head = cwist_html_element_create("meta");
-    cwist_html_element_add_attr(inline_head, "data-inline-head", "1");
-    cwist_html_element_add_child(head, inline_head);
+    /* Placeholder for critical shell assets: font CSS and jwt.js + layout.js.
+       These are required for the page chrome and theme to render correctly. */
+    cwist_html_element_t *inline_head_shell = cwist_html_element_create("meta");
+    cwist_html_element_add_attr(inline_head_shell, "data-inline-head-shell", "1");
+    cwist_html_element_add_child(head, inline_head_shell);
+
+    /* Placeholder for optional external CDN assets: highlight theme CSS and
+       KaTeX CSS. These are loaded from third-party CDNs by default. */
+    cwist_html_element_t *inline_head_cdn = cwist_html_element_create("meta");
+    cwist_html_element_add_attr(inline_head_cdn, "data-inline-head-cdn", "1");
+    cwist_html_element_add_child(head, inline_head_cdn);
 
     cwist_html_element_t *body = cwist_html_element_create("body");
     if (dark) cwist_html_element_add_class(body, "dark");
@@ -369,11 +393,18 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         if (shell) cwist_html_element_add_child(body, shell);
         if (footer) cwist_html_element_add_child(body, footer);
 
-        /* Placeholder for inlined conditional scripts (highlight, katex, tasfa). */
-        cwist_html_element_t *inline_body = cwist_html_element_create("meta");
-        if (inline_body) {
-            cwist_html_element_add_attr(inline_body, "data-inline-body", "1");
-            cwist_html_element_add_child(body, inline_body);
+        /* Placeholder for optional CDN scripts (highlight.js, KaTeX). */
+        cwist_html_element_t *inline_body_cdn = cwist_html_element_create("meta");
+        if (inline_body_cdn) {
+            cwist_html_element_add_attr(inline_body_cdn, "data-inline-body-cdn", "1");
+            cwist_html_element_add_child(body, inline_body_cdn);
+        }
+
+        /* Placeholder for application scripts (TASFA downloader). */
+        cwist_html_element_t *inline_body_app = cwist_html_element_create("meta");
+        if (inline_body_app) {
+            cwist_html_element_add_attr(inline_body_app, "data-inline-body-app", "1");
+            cwist_html_element_add_child(body, inline_body_app);
         }
     }
 
@@ -399,110 +430,180 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             cwist_sstring_append_sstring(doc, out);
         }
 
-        /* Replace the inline-head marker with either inlined font-face
-         * stylesheets, highlight CSS, and jwt.js + layout.js bundle, or with
-         * external links when FLYBOARD_INLINE_ALL_ASSETS is not enabled.
-         * External assets keep the initial HTML payload small; inlining removes
-         * high-RTT round trips on cold navigations when explicitly enabled. */
-        const char *head_marker = "<meta data-inline-head=\"1\">";
-        char *pos_head = strstr(doc->data, head_marker);
-        if (pos_head) {
+        /* Replace the critical-shell head marker with font CSS and the
+         * jwt.js + layout.js bundle. These are required for the page chrome. */
+        const char *head_shell_marker = "<meta data-inline-head-shell=\"1\">";
+        char *pos_head_shell = strstr(doc->data, head_shell_marker);
+        if (pos_head_shell) {
             inline_assets_t *a = get_inline_assets();
-            cwist_sstring *head_inline = cwist_sstring_create();
-            if (head_inline) {
-                if (inline_assets_enabled()) {
+            cwist_sstring *head_shell = cwist_sstring_create();
+            if (head_shell) {
+                if (inline_shell_enabled()) {
                     if (a->font_css && a->font_css[0]) {
-                        cwist_sstring_append(head_inline, "<style>");
-                        cwist_sstring_append(head_inline, a->font_css);
-                        cwist_sstring_append(head_inline, "</style>");
+                        cwist_sstring_append(head_shell, "<style>");
+                        cwist_sstring_append(head_shell, a->font_css);
+                        cwist_sstring_append(head_shell, "</style>");
                     }
                 } else {
-                    cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"/assets/css/google-fonts.css\">");
-                    cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"/assets/css/pretendard.css\">");
-                    cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"/assets/css/d2coding.css\">");
+                    cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/google-fonts.css\">");
+                    cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/pretendard.css\">");
+                    cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/d2coding.css\">");
                 }
 
-                /* Load the current highlight theme from cdnjs. The client-side
-                 * toggle switches the link href when the user changes theme. */
-                cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github");
-                cwist_sstring_append(head_inline, dark ? "-dark" : "");
-                cwist_sstring_append(head_inline, ".min.css\" id=\"hl-theme\" data-active=\"");
-                cwist_sstring_append(head_inline, dark ? "dark" : "light");
-                cwist_sstring_append(head_inline, "\">");
-
-                if (needs_katex) {
-                    cwist_sstring_append(head_inline, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css\">");
-                }
-
-                if (inline_assets_enabled()) {
-                    cwist_sstring_append(head_inline, "<script>");
-                    if (a->jwt_js) cwist_sstring_append(head_inline, a->jwt_js);
-                    if (a->jwt_js && a->layout_js) cwist_sstring_append(head_inline, "\n");
-                    if (a->layout_js) cwist_sstring_append(head_inline, a->layout_js);
-                    cwist_sstring_append(head_inline, "</script>");
+                if (inline_shell_enabled()) {
+                    cwist_sstring_append(head_shell, "<script>");
+                    if (a->jwt_js) cwist_sstring_append(head_shell, a->jwt_js);
+                    if (a->jwt_js && a->layout_js) cwist_sstring_append(head_shell, "\n");
+                    if (a->layout_js) cwist_sstring_append(head_shell, a->layout_js);
+                    cwist_sstring_append(head_shell, "</script>");
 
                     if (!a->jwt_js) {
-                        cwist_sstring_append(head_inline, "<script src=\"/assets/js/jwt.js?v=1\" defer></script>");
+                        cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=1\" defer></script>");
                     }
                     if (!a->layout_js) {
-                        cwist_sstring_append(head_inline, "<script src=\"/assets/js/layout.js\" defer></script>");
+                        cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js\" defer></script>");
                     }
                 } else {
-                    cwist_sstring_append(head_inline, "<script src=\"/assets/js/jwt.js?v=1\" defer></script>");
-                    cwist_sstring_append(head_inline, "<script src=\"/assets/js/layout.js\" defer></script>");
+                    cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=1\" defer></script>");
+                    cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js\" defer></script>");
                 }
 
                 cwist_sstring *doc2 = cwist_sstring_create();
                 if (doc2) {
-                    size_t before = (size_t)(pos_head - doc->data);
+                    size_t before = (size_t)(pos_head_shell - doc->data);
                     cwist_sstring_append_len(doc2, doc->data, before);
-                    cwist_sstring_append(doc2, head_inline->data);
-                    cwist_sstring_append(doc2, pos_head + strlen(head_marker));
+                    cwist_sstring_append(doc2, head_shell->data);
+                    cwist_sstring_append(doc2, pos_head_shell + strlen(head_shell_marker));
                     cwist_sstring_assign(doc, doc2->data);
                     cwist_sstring_destroy(doc2);
                 }
-                cwist_sstring_destroy(head_inline);
+                cwist_sstring_destroy(head_shell);
             }
         }
 
-        /* Replace the inline-body marker with conditional scripts.
-         * highlight.js is loaded as a normal external script so it runs in
-         * order before highlight-fortran.js and hljs.highlightAll(). KaTeX and
-         * TASFA remain deferred and cached across navigations. */
-        const char *body_marker = "<meta data-inline-body=\"1\">";
-        char *pos_body = strstr(doc->data, body_marker);
-        if (pos_body) {
-            /* Ensure the inline asset cache is warmed even when no inlined
-             * scripts are needed on this page. */
-            (void)get_inline_assets();
-            cwist_sstring *body_inline = cwist_sstring_create();
-            if (body_inline) {
+        /* Replace the CDN head marker with highlight theme CSS and KaTeX CSS.
+         * By default these come from external CDNs; FLYBOARD_INLINE_CDN swaps
+         * them for locally cached inlined copies. */
+        const char *head_cdn_marker = "<meta data-inline-head-cdn=\"1\">";
+        char *pos_head_cdn = strstr(doc->data, head_cdn_marker);
+        if (pos_head_cdn) {
+            inline_assets_t *a = get_inline_assets();
+            cwist_sstring *head_cdn = cwist_sstring_create();
+            if (head_cdn) {
+                /* Load the current highlight theme. The client-side toggle
+                 * switches the link href when the user changes theme. */
+                if (inline_cdn_enabled()) {
+                    const char *hl_css = dark ? a->highlight_dark_css : a->highlight_light_css;
+                    if (hl_css && hl_css[0]) {
+                        cwist_sstring_append(head_cdn, "<style id=\"hl-theme\" data-active=\"");
+                        cwist_sstring_append(head_cdn, dark ? "dark" : "light");
+                        cwist_sstring_append(head_cdn, "\">");
+                        cwist_sstring_append(head_cdn, hl_css);
+                        cwist_sstring_append(head_cdn, "</style>");
+                    }
+                } else {
+                    cwist_sstring_append(head_cdn, "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github");
+                    cwist_sstring_append(head_cdn, dark ? "-dark" : "");
+                    cwist_sstring_append(head_cdn, ".min.css\" id=\"hl-theme\" data-active=\"");
+                    cwist_sstring_append(head_cdn, dark ? "dark" : "light");
+                    cwist_sstring_append(head_cdn, "\">");
+                }
+
+                if (needs_katex) {
+                    if (inline_cdn_enabled() && a->katex_css && a->katex_css[0]) {
+                        cwist_sstring_append(head_cdn, "<style>");
+                        cwist_sstring_append(head_cdn, a->katex_css);
+                        cwist_sstring_append(head_cdn, "</style>");
+                    } else {
+                        cwist_sstring_append(head_cdn, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css\">");
+                    }
+                }
+
+                cwist_sstring *doc2 = cwist_sstring_create();
+                if (doc2) {
+                    size_t before = (size_t)(pos_head_cdn - doc->data);
+                    cwist_sstring_append_len(doc2, doc->data, before);
+                    cwist_sstring_append(doc2, head_cdn->data);
+                    cwist_sstring_append(doc2, pos_head_cdn + strlen(head_cdn_marker));
+                    cwist_sstring_assign(doc, doc2->data);
+                    cwist_sstring_destroy(doc2);
+                }
+                cwist_sstring_destroy(head_cdn);
+            }
+        }
+
+        /* Replace the CDN body marker with highlight.js and KaTeX scripts.
+         * These are optional page-content libraries loaded from CDN unless
+         * FLYBOARD_INLINE_CDN is enabled. */
+        const char *body_cdn_marker = "<meta data-inline-body-cdn=\"1\">";
+        char *pos_body_cdn = strstr(doc->data, body_cdn_marker);
+        if (pos_body_cdn) {
+            inline_assets_t *a = get_inline_assets();
+            cwist_sstring *body_cdn = cwist_sstring_create();
+            if (body_cdn) {
                 if (needs_hl) {
-                    cwist_sstring_append(body_inline,
-                        "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js\"></script>"
-                        "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/fortran.min.js\"></script>"
-                        "<script>hljs.highlightAll();</script>");
+                    if (inline_cdn_enabled() && a->highlight_js && a->highlight_js[0] &&
+                        a->highlight_fortran_js && a->highlight_fortran_js[0]) {
+                        cwist_sstring_append(body_cdn, "<script>");
+                        cwist_sstring_append(body_cdn, a->highlight_js);
+                        cwist_sstring_append(body_cdn, "\n");
+                        cwist_sstring_append(body_cdn, a->highlight_fortran_js);
+                        cwist_sstring_append(body_cdn, "\nhljs.highlightAll();</script>");
+                    } else {
+                        cwist_sstring_append(body_cdn,
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/fortran.min.js\"></script>"
+                            "<script>hljs.highlightAll();</script>");
+                    }
                 }
                 if (needs_katex) {
-                    cwist_sstring_append(body_inline,
-                        "<script src=\"https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js\"></script>"
-                        "<script src=\"/assets/js/katex-render.js\"></script>");
+                    if (inline_cdn_enabled() && a->katex_js && a->katex_js[0]) {
+                        cwist_sstring_append(body_cdn, "<script>");
+                        cwist_sstring_append(body_cdn, a->katex_js);
+                        cwist_sstring_append(body_cdn, "</script>");
+                    } else {
+                        cwist_sstring_append(body_cdn,
+                            "<script src=\"https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js\"></script>");
+                    }
+                    cwist_sstring_append(body_cdn, "<script src=\"/assets/js/katex-render.js\"></script>");
                 }
+
+                cwist_sstring *doc2 = cwist_sstring_create();
+                if (doc2) {
+                    size_t before = (size_t)(pos_body_cdn - doc->data);
+                    cwist_sstring_append_len(doc2, doc->data, before);
+                    cwist_sstring_append(doc2, body_cdn->data);
+                    cwist_sstring_append(doc2, pos_body_cdn + strlen(body_cdn_marker));
+                    cwist_sstring_assign(doc, doc2->data);
+                    cwist_sstring_destroy(doc2);
+                }
+                cwist_sstring_destroy(body_cdn);
+            }
+        }
+
+        /* Replace the application-script body marker with deferred app scripts
+         * such as the TASFA downloader. These are part of the page shell but are
+         * not required for first paint. */
+        const char *body_app_marker = "<meta data-inline-body-app=\"1\">";
+        char *pos_body_app = strstr(doc->data, body_app_marker);
+        if (pos_body_app) {
+            cwist_sstring *body_app = cwist_sstring_create();
+            if (body_app) {
                 if (g_config.use_tasfa) {
-                    cwist_sstring_append(body_inline,
+                    cwist_sstring_append(body_app,
                         "<script src=\"/assets/js/tasfa-download.js\" defer></script>");
                 }
 
                 cwist_sstring *doc2 = cwist_sstring_create();
                 if (doc2) {
-                    size_t before = (size_t)(pos_body - doc->data);
+                    size_t before = (size_t)(pos_body_app - doc->data);
                     cwist_sstring_append_len(doc2, doc->data, before);
-                    cwist_sstring_append(doc2, body_inline->data);
-                    cwist_sstring_append(doc2, pos_body + strlen(body_marker));
+                    cwist_sstring_append(doc2, body_app->data);
+                    cwist_sstring_append(doc2, pos_body_app + strlen(body_app_marker));
                     cwist_sstring_assign(doc, doc2->data);
                     cwist_sstring_destroy(doc2);
                 }
-                cwist_sstring_destroy(body_inline);
+                cwist_sstring_destroy(body_app);
             }
         }
 

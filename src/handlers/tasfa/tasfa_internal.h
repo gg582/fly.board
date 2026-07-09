@@ -189,7 +189,7 @@ extern pthread_mutex_t g_tasfa_queue_mtx;
 extern finalize_slot_t g_finalize_slots[TASFA_FINALIZE_CACHE_SLOTS];
 extern pthread_mutex_t g_finalize_mtx;
 
-extern _Atomic(ttak_thread_pool_t *) g_tasfa_pool;
+extern ttak_thread_pool_t *_Atomic g_tasfa_pool;
 extern pthread_once_t g_scheduler_once;
 extern _Atomic unsigned int g_round_robin_idx;
 
