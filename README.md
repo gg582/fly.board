@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> One of the few simple blog engines running at **~82 MB RSS** at idle (with 4 workers; maintains **68-120 MB** on a real production server with a single worker), and **~117 MB** under C10k (10,000 concurrent connections).  
+> One of the few simple blog engines running at **~82 MB RSS** at idle (with 4 workers; maintains **68-120 MB** on a real production server with a single worker), and **~146 MB** under C10k (10,000 concurrent connections).  
 > A lightweight board-and-blog engine built on the C-based CWIST web framework, supporting HTTPS/3, Argon2id, PQC signatures, and NATS messaging.
 
 ## Features
 
-- **Memory Efficient** – Stack+heap C implementation. **~82 MB RSS** at idle; **~117 MB** max RSS under 10,000 concurrent connections (C10k).
+- **Memory Efficient** – Stack+heap C implementation. **~82 MB RSS** at idle; **~146 MB** max RSS under 10,000 concurrent connections (C10k).
 - **Modern Transport** – TLS 1.3 + HTTP/3 (QUIC) by default. Optional ECH (Encrypted Client Hello).
 - **Secure Auth** – Client-side SHA-512 prehash + server-side **Argon2id** (OpenSSL 3 KDF). JWT session cookies.
 - **Board / Blog Hybrid** – Slug-based markdown posts + multiple boards + nested comments.
@@ -118,14 +118,14 @@ MIT License
 
 | Item | Value |
 |------|-------|
-| OS | Linux 7.0.0-mountain+ |
+| OS | Linux 7.1.0-mountain-rc6+ |
 | Architecture | x86_64 |
-| CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
-| RAM | 64 GB |
-| Disk | Samsung SSD 980 1TB (NVMe) |
+| CPU | 12 logical cores |
+| RAM | 62 GiB |
+| GCC | 14.2.0 (Debian 14.2.0-19) |
 | OpenSSL | 3.5.6 |
-| Benchmark Tool | wrk, h2load |
-| CWIST | `patches/cwist` |
+| Benchmark Tool | h2load nghttp2/1.64.0 |
+| CWIST | `/usr/local/lib/libcwist.a` |
 
 ### System Tuning
 
@@ -146,9 +146,9 @@ MIT License
 | State | RSS | Notes |
 |-------|-----|-------|
 | Idle | **~82 MB** (83,708 KB) | 4 workers, no connections |
-| C10k | **~117 MB** (120,184 KB) | 10,000 concurrent connections |
-| C100k | **~174 MB** (178,056 KB) | 100,000 concurrent connections |
-| C1m | **~216 MB** (220,888 KB) | 1,000,000 concurrent connections |
+| C10k | **~146 MB** (145,928 KB) | 10,000 concurrent connections |
+| C100k | **~146 MB** (146,076 KB) | 100,000 concurrent connections |
+| C1m | **~146 MB** (146,420 KB) | 1,000,000 concurrent connections |
 
 ### C10k Concurrent Connection Test
 
@@ -157,20 +157,20 @@ Measured with `h2load` maintaining 10,000 concurrent connections.
 | Item | Value |
 |------|-------|
 | Concurrent connections | 10,000 |
-| Duration | 21.72 s |
-| Max RSS | **~117 MB** (120,184 KB) |
-| CPU usage | ~200% |
-| User time | 35.19 s |
-| System time | 8.39 s |
-| Major page faults | **1** |
-| Minor page faults | 57,581 |
-| Voluntary context switches | 2,235,918 |
-| Involuntary context switches | 405,099 |
-| File system outputs | 8 |
+| Duration | 17.04 s |
+| Max RSS | **~146 MB** (145,928 KB) |
+| CPU usage | ~480% |
+| User time | 73.54 s |
+| System time | 8.25 s |
+| Major page faults | 51 |
+| Minor page faults | 267,239 |
+| Voluntary context switches | 1,959,611 |
+| Involuntary context switches | 17,100 |
+| File system outputs | 10,600 |
 | Total requests | 20000 |
 | Total succeeded | 20000 |
 | Total failed | 0 |
-| Approx total RPS | **1291.35** |
+| Approx total RPS | **2383.81** |
 | Success rate | **100.00%** |
 | Exit status | **0** |
 
@@ -181,20 +181,20 @@ Measured with `h2load` maintaining 100,000 concurrent connections.
 | Item | Value |
 |------|-------|
 | Concurrent connections | 100,000 |
-| Duration | 2:46.70 |
-| Max RSS | **~174 MB** (178,056 KB) |
-| CPU usage | ~88% |
-| User time | 118.41 s |
-| System time | 28.31 s |
-| Major page faults | **0** |
-| Minor page faults | 150,669 |
-| Voluntary context switches | 6,984,249 |
-| Involuntary context switches | 1,081,830 |
-| File system outputs | 8 |
+| Duration | 1:30.30 |
+| Max RSS | **~146 MB** (146,076 KB) |
+| CPU usage | ~824% |
+| User time | 700.38 s |
+| System time | 44.12 s |
+| Major page faults | 0 |
+| Minor page faults | 472,679 |
+| Voluntary context switches | 3,908,475 |
+| Involuntary context switches | 165,739 |
+| File system outputs | 101,672 |
 | Total requests | 200000 |
 | Total succeeded | 200000 |
 | Total failed | 0 |
-| Approx total RPS | **1244.21** |
+| Approx total RPS | **2458.23** |
 | Success rate | **100.00%** |
 | Exit status | **0** |
 
@@ -205,28 +205,28 @@ Measured with `h2load` maintaining 1,000,000 concurrent connections.
 | Item | Value |
 |------|-------|
 | Concurrent connections | 1,000,000 |
-| Duration | 10:13.39 |
-| Max RSS | **~216 MB** (220,888 KB) |
-| CPU usage | ~55% |
-| User time | 201.98 s |
-| System time | 136.96 s |
-| Major page faults | **1** |
-| Minor page faults | 220,927 |
-| Voluntary context switches | 38,926,712 |
-| Involuntary context switches | 4,460,022 |
-| File system outputs | 8 |
+| Duration | 7:02.81 |
+| Max RSS | **~146 MB** (146,420 KB) |
+| CPU usage | ~654% |
+| User time | 2553.88 s |
+| System time | 211.70 s |
+| Major page faults | 3 |
+| Minor page faults | 895,633 |
+| Voluntary context switches | 24,007,690 |
+| Involuntary context switches | 931,088 |
+| File system outputs | 366,248 |
 | Total requests | 2000000 |
-| Total succeeded | 607048 |
-| Total failed | 1392952 |
-| Approx total RPS | **1000.39** |
-| Success rate | **30.35%** |
+| Total succeeded | 722910 |
+| Total failed | 1277090 |
+| Approx total RPS | **1744.04** |
+| Success rate | **36.14%** |
 | Exit status | **0** |
 
 > Note: Values measured while maintaining actual client connections over HTTP/2 (TLS 1.3).
 
 **C10k Benchmark Highlights**
-- **Memory Efficient**: RSS stays below 120 MB with 10,000 concurrent connections (~12 KB per connection)
-- **Zero Disk I/O**: Major page faults 1, Swaps 0, FS inputs 0 — pure in-memory processing under load
-- **High CPU Utilization**: Sustained ~200% CPU usage while remaining stable
-- **Long-term Stability**: Ran continuously for 21.72 s under C10k load and exited cleanly (status 0)
-- **Data Safety**: SQLite safely persisted all data on SIGINT (8 FS outputs)
+- **Memory Efficient**: RSS stays around 146 MB with 10,000 concurrent connections (~15 KB per connection)
+- **Disk I/O**: Major page faults 51, Swaps 0 — SQLite and cache activity generate ~10 MB of FS output
+- **High CPU Utilization**: Sustained ~480% CPU usage while remaining stable
+- **Long-term Stability**: Ran continuously for 17.04 s under C10k load and exited cleanly (status 0)
+- **Data Safety**: SQLite safely persisted all data on SIGINT (10,600 FS outputs)
