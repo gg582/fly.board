@@ -8,6 +8,7 @@
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/sstring/sstring.h>
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <pthread.h>
