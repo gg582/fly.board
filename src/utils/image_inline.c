@@ -22,12 +22,29 @@ typedef struct {
 
 static inline_images_t g_inline_images;
 
+static bool env_on(const char *name) {
+    const char *env = getenv(name);
+    return env && (strcmp(env, "1") == 0 || strcasecmp(env, "true") == 0 || strcasecmp(env, "on") == 0);
+}
+
 static bool image_inline_enabled(void) {
-    const char *env = getenv("FLYBOARD_INLINE_ALL_ASSETS");
-    if (env && (strcmp(env, "1") == 0 || strcasecmp(env, "true") == 0 || strcasecmp(env, "on") == 0)) return true;
-    env = getenv("FLYBOARD_INLINE_IMAGES");
-    if (env && (strcmp(env, "1") == 0 || strcasecmp(env, "true") == 0 || strcasecmp(env, "on") == 0)) return true;
-    return false;
+    return env_on("FLYBOARD_INLINE_ALL_ASSETS") || env_on("FLYBOARD_INLINE_IMAGES");
+}
+
+static bool bg_images_inline_enabled(void) {
+    /* Background images are usually large; require an explicit opt-in even
+     * when FLYBOARD_INLINE_ALL_ASSETS is set so they do not bloat the first
+     * HTML payload. */
+    return env_on("FLYBOARD_INLINE_BG_IMAGES");
+}
+
+static size_t inline_max_image_size(void) {
+    const char *env = getenv("FLYBOARD_INLINE_MAX_IMAGE_SIZE");
+    if (env) {
+        long val = strtol(env, NULL, 10);
+        if (val > 0) return (size_t)val;
+    }
+    return 48 * 1024; /* default: keep each inlined image under ~48 KiB */
 }
 
 static char *external_image_url(const char *filename) {
@@ -112,7 +129,11 @@ static unsigned char *load_image_any(const char *path, int *w, int *h, int *chan
     return rgba;
 }
 
-static char *encode_image_to_webp_data_url(const char *path) {
+static char *encode_image_to_webp_data_url(const char *path, size_t max_bytes) {
+    /* Reject obviously oversized inputs before touching a WebP encoder. */
+    struct stat st;
+    if (stat(path, &st) == 0 && (size_t)st.st_size > max_bytes) return NULL;
+
     int w, h, channels;
     unsigned char *pixels = load_image_any(path, &w, &h, &channels);
     if (!pixels) return NULL;
@@ -137,6 +158,11 @@ static char *encode_image_to_webp_data_url(const char *path) {
     stbi_image_free(pixels);
     if (!webp) return NULL;
 
+    /* base64 expands by 4/3; if the encoded data URL would exceed the budget,
+     * fall back to an external URL so we do not explode the HTML payload. */
+    size_t encoded_estimate = 4 * ((webp_size + 2) / 3) + strlen(PREFIX) + 1;
+    if (encoded_estimate > max_bytes) { WebPFree(webp); return NULL; }
+
     char *b64 = base64_encode(webp, webp_size);
     WebPFree(webp);
     if (!b64) return NULL;
@@ -150,29 +176,40 @@ static char *encode_image_to_webp_data_url(const char *path) {
     return url;
 }
 
-static void build_one(const char *filename, char **out_url) {
+static void build_one(const char *filename, char **out_url, bool allow_inline, size_t max_bytes) {
     if (!filename || !filename[0]) return;
-    if (!image_inline_enabled()) {
+    if (!allow_inline) {
         *out_url = external_image_url(filename);
         return;
     }
     char path[512];
     snprintf(path, sizeof(path), "public/img/%s", filename);
-    *out_url = encode_image_to_webp_data_url(path);
+    *out_url = encode_image_to_webp_data_url(path, max_bytes);
+    if (!*out_url) {
+        *out_url = external_image_url(filename);
+    }
 }
 
 void image_inline_cache_build(void) {
-    build_one(g_config.home_img,   &g_inline_images.home_bg_url);
-    build_one(g_config.boards_img, &g_inline_images.boards_bg_url);
-    build_one(g_config.files_img,  &g_inline_images.files_bg_url);
-    build_one(g_config.blog_logo,  &g_inline_images.logo_url);
-    build_one(g_config.favicon,    &g_inline_images.favicon_url);
-    /* If no custom logo is configured, use the default logo.png. Inlining is
-     * controlled by FLYBOARD_INLINE_IMAGES / FLYBOARD_INLINE_ALL_ASSETS. */
+    size_t max_img = inline_max_image_size();
+
+    /* Hero/background images are large; only inline when explicitly requested
+     * and still under the per-image size budget. */
+    build_one(g_config.home_img,   &g_inline_images.home_bg_url,   bg_images_inline_enabled(), max_img);
+    build_one(g_config.boards_img, &g_inline_images.boards_bg_url, bg_images_inline_enabled(), max_img);
+    build_one(g_config.files_img,  &g_inline_images.files_bg_url,  bg_images_inline_enabled(), max_img);
+
+    /* Logo/favicon are small identity assets; inline with the usual image flag,
+     * but still respect the size cap. */
+    build_one(g_config.blog_logo,  &g_inline_images.logo_url,    image_inline_enabled(), max_img);
+    build_one(g_config.favicon,    &g_inline_images.favicon_url, image_inline_enabled(), max_img);
+
+    /* If no custom logo is configured, use the default logo.png. */
     if (!g_inline_images.logo_url) {
         if (image_inline_enabled()) {
-            g_inline_images.logo_url = encode_image_to_webp_data_url("public/img/logo.png");
-        } else {
+            g_inline_images.logo_url = encode_image_to_webp_data_url("public/img/logo.png", max_img);
+        }
+        if (!g_inline_images.logo_url) {
             g_inline_images.logo_url = external_image_url("logo.png");
         }
     }

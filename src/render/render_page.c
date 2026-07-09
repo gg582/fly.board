@@ -21,7 +21,8 @@
 typedef struct {
     char *jwt_js;
     char *layout_js;
-    char *font_css;
+    char *font_css;          /* google-fonts.css (large; kept external by default) */
+    char *font_css_small;    /* pretendard.css + d2coding.css (small; inlined) */
     /* Optional CDN libraries that can be inlined when FLYBOARD_INLINE_CDN is set */
     char *highlight_light_css;
     char *highlight_dark_css;
@@ -36,14 +37,17 @@ static pthread_once_t g_inline_assets_once = PTHREAD_ONCE_INIT;
 
 static char *read_file_to_string(const char *path);
 
-static char *concat_three_files(const char *a, const char *b, const char *c);
+static char *concat_two_files(const char *a, const char *b);
 
 static void load_inline_assets(void) {
     g_inline_assets.jwt_js            = read_file_to_string("public/js/jwt.js");
     g_inline_assets.layout_js         = read_file_to_string("public/js/layout.js");
-    g_inline_assets.font_css          = concat_three_files("public/css/google-fonts.css",
-                                                             "public/css/pretendard.css",
-                                                             "public/css/d2coding.css");
+    /* Split font CSS: the Google Fonts file is large and font-heavy, so keep it
+     * as a separate cached request.  Only the small local fallback font CSS is
+     * inlined into the first payload. */
+    g_inline_assets.font_css          = read_file_to_string("public/css/google-fonts.css");
+    g_inline_assets.font_css_small    = concat_two_files("public/css/pretendard.css",
+                                                           "public/css/d2coding.css");
     g_inline_assets.highlight_light_css = read_file_to_string("public/inline_assets/highlight-light.css");
     g_inline_assets.highlight_dark_css  = read_file_to_string("public/inline_assets/highlight-dark.css");
     g_inline_assets.highlight_js        = read_file_to_string("public/inline_assets/highlight.js");
@@ -52,23 +56,20 @@ static void load_inline_assets(void) {
     g_inline_assets.katex_css           = read_file_to_string("public/inline_assets/katex.css");
 }
 
-static char *concat_three_files(const char *a, const char *b, const char *c) {
+static char *concat_two_files(const char *a, const char *b) {
     char *fa = read_file_to_string(a);
     char *fb = read_file_to_string(b);
-    char *fc = read_file_to_string(c);
     size_t la = fa ? strlen(fa) : 0;
     size_t lb = fb ? strlen(fb) : 0;
-    size_t lc = fc ? strlen(fc) : 0;
-    if (la + lb + lc == 0) {
-        free(fa); free(fb); free(fc);
+    if (la + lb == 0) {
+        free(fa); free(fb);
         return NULL;
     }
-    char *out = (char *)malloc(la + lb + lc + 1);
-    if (!out) { free(fa); free(fb); free(fc); return NULL; }
+    char *out = (char *)malloc(la + lb + 1);
+    if (!out) { free(fa); free(fb); return NULL; }
     size_t pos = 0;
     if (fa) { memcpy(out + pos, fa, la); pos += la; free(fa); }
     if (fb) { memcpy(out + pos, fb, lb); pos += lb; free(fb); }
-    if (fc) { memcpy(out + pos, fc, lc); pos += lc; free(fc); }
     out[pos] = '\0';
     return out;
 }
@@ -86,6 +87,20 @@ static bool env_flag_on(const char *name) {
 static bool inline_all_enabled(void)     { return env_flag_on("FLYBOARD_INLINE_ALL_ASSETS"); }
 static bool inline_shell_enabled(void)   { return inline_all_enabled() || env_flag_on("FLYBOARD_INLINE_SHELL"); }
 static bool inline_cdn_enabled(void)     { return inline_all_enabled() || env_flag_on("FLYBOARD_INLINE_CDN"); }
+
+static size_t inline_max_asset_size(void) {
+    const char *env = getenv("FLYBOARD_INLINE_MAX_ASSET_SIZE");
+    if (env) {
+        long val = strtol(env, NULL, 10);
+        if (val > 0) return (size_t)val;
+    }
+    return 64 * 1024; /* keep each inlined script/style chunk under ~64 KiB */
+}
+
+static bool inline_asset_fits(const char *asset) {
+    if (!asset || !asset[0]) return false;
+    return strlen(asset) <= inline_max_asset_size();
+}
 
 static __thread char g_nav_profile_name[128];
 static __thread char g_nav_profile_account[128];
@@ -438,14 +453,16 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             inline_assets_t *a = get_inline_assets();
             cwist_sstring *head_shell = cwist_sstring_create();
             if (head_shell) {
-                if (inline_shell_enabled()) {
-                    if (a->font_css && a->font_css[0]) {
-                        cwist_sstring_append(head_shell, "<style>");
-                        cwist_sstring_append(head_shell, a->font_css);
-                        cwist_sstring_append(head_shell, "</style>");
-                    }
+                /* Fonts are split: the large Google Fonts sheet is always
+                 * loaded separately so it does not bloat the first payload.
+                 * The small local fallbacks are inlined when shell inlining is
+                 * enabled and they fit under the per-asset budget. */
+                cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/google-fonts.css\">");
+                if (inline_shell_enabled() && inline_asset_fits(a->font_css_small)) {
+                    cwist_sstring_append(head_shell, "<style>");
+                    cwist_sstring_append(head_shell, a->font_css_small);
+                    cwist_sstring_append(head_shell, "</style>");
                 } else {
-                    cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/google-fonts.css\">");
                     cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/pretendard.css\">");
                     cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/d2coding.css\">");
                 }
@@ -491,16 +508,15 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             cwist_sstring *head_cdn = cwist_sstring_create();
             if (head_cdn) {
                 /* Load the current highlight theme. The client-side toggle
-                 * switches the link href when the user changes theme. */
-                if (inline_cdn_enabled()) {
-                    const char *hl_css = dark ? a->highlight_dark_css : a->highlight_light_css;
-                    if (hl_css && hl_css[0]) {
-                        cwist_sstring_append(head_cdn, "<style id=\"hl-theme\" data-active=\"");
-                        cwist_sstring_append(head_cdn, dark ? "dark" : "light");
-                        cwist_sstring_append(head_cdn, "\">");
-                        cwist_sstring_append(head_cdn, hl_css);
-                        cwist_sstring_append(head_cdn, "</style>");
-                    }
+                 * switches the link href when the user changes theme.
+                 * Even with inlining enabled, oversized CSS is kept external. */
+                const char *hl_css = dark ? a->highlight_dark_css : a->highlight_light_css;
+                if (inline_cdn_enabled() && inline_asset_fits(hl_css)) {
+                    cwist_sstring_append(head_cdn, "<style id=\"hl-theme\" data-active=\"");
+                    cwist_sstring_append(head_cdn, dark ? "dark" : "light");
+                    cwist_sstring_append(head_cdn, "\">");
+                    cwist_sstring_append(head_cdn, hl_css);
+                    cwist_sstring_append(head_cdn, "</style>");
                 } else {
                     cwist_sstring_append(head_cdn, "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github");
                     cwist_sstring_append(head_cdn, dark ? "-dark" : "");
@@ -510,7 +526,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                 }
 
                 if (needs_katex) {
-                    if (inline_cdn_enabled() && a->katex_css && a->katex_css[0]) {
+                    if (inline_cdn_enabled() && inline_asset_fits(a->katex_css)) {
                         cwist_sstring_append(head_cdn, "<style>");
                         cwist_sstring_append(head_cdn, a->katex_css);
                         cwist_sstring_append(head_cdn, "</style>");
@@ -542,8 +558,9 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             cwist_sstring *body_cdn = cwist_sstring_create();
             if (body_cdn) {
                 if (needs_hl) {
-                    if (inline_cdn_enabled() && a->highlight_js && a->highlight_js[0] &&
-                        a->highlight_fortran_js && a->highlight_fortran_js[0]) {
+                    if (inline_cdn_enabled() &&
+                        inline_asset_fits(a->highlight_js) &&
+                        inline_asset_fits(a->highlight_fortran_js)) {
                         cwist_sstring_append(body_cdn, "<script>");
                         cwist_sstring_append(body_cdn, a->highlight_js);
                         cwist_sstring_append(body_cdn, "\n");
@@ -557,7 +574,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     }
                 }
                 if (needs_katex) {
-                    if (inline_cdn_enabled() && a->katex_js && a->katex_js[0]) {
+                    if (inline_cdn_enabled() && inline_asset_fits(a->katex_js)) {
                         cwist_sstring_append(body_cdn, "<script>");
                         cwist_sstring_append(body_cdn, a->katex_js);
                         cwist_sstring_append(body_cdn, "</script>");

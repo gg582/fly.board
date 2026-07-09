@@ -12,6 +12,11 @@
  * delays small writes until an ACK arrives, which amplifies latency on
  * high-RTT links.  TCP_CORK still controls when data is actually flushed,
  * so the two options complement each other rather than conflicting.
+ *
+ * NOTE: Inline assets are intentionally split into smaller chunks (critical
+ * shell, small fonts, optional CDN libs, images) and oversized assets are kept
+ * as separate cached requests.  This keeps each corked burst bounded and
+ * prevents a single giant HTML payload from monopolising the send buffer.
  */
 #define _GNU_SOURCE
 #include <cwist/net/http/http.h>
