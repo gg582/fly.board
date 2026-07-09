@@ -1001,19 +1001,154 @@
         if (readingTime) readingTime.textContent = minutes + ' min read';
     }
 
+    var previewAbortController = null;
+
+    function loadScript(src, cb) {
+        var existing = document.querySelector('script[src="' + src + '"]');
+        if (existing) {
+            if (existing.dataset.loaded === '1') { if (cb) cb(); return; }
+            existing.addEventListener('load', function() { existing.dataset.loaded = '1'; if (cb) cb(); });
+            existing.addEventListener('error', function() { if (cb) cb(); });
+            return;
+        }
+        var s = document.createElement('script');
+        s.src = src;
+        s.defer = true;
+        s.dataset.previewLoader = '1';
+        s.addEventListener('load', function() { s.dataset.loaded = '1'; if (cb) cb(); });
+        s.addEventListener('error', function() { if (cb) cb(); });
+        document.head.appendChild(s);
+    }
+
+    function loadCss(href) {
+        if (document.querySelector('link[href="' + href + '"]')) return;
+        var l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = href;
+        document.head.appendChild(l);
+    }
+
+    function ensureHighlightJs(cb) {
+        if (typeof hljs !== 'undefined') { if (cb) cb(); return; }
+        loadScript('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js', function() {
+            loadScript('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/fortran.min.js', cb);
+        });
+    }
+
+    function ensureKatex(cb) {
+        if (typeof katex !== 'undefined' && typeof window.__renderBlogMath === 'function') {
+            if (cb) cb();
+            return;
+        }
+        loadCss('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css');
+        if (typeof katex !== 'undefined') {
+            loadScript('/assets/js/katex-render.js', cb);
+        } else {
+            loadScript('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js', function() {
+                loadScript('/assets/js/katex-render.js', cb);
+            });
+        }
+    }
+
+    function initPreviewCodeCopyButtons(root) {
+        root.querySelectorAll('.markdown-body pre').forEach(function(pre) {
+            if (pre.querySelector('.code-copy')) return;
+            var btn = document.createElement('button');
+            btn.className = 'code-copy';
+            btn.type = 'button';
+            btn.textContent = 'Copy';
+            btn.addEventListener('click', function(event) {
+                event.stopPropagation();
+                var code = pre.querySelector('code');
+                var text = code ? code.textContent : pre.textContent;
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(function() {
+                        btn.textContent = 'Copied!';
+                        setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+                    });
+                }
+            });
+            pre.appendChild(btn);
+        });
+    }
+
+    function runPreviewPostProcessing(root) {
+        var needsHl = !!root.querySelector('pre code[class*="language-"]');
+        var needsMath = !!root.querySelector('.math-block, .math-inline');
+
+        function applyHighlight() {
+            if (needsHl && typeof hljs !== 'undefined') {
+                root.querySelectorAll('pre code').forEach(function(el) {
+                    try { hljs.highlightElement(el); } catch (e) {}
+                });
+            }
+        }
+        function applyMath() {
+            if (needsMath && typeof katex !== 'undefined' && typeof window.__renderBlogMath === 'function') {
+                window.__renderBlogMath(root);
+            }
+        }
+
+        var pending = 0;
+        function maybeFinish() {
+            pending--;
+            if (pending > 0) return;
+            applyHighlight();
+            applyMath();
+            initPreviewCodeCopyButtons(root);
+        }
+
+        if (needsHl) {
+            pending++;
+            ensureHighlightJs(maybeFinish);
+        }
+        if (needsMath) {
+            pending++;
+            ensureKatex(maybeFinish);
+        }
+
+        if (pending === 0) {
+            applyHighlight();
+            applyMath();
+            initPreviewCodeCopyButtons(root);
+        }
+    }
+
     function updatePreview() {
         if (!preview || !ta) return;
-        preview.innerHTML = renderMarkdown(ta.value);
-        if (typeof window.initMarkdownAffordances === 'function') {
-            window.initMarkdownAffordances(preview);
+        if (previewAbortController) {
+            previewAbortController.abort();
+            previewAbortController = null;
         }
-        if (typeof window.__renderBlogMath === 'function') {
-            window.__renderBlogMath(preview);
+        var md = ta.value;
+        if (!md.trim()) {
+            preview.innerHTML = "<p style='color:var(--muted)'>Nothing to preview yet.</p>";
+            updateMetrics();
+            if (syncStatus) syncStatus.textContent = 'Preview cleared';
+            return;
         }
-        updateMetrics();
-        if (syncStatus) {
-            syncStatus.textContent = 'Local preview updated';
-        }
+        previewAbortController = new AbortController();
+        fetch('/api/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+            body: md,
+            signal: previewAbortController.signal
+        }).then(function(r) {
+            if (!r.ok) throw new Error('preview failed: ' + r.status);
+            return r.text();
+        }).then(function(html) {
+            preview.innerHTML = html;
+            if (typeof window.initMarkdownAffordances === 'function') {
+                window.initMarkdownAffordances(preview);
+            }
+            runPreviewPostProcessing(preview);
+            updateMetrics();
+            if (syncStatus) syncStatus.textContent = 'Preview updated';
+        }).catch(function(e) {
+            if (e && e.name === 'AbortError') return;
+            preview.innerHTML = "<p style='color:var(--muted)'>Preview unavailable.</p>";
+            if (syncStatus) syncStatus.textContent = 'Preview error';
+        });
     }
 
     function schedulePreview() {
@@ -2993,6 +3128,42 @@
             onFileBatch(event.clipboardData.files);
         });
     }
+
+    function focusEditorFromPreview() {
+        if (!ta) return;
+        switchTab('write');
+        ta.focus();
+    }
+
+    function isPreviewPaneActive() {
+        var previewPane = document.querySelector('[data-editor-pane="preview"]');
+        return previewPane && previewPane.style.display !== 'none';
+    }
+
+    if (preview) {
+        preview.addEventListener('click', function(event) {
+            var target = event.target;
+            if (!target) return;
+            var tag = (target.tagName || '').toLowerCase();
+            if (tag === 'a' || tag === 'button' || tag === 'video' || tag === 'audio' || tag === 'input' || tag === 'textarea') return;
+            if (target.closest('a') || target.closest('button')) return;
+            focusEditorFromPreview();
+        });
+    }
+
+    document.addEventListener('keydown', function(event) {
+        if (!isPreviewPaneActive() || !ta) return;
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            focusEditorFromPreview();
+            return;
+        }
+        if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            event.preventDefault();
+            focusEditorFromPreview();
+        }
+    });
 
     Array.prototype.forEach.call(tabButtons, function(button) {
         button.addEventListener('click', function() {

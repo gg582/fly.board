@@ -7,7 +7,12 @@ void handler_api_preview(cwist_http_request *req, cwist_http_response *res) {
     if (html) {
         cwist_http_header_add(&res->headers, "Content-Type", "text/html; charset=utf-8");
         cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
-        cwist_sstring_assign(res->body, html->data);
+        cwist_sstring *wrapped = cwist_sstring_create();
+        cwist_sstring_append(wrapped, "<div class='markdown-body'>");
+        cwist_sstring_append_sstring(wrapped, html);
+        cwist_sstring_append(wrapped, "</div>");
+        cwist_sstring_assign(res->body, wrapped->data);
+        cwist_sstring_destroy(wrapped);
         cwist_sstring_destroy(html);
     } else {
         res->status_code = CWIST_HTTP_INTERNAL_ERROR;
