@@ -4,8 +4,8 @@ var STATIC_CACHE = 'fly-static-v3';
 var CDN_CACHE = 'fly-cdn-v2';
 var PRECACHE = 'fly-precache-v1';
 var LOGO_MAX_AGE = 3600000; // 1 hour in milliseconds
-var STATIC_MAX_AGE = 24 * 60 * 60 * 1000; // 1 day
-var CDN_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+var STATIC_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days (immutable hashed assets)
+var CDN_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // 30 days (versioned CDN URLs)
 var tasfaSessions = {};
 
 /* Assets to prefetch on SW install so repeat navigations never hit the network

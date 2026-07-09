@@ -12,14 +12,15 @@
 #include <sys/stat.h>
 #include <pthread.h>
 
-/* Inlined static asset cache. Only small, page-critical scripts and the
- * current highlight theme are embedded directly; larger libraries
- * (highlight.js, KaTeX, TASFA) are served as separate cached files so the
- * browser can reuse them across navigations. Fonts are also kept external
- * to avoid bloating the initial HTML payload. */
+/* Inlined static asset cache. Page-critical scripts, the current highlight
+ * theme, and the font-face stylesheets are embedded directly so the first
+ * render does not block on extra high-RTT round trips. Larger libraries
+ * (highlight.js, KaTeX, TASFA) and the actual font files are served as
+ * separate cached files so the browser can reuse them across navigations. */
 typedef struct {
     char *jwt_js;
     char *layout_js;
+    char *font_css;
 } inline_assets_t;
 
 static inline_assets_t g_inline_assets;
@@ -27,9 +28,35 @@ static pthread_once_t g_inline_assets_once = PTHREAD_ONCE_INIT;
 
 static char *read_file_to_string(const char *path);
 
+static char *concat_three_files(const char *a, const char *b, const char *c);
+
 static void load_inline_assets(void) {
     g_inline_assets.jwt_js            = read_file_to_string("public/js/jwt.js");
     g_inline_assets.layout_js         = read_file_to_string("public/js/layout.js");
+    g_inline_assets.font_css          = concat_three_files("public/css/google-fonts.css",
+                                                             "public/css/pretendard.css",
+                                                             "public/css/d2coding.css");
+}
+
+static char *concat_three_files(const char *a, const char *b, const char *c) {
+    char *fa = read_file_to_string(a);
+    char *fb = read_file_to_string(b);
+    char *fc = read_file_to_string(c);
+    size_t la = fa ? strlen(fa) : 0;
+    size_t lb = fb ? strlen(fb) : 0;
+    size_t lc = fc ? strlen(fc) : 0;
+    if (la + lb + lc == 0) {
+        free(fa); free(fb); free(fc);
+        return NULL;
+    }
+    char *out = (char *)malloc(la + lb + lc + 1);
+    if (!out) { free(fa); free(fb); free(fc); return NULL; }
+    size_t pos = 0;
+    if (fa) { memcpy(out + pos, fa, la); pos += la; free(fa); }
+    if (fb) { memcpy(out + pos, fb, lb); pos += lb; free(fb); }
+    if (fc) { memcpy(out + pos, fc, lc); pos += lc; free(fc); }
+    out[pos] = '\0';
+    return out;
 }
 
 static inline_assets_t *get_inline_assets(void) {
@@ -366,18 +393,21 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             cwist_sstring_append_sstring(doc, out);
         }
 
-        /* Replace the inline-head marker with cached external font stylesheets,
-         * inlined highlight CSS, and the critical jwt.js + layout.js bundle. */
+        /* Replace the inline-head marker with inlined font-face stylesheets,
+         * inlined highlight CSS, and the critical jwt.js + layout.js bundle.
+         * Inlining the font CSS removes three high-RTT round trips from the
+         * critical rendering path on cold navigations. */
         const char *head_marker = "<meta data-inline-head=\"1\">";
         char *pos_head = strstr(doc->data, head_marker);
         if (pos_head) {
             inline_assets_t *a = get_inline_assets();
             cwist_sstring *head_inline = cwist_sstring_create();
             if (head_inline) {
-                cwist_sstring_append(head_inline,
-                    "<link rel=\"stylesheet\" href=\"/assets/css/google-fonts.css\" crossorigin=\"anonymous\">"
-                    "<link rel=\"stylesheet\" href=\"/assets/css/pretendard.css\" crossorigin=\"anonymous\">"
-                    "<link rel=\"stylesheet\" href=\"/assets/css/d2coding.css\" crossorigin=\"anonymous\">");
+                if (a->font_css && a->font_css[0]) {
+                    cwist_sstring_append(head_inline, "<style>");
+                    cwist_sstring_append(head_inline, a->font_css);
+                    cwist_sstring_append(head_inline, "</style>");
+                }
 
                 /* Load the current highlight theme from cdnjs. The client-side
                  * toggle switches the link href when the user changes theme. */
