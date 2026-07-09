@@ -61,6 +61,9 @@ void redirect(cwist_http_response *res, const char *url) {
     res->status_code = (cwist_http_status_t)302;
     cwist_http_header_add(&res->headers, "Location", url);
     cwist_sstring_assign(res->body, "Redirecting...");
+    char len_buf[32];
+    snprintf(len_buf, sizeof(len_buf), "%zu", res->body->size);
+    cwist_http_header_add(&res->headers, "Content-Length", len_buf);
 }
 
 /* Extract scheme://host[:port] from root_url (e.g. https://example.com:8443/).
@@ -150,6 +153,9 @@ void send_html_res(cwist_http_response *res, cwist_sstring *html) {
         res->status_code = CWIST_HTTP_INTERNAL_ERROR;
         cwist_sstring_assign(res->body, "render error");
     }
+    char len_buf[32];
+    snprintf(len_buf, sizeof(len_buf), "%zu", res->body->size);
+    cwist_http_header_add(&res->headers, "Content-Length", len_buf);
 }
 
 void send_cached_html_res(cwist_http_response *res, const char *html, size_t len, uint32_t ttl_remaining) {
@@ -163,6 +169,9 @@ void send_cached_html_res(cwist_http_response *res, const char *html, size_t len
     cwist_http_header_add(&res->headers, "Vary", "Cookie");
     cwist_sstring_assign(res->body, "");
     cwist_sstring_append_len(res->body, html, len);
+    char len_buf[32];
+    snprintf(len_buf, sizeof(len_buf), "%zu", len);
+    cwist_http_header_add(&res->headers, "Content-Length", len_buf);
 }
 
 /* Apply the modern security header set consistently. This helper is used both by
