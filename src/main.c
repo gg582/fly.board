@@ -14,6 +14,7 @@
 #include "engine/routes.h"
 #include "engine/warmup.h"
 #include "utils/cache.h"
+#include "utils/reqshare.h"
 #include "utils/image_inline.h"
 #include <cwist/net/http/http3.h>
 #include <openssl/ssl.h>
@@ -189,6 +190,7 @@ int main(void) {
     CWIST_LOG_INFO("Orphaned files cleanup completed");
 
     page_cache_init();
+    reqshare_init();
     page_cache_warmup(db);
 
     atomic_store_explicit(&g_cleanup_running, true, memory_order_release);

@@ -24,6 +24,7 @@ SRCS := src/main.c \
         src/handlers/handlers.c src/handlers/home.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/file.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c \
         src/utils/utils.c \
         src/utils/cache.c \
+        src/utils/reqshare.c \
         src/utils/tcp_cork_wrap.c \
         src/utils/legal.c \
         src/utils/stb_image_impl.c \
