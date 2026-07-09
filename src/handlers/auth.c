@@ -30,33 +30,35 @@ void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
     send_html_res(res, render_login(is_dark(req), NULL, is_mobile_request(req)));
 }
 
-static long long login_elapsed_us(struct timespec *start, struct timespec *end) {
-    return (long long)(end->tv_sec - start->tv_sec) * 1000000LL +
-           (long long)(end->tv_nsec - start->tv_nsec) / 1000LL;
-}
-
 void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
-    struct timespec t0, t1, t2, t3, t4, t5;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
     bool dark = is_dark(req);
+    bool mobile = is_mobile_request(req);
+
+    if (!req->body || !req->body->data || req->body->size == 0) {
+        CWIST_LOG_WARN("Login failed: empty body");
+        send_html_res(res, render_login(dark, "Invalid request", mobile));
+        return;
+    }
+
     cwist_query_map *kv = cwist_query_map_create();
     cwist_query_map_parse(kv, req->body->data);
     const char *username = cwist_query_map_get(kv, "username");
     const char *password = cwist_query_map_get(kv, "password");
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    if (!username || !password) {
+
+    if (!username || !password || !username[0] || !password[0]) {
         CWIST_LOG_WARN("Login failed: missing fields");
-        send_html_res(res, render_login(dark, "Missing fields", is_mobile_request(req)));
+        send_html_res(res, render_login(dark, "Missing fields", mobile));
         cwist_query_map_destroy(kv);
         return;
     }
+
     /* Admin login via admin.settings */
     if (auth_admin_check(username, password)) {
         CWIST_LOG_INFO("Admin login success: username='%s'", username);
         char *token = auth_jwt_issue(1, username, "admin");
         if (!token) {
             CWIST_LOG_ERROR("Admin login failed: token issue error username='%s'", username);
-            send_html_res(res, render_login(dark, "Server error", is_mobile_request(req)));
+            send_html_res(res, render_login(dark, "Server error", mobile));
             cwist_query_map_destroy(kv);
             return;
         }
@@ -67,52 +69,60 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         redirect(res, "/");
         return;
     }
+
     cJSON *user = db_user_get_by_username(req->db, username);
-    clock_gettime(CLOCK_MONOTONIC, &t2);
     if (!user) {
         CWIST_LOG_WARN("Login failed: invalid credentials for username='%s'", username);
-        send_html_res(res, render_login(dark, "Invalid credentials", is_mobile_request(req)));
+        send_html_res(res, render_login(dark, "Invalid credentials", mobile));
         cwist_query_map_destroy(kv);
         return;
     }
+
     cJSON *hash = cJSON_GetObjectItem(user, "password_hash");
+    if (!hash || !hash->valuestring || !hash->valuestring[0]) {
+        CWIST_LOG_WARN("Login failed: no password hash for username='%s'", username);
+        cJSON_Delete(user);
+        send_html_res(res, render_login(dark, "Invalid credentials", mobile));
+        cwist_query_map_destroy(kv);
+        return;
+    }
+
     bool pw_ok = auth_verify_password(password, hash->valuestring);
-    clock_gettime(CLOCK_MONOTONIC, &t3);
     if (!pw_ok) {
         CWIST_LOG_WARN("Login failed: wrong password for username='%s'", username);
         cJSON_Delete(user);
-        send_html_res(res, render_login(dark, "Invalid credentials", is_mobile_request(req)));
+        send_html_res(res, render_login(dark, "Invalid credentials", mobile));
         cwist_query_map_destroy(kv);
         return;
     }
-    CWIST_LOG_INFO("User login success: username='%s'", username);
-    int user_id = json_int(user, "id", 0);
+
     cJSON *uname = cJSON_GetObjectItem(user, "username");
     cJSON *role = cJSON_GetObjectItem(user, "role");
+    int user_id = json_int(user, "id", 0);
+    if (!uname || !uname->valuestring || !role || !role->valuestring || user_id <= 0) {
+        CWIST_LOG_ERROR("Login failed: malformed user record for username='%s'", username);
+        cJSON_Delete(user);
+        send_html_res(res, render_login(dark, "Server error", mobile));
+        cwist_query_map_destroy(kv);
+        return;
+    }
+
     char *token = auth_jwt_issue(user_id, uname->valuestring, role->valuestring);
-    clock_gettime(CLOCK_MONOTONIC, &t4);
     if (!token) {
         CWIST_LOG_ERROR("User login failed: token issue error username='%s'", username);
         cJSON_Delete(user);
-        send_html_res(res, render_login(dark, "Server error", is_mobile_request(req)));
+        send_html_res(res, render_login(dark, "Server error", mobile));
         cwist_query_map_destroy(kv);
         return;
     }
+
+    CWIST_LOG_INFO("User login success: username='%s'", username);
     set_auth_cookies(res, token, g_config.use_tls);
     cwist_free(token);
     auth_session_hint_update(req, user_id, role->valuestring);
     cJSON_Delete(user);
     cwist_query_map_destroy(kv);
     redirect(res, "/");
-    clock_gettime(CLOCK_MONOTONIC, &t5);
-    CWIST_LOG_INFO("Login timing for '%s': parse=%lldus db=%lldus verify=%lldus jwt=%lldus cookie=%lldus total=%lldus",
-                   username,
-                   login_elapsed_us(&t0, &t1),
-                   login_elapsed_us(&t1, &t2),
-                   login_elapsed_us(&t2, &t3),
-                   login_elapsed_us(&t3, &t4),
-                   login_elapsed_us(&t4, &t5),
-                   login_elapsed_us(&t0, &t5));
 }
 
 void handler_logout(cwist_http_request *req, cwist_http_response *res) {
