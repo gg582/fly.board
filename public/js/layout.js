@@ -216,14 +216,44 @@
         }
     }
     var boardsLoaded = false;
-    function loadBoardsDropdown(){
-        if (boardsLoaded) return;
+    var BOARDS_CACHE_KEY = 'fly_boards_dropdown_v1';
+    function saveBoardsCache(arr){
+        try{sessionStorage.setItem(BOARDS_CACHE_KEY,JSON.stringify({boards:arr,ts:Date.now()}));}catch(e){}
+    }
+    function loadBoardsCache(){
+        try{
+            var p=JSON.parse(sessionStorage.getItem(BOARDS_CACHE_KEY));
+            if(p && Array.isArray(p.boards) && typeof p.ts==='number' && (Date.now()-p.ts)<300000){
+                return p.boards;
+            }
+        }catch(e){}
+        return null;
+    }
+    function loadBoardsDropdown(force){
+        if (!force && boardsLoaded) return;
+        var cached = loadBoardsCache();
+        if (cached) {
+            renderBoardsDropdown(cached);
+            boardsLoaded = true;
+            // Refresh silently in the background.
+            fetch('/api/boards',{credentials:'same-origin',headers:{'Accept':'application/json'}}).then(function(r){
+                if(!r.ok)throw new Error('boards fetch failed');
+                return r.json();
+            }).then(function(arr){
+                if(Array.isArray(arr)) {
+                    renderBoardsDropdown(arr);
+                    saveBoardsCache(arr);
+                }
+            }).catch(function(){});
+            return;
+        }
         fetch('/api/boards',{credentials:'same-origin',headers:{'Accept':'application/json'}}).then(function(r){
             if(!r.ok)throw new Error('boards fetch failed');
             return r.json();
         }).then(function(arr){
             if(Array.isArray(arr)) {
                 renderBoardsDropdown(arr);
+                saveBoardsCache(arr);
                 boardsLoaded = true;
             }
         }).catch(function(){});
@@ -355,17 +385,14 @@
                 }
             });
         }
-        // Defer SW registration to prevent connection bottleneck on mobile / high-latency links
-        var isMobileSw = shouldUseMobileNav();
-        var connSw = navigator.connection || navigator.mozConnection || navigator.webkitConnection || {};
-        var isSlowSw = isMobileSw || (connSw.rtt && connSw.rtt > 1000) || (connSw.effectiveType && (connSw.effectiveType === '2g' || connSw.effectiveType === '3g'));
-        var regDelay = isSlowSw ? 3000 : 1000;
-        
+        // Register as early as possible so the SW can intercept the very first
+        // page navigation and serve cached shell assets / HTML.  The old delay
+        // was hurting perceived performance on every route transition.
         if (document.readyState === 'complete') {
-            setTimeout(function(){ registerSw(1); }, regDelay);
+            registerSw(1);
         } else {
             window.addEventListener('load', function() {
-                setTimeout(function(){ registerSw(1); }, regDelay);
+                registerSw(1);
             });
         }
     }

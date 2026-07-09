@@ -1,21 +1,26 @@
 var LOGO_CACHE = 'logo-cache-v4';
 var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
-var STATIC_CACHE = 'fly-static-v3';
+var STATIC_CACHE = 'fly-static-v4';
 var CDN_CACHE = 'fly-cdn-v2';
-var PRECACHE = 'fly-precache-v1';
+var PRECACHE = 'fly-precache-v2';
+var NAVIGATION_CACHE = 'fly-navigation-v1';
 var LOGO_MAX_AGE = 3600000; // 1 hour in milliseconds
 var STATIC_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days (immutable hashed assets)
 var CDN_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // 30 days (versioned CDN URLs)
+var NAVIGATION_MAX_AGE = 60 * 1000; // 60 seconds stale-while-revalidate for HTML pages
 var tasfaSessions = {};
 
 /* Assets to prefetch on SW install so repeat navigations never hit the network
-   for the shell JS/CSS and the theme config. */
+   for the shell JS/CSS, fonts, and the theme config. */
 var PRECACHE_URLS = [
     '/',
     '/assets/js/jwt.js',
     '/assets/js/layout.js',
     '/assets/js/katex-render.js',
     '/assets/js/tasfa-download.js',
+    '/assets/css/google-fonts.css',
+    '/assets/css/pretendard.css',
+    '/assets/css/d2coding.css',
     '/themes.json'
 ];
 
@@ -132,7 +137,7 @@ self.addEventListener('install', function(e) {
 });
 
 self.addEventListener('activate', function(e) {
-    var allowedCaches = [LOGO_CACHE, TASFA_MEDIA_CACHE, STATIC_CACHE, CDN_CACHE, PRECACHE];
+    var allowedCaches = [LOGO_CACHE, TASFA_MEDIA_CACHE, STATIC_CACHE, CDN_CACHE, PRECACHE, NAVIGATION_CACHE];
     e.waitUntil(
         caches.keys().then(function(keys) {
             return Promise.all(keys.map(function(key) {
@@ -432,6 +437,56 @@ self.addEventListener('fetch', function(event) {
        because the ReadableStream is always fed from byte 0. Firefox in
        particular treats a Content-Length/range mismatch as a partial
        transfer error (NS_ERROR_PARTIAL_TRANSFER). */
+    /* Navigation requests (full page HTML): stale-while-revalidate.  Serve the
+     * cached page immediately so transitions feel instant, then refresh the
+     * cache entry in the background for the next navigation.  A short TTL keeps
+     * dynamic content reasonably fresh. */
+    if (event.request.mode === 'navigate' && event.request.method === 'GET') {
+        event.respondWith(
+            caches.open(NAVIGATION_CACHE).then(function(cache) {
+                return cache.match(event.request).then(function(cachedResponse) {
+                    var now = Date.now();
+                    var isFresh = false;
+                    if (cachedResponse) {
+                        var fetched = cachedResponse.headers.get('x-sw-fetched');
+                        isFresh = fetched && (now - parseInt(fetched, 10)) < NAVIGATION_MAX_AGE;
+                    }
+                    var networkFetch = fetchWithRetry(event.request, { maxRetries: 3, baseDelay: 150, firefoxFallback: true }).then(function(networkResponse) {
+                        if (!shouldSkipCaching(networkResponse)) {
+                            var cloned = networkResponse.clone();
+                            caches.open(NAVIGATION_CACHE).then(function(c) {
+                                var headers = new Headers(cloned.headers);
+                                headers.set('x-sw-fetched', Date.now().toString());
+                                headers.delete('content-encoding');
+                                cloned.blob().then(function(blob) {
+                                    headers.set('content-length', blob.size.toString());
+                                    c.put(event.request, new Response(blob, {
+                                        status: cloned.status,
+                                        statusText: cloned.statusText,
+                                        headers: headers
+                                    }));
+                                });
+                            });
+                        }
+                        return networkResponse;
+                    }).catch(function(err) {
+                        if (cachedResponse) return cachedResponse;
+                        throw err;
+                    });
+
+                    if (isFresh && cachedResponse) {
+                        // Use cache now, refresh in background.
+                        networkFetch.catch(function(){});
+                        return cachedResponse;
+                    }
+                    // Otherwise wait for network; fall back to stale cache on failure.
+                    return networkFetch;
+                });
+            })
+        );
+        return;
+    }
+
     /* Cache CDN fonts, styles and scripts aggressively. High-RTT links suffer
      * most on these cross-origin resources because they are fetched on every
      * cold navigation. */
