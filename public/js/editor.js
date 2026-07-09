@@ -1028,6 +1028,36 @@
         document.head.appendChild(l);
     }
 
+    function getCurrentThemeMode() {
+        var link = document.getElementById('hl-theme');
+        if (link && link.dataset.active) return link.dataset.active;
+        var body = document.body;
+        if (body && body.classList.contains('dark')) return 'dark';
+        var html = document.documentElement;
+        if (html && html.classList.contains('dark')) return 'dark';
+        var m = document.cookie.match(/theme=(\w+)/);
+        if (m && (m[1] === 'light' || m[1] === 'dark')) return m[1];
+        return 'light';
+    }
+
+    function ensureHighlightCss() {
+        var link = document.getElementById('hl-theme');
+        var mode = getCurrentThemeMode();
+        var href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github' +
+                   (mode === 'dark' ? '-dark' : '') + '.min.css';
+        if (!link) {
+            link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.id = 'hl-theme';
+            link.dataset.active = mode;
+            link.href = href;
+            document.head.appendChild(link);
+        } else if (link.dataset.active !== mode) {
+            link.href = href;
+            link.dataset.active = mode;
+        }
+    }
+
     function ensureHighlightJs(cb) {
         if (typeof hljs !== 'undefined') { if (cb) cb(); return; }
         loadScript('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js', function() {
@@ -1076,6 +1106,8 @@
         var needsHl = !!root.querySelector('pre code[class*="language-"]');
         var needsMath = !!root.querySelector('.math-block, .math-inline');
 
+        if (needsHl) ensureHighlightCss();
+
         function applyHighlight() {
             if (needsHl && typeof hljs !== 'undefined') {
                 root.querySelectorAll('pre code').forEach(function(el) {
@@ -1116,6 +1148,11 @@
 
     function updatePreview() {
         if (!preview || !ta) return;
+        if (!isPreviewPaneActive()) {
+            updateMetrics();
+            if (syncStatus) syncStatus.textContent = 'Preview hidden';
+            return;
+        }
         if (previewAbortController) {
             previewAbortController.abort();
             previewAbortController = null;
@@ -1154,6 +1191,7 @@
     function schedulePreview() {
         if (syncStatus) syncStatus.textContent = 'Editing locally';
         clearTimeout(timer);
+        if (!isPreviewPaneActive()) return;
         timer = setTimeout(updatePreview, 120);
     }
 
@@ -3129,10 +3167,18 @@
         });
     }
 
-    function focusEditorFromPreview() {
+    function focusEditorFromPreview(insertText) {
         if (!ta) return;
+        var start = ta.selectionStart || 0;
+        var end = ta.selectionEnd || 0;
         switchTab('write');
         ta.focus();
+        if (typeof insertText === 'string' && insertText.length > 0) {
+            ta.value = ta.value.slice(0, start) + insertText + ta.value.slice(end);
+            var caret = start + insertText.length;
+            ta.selectionStart = ta.selectionEnd = caret;
+            schedulePreview();
+        }
     }
 
     function isPreviewPaneActive() {
@@ -3160,6 +3206,16 @@
             return;
         }
         if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            event.preventDefault();
+            focusEditorFromPreview(event.key);
+            return;
+        }
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            focusEditorFromPreview('\n');
+            return;
+        }
+        if (event.key === 'Backspace' || event.key === 'Delete') {
             event.preventDefault();
             focusEditorFromPreview();
         }
