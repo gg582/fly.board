@@ -1627,21 +1627,6 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_img, "transition", "transform 0.3s ease, box-shadow 0.3s ease");
     cJSON_AddItemToArray(rules, md_img);
 
-    cJSON *editor_preview_media = create_rule("#md-preview .markdown-body img, #md-preview .markdown-body .media-video-placeholder");
-    add_decl(editor_preview_media, "max-width", "240px");
-    add_decl(editor_preview_media, "max-height", "180px");
-    add_decl(editor_preview_media, "width", "auto");
-    add_decl(editor_preview_media, "height", "auto");
-    add_decl(editor_preview_media, "object-fit", "contain");
-    add_decl(editor_preview_media, "margin", "12px 0");
-    cJSON_AddItemToArray(rules, editor_preview_media);
-
-    cJSON *editor_preview_audio = create_rule("#md-preview .markdown-body audio");
-    add_decl(editor_preview_audio, "width", "240px");
-    add_decl(editor_preview_audio, "max-width", "100%");
-    add_decl(editor_preview_audio, "margin", "12px 0");
-    cJSON_AddItemToArray(rules, editor_preview_audio);
-
     cJSON *md_imgh = create_rule(".markdown-body img:hover");
     add_decl(md_imgh, "transform", "scale(1.01)");
     add_decl(md_imgh, "box-shadow", "0 8px 24px var(--shadow)");
