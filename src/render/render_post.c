@@ -1078,8 +1078,8 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     }
     cwist_sstring_append(b, "</textarea></div>");
     cwist_sstring_append(b, "<div data-editor-pane='preview' style='display:none;background:var(--bg)'>");
-    cwist_sstring_append(b, "<div class='preview-edit-hint' style='font-size:12px;color:var(--muted);padding:12px 16px 0;border-bottom:1px dashed var(--border);margin-bottom:-1px'>Click preview or start typing to edit</div>");
-    cwist_sstring_append(b, "<div id='md-preview' style='padding:16px;min-height:500px;height:60vh;overflow:auto'>");
+    cwist_sstring_append(b, "<div class='preview-edit-hint' style='font-size:12px;color:var(--muted);padding:12px 16px 0;border-bottom:1px dashed var(--border);margin-bottom:-1px'>Edit preview directly; changes sync back to Markdown source</div>");
+    cwist_sstring_append(b, "<div id='md-preview' contenteditable='true' style='padding:16px;min-height:500px;height:60vh;overflow:auto'>");
     cwist_sstring_append(b, "<p style='color:var(--muted)'>Preview will appear here...</p>");
     cwist_sstring_append(b, "</div></div></div>");
 
