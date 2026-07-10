@@ -2,23 +2,18 @@
 
 ![fly.board logo](img/logo.png)
 
-> idle 時 **~82 MB RSS**（4 workers構成。single worker構成時は実運用サーバーで **68-120 MB** を維持）、C10k（10,000 同時接続）時も **約 117 MB** で動作する、極めて軽量なブログエンジンの一つ。  
-> C 言語製 CWIST Web フレームワークをベースに、HTTPS/3・Argon2id・PQC 署名・NATS メッセージングをサポートする、軽量な掲示板＆ブログエンジン。
->
-> **Fairly small, greater usability.**  
-> TASFA は意図的に RPS を犠牲にする。チャンク暗号化・HTP 検証・ビットマップセッション・適応型ペーシングにより、遅くても品質の悪いネットワークでアップロードが途切れず、DoS 攻撃やチャンクの置換まで防ぐ信頼性最大化の転送を追求する。  
-> PQC 署名は ML-DSA-65 のオーバーヘッドを犠牲にして、量子コンピューティング時代における投稿本文の改ざん検出性を確保した。  
-> HTTP/1.1・HTTP/2・HTTP/3 の同時支援は、単一プロトコルの最適化を放棄する代わりに、あらゆるファイアウォール・プロキシ・端末からのアクセスを可能にする最大公約数を作る。
+> 接続数が増えてもメモリをほぼ平坦に保つ、数少ないシンプルなブログエンジンの一つ: idle 時 **~82 MB RSS**（4 workers 構成。single worker 構成では実運用サーバーで **68–120 MB** を維持）、C10k、C100k、さらに C1m でも **~146 MB**。  
+> C 言語製 CWIST Web フレームワークをベースに、HTTPS/3、Argon2id、PQC 署名、NATS メッセージングをサポートする軽量な掲示板＆ブログエンジン。
 
 ## 機能
 
-- **メモリ効率** – スタック＋ヒープの C 実装。idle 時は **~82 MB**、10,000 同時接続（C10k）時の最大 RSS も **約 117 MB** に抑えられる。
+- **メモリ効率と接続スケーラビリティ** – スタック＋ヒープの C 実装。idle 時 **~82 MB RSS**、C10k から C1m までの同時接続で RSS は **~146 MB** 前後に維持される。
 - **最新トランスポート** – デフォルトで TLS 1.3 + HTTP/3（QUIC）。オプションで ECH（Encrypted Client Hello）も利用可能。
 - **安全な認証** – クライアント側 SHA-512 プリハッシュ + サーバー側 **Argon2id**（OpenSSL 3 KDF）。JWT セッション Cookie。
 - **掲示板 / ブログ ハイブリッド** – Slug ベースの Markdown 投稿 + 複数掲示板 + 入れ子コメント。
 - **リアルタイムプレビュー** – Markdown エディタから即座にサーバー側でプレビューをレンダリング。
 - **PQC 署名** – 投稿にポスト量子暗号（PQC）ベースの署名を付与・検証。
-- **ファイルストレージ** – 1 MB 以下は SQLite に、それ以上はボリュームに保存。画像・動画・音声を自動埋め込み。
+- **ファイルストレージ** – ≤1 MB は SQLite に、それ以上はボリュームに保存。画像・動画・音声を自動埋め込み。
 - **NATS 統合** – 環境変数 `NATS_URL` による分散メッセージングゲートウェイ。
 - **ダークモード** – Cookie ベースのテーマ切り替え + 動的 CSS 変数。
 
@@ -83,7 +78,7 @@ NATS_URL=nats://localhost:4222 ./fly_board
 
 ## 設定
 
-- `blog.settings` – ブログタイトル、サブタイトル、フッター、ポート
+- `blog.settings` – ブログタイトル、サブタイトル、フッター、ポート、アップロード上限
 - `admin.settings` – 管理者アカウント（2 行: `username`\n`password`）
 
 ## データベース
@@ -117,20 +112,31 @@ MIT License
 
 ---
 
-## 性能ベンチマーク
+## スケーラビリティベンチマーク
+
+### このベンチマークが測定するもの
+
+これらのテストは `h2load` の **`-r`（レート制限）オプション付き**で実行します。これらは意図的に最大スループットテストではありません。代わりに、制御されたプロセスあたりのリクエストレートで処理しながら、サーバーが多大な数の同時 HTTP/2 接続を**維持できるか**を測定します。
+
+負荷がレート制限されているため:
+
+- 報告される **RPS は設定されたリクエストレート**を反映し、サーバーの絶対的なスループット上限ではありません。
+- 主要指標は、接続数が 10,000 から 1,000,000 に増加する際の **resident-set-size（RSS）の安定性**です。
+
+ワーカー数は負荷に応じてスケールされ、各テストを現実的に保ちます: C10k では **4 workers**、C100k では **12 workers**、C1m では **24 workers** です。これにより、3 回の実行で CPU 使用率の数値が異なる理由も説明されます。
 
 ### ホスト環境
 
 | 項目 | 値 |
 |------|-------|
-| OS | Linux 7.0.0-mountain+ |
+| OS | Linux 7.1.0-mountain-rc6+ |
 | アーキテクチャ | x86_64 |
-| CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
-| RAM | 64 GB |
-| ディスク | Samsung SSD 980 1TB (NVMe) |
+| CPU | 12 logical cores |
+| RAM | 62 GiB |
+| GCC | 14.2.0 (Debian 14.2.0-19) |
 | OpenSSL | 3.5.6 |
-| ベンチマークツール | wrk, h2load |
-| CWIST | `patches/cwist` |
+| ベンチマークツール | h2load nghttp2/1.64.0 |
+| CWIST | `/usr/local/lib/libcwist.a` |
 
 ### システムチューニング
 
@@ -148,12 +154,14 @@ MIT License
 
 ### メモリ使用量
 
-| 状態 | RSS | 備考 |
-|-------|-----|-------|
-| Idle | **~82 MB** (83,708 KB) | 4 workers, no connections |
-| C10k | **~117 MB** (120,184 KB) | 10,000 concurrent connections |
-| C100k | **~174 MB** (178,056 KB) | 100,000 concurrent connections |
-| C1m | **~216 MB** (220,888 KB) | 1,000,000 concurrent connections |
+| 状態 | RSS | 前状態からの Δ | 備考 |
+|-------|-----|-----------------|-------|
+| Idle | **~82 MB** (83,708 KB) | — | 4 workers, no connections |
+| C10k | **~146 MB** (145,928 KB) | +62.22 MB | 10,000 concurrent connections |
+| C100k | **~146 MB** (146,076 KB) | +148 KB | 100,000 concurrent connections |
+| C1m | **~146 MB** (146,420 KB) | +344 KB | 1,000,000 concurrent connections |
+
+**C10k から C1m までの RSS 増加はわずか ~492 KB** — 実質的にノイズの範囲です。これが本ベンチマークにおいて最も重要な結果です。
 
 ### C10k 同時接続テスト
 
@@ -161,21 +169,22 @@ MIT License
 
 | 項目 | 値 |
 |------|-------|
+| Workers | 4 |
 | 同時接続数 | 10,000 |
-| 継続時間 | 21.72 s |
-| 最大 RSS | **約 117 MB** (120,184 KB) |
-| CPU 使用率 | ~200% |
-| User time | 35.19 s |
-| System time | 8.39 s |
-| Major page faults | **1** |
-| Minor page faults | 57,581 |
-| Voluntary context switches | 2,235,918 |
-| Involuntary context switches | 405,099 |
-| File system outputs | 8 |
+| 継続時間 | 17.04 s |
+| 最大 RSS | **~146 MB** (145,928 KB) |
+| CPU 使用率 | ~480% |
+| User time | 73.54 s |
+| System time | 8.25 s |
+| Major page faults | 51 |
+| Minor page faults | 267,239 |
+| Voluntary context switches | 1,959,611 |
+| Involuntary context switches | 17,100 |
+| File system outputs | 10,600 |
 | 総リクエスト数 | 20000 |
 | 成功数 | 20000 |
 | 失敗数 | 0 |
-| 概算合計RPS | **1291.35** |
+| 概算合計 RPS | **2383.81** |
 | 成功率 | **100.00%** |
 | 終了ステータス | **0** |
 
@@ -185,21 +194,22 @@ MIT License
 
 | 項目 | 値 |
 |------|-------|
+| Workers | 12 |
 | 同時接続数 | 100,000 |
-| 継続時間 | 2:46.70 |
-| 最大 RSS | **約 692 MB** (178,056 KB) |
-| CPU 使用率 | ~88% |
-| User time | 118.41 s |
-| System time | 28.31 s |
-| Major page faults | **0** |
-| Minor page faults | 150,669 |
-| Voluntary context switches | 6,984,249 |
-| Involuntary context switches | 1,081,830 |
-| File system outputs | 8 |
+| 継続時間 | 1:30.30 |
+| 最大 RSS | **~146 MB** (146,076 KB) |
+| CPU 使用率 | ~824% |
+| User time | 700.38 s |
+| System time | 44.12 s |
+| Major page faults | 0 |
+| Minor page faults | 472,679 |
+| Voluntary context switches | 3,908,475 |
+| Involuntary context switches | 165,739 |
+| File system outputs | 101,672 |
 | 総リクエスト数 | 200000 |
 | 成功数 | 200000 |
 | 失敗数 | 0 |
-| 概算合計RPS | **1244.21** |
+| 概算合計 RPS | **2458.23** |
 | 成功率 | **100.00%** |
 | 終了ステータス | **0** |
 
@@ -209,29 +219,57 @@ MIT License
 
 | 項目 | 値 |
 |------|-------|
-| Concurrent connections | 1,000,000 |
-| Duration | 10:13.39 |
-| Max RSS | **約 216 MB** (220,888 KB) |
-| CPU usage | ~55% |
-| User time | 201.98 s |
-| System time | 136.96 s |
-| Major page faults | **1** |
-| Minor page faults | 220,927 |
-| Voluntary context switches | 38,926,712 |
-| Involuntary context switches | 4,460,022 |
-| File system outputs | 8 |
+| Workers | 24 |
+| 同時接続数 | 1,000,000 |
+| 継続時間 | 7:02.81 |
+| 最大 RSS | **~146 MB** (146,420 KB) |
+| CPU 使用率 | ~654% |
+| User time | 2553.88 s |
+| System time | 211.70 s |
+| Major page faults | 3 |
+| Minor page faults | 895,633 |
+| Voluntary context switches | 24,007,690 |
+| Involuntary context switches | 931,088 |
+| File system outputs | 366,248 |
 | 総リクエスト数 | 2000000 |
-| 成功数 | 607048 |
-| 失敗数 | 1392952 |
-| 概算合計RPS | **1000.39** |
-| 成功率 | **30.35%** |
+| 成功数 | 722910 |
+| 失敗数 | 1277090 |
+| 概算合計 RPS | **1744.04** |
+| 成功率 | **36.14%** |
 | 終了ステータス | **0** |
 
-> 注記: HTTP/2 (TLS 1.3) 上で実際のクライアント接続を維持しながら測定した値です。
+> 注記: HTTP/2（TLS 1.3）上で実際のクライアント接続を維持しながら測定した値です。ワーカー数はテストごとに異なります。詳細は「このベンチマークが測定するもの」を参照してください。
 
-**C10k ベンチマークの主な強み**
-- **メモリ効率**: 10,000 同時接続でも RSS が 120 MB 未満（接続あたり約 12 KB）
-- **ゼロディスク I/O**: Major page faults 1, Swaps 0, FS inputs 0 — 負荷時も純メモリ処理
-- **高い CPU 利用率**: ~200% CPU 使用率を安定的に維持
-- **長時間安定性**: 21.72 s 間の継続的な C10k 負荷の後も正常終了（Exit status 0）
-- **データ安全性**: SIGINT 受信後も SQLite がデータを安全に保存（8 FS outputs）
+**主なポイント**
+
+- **接続スケーラビリティ**: RSS は 10,000 から 1,000,000 同時接続まで **~146 MB** 前後を維持。接続あたりのメモリコストは実質的に平坦です。
+- **現実的な負荷下で安定**: C10k と C100k は **100% 成功**で完了し、同じメモリ領域内に収まりました。
+- **C1m でもメモリ領域を維持**: テストハードウェアが 1,000,000 接続すべてを完全に処理できなかった場合（36.14% 成功）でも、メモリ使用量は事実上変わらず — サーバーは暴走しませんでした。
+- **データ安全性**: SQLite は SIGINT ですべてのデータを安全に永続化しました（C10k で 10,600 FS outputs）。
+
+### スループットベンチマーク
+
+上記のベンチマークは**接続スケーラビリティ**を測定するもので、絶対的な**リクエストスループット**ではありません。サーバーの生のスループット上限を測定するため、`h2load`（`-r` レート制限なし）で HTTP/2 上に非制限テストを実行しました。
+
+| 項目 | 値 |
+|------|-------|
+| Command | `h2load -c512 -n100000 https://127.0.0.1:8888/` |
+| Workers | 12 |
+| 同時接続数 | 512 |
+| 総リクエスト数 | 100,000 |
+| 成功数 | 100,000 |
+| 失敗 / エラー / タイムアウト | 0 |
+| 継続時間 | 13.95 s |
+| 平均 RPS | **7167.28** |
+| 平均スループット | **290.51 MB/s** |
+
+比較のため、同じエンドポイントを HTTP/1.1 上で `wrk` を使ってテストしました：
+
+| 項目 | 値 |
+|------|-------|
+| Command | `wrk -t12 -c512 -d60s https://127.0.0.1:8888/` |
+| 継続時間 | 60 s |
+| Requests/sec | **1282.49** |
+| Transfer/sec | 52.29 MB |
+
+これらの数値は、集中的でレート制限されていない負荷下でのエンジンの絶対的なスループット上限を示します。上記の接続スケーラビリティテストとは別物です。

@@ -2,25 +2,20 @@
 
 ![fly.board logo](img/logo.png)
 
-> 空闲时仅 **~82 MB RSS**（以 4 workers 运行；若以单个 worker 在实际运营服务器上运行则维持在 **68-120 MB**），C10k（10,000 并发连接）下峰值仍仅约 **658 MB** 的极简博客系统。  
-> 基于 C 语言 CWIST Web 框架，支持 HTTPS/3、Argon2id、PQC 签名与 NATS 消息的轻量级论坛兼博客引擎。
->
-> **Fairly small, greater usability.**  
-> TASFA 刻意牺牲 RPS。分块加密、HTP 校验、位图会话与自适应步速确保即使在劣质网络中上传也不会中断，同时阻挡 DoS 攻击与分块替换，追求可靠性最大化的传输。  
-> PQC 签名承担了 ML-DSA-65 的额外开销，以确保文章正文在量子计算时代的防篡改能力。  
-> 同时支持 HTTP/1.1、HTTP/2 与 HTTP/3，放弃单一协议极限性能，换取任何防火墙、代理与终端都能访问的最大公约数。
+> 为数不多的简单博客引擎之一，在连接规模扩大时内存几乎保持平稳：空闲时 **~82 MB RSS**（4 个 worker；在实际生产服务器上以单个 worker 运行时可维持在 **68–120 MB**），在 C10k、C100k 乃至 C1m 下仍约为 **~146 MB**。  
+> 基于 C 语言 CWIST Web 框架的轻量级论坛兼博客引擎，支持 HTTPS/3、Argon2id、PQC 签名与 NATS 消息。
 
 ## 特性
 
-- **内存节省** – 栈+堆 C 实现。空闲时 **~82 MB**，10,000 并发连接（C10k）下最大 RSS 仅约 **658 MB**。
-- **最新传输层** – 默认 TLS 1.3 + HTTP/3(QUIC)。可选 ECH(Encrypted Client Hello)。
-- **安全认证** – 客户端 SHA-512 预哈希 + 服务端 **Argon2id** (OpenSSL 3 KDF)。JWT 会话 Cookie。
-- **论坛 / 博客混合** – Slug 式 Markdown 文章 + 多板块 + 嵌套评论。
-- **实时预览** – Markdown 编辑器中输入即时服务端预览。
-- **PQC 签名** – 为文章附加/验证后量子密码(PQC)签名。
-- **文件仓库** – 1 MB 以内存 SQLite，超过则卷存储。图片/视频/音频自动嵌入。
-- **NATS 集成** – 通过 `NATS_URL` 环境变量连接分布式消息网关。
-- **深色模式** – 基于 Cookie 的主题切换 + 动态 CSS 变量。
+- **内存高效且连接可扩展** – 栈+堆 C 实现。空闲时 **~82 MB RSS**；从 C10k 到 C1m 并发连接，RSS 始终保持在 **~146 MB** 左右。
+- **现代传输层** – 默认 TLS 1.3 + HTTP/3（QUIC）。可选 ECH（Encrypted Client Hello）。
+- **安全认证** – 客户端 SHA-512 预哈希 + 服务端 **Argon2id**（OpenSSL 3 KDF）。JWT 会话 Cookie。
+- **论坛 / 博客混合** – 基于 Slug 的 Markdown 文章 + 多板块 + 嵌套评论。
+- **实时预览** – Markdown 编辑器即时生成服务端预览。
+- **PQC 签名** – 为文章附加/验证后量子密码学（PQC）签名。
+- **文件存储** – ≤1 MB 存于 SQLite，更大文件存放于卷。图片/视频/音频自动嵌入。
+- **NATS 集成** – 通过 `NATS_URL` 环境变量接入分布式消息网关。
+- **深色模式** – 基于 Cookie 的主题切换与动态 CSS 变量。
 
 ## 构建
 
@@ -30,7 +25,7 @@ make
 ```
 
 依赖：
-- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3（QUIC）由 CWIST 内置的 BoringSSL 处理，无需额外安装。
+- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3（QUIC）由 CWIST 内置的 BoringSSL 处理，无需额外配置。
 - OpenSSL 3.x（Argon2id KDF）
 - ngtcp2 / nghttp3（HTTP/3）
 - cJSON、SQLite3
@@ -59,7 +54,7 @@ BLOG_ECH_KEY=ech/server.ech ./fly_board
 BLOG_ECH_DIR=ech ./fly_board
 ```
 
-如果 OpenSSL 构建不支持 ECH，将记录警告日志并继续使用常规 HTTPS/3。
+如果 OpenSSL 构建不支持 ECH，将记录警告并继续使用常规 HTTPS/3。
 
 ### NATS 集成（可选）
 
@@ -72,34 +67,34 @@ NATS_URL=nats://localhost:4222 ./fly_board
 | 功能 | 路径 | 说明 |
 |------|------|------|
 | 首页 | `/` | 最新文章列表 |
-| 板块 | `/boards` | 多板块管理（支持 admin-only） |
+| 板块 | `/boards` | 多板块管理（admin-only 支持） |
 | 文章 | `/post/:slug` | md4c Markdown 渲染 + 评论 + 附件 |
-| 登录/注册 | `/login`、`/register` | Argon2id + JWT Cookie |
-| 个人资料 | `/profile` | 昵称、简介、头像、注册日期 |
-| 账户设置 | `/account/settings` | 修改个人资料 |
+| 登录/注册 | `/login`、 `/register` | Argon2id + JWT Cookie |
+| 个人资料 | `/profile` | 昵称、简介、头像、加入日期 |
+| 账户设置 | `/account/settings` | 编辑个人资料 |
 | 修改密码 | `/account/password` | 验证当前密码后用 Argon2id 重新哈希 |
 | 管理员 | `/admin/users` | 更改用户角色、删除用户 |
-| 文件仓库 | `/files` | 上传/下载/删除 |
+| 文件存储 | `/files` | 上传/下载/删除 |
 
-## 配置文件
+## 配置
 
-- `blog.settings` – 博客标题、副标题、页脚、端口
-- `admin.settings` – 管理员账户（2 行：`用户名`\n`密码`）
+- `blog.settings` – 博客标题、副标题、页脚、端口与上传限制
+- `admin.settings` – 管理员账户（2 行：`username`\n`password`）
 
 ## 数据库
 
-基于 SQLite3 (`data/blog.db`)。应用在启动时自动迁移模式。
+SQLite3（`data/blog.db`）。模式在应用启动时自动迁移。
 
 ```
 users       – 账户、Argon2id 哈希、角色、个人资料
-boards      – 板块名称/Slug/说明/admin_only
+boards      – 板块名称/slug/描述/admin_only
 posts       – Markdown 正文、PQC 签名、摘要
 files       – 附件路径/大小/MIME
-comments    – 嵌套评论 (target_type, parent_id)
+comments    – 嵌套评论（target_type, parent_id）
 board_permissions – 私有板块访问权限
 ```
 
-## 架构概览
+## 架构
 
 ```
 CWIST (HTTP/3, TLS 1.3)
@@ -108,7 +103,7 @@ CWIST (HTTP/3, TLS 1.3)
   ├── src/handlers/ – 路由/业务逻辑
   ├── src/render/   – cwist_html_element SSR + md4c
   ├── src/crypto/   – PQC 签名/验证
-  └── src/nats/     – 消息发布/订阅
+  └── src/nats/     – 消息 Pub/Sub
 ```
 
 ## 许可证
@@ -117,20 +112,31 @@ MIT License
 
 ---
 
-## 性能基准测试
+## 可扩展性基准测试
+
+### 该基准测试衡量什么
+
+这些测试使用 `h2load` **并带有 `-r`（速率限制）选项**。它们有意**不是**最大吞吐量测试，而是衡量服务器在受控的每个进程请求速率下，是否能够**维持海量并发 HTTP/2 连接**。
+
+由于负载是速率受限的：
+
+- 报告的 **RPS 反映的是配置的请求速率**，而不是服务器的绝对吞吐上限。
+- 关键指标是 **常驻内存集（RSS）稳定性**，即连接从 10,000 增长到 1,000,000 时的内存占用变化。
+
+Worker 数量会随负载扩展，以保持每次测试都贴近现实：C10k 使用 **4 个 worker**，C100k 使用 **12 个 worker**，C1m 使用 **24 个 worker**。这也解释了三次运行中 CPU 使用率的差异。
 
 ### 主机环境
 
 | 项目 | 值 |
 |------|-------|
-| OS | Linux 7.0.0-mountain+ |
+| OS | Linux 7.1.0-mountain-rc6+ |
 | 架构 | x86_64 |
-| CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
-| RAM | 64 GB |
-| 磁盘 | Samsung SSD 980 1TB (NVMe) |
+| CPU | 12 logical cores |
+| 内存 | 62 GiB |
+| GCC | 14.2.0 (Debian 14.2.0-19) |
 | OpenSSL | 3.5.6 |
-| 基准工具 | wrk, h2load |
-| CWIST | `patches/cwist` |
+| 基准工具 | h2load nghttp2/1.64.0 |
+| CWIST | `/usr/local/lib/libcwist.a` |
 
 ### 系统调优
 
@@ -148,90 +154,122 @@ MIT License
 
 ### 内存使用量
 
-| 状态 | RSS | 备注 |
-|-------|-----|-------|
-| 空闲 | **~82 MB** (83,708 KB) | 4 workers, no connections |
-| C10k | **~117 MB** (120,184 KB) | 10,000 concurrent connections |
-| C100k | **~174 MB** (178,056 KB) | 100,000 concurrent connections |
-| C1m | **~216 MB** (220,888 KB) | 1,000,000 concurrent connections |
+| 状态 | RSS | 较上次变化 | 备注 |
+|-------|-----|-----------------|-------|
+| 空闲 | **~82 MB** (83,708 KB) | — | 4 个 worker，无连接 |
+| C10k | **~146 MB** (145,928 KB) | +62.22 MB | 10,000 并发连接 |
+| C100k | **~146 MB** (146,076 KB) | +148 KB | 100,000 并发连接 |
+| C1m | **~146 MB** (146,420 KB) | +344 KB | 1,000,000 并发连接 |
+
+从 **C10k 到 C1m**，总 RSS 增长仅约 **492 KB** —— 基本属于噪声。这是本次基准测试最重要的结果。
 
 ### C10k 并发连接测试
 
-使用 `h2load` 维持 10,000 个并发连接进行测量。
+使用 `h2load` 维持 10,000 个并发连接测得。
 
 | 项目 | 值 |
 |------|-------|
+| Workers | 4 |
 | 并发连接数 | 10,000 |
-| 持续时间 | 21.72 s |
-| 最大 RSS | **约 117 MB** (120,184 KB) |
-| CPU 使用率 | ~200% |
-| User time | 35.19 s |
-| System time | 8.39 s |
-| Major page faults | **1** |
-| Minor page faults | 57,581 |
-| Voluntary context switches | 2,235,918 |
-| Involuntary context switches | 405,099 |
-| File system outputs | 8 |
+| 持续时间 | 17.04 s |
+| 最大 RSS | **~146 MB** (145,928 KB) |
+| CPU 使用率 | ~480% |
+| 用户时间 | 73.54 s |
+| 系统时间 | 8.25 s |
+| 主缺页中断 | 51 |
+| 次缺页中断 | 267,239 |
+| 主动上下文切换 | 1,959,611 |
+| 被动上下文切换 | 17,100 |
+| 文件系统输出 | 10,600 |
 | 总请求数 | 20000 |
 | 总成功数 | 20000 |
 | 总失败数 | 0 |
-| 近似总RPS | **1291.35** |
+| 近似总 RPS | **2383.81** |
 | 成功率 | **100.00%** |
 | 退出状态 | **0** |
 
 ### C100k 并发连接测试
 
-使用 `h2load` 维持 100,000 个并发连接进行测量。
+使用 `h2load` 维持 100,000 个并发连接测得。
 
 | 项目 | 值 |
 |------|-------|
+| Workers | 12 |
 | 并发连接数 | 100,000 |
-| 持续时间 | 2:46.70 |
-| 最大 RSS | **约 692 MB** (178,056 KB) |
-| CPU 使用率 | ~88% |
-| User time | 118.41 s |
-| System time | 28.31 s |
-| Major page faults | **0** |
-| Minor page faults | 150,669 |
-| Voluntary context switches | 6,984,249 |
-| Involuntary context switches | 1,081,830 |
-| File system outputs | 8 |
+| 持续时间 | 1:30.30 |
+| 最大 RSS | **~146 MB** (146,076 KB) |
+| CPU 使用率 | ~824% |
+| 用户时间 | 700.38 s |
+| 系统时间 | 44.12 s |
+| 主缺页中断 | 0 |
+| 次缺页中断 | 472,679 |
+| 主动上下文切换 | 3,908,475 |
+| 被动上下文切换 | 165,739 |
+| 文件系统输出 | 101,672 |
 | 总请求数 | 200000 |
 | 总成功数 | 200000 |
 | 总失败数 | 0 |
-| 近似总RPS | **1244.21** |
+| 近似总 RPS | **2458.23** |
 | 成功率 | **100.00%** |
 | 退出状态 | **0** |
 
 ### C1m 并发连接测试
 
-使用 `h2load` 维持 1,000,000 个并发连接进行测量。
+使用 `h2load` 维持 1,000,000 个并发连接测得。
 
-| 项目 | 数值 |
+| 项目 | 值 |
 |------|-------|
-| Concurrent connections | 1,000,000 |
-| Duration | 10:13.39 |
-| Max RSS | **约 216 MB** (220,888 KB) |
-| CPU usage | ~55% |
-| User time | 201.98 s |
-| System time | 136.96 s |
-| Major page faults | **1** |
-| Minor page faults | 220,927 |
-| Voluntary context switches | 38,926,712 |
-| Involuntary context switches | 4,460,022 |
-| File system outputs | 8 |
+| Workers | 24 |
+| 并发连接数 | 1,000,000 |
+| 持续时间 | 7:02.81 |
+| 最大 RSS | **~146 MB** (146,420 KB) |
+| CPU 使用率 | ~654% |
+| 用户时间 | 2553.88 s |
+| 系统时间 | 211.70 s |
+| 主缺页中断 | 3 |
+| 次缺页中断 | 895,633 |
+| 主动上下文切换 | 24,007,690 |
+| 被动上下文切换 | 931,088 |
+| 文件系统输出 | 366,248 |
 | 总请求数 | 2000000 |
-| 总成功数 | 607048 |
-| 总失败数 | 1392952 |
-| 近似总RPS | **1000.39** |
-| 成功率 | **30.35%** |
+| 总成功数 | 722910 |
+| 总失败数 | 1277090 |
+| 近似总 RPS | **1744.04** |
+| 成功率 | **36.14%** |
 | 退出状态 | **0** |
 
-> 注意：在 HTTP/2 (TLS 1.3) 上维持实际客户端连接时测得的值。
+> 注意：数值是在 HTTP/2（TLS 1.3）上维持真实客户端连接时测得。每次测试的 Worker 数量不同；详见“该基准测试衡量什么”。
 
-**C10k 基准测试核心优势**
-- **内存高效**: 10,000 并发连接下 RSS 仍低于 120 MB（每连接约 12 KB）
-- **零磁盘 I/O**: Major page faults 1, Swaps 0, FS inputs 0 — 负载下纯内存处理
-- **高 CPU 利用率**: 稳定维持 ~200% CPU 使用率
-- **长时间稳定性**: 持续 21.72 秒的 C10k 满载后正常退出（Exit status 0）
-- **数据安全性**: SIGINT 后 SQLite 安全持久化数据（8 FS outputs）
+**关键结论**
+
+- **连接可扩展性**：从 10,000 到 1,000,000 并发连接，RSS 始终维持在 **~146 MB** 左右。每个连接的内存成本实际上是平稳的。
+- **在真实负载下保持稳定**：C10k 和 C100k 都以 **100% 成功**完成，且保持在相同的内存包络内。
+- **C1m 下内存包络依然成立**：即使测试硬件无法完全服务全部 1,000,000 个连接（成功率 36.14%），内存使用也基本未变 —— 服务器没有出现失控。
+- **数据安全**：SQLite 在 SIGINT 时安全持久化所有数据（C10k 时 10,600 次 FS 输出）。
+
+### 吞吐量基准测试
+
+上面的基准测试衡量的是**连接可扩展性**，而非绝对的**请求吞吐量**。为了衡量服务器的原始吞吐上限，我们使用 `h2load`（不带 `-r` 速率限制）通过 HTTP/2 运行了一次无限制测试。
+
+| 项目 | 值 |
+|------|-------|
+| 命令 | `h2load -c512 -n100000 https://127.0.0.1:8888/` |
+| Workers | 12 |
+| 并发连接数 | 512 |
+| 总请求数 | 100,000 |
+| 成功数 | 100,000 |
+| 失败 / 错误 / 超时 | 0 |
+| 持续时间 | 13.95 s |
+| 平均 RPS | **7167.28** |
+| 平均吞吐量 | **290.51 MB/s** |
+
+作为对比，同一端点使用 `wrk` 通过 HTTP/1.1 进行了测试：
+
+| 项目 | 值 |
+|------|-------|
+| 命令 | `wrk -t12 -c512 -d60s https://127.0.0.1:8888/` |
+| 持续时间 | 60 s |
+| 每秒请求数 | **1282.49** |
+| 每秒传输量 | 52.29 MB |
+
+这些数字展示了引擎在集中、非速率限制负载下的绝对吞吐上限。它们与上面的连接可扩展性测试是分开的。

@@ -2,25 +2,20 @@
 
 ![fly.board logo](img/logo.png)
 
-> idle 시 **~82 MB RSS**(4 workers 기준, single worker 구동 시 실제 운영중인 서버에서 **68-120 MB** 유지), C10k(10,000 동시 연결)에서도 **약 117 MB**로 동작하는 몇 안 되는 심플 블로그 계통.  
-> C 기반 CWIST 웹 프레임워크 위에 HTTPS/3, Argon2id, PQC 서명, NATS 메시징을 올린 가벼운 게시판 겸 블로그 엔진입니다.
->
-> **Fairly small, greater usability.**  
-> TASFA는 피크 RPS보다 완주율과 실전 처리량을 우선한다. 큰 청크, 공격적인 병렬 윈도우, HTP 검증·비트맵 세션·적응형 재협상으로 고대역폭 서버 환경에서는 빠르게 쓰고, 질 나쁜 네트워크에서도 업로드가 끊기지 않게 한다.
-> PQC 서명은 ML-DSA-65 오버헤드를 감수하고서도 게시글 본문의 양자 내성을 확보했다.  
-> HTTP/1.1·HTTP/2·HTTP/3 동시 지원은 단일 프로토콜 최적화를 포기하는 대신, 어떤 방화벽·프록시·단말에서도 접속 가능한 최대 공약수를 만든다.
+> 연결이 증가할 때 메모리를 거의 일정하게 유지하는 몇 안 되는 심플한 블로그 엔진입니다: idle 시 **~82 MB RSS**(4 workers; single worker 운영 시 실제 프로덕션 서버에서 **68–120 MB** 유지), 그리고 C10k, C100k, 심지어 C1m에서도 **~146 MB**를 유지합니다.  
+> C 기반 CWIST 웹 프레임워크 위에 구축된 가벼운 게시판 겸 블로그 엔진으로, HTTPS/3, Argon2id, PQC 서명, NATS 메시징을 지원합니다.
 
 ## 특징
 
-- **메모리 절약** – 스택+힙 기반 C 구현. idle 시 **~82 MB**, 10,000 동시 연결(C10k)에서도 최대 RSS **약 117 MB**에 머무릅니다.
-- **최신 전송 계층** – TLS 1.3 + HTTP/3(QUIC) 기본 지원. 선택적 ECH(Encrypted Client Hello).
-- **안전한 인증** – 클라이언트 사이드 SHA-512 프리해시 + 서버 사이드 **Argon2id** (OpenSSL 3 KDF). JWT 세션 쿠키.
-- **게시판 / 블로그 하이브리드** – 슬러그 기반 마크다운 포스트 + 다중 게시판(Board) + 댓글(계층형).
-- **실시간 미리보기** – 마크다운 에디터에서 입력 즉시 서버 프리뷰.
-- **PQC 서명** – 게시글에 양자 후 암호(PQC) 기반 서명을 첨부/검증.
-- **파일 저장소** – 1 MB 이하는 SQLite, 초과는 볼륨 기반 저장. 이미지/비디오/오디오 자동 임베드.
-- **NATS 연동** – `NATS_URL` 환경변수로 분산 메시징 게이트웨이 연결.
-- **다크모드** – 쿠키 기반 테마 전환 + 동적 CSS 변수.
+- **메모리 효율 및 연결 확장성** – 스택+힙 C 구현. idle 시 **~82 MB RSS**; C10k부터 C1m 동시 연결까지 RSS가 **~146 MB**를 유지합니다.
+- **최신 전송 계층** – 기본적으로 TLS 1.3 + HTTP/3 (QUIC). 선택적 ECH(Encrypted Client Hello).
+- **안전한 인증** – 클라이언트 측 SHA-512 프리해시 + 서버 측 **Argon2id** (OpenSSL 3 KDF). JWT 세션 쿠키.
+- **게시판 / 블로그 하이브리드** – 슬러그 기반 마크다운 포스트 + 다중 게시판 + 계층형 댓글.
+- **실시간 미리보기** – 마크다운 에디터에서 입력 즉시 서버 측 프리뷰 렌더링.
+- **PQC 서명** – 게시글에 양자 내성 암호(PQC) 기반 서명을 첨부/검증.
+- **파일 저장소** – 1 MB 이하는 SQLite에, 더 큰 파일은 볼륨에 저장. 이미지/비디오/오디오 자동 임베드.
+- **NATS 연동** – `NATS_URL` 환경 변수를 통한 분산 메시징 게이트웨이.
+- **다크 모드** – 쿠키 기반 테마 전환 및 동적 CSS 변수.
 
 ## 빌드
 
@@ -30,12 +25,12 @@ make
 ```
 
 의존성:
-- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3(QUIC)는 CWIST에 임베딩된 BoringSSL로 처리되며 별도 설치가 필요 없습니다.
+- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3 (QUIC)는 CWIST에 내장된 BoringSSL에서 처리되며 별도 설정이 필요 없습니다.
 - OpenSSL 3.x (Argon2id KDF)
 - ngtcp2 / nghttp3 (HTTP/3)
 - cJSON, SQLite3
 
-`Makefile`은 `third_party/md4c`를 클론/빌드하여 정적 라이브러리로 링크합니다.
+`Makefile`은 `third_party/md4c`를 정적 라이브러리로 클론 및 빌드합니다.
 
 ## 실행
 
@@ -43,13 +38,13 @@ make
 ./fly_board
 ```
 
-기본 포트는 `blog.settings`의 `port` 값(기본 9443)을 따릅니다.
+기본 포트는 `blog.settings`의 `port` 값을 따릅니다(기본값 9443).
 
 ```text
 https://localhost:9443
 ```
 
-HTTP/3는 동일 포트의 UDP로 수신합니다.
+HTTP/3는 동일한 포트의 UDP에서 수신합니다.
 
 ### ECH 활성화 (선택)
 
@@ -59,7 +54,7 @@ BLOG_ECH_KEY=ech/server.ech ./fly_board
 BLOG_ECH_DIR=ech ./fly_board
 ```
 
-서버 ECH를 지원하지 않는 OpenSSL 빌드라면 경고 로그 후 일반 HTTPS/3로 계속 실행됩니다.
+OpenSSL 빌드가 ECH를 지원하지 않으면 경고를 로그에 남기고 일반 HTTPS/3로 계속 실행됩니다.
 
 ### NATS 연동 (선택)
 
@@ -70,25 +65,25 @@ NATS_URL=nats://localhost:4222 ./fly_board
 ## 주요 기능
 
 | 기능 | 경로 | 설명 |
-|------|------|------|
+|---------|------|-------------|
 | 홈 | `/` | 최신 포스트 목록 |
 | 게시판 | `/boards` | 다중 게시판 관리 (admin-only 지원) |
-| 게시글 | `/post/:slug` | md4c 마크다운 렌더링 + 댓글 + 첨부파일 |
+| 포스트 | `/post/:slug` | md4c 마크다운 렌더링 + 댓글 + 첨부파일 |
 | 로그인/가입 | `/login`, `/register` | Argon2id + JWT 쿠키 |
 | 프로필 | `/profile` | 닉네임, 바이오, 프로필 사진, 가입일 |
 | 계정 설정 | `/account/settings` | 프로필 수정 |
-| 비밀번호 변경 | `/account/password` | 현재 비밀번호 확인 후 Argon2id 재해싱 |
+| 비밀번호 변경 | `/account/password` | 현재 비밀번호 확인 후 Argon2id로 재해싱 |
 | 관리자 | `/admin/users` | 사용자 역할 변경, 삭제 |
 | 파일 저장소 | `/files` | 업로드/다운로드/삭제 |
 
-## 설정 파일
+## 설정
 
-- `blog.settings` – 블로그 타이틀, 서브타이틀, 푸터, 포트, 업로드 제한
+- `blog.settings` – 블로그 제목, 부제목, 푸터, 포트, 업로드 제한
 - `admin.settings` – 관리자 계정 (2줄: `username`\n`password`)
 
 ## 데이터베이스
 
-SQLite3 (`data/blog.db`) 기반. 스키마는 앱 시작 시 자동 마이그레이션됩니다.
+SQLite3 (`data/blog.db`). 스키마는 앱 시작 시 자동 마이그레이션됩니다.
 
 ```
 users       – 계정, Argon2id 해시, 역할, 프로필
@@ -99,7 +94,7 @@ comments    – 계층형 댓글 (target_type, parent_id)
 board_permissions – 비공개 게시판 접근 권한
 ```
 
-## 아키텍처 요약
+## 아키텍처
 
 ```
 CWIST (HTTP/3, TLS 1.3)
@@ -117,20 +112,31 @@ MIT License
 
 ---
 
-## 성능 벤치마크
+## 확장성 벤치마크
+
+### 이 벤치마크가 측정하는 것
+
+이 테스트는 `h2load`의 **`-r` (rate-limit) 옵션**을 사용합니다. 의도적으로 **최대 처리량 테스트가 아닙니다**. 대신 제어된 프로세스별 요청률을 처리하면서 서버가 다수의 동시 HTTP/2 연결을 유지할 수 있는지 측정합니다.
+
+부하가 rate-limited이기 때문에:
+
+- 보고된 **RPS는 설정된 요청률**을 반영하며, 서버의 절대 처리량 한계는 아닙니다.
+- 핵심 지표는 연결이 10,000개에서 1,000,000개로 증가할 때의 **resident-set-size(RSS) 안정성**입니다.
+
+각 테스트를 현실적으로 유지하기 위해 worker 수를 부하에 맞게 조정했습니다: C10k는 **4 workers**, C100k는 **12 workers**, C1m은 **24 workers**입니다. 이는 세 번의 실행에서 다른 CPU 사용률 수치를 보이는 이유이기도 합니다.
 
 ### 호스트 환경
 
 | 항목 | 값 |
 |------|-------|
-| OS | Linux 7.0.0-mountain+ |
+| OS | Linux 7.1.0-mountain-rc6+ |
 | 아키텍처 | x86_64 |
-| CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
-| RAM | 64 GB |
-| 디스크 | Samsung SSD 980 1TB (NVMe) |
+| CPU | 12 logical cores |
+| RAM | 62 GiB |
+| GCC | 14.2.0 (Debian 14.2.0-19) |
 | OpenSSL | 3.5.6 |
-| 벤치마크 도구 | wrk, h2load |
-| CWIST | `patches/cwist` |
+| 벤치마크 도구 | h2load nghttp2/1.64.0 |
+| CWIST | `/usr/local/lib/libcwist.a` |
 
 ### 시스템 튜닝
 
@@ -148,90 +154,122 @@ MIT License
 
 ### 메모리 사용량
 
-| 상태 | RSS | 비고 |
-|-------|-----|-------|
-| Idle | **~82 MB** (83,708 KB) | 4 workers, no connections |
-| C10k | **~117 MB** (120,184 KB) | 10,000 concurrent connections |
-| C100k | **~174 MB** (178,056 KB) | 100,000 concurrent connections |
-| C1m | **~216 MB** (220,888 KB) | 1,000,000 concurrent connections |
+| 상태 | RSS | 이전 대비 변화 | 비고 |
+|-------|-----|----------------|-------|
+| Idle | **~82 MB** (83,708 KB) | — | 4 workers, no connections |
+| C10k | **~146 MB** (145,928 KB) | +62.22 MB | 10,000 concurrent connections |
+| C100k | **~146 MB** (146,076 KB) | +148 KB | 100,000 concurrent connections |
+| C1m | **~146 MB** (146,420 KB) | +344 KB | 1,000,000 concurrent connections |
+
+C10k에서 C1m까지의 총 RSS 증가량은 **약 492 KB**에 불과합니다 — 사실상 노이즈 수준입니다. 이것이 이 벤치마크에서 가장 중요한 결과입니다.
 
 ### C10k 동시 연결 테스트
 
-`h2load`로 10,000개 동시 연결을 유지하며 측정.
+`h2load`로 10,000 동시 연결을 유지하며 측정했습니다.
 
 | 항목 | 값 |
 |------|-------|
-| 동시 연결 수 | 10,000 |
-| 지속 시간 | 21.72 s |
-| 최대 RSS | **약 117 MB** (120,184 KB) |
-| CPU 사용량 | ~200% |
-| User time | 35.19 s |
-| System time | 8.39 s |
-| Major page faults | **1** |
-| Minor page faults | 57,581 |
-| Voluntary context switches | 2,235,918 |
-| Involuntary context switches | 405,099 |
-| File system outputs | 8 |
-| 총 요청 수 | 20000 |
-| 총 성공 수 | 20000 |
-| 총 실패 수 | 0 |
-| 대략적 총 RPS | **1291.35** |
-| 성공률 | **100.00%** |
-| 종료 상태 | **0** |
+| Workers | 4 |
+| Concurrent connections | 10,000 |
+| Duration | 17.04 s |
+| Max RSS | **~146 MB** (145,928 KB) |
+| CPU usage | ~480% |
+| User time | 73.54 s |
+| System time | 8.25 s |
+| Major page faults | 51 |
+| Minor page faults | 267,239 |
+| Voluntary context switches | 1,959,611 |
+| Involuntary context switches | 17,100 |
+| File system outputs | 10,600 |
+| Total requests | 20000 |
+| Total succeeded | 20000 |
+| Total failed | 0 |
+| Approx total RPS | **2383.81** |
+| Success rate | **100.00%** |
+| Exit status | **0** |
 
 ### C100k 동시 연결 테스트
 
-`h2load`로 100,000개 동시 연결을 유지하며 측정.
+`h2load`로 100,000 동시 연결을 유지하며 측정했습니다.
 
 | 항목 | 값 |
 |------|-------|
-| 동시 연결 수 | 100,000 |
-| 지속 시간 | 2:46.70 |
-| 최대 RSS | **약 174 MB** (178,056 KB) |
-| CPU 사용량 | ~88% |
-| User time | 118.41 s |
-| System time | 28.31 s |
-| Major page faults | **0** |
-| Minor page faults | 150,669 |
-| Voluntary context switches | 6,984,249 |
-| Involuntary context switches | 1,081,830 |
-| File system outputs | 8 |
-| 총 요청 수 | 200000 |
-| 총 성공 수 | 200000 |
-| 총 실패 수 | 0 |
-| 대략적 총 RPS | **1244.21** |
-| 성공률 | **100.00%** |
-| 종료 상태 | **0** |
+| Workers | 12 |
+| Concurrent connections | 100,000 |
+| Duration | 1:30.30 |
+| Max RSS | **~146 MB** (146,076 KB) |
+| CPU usage | ~824% |
+| User time | 700.38 s |
+| System time | 44.12 s |
+| Major page faults | 0 |
+| Minor page faults | 472,679 |
+| Voluntary context switches | 3,908,475 |
+| Involuntary context switches | 165,739 |
+| File system outputs | 101,672 |
+| Total requests | 200000 |
+| Total succeeded | 200000 |
+| Total failed | 0 |
+| Approx total RPS | **2458.23** |
+| Success rate | **100.00%** |
+| Exit status | **0** |
 
 ### C1m 동시 연결 테스트
 
-`h2load`로 1,000,000개 동시 연결을 유지하며 측정.
+`h2load`로 1,000,000 동시 연결을 유지하며 측정했습니다.
 
 | 항목 | 값 |
 |------|-------|
-| 동시 연결 수 | 1,000,000 |
-| 지속 시간 | 10:13.39 |
-| 최대 RSS | **약 216 MB** (220,888 KB) |
-| CPU 사용량 | ~55% |
-| User time | 201.98 s |
-| System time | 136.96 s |
-| Major page faults | **1** |
-| Minor page faults | 220,927 |
-| Voluntary context switches | 38,926,712 |
-| Involuntary context switches | 4,460,022 |
-| File system outputs | 8 |
-| 총 요청 수 | 2000000 |
-| 총 성공 수 | 607048 |
-| 총 실패 수 | 1392952 |
-| 대략적 총 RPS | **1000.39** |
-| 성공률 | **30.35%** |
-| 종료 상태 | **0** |
+| Workers | 24 |
+| Concurrent connections | 1,000,000 |
+| Duration | 7:02.81 |
+| Max RSS | **~146 MB** (146,420 KB) |
+| CPU usage | ~654% |
+| User time | 2553.88 s |
+| System time | 211.70 s |
+| Major page faults | 3 |
+| Minor page faults | 895,633 |
+| Voluntary context switches | 24,007,690 |
+| Involuntary context switches | 931,088 |
+| File system outputs | 366,248 |
+| Total requests | 2000000 |
+| Total succeeded | 722910 |
+| Total failed | 1277090 |
+| Approx total RPS | **1744.04** |
+| Success rate | **36.14%** |
+| Exit status | **0** |
 
-> 참고: HTTP/2 (TLS 1.3) 상에서 실제 클라이언트 연결을 유지하며 측정한 값입니다.
+> 참고: HTTP/2(TLS 1.3) 상에서 실제 클라이언트 연결을 유지하며 측정한 값입니다. 테스트별 worker 수는 다르며, 자세한 내용은 "이 벤치마크가 측정하는 것"을 참조하세요.
 
-**C10k 벤치마크 주요 장점**
-- **메모리 효율**: 10,000 동시 연결에서도 RSS가 120 MB 미만 (연결당 약 12 KB)
-- **I/O 프리**: Major page faults 1, Swaps 0, FS inputs 0 — 디스크 I/O 부하 없이 순수 메모리 기반 처리
-- **CPU 활용**: ~200% CPU 사용률로 안정적
-- **장시간 안정성**: 21.72초 동안 C10k 부하를 지속하며 정상 종료 (Exit status 0)
-- **데이터 안전성**: SIGINT 수신 후에도 SQLite가 데이터를 안전하게 저장 (8 FS outputs)
+**핵심 결론**
+
+- **연결 확장성**: 10,000개부터 1,000,000개의 동시 연결까지 RSS가 **~146 MB**를 유지합니다. 연결당 메모리 비용은 사실상 일정합니다.
+- **현실적인 부하 하에서 안정적**: C10k와 C100k는 동일한 메모리 범위 내에서 **100% 성공**으로 완료되었습니다.
+- **C1m에서도 메모리 범위 유지**: 테스트 하드웨어가 1,000,000개 연결을 모두 처리하지 못했을 때(36.14% 성공)에도 메모리 사용량은 본질적으로 변하지 않았습니다 — 서버가 통제 불능 상태로 빠지지 않았습니다.
+- **데이터 안전성**: SQLite가 SIGINT 시 모든 데이터를 안전하게 저장했습니다(C10k에서 10,600 FS outputs).
+
+### 처리량 벤치마크
+
+위의 벤치마크는 **연결 확장성**을 측정한 것이며, 절대적인 **요청 처리량**을 측정한 것은 아닙니다. 서버의 순수 처리량 상한을 측정하기 위해 HTTP/2 위에서 `h2load`로 `-r` rate limit 없이 제한 없는 테스트를 실행했습니다.
+
+| 항목 | 값 |
+|------|-------|
+| Command | `h2load -c512 -n100000 https://127.0.0.1:8888/` |
+| Workers | 12 |
+| Concurrent connections | 512 |
+| Total requests | 100,000 |
+| Succeeded | 100,000 |
+| Failed / Errored / Timeout | 0 |
+| Duration | 13.95 s |
+| Mean RPS | **7167.28** |
+| Mean throughput | **290.51 MB/s** |
+
+비교를 위해 동일한 엔드포인트를 HTTP/1.1 위에서 `wrk`로 테스트했습니다:
+
+| 항목 | 값 |
+|------|-------|
+| Command | `wrk -t12 -c512 -d60s https://127.0.0.1:8888/` |
+| Duration | 60 s |
+| Requests/sec | **1282.49** |
+| Transfer/sec | 52.29 MB |
+
+이 수치는 집중적이고 rate limit이 없는 부하 하에서 엔진의 절대 처리량 상한을 보여줍니다. 이는 위의 연결 확장성 테스트와는 별개의 것입니다.
