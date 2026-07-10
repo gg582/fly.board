@@ -42,6 +42,47 @@ int db_file_create_volume_get_id(cwist_db *db, int post_id, int user_id, const c
     return id;
 }
 
+static bool filename_exists_for_post(cwist_db *db, int post_id, const char *filename) {
+    const char *sql = "SELECT 1 FROM files WHERE post_id=? AND filename=? LIMIT 1";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, post_id);
+    sqlite3_bind_text(stmt, 2, filename, -1, SQLITE_STATIC);
+    bool exists = (sqlite3_step(stmt) == SQLITE_ROW);
+    sqlite3_finalize(stmt);
+    return exists;
+}
+
+static char *copy_string(const char *src) {
+    if (!src) return NULL;
+    size_t len = strlen(src);
+    char *out = (char *)cwist_alloc(len + 1);
+    if (!out) return NULL;
+    memcpy(out, src, len);
+    out[len] = '\0';
+    return out;
+}
+
+char *db_file_unique_filename(cwist_db *db, int post_id, const char *filename) {
+    if (!filename || !filename[0]) return NULL;
+    if (!filename_exists_for_post(db, post_id, filename)) {
+        return copy_string(filename);
+    }
+
+    const char *dot = strrchr(filename, '.');
+    size_t base_len = dot ? (size_t)(dot - filename) : strlen(filename);
+    const char *ext = dot ? dot : "";
+
+    for (int n = 1; n <= 10000; n++) {
+        char candidate[512];
+        snprintf(candidate, sizeof(candidate), "%.*s (%d)%s", (int)base_len, filename, n, ext);
+        if (!filename_exists_for_post(db, post_id, candidate)) {
+            return copy_string(candidate);
+        }
+    }
+    return copy_string(filename);
+}
+
 cJSON *db_file_get(cwist_db *db, int id) {
     const char *sql = "SELECT * FROM files WHERE id=? LIMIT 1";
     sqlite3_stmt *stmt = NULL;

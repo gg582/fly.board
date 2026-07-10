@@ -327,6 +327,12 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
         return false;
     }
 
+    char *unique_filename = db_file_unique_filename(db, post_id, f->filename);
+    if (unique_filename) {
+        cwist_free(f->filename);
+        f->filename = unique_filename;
+    }
+
     strncpy(out->filename, f->filename, sizeof(out->filename) - 1);
     strncpy(out->file_path, f->data, sizeof(out->file_path) - 1);
     out->file_size = f->file_size;

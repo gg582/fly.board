@@ -88,6 +88,9 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     }
     int group_count = (chunk_count + 5) / 6;
 
+    char *unique_filename = db_file_unique_filename(req->db, post_id, filename);
+    if (unique_filename) filename = unique_filename;
+
     cJSON *meta = cJSON_CreateObject();
     cJSON_AddNumberToObject(meta, "uid", uid);
     cJSON_AddNumberToObject(meta, "post_id", post_id);
@@ -149,6 +152,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     mbin.post_id = post_id;
     mbin.uid = uid;
     snprintf(mbin.temp_path, sizeof(mbin.temp_path), "%s", temp_path);
+    if (unique_filename) { cwist_free(unique_filename); unique_filename = NULL; }
 
     if (!save_upload_session(upload_id, meta) || !save_upload_session_state(upload_id, meta) ||
         !save_upload_session_state_bin(upload_id, chunk_count, bitmap) ||
