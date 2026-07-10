@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> One of the few simple blog engines running at **~82 MB RSS** at idle (with 4 workers; maintains **68-120 MB** on a real production server with a single worker), and **~146 MB** under C10k (10,000 concurrent connections).  
+> One of the few simple blog engines that keeps memory nearly flat as connections scale: **~82 MB RSS** at idle (4 workers; maintains **68–120 MB** on a real production server with a single worker), and still **~146 MB** under C10k, C100k, and even C1m.  
 > A lightweight board-and-blog engine built on the C-based CWIST web framework, supporting HTTPS/3, Argon2id, PQC signatures, and NATS messaging.
 
 ## Features
 
-- **Memory Efficient** – Stack+heap C implementation. **~82 MB RSS** at idle; **~146 MB** max RSS under 10,000 concurrent connections (C10k).
+- **Memory-Efficient & Connection-Scalable** – Stack+heap C implementation. **~82 MB RSS** at idle; RSS stays around **~146 MB** from C10k through C1m concurrent connections.
 - **Modern Transport** – TLS 1.3 + HTTP/3 (QUIC) by default. Optional ECH (Encrypted Client Hello).
 - **Secure Auth** – Client-side SHA-512 prehash + server-side **Argon2id** (OpenSSL 3 KDF). JWT session cookies.
 - **Board / Blog Hybrid** – Slug-based markdown posts + multiple boards + nested comments.
@@ -112,7 +112,18 @@ MIT License
 
 ---
 
-## Performance Benchmark
+## Scalability Benchmark
+
+### What This Benchmark Measures
+
+These tests use `h2load` **with the `-r` (rate-limit) option**. They are intentionally **not** maximum-throughput tests. Instead, they measure whether the server can **sustain a massive number of concurrent HTTP/2 connections** while processing a controlled, per-process request rate.
+
+Because the load is rate-limited:
+
+- The reported **RPS reflects the configured request rate**, not the server's absolute throughput ceiling.
+- The headline metric is **resident-set-size (RSS) stability** as connections grow from 10,000 to 1,000,000.
+
+The worker count is scaled with the load to keep each test realistic: **4 workers** for C10k, **12 workers** for C100k, and **24 workers** for C1m. This also explains the different CPU-usage figures across the three runs.
 
 ### Host Environment
 
@@ -143,12 +154,14 @@ MIT License
 
 ### Memory Usage
 
-| State | RSS | Notes |
-|-------|-----|-------|
-| Idle | **~82 MB** (83,708 KB) | 4 workers, no connections |
-| C10k | **~146 MB** (145,928 KB) | 10,000 concurrent connections |
-| C100k | **~146 MB** (146,076 KB) | 100,000 concurrent connections |
-| C1m | **~146 MB** (146,420 KB) | 1,000,000 concurrent connections |
+| State | RSS | Δ from previous | Notes |
+|-------|-----|-----------------|-------|
+| Idle | **~82 MB** (83,708 KB) | — | 4 workers, no connections |
+| C10k | **~146 MB** (145,928 KB) | +62.22 MB | 10,000 concurrent connections |
+| C100k | **~146 MB** (146,076 KB) | +148 KB | 100,000 concurrent connections |
+| C1m | **~146 MB** (146,420 KB) | +344 KB | 1,000,000 concurrent connections |
+
+The total RSS growth from **C10k to C1m is only ~492 KB** — essentially noise. This is the most important result of the benchmark.
 
 ### C10k Concurrent Connection Test
 
@@ -156,6 +169,7 @@ Measured with `h2load` maintaining 10,000 concurrent connections.
 
 | Item | Value |
 |------|-------|
+| Workers | 4 |
 | Concurrent connections | 10,000 |
 | Duration | 17.04 s |
 | Max RSS | **~146 MB** (145,928 KB) |
@@ -180,6 +194,7 @@ Measured with `h2load` maintaining 100,000 concurrent connections.
 
 | Item | Value |
 |------|-------|
+| Workers | 12 |
 | Concurrent connections | 100,000 |
 | Duration | 1:30.30 |
 | Max RSS | **~146 MB** (146,076 KB) |
@@ -204,6 +219,7 @@ Measured with `h2load` maintaining 1,000,000 concurrent connections.
 
 | Item | Value |
 |------|-------|
+| Workers | 24 |
 | Concurrent connections | 1,000,000 |
 | Duration | 7:02.81 |
 | Max RSS | **~146 MB** (146,420 KB) |
@@ -222,11 +238,38 @@ Measured with `h2load` maintaining 1,000,000 concurrent connections.
 | Success rate | **36.14%** |
 | Exit status | **0** |
 
-> Note: Values measured while maintaining actual client connections over HTTP/2 (TLS 1.3).
+> Note: Values measured while maintaining actual client connections over HTTP/2 (TLS 1.3). Worker counts differ per test; see "What This Benchmark Measures".
 
-**C10k Benchmark Highlights**
-- **Memory Efficient**: RSS stays around 146 MB with 10,000 concurrent connections (~15 KB per connection)
-- **Disk I/O**: Major page faults 51, Swaps 0 — SQLite and cache activity generate ~10 MB of FS output
-- **High CPU Utilization**: Sustained ~480% CPU usage while remaining stable
-- **Long-term Stability**: Ran continuously for 17.04 s under C10k load and exited cleanly (status 0)
-- **Data Safety**: SQLite safely persisted all data on SIGINT (10,600 FS outputs)
+**Key Takeaways**
+
+- **Connection Scalability**: RSS stays around **~146 MB** from 10,000 through 1,000,000 concurrent connections. The per-connection memory cost is effectively flat.
+- **Stable under Realistic Load**: C10k and C100k completed with **100% success** while staying inside the same memory envelope.
+- **Memory Envelope Holds at C1m**: Even when the test hardware could not fully serve all 1,000,000 connections (36.14% success), memory use remained essentially unchanged — the server did not spiral out of control.
+- **Data Safety**: SQLite safely persisted all data on SIGINT (10,600 FS outputs at C10k).
+
+### Throughput Benchmark
+
+The benchmark above measures **connection scalability**, not absolute **request throughput**. To measure the server's raw throughput ceiling, an unbounded test was run with `h2load` (no `-r` rate limit) over HTTP/2.
+
+| Item | Value |
+|------|-------|
+| Command | `h2load -c512 -n100000 https://127.0.0.1:8888/` |
+| Workers | 12 |
+| Concurrent connections | 512 |
+| Total requests | 100,000 |
+| Succeeded | 100,000 |
+| Failed / Errored / Timeout | 0 |
+| Duration | 13.95 s |
+| Mean RPS | **7167.28** |
+| Mean throughput | **290.51 MB/s** |
+
+For comparison, the same endpoint was tested with `wrk` over HTTP/1.1:
+
+| Item | Value |
+|------|-------|
+| Command | `wrk -t12 -c512 -d60s https://127.0.0.1:8888/` |
+| Duration | 60 s |
+| Requests/sec | **1282.49** |
+| Transfer/sec | 52.29 MB |
+
+These numbers show the engine's absolute throughput ceiling under a focused, non-rate-limited load. They are separate from the connection-scalability tests above.

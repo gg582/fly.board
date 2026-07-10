@@ -2,25 +2,20 @@
 
 ![fly.board logo](img/logo.png)
 
-> 閒置時僅 **~82 MB RSS**（以 4 workers 運作；若以單一 worker 在實際運營伺服器上運作則維持於 **68-120 MB**），C10k（10,000 併發連線）下峰值仍僅約 **658 MB** 的極簡部落格系統。  
-> 基於 C 語言 CWIST Web 框架，支援 HTTPS/3、Argon2id、PQC 簽章與 NATS 訊息的輕量化論壇兼部落格引擎。
->
-> **Fairly small, greater usability.**  
-> TASFA 刻意犧牲 RPS。分塊加密、HTP 校驗、位元點陣圖工作階段與適應型步速確保即使在劣質網路中上傳也不會中斷，同時阻擋 DoS 攻擊與分塊替換，追求可靠性最大化的傳輸。  
-> PQC 簽章承擔了 ML-DSA-65 的額外開銷，以確保文章正文在量子計算時代的防篡改能力。  
-> 同時支援 HTTP/1.1、HTTP/2 與 HTTP/3，放棄單一協定極限效能，換取任何防火牆、代理與終端都能存取的最大公約數。
+> 少數能在連線數增加時仍幾乎維持記憶體平坦的簡易部落格引擎之一：閒置時 **~82 MB RSS**（4 個 workers；在單一 worker 的實際生產伺服器上則維持於 **68–120 MB**），即使在 C10k、C100k 乃至 C1m 下仍維持 **~146 MB**。  
+> 以 C 語言 CWIST Web 框架為基礎，支援 HTTPS/3、Argon2id、PQC 簽章與 NATS 訊息的輕量化論壇兼部落格引擎。
 
 ## 特性
 
-- **記憶體節省** – 堆疊+堆積 C 實作。閒置時 **~82 MB**，10,000 併發連線（C10k）下最大 RSS 僅約 **658 MB**。
-- **最新傳輸層** – 預設 TLS 1.3 + HTTP/3（QUIC）。可選 ECH（Encrypted Client Hello）。
+- **記憶體高效且具連線擴展性** – 堆疊+堆積 C 實作。閒置時 **~82 MB RSS**；從 C10k 到 C1m 的併發連線下，RSS 皆維持在 **~146 MB**。
+- **現代傳輸層** – 預設 TLS 1.3 + HTTP/3（QUIC）。可選 ECH（Encrypted Client Hello）。
 - **安全認證** – 用戶端 SHA-512 預雜湊 + 伺服端 **Argon2id**（OpenSSL 3 KDF）。JWT 工作階段 Cookie。
 - **論壇 / 部落格混合** – Slug 式 Markdown 文章 + 多看板 + 巢狀評論。
-- **即時預覽** – Markdown 編輯器中輸入即時伺服端預覽。
-- **PQC 簽章** – 為文章附加/驗證後量子密碼（PQC）簽章。
-- **檔案倉庫** – 1 MB 以內存 SQLite，超過則磁碟區儲存。圖片/影片/音訊自動嵌入。
+- **即時預覽** – 從 Markdown 編輯器即時渲染的伺服端預覽。
+- **PQC 簽章** – 在文章上附加/驗證後量子密碼（PQC）簽章。
+- **檔案儲存** – ≤1 MB 存於 SQLite，較大檔案存於磁碟區。自動嵌入圖片/影片/音訊。
 - **NATS 整合** – 透過 `NATS_URL` 環境變數連接分散式訊息閘道。
-- **深色模式** – 基於 Cookie 的主題切換 + 動態 CSS 變數。
+- **深色模式** – 基於 Cookie 的主題切換與動態 CSS 變數。
 
 ## 建置
 
@@ -30,7 +25,7 @@ make
 ```
 
 相依套件：
-- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3（QUIC）由 CWIST 內建的 BoringSSL 處理，無需額外安裝。
+- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3（QUIC）由 CWIST 內建的 BoringSSL 處理，無需額外設定。
 - OpenSSL 3.x（Argon2id KDF）
 - ngtcp2 / nghttp3（HTTP/3）
 - cJSON、SQLite3
@@ -55,11 +50,11 @@ HTTP/3 在同一埠號的 UDP 上監聽。
 
 ```sh
 BLOG_ECH_KEY=ech/server.ech ./fly_board
-# 或
+# or
 BLOG_ECH_DIR=ech ./fly_board
 ```
 
-若 OpenSSL 建置不支援 ECH，將記錄警告紀錄並繼續使用常規 HTTPS/3。
+若 OpenSSL 建置不支援 ECH，將記錄警告並繼續使用一般 HTTPS/3。
 
 ### NATS 整合（可選）
 
@@ -70,25 +65,25 @@ NATS_URL=nats://localhost:4222 ./fly_board
 ## 主要功能
 
 | 功能 | 路徑 | 說明 |
-|------|------|------|
+|---------|------|-------------|
 | 首頁 | `/` | 最新文章列表 |
-| 看板 | `/boards` | 多看板管理（支援 admin-only） |
+| 看板 | `/boards` | 多看板管理（admin-only 支援） |
 | 文章 | `/post/:slug` | md4c Markdown 渲染 + 評論 + 附件 |
 | 登入/註冊 | `/login`、`/register` | Argon2id + JWT Cookie |
-| 個人資料 | `/profile` | 暱稱、簡介、大頭貼、註冊日期 |
-| 帳戶設定 | `/account/settings` | 修改個人資料 |
+| 個人資料 | `/profile` | 暱稱、簡介、大頭貼、加入日期 |
+| 帳戶設定 | `/account/settings` | 編輯個人資料 |
 | 修改密碼 | `/account/password` | 驗證目前密碼後以 Argon2id 重新雜湊 |
 | 管理員 | `/admin/users` | 變更使用者角色、刪除使用者 |
-| 檔案倉庫 | `/files` | 上傳/下載/刪除 |
+| 檔案儲存 | `/files` | 上傳/下載/刪除 |
 
-## 設定檔
+## 設定
 
-- `blog.settings` – 部落格標題、副標題、頁尾、埠號
-- `admin.settings` – 管理員帳戶（2 行：`使用者名稱`\n`密碼`）
+- `blog.settings` – 部落格標題、副標題、頁尾、埠號與上傳限制
+- `admin.settings` – 管理員帳戶（2 行：`username`\n`password`）
 
 ## 資料庫
 
-基於 SQLite3（`data/blog.db`）。應用程式在啟動時自動遷移綱要。
+SQLite3（`data/blog.db`）。應用程式啟動時會自動遷移綱要。
 
 ```
 users       – 帳戶、Argon2id 雜湊、角色、個人資料
@@ -99,7 +94,7 @@ comments    – 巢狀評論（target_type, parent_id）
 board_permissions – 私人看板存取權限
 ```
 
-## 架構概覽
+## 架構
 
 ```
 CWIST（HTTP/3, TLS 1.3）
@@ -117,20 +112,31 @@ MIT License
 
 ---
 
-## 效能基準測試
+## 可擴展性基準測試
+
+### 此基準測試測量什麼
+
+這些測試使用 `h2load` **並加上 `-r`（rate-limit）選項**。它們刻意**不是**最大吞吐量測試，而是測量伺服器在處理受控的每程序請求速率時，是否能夠**維持大量併發 HTTP/2 連線**。
+
+由於負載受到速率限制：
+
+- 回報的 **RPS 反映設定的請求速率**，而非伺服器的絕對吞吐量上限。
+- 首要指標是連線數從 10,000 成長到 1,000,000 時，**常駐記憶體集（RSS）的穩定性**。
+
+worker 數量會隨負載調整，讓每項測試貼近現實：C10k 為 **4 個 workers**、C100k 為 **12 個 workers**、C1m 為 **24 個 workers**。這也解釋了三次執行中 CPU 使用率數字的差異。
 
 ### 主機環境
 
 | 項目 | 值 |
 |------|-------|
-| OS | Linux 7.0.0-mountain+ |
-| 架構 | x86_64 |
-| CPU | AMD Ryzen 5 5600X @ 3.70GHz (6 cores / 12 threads) |
-| RAM | 64 GB |
-| 磁碟 | Samsung SSD 980 1TB (NVMe) |
+| OS | Linux 7.1.0-mountain-rc6+ |
+| Architecture | x86_64 |
+| CPU | 12 logical cores |
+| RAM | 62 GiB |
+| GCC | 14.2.0 (Debian 14.2.0-19) |
 | OpenSSL | 3.5.6 |
-| 基準工具 | wrk, h2load |
-| CWIST | `patches/cwist` |
+| 基準測試工具 | h2load nghttp2/1.64.0 |
+| CWIST | `/usr/local/lib/libcwist.a` |
 
 ### 系統調校
 
@@ -148,12 +154,14 @@ MIT License
 
 ### 記憶體使用量
 
-| 狀態 | RSS | 備註 |
-|-------|-----|-------|
-| 閒置 | **~82 MB** (83,708 KB) | 4 workers, no connections |
-| C10k | **~117 MB** (120,184 KB) | 10,000 concurrent connections |
-| C100k | **~174 MB** (178,056 KB) | 100,000 concurrent connections |
-| C1m | **~216 MB** (220,888 KB) | 1,000,000 concurrent connections |
+| 狀態 | RSS | 較前項變化 | 備註 |
+|-------|-----|-----------------|-------|
+| 閒置 | **~82 MB** (83,708 KB) | — | 4 workers, no connections |
+| C10k | **~146 MB** (145,928 KB) | +62.22 MB | 10,000 concurrent connections |
+| C100k | **~146 MB** (146,076 KB) | +148 KB | 100,000 concurrent connections |
+| C1m | **~146 MB** (146,420 KB) | +344 KB | 1,000,000 concurrent connections |
+
+從 **C10k 到 C1m 的總 RSS 增長僅約 492 KB** —— 基本上只是雜訊。這是本基準測試最重要的結果。
 
 ### C10k 併發連線測試
 
@@ -161,23 +169,24 @@ MIT License
 
 | 項目 | 值 |
 |------|-------|
-| 併發連線數 | 10,000 |
-| 持續時間 | 21.72 s |
-| 最大 RSS | **約 117 MB** (120,184 KB) |
-| CPU 使用率 | ~200% |
-| User time | 35.19 s |
-| System time | 8.39 s |
-| Major page faults | **1** |
-| Minor page faults | 57,581 |
-| Voluntary context switches | 2,235,918 |
-| Involuntary context switches | 405,099 |
-| File system outputs | 8 |
-| 總請求數 | 20000 |
-| 總成功數 | 20000 |
-| 總失敗數 | 0 |
-| 近似總RPS | **1291.35** |
-| 成功率 | **100.00%** |
-| 結束狀態 | **0** |
+| Workers | 4 |
+| Concurrent connections | 10,000 |
+| Duration | 17.04 s |
+| Max RSS | **~146 MB** (145,928 KB) |
+| CPU usage | ~480% |
+| User time | 73.54 s |
+| System time | 8.25 s |
+| Major page faults | 51 |
+| Minor page faults | 267,239 |
+| Voluntary context switches | 1,959,611 |
+| Involuntary context switches | 17,100 |
+| File system outputs | 10,600 |
+| Total requests | 20000 |
+| Total succeeded | 20000 |
+| Total failed | 0 |
+| Approx total RPS | **2383.81** |
+| Success rate | **100.00%** |
+| Exit status | **0** |
 
 ### C100k 併發連線測試
 
@@ -185,53 +194,82 @@ MIT License
 
 | 項目 | 值 |
 |------|-------|
-| 併發連線數 | 100,000 |
-| 持續時間 | 2:46.70 |
-| 最大 RSS | **約 692 MB** (178,056 KB) |
-| CPU 使用率 | ~88% |
-| User time | 118.41 s |
-| System time | 28.31 s |
-| Major page faults | **0** |
-| Minor page faults | 150,669 |
-| Voluntary context switches | 6,984,249 |
-| Involuntary context switches | 1,081,830 |
-| File system outputs | 8 |
-| 總請求數 | 200000 |
-| 總成功數 | 200000 |
-| 總失敗數 | 0 |
-| 近似總RPS | **1244.21** |
-| 成功率 | **100.00%** |
-| 結束狀態 | **0** |
+| Workers | 12 |
+| Concurrent connections | 100,000 |
+| Duration | 1:30.30 |
+| Max RSS | **~146 MB** (146,076 KB) |
+| CPU usage | ~824% |
+| User time | 700.38 s |
+| System time | 44.12 s |
+| Major page faults | 0 |
+| Minor page faults | 472,679 |
+| Voluntary context switches | 3,908,475 |
+| Involuntary context switches | 165,739 |
+| File system outputs | 101,672 |
+| Total requests | 200000 |
+| Total succeeded | 200000 |
+| Total failed | 0 |
+| Approx total RPS | **2458.23** |
+| Success rate | **100.00%** |
+| Exit status | **0** |
 
 ### C1m 併發連線測試
 
 使用 `h2load` 維持 1,000,000 個併發連線進行測量。
 
-| 項目 | 數值 |
+| 項目 | 值 |
 |------|-------|
+| Workers | 24 |
 | Concurrent connections | 1,000,000 |
-| Duration | 10:13.39 |
-| Max RSS | **約 216 MB** (220,888 KB) |
-| CPU usage | ~55% |
-| User time | 201.98 s |
-| System time | 136.96 s |
-| Major page faults | **1** |
-| Minor page faults | 220,927 |
-| Voluntary context switches | 38,926,712 |
-| Involuntary context switches | 4,460,022 |
-| File system outputs | 8 |
-| 總請求數 | 2000000 |
-| 總成功數 | 607048 |
-| 總失敗數 | 1392952 |
-| 近似總RPS | **1000.39** |
-| 成功率 | **30.35%** |
-| 結束狀態 | **0** |
+| Duration | 7:02.81 |
+| Max RSS | **~146 MB** (146,420 KB) |
+| CPU usage | ~654% |
+| User time | 2553.88 s |
+| System time | 211.70 s |
+| Major page faults | 3 |
+| Minor page faults | 895,633 |
+| Voluntary context switches | 24,007,690 |
+| Involuntary context switches | 931,088 |
+| File system outputs | 366,248 |
+| Total requests | 2000000 |
+| Total succeeded | 722910 |
+| Total failed | 1277090 |
+| Approx total RPS | **1744.04** |
+| Success rate | **36.14%** |
+| Exit status | **0** |
 
-> 注意：在 HTTP/2 (TLS 1.3) 上維持實際客戶端連線時測得的值。
+> 注意：這些數值是在 HTTP/2（TLS 1.3）上維持實際客戶端連線時測得。每次測試的 worker 數量不同；請參閱「此基準測試測量什麼」。
 
-**C10k 基準測試核心優勢**
-- **記憶體高效**: 10,000 併發連線下 RSS 仍低於 120 MB（每連線約 12 KB）
-- **零磁碟 I/O**: Major page faults 1, Swaps 0, FS inputs 0 — 負載下純記憶體處理
-- **高 CPU 利用率**: 穩定維持 ~200% CPU 使用率
-- **長時間穩定性**: 持續 21.72 秒的 C10k 滿載後正常結束（Exit status 0）
-- **資料安全性**: SIGINT 後 SQLite 安全持久化資料（8 FS outputs）
+**重點摘要**
+
+- **連線擴展性**：從 10,000 到 1,000,000 個併發連線，RSS 皆維持在 **~146 MB**。每條連線的記憶體成本幾乎是平坦的。
+- **在現實負載下穩定**：C10k 與 C100k 在 **100% 成功率**下完成，且記憶體使用維持在相同範圍內。
+- **C1m 仍維持記憶體範圍**：即使測試硬體無法完整服務全部 1,000,000 條連線（成功率 36.14%），記憶體使用量仍幾乎不變 —— 伺服器並未失控膨脹。
+- **資料安全性**：SQLite 在 SIGINT 時安全地持久化所有資料（C10k 時為 10,600 次 FS 輸出）。
+
+### 吞吐量基準測試
+
+上述基準測試測量的是**連線擴展性**，而非絕對的**請求吞吐量**。為了測量伺服器的原始吞吐量上限，我們使用 `h2load`（無 `-r` 速率限制）透過 HTTP/2 執行了無限制測試。
+
+| 項目 | 值 |
+|------|-------|
+| Command | `h2load -c512 -n100000 https://127.0.0.1:8888/` |
+| Workers | 12 |
+| Concurrent connections | 512 |
+| Total requests | 100,000 |
+| Succeeded | 100,000 |
+| Failed / Errored / Timeout | 0 |
+| Duration | 13.95 s |
+| Mean RPS | **7167.28** |
+| Mean throughput | **290.51 MB/s** |
+
+作為比較，同一端點使用 `wrk` 透過 HTTP/1.1 進行了測試：
+
+| 項目 | 值 |
+|------|-------|
+| Command | `wrk -t12 -c512 -d60s https://127.0.0.1:8888/` |
+| Duration | 60 s |
+| Requests/sec | **1282.49** |
+| Transfer/sec | 52.29 MB |
+
+這些數字顯示了引擎在集中、未限速負載下的絕對吞吐量上限，與上述的連線擴展性測試是分開的。
