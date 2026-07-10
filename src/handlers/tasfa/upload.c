@@ -878,7 +878,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     if (!is_client_connected(req)) goto client_disconnect;
 
     char final_path[PATH_MAX];
-    snprintf(final_path, sizeof(final_path), "public/uploads/%ld_%s", (long)time(NULL), filename);
+    snprintf(final_path, sizeof(final_path), "public/uploads/%s_%s", upload_id, filename);
     if (rename_fallback(temp_path, final_path) != 0) {
         FLY_LOG_ERROR("[TASFA] final file rename failed from %s to %s: errno=%d (%s)", temp_path, final_path, errno, strerror(errno));
         pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
