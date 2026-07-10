@@ -68,6 +68,7 @@ bool db_tag_clear_by_post(cwist_db *db, int post_id);
 /* Files */
 bool db_file_create_volume(cwist_db *db, int post_id, int user_id, const char *filename, const char *mime_type, const char *file_path, size_t len);
 int db_file_create_volume_get_id(cwist_db *db, int post_id, int user_id, const char *filename, const char *mime_type, const char *file_path, size_t len);
+char *db_file_unique_filename(cwist_db *db, int post_id, const char *filename);
 cJSON *db_file_get(cwist_db *db, int id);
 cJSON *db_file_list_all(cwist_db *db);
 cJSON *db_file_list_by_post(cwist_db *db, int post_id);
