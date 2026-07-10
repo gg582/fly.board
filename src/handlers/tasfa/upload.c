@@ -896,7 +896,34 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     if (!mime_type_from_data(final_path, mime_buf, sizeof(mime_buf))) {
         snprintf(mime_buf, sizeof(mime_buf), "%s", mime_type(filename));
     }
-    int fid = db_file_create_volume_get_id(req->db, post_id, owner_uid, filename, mime_buf, final_path, (size_t)json_long_long(meta, "total_size", 0));
+
+    /* Re-check uniqueness right before inserting: another concurrent upload
+     * may have claimed the auto-renamed filename between init and finalize. */
+    int fid = 0;
+    char *active_filename = NULL;
+    for (int attempt = 0; attempt < 10; attempt++) {
+        if (active_filename) cwist_free(active_filename);
+        active_filename = db_file_unique_filename(req->db, post_id, filename);
+        if (!active_filename) { fid = 0; break; }
+        if (strcmp(active_filename, filename) != 0) {
+            char new_final_path[PATH_MAX];
+            snprintf(new_final_path, sizeof(new_final_path), "public/uploads/%s_%s", upload_id, active_filename);
+            if (rename_fallback(final_path, new_final_path) != 0) {
+                FLY_LOG_ERROR("[TASFA] final file rename for uniqueness failed from %s to %s", final_path, new_final_path);
+                fid = 0; break;
+            }
+            snprintf(final_path, sizeof(final_path), "%s", new_final_path);
+            cJSON_ReplaceItemInObject(meta, "filename", cJSON_CreateString(active_filename));
+            filename = json_string(meta, "filename", "upload.bin");
+            if (!mime_type_from_data(final_path, mime_buf, sizeof(mime_buf))) {
+                snprintf(mime_buf, sizeof(mime_buf), "%s", mime_type(filename));
+            }
+        }
+        fid = db_file_create_volume_get_id(req->db, post_id, owner_uid, filename, mime_buf, final_path, (size_t)json_long_long(meta, "total_size", 0));
+        if (fid != -1) break;
+    }
+    if (active_filename) cwist_free(active_filename);
+
     if (fid <= 0) {
         pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
         unlink(final_path);
@@ -949,6 +976,9 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     } else {
         delete_pin[0] = '\0';
     }
+    /* Copy filename out of meta before freeing it; the response still needs it. */
+    char filename_buf[256];
+    snprintf(filename_buf, sizeof(filename_buf), "%s", filename);
     cJSON_Delete(meta);
     close_upload_session_lock(lock_fd);
     cleanup_upload_session(upload_id);
@@ -974,7 +1004,7 @@ skip_disconnect:
     cJSON_AddBoolToObject(obj, "ok", true);
     cJSON_AddNumberToObject(obj, "id", fid);
     cJSON_AddNumberToObject(obj, "fid", fid);
-    cJSON_AddStringToObject(obj, "filename", filename);
+    cJSON_AddStringToObject(obj, "filename", filename_buf);
     char url[512], checksum_hex[65];
     snprintf(url, sizeof(url), "/file/download/%d", fid);
     cJSON_AddStringToObject(obj, "url", url);

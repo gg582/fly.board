@@ -160,6 +160,11 @@ bool db_migrate(cwist_db *db) {
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_tags (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, UNIQUE(post_id, tag_id), FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE, FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE)");
 
+    /* Enforce one filename per post so auto-rename cannot race and create
+     * hidden duplicate records. Clean up any legacy duplicates first. */
+    db_file_cleanup_duplicates(db);
+    db_exec_sql(db, "CREATE UNIQUE INDEX IF NOT EXISTS idx_files_post_id_filename ON files(post_id, filename)");
+
     /* Performance indexes for hot read paths. */
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC)");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_posts_board_created ON posts(board_id, created_at DESC)");
