@@ -37,7 +37,12 @@ int db_file_create_volume_get_id(cwist_db *db, int post_id, int user_id, const c
     sqlite3_bind_text(stmt, 5, file_path, -1, SQLITE_STATIC);
     sqlite3_bind_int64(stmt, 6, (sqlite3_int64)len);
     int rc = sqlite3_step(stmt);
-    int id = rc == SQLITE_DONE ? (int)sqlite3_last_insert_rowid(db->conn) : 0;
+    int id = 0;
+    if (rc == SQLITE_DONE) {
+        id = (int)sqlite3_last_insert_rowid(db->conn);
+    } else if (rc == SQLITE_CONSTRAINT) {
+        id = -1;
+    }
     sqlite3_finalize(stmt);
     return id;
 }

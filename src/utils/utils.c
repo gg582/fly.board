@@ -327,10 +327,12 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
         return false;
     }
 
-    char *unique_filename = db_file_unique_filename(db, post_id, f->filename);
+    char *original_filename = f->filename;
+    char *unique_filename = db_file_unique_filename(db, post_id, original_filename);
     if (unique_filename) {
-        cwist_free(f->filename);
         f->filename = unique_filename;
+    } else {
+        original_filename = NULL;
     }
 
     strncpy(out->filename, f->filename, sizeof(out->filename) - 1);
@@ -338,6 +340,7 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
     out->file_size = f->file_size;
     if (g_config.max_upload_size > 0 && (long long)out->file_size > g_config.max_upload_size) {
         if (out->file_path[0]) unlink(out->file_path);
+        if (original_filename && original_filename != f->filename) cwist_free(original_filename);
         snprintf(out->error, sizeof(out->error), "upload too large");
         return false;
     }
@@ -349,8 +352,20 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
     }
     strncpy(out->mime_type, detected_mime, sizeof(out->mime_type) - 1);
 
-    db_file_replace_for_post(db, post_id, f->filename);
-    int fid = db_file_create_volume_get_id(db, post_id, uid, f->filename, out->mime_type, f->data, f->file_size);
+    int fid = 0;
+    for (int attempt = 0; attempt < 10 && f->filename; attempt++) {
+        fid = db_file_create_volume_get_id(db, post_id, uid, f->filename, out->mime_type, f->data, f->file_size);
+        if (fid != -1) break;
+        char *next = db_file_unique_filename(db, post_id, original_filename ? original_filename : f->filename);
+        if (next) {
+            cwist_free(f->filename);
+            f->filename = next;
+            strncpy(out->filename, f->filename, sizeof(out->filename) - 1);
+        } else {
+            break;
+        }
+    }
+    if (original_filename && original_filename != f->filename) cwist_free(original_filename);
     if (fid > 0) {
         snprintf(out->url, sizeof(out->url), "/file/download/%d", fid);
         char thumb_path[512] = {0};
