@@ -163,6 +163,17 @@ La cantidad de workers se escala con la carga para mantener cada prueba realista
 
 El crecimiento total de RSS de **C10k a C1m es solo ~492 KB** — básicamente ruido. Este es el resultado más importante de la prueba.
 
+Los valores RSS son el **Maximum resident set size (kbytes)** reportado por `/usr/bin/time -v` para el proceso del servidor.
+
+### Costo de memoria
+
+| Transición | Δ RSS | Δ Conexiones | Costo aproximado por conexión adicional |
+|---|---|---|---|
+| Idle → C10k | +62.22 MB | 10,000 | ~6.4 KB / conexión |
+| C10k → C1m | +492 KB | 990,000 | ~0.5 byte / conexión adicional |
+
+El salto inicial de Idle a C10k paga por adelantado el estado TLS, los búferes de conexión y la sobrecarga de workers. Después de eso, agregar 990,000 conexiones más cuesta menos de medio byte de RSS cada una — el costo de memoria por conexión es efectivamente plano.
+
 ### Prueba de conexiones simultáneas C10k
 
 Medido con `h2load` manteniendo 10,000 conexiones simultáneas.
@@ -262,8 +273,14 @@ La prueba anterior mide **escalabilidad de conexiones**, no el **rendimiento abs
 | Duration | 13.95 s |
 | Mean RPS | **7167.28** |
 | Mean throughput | **290.51 MB/s** |
+| Latencia de solicitud (h2load `time for request`) | min 183 µs, mean 30.69 ms, max 209.00 ms, sd 11.18 ms |
+| Latencia percentil aproximada* | p50 ~30.7 ms, p95 ~49.1 ms, p99 ~56.7 ms |
 
-Como comparación, se probó el mismo endpoint con `wrk` sobre HTTP/1.1:
+\* Los percentiles se aproximan a partir de la media y la desviación estándar reportadas; h2load imprime min/max/mean/sd por defecto. Ejecute con `--latency-collect` para histogramas percentiles exactos.
+
+#### Comparación HTTP/1.1 con `wrk`
+
+Como comparación, se probó el mismo endpoint con `wrk` sobre HTTP/1.1. Dado que el protocolo y la herramienta son diferentes, los números a continuación **no son directamente comparables** con los resultados HTTP/2 de h2load anteriores.
 
 | Elemento | Valor |
 |------|-------|
@@ -271,5 +288,6 @@ Como comparación, se probó el mismo endpoint con `wrk` sobre HTTP/1.1:
 | Duration | 60 s |
 | Requests/sec | **1282.49** |
 | Transfer/sec | 52.29 MB |
+| Latency | Avg 138.61 ms, Stdev 39.26 ms, Max 311.70 ms |
 
 Estos números muestran el techo de rendimiento absoluto del motor bajo una carga enfocada y sin límite de tasa. Son independientes de las pruebas de escalabilidad de conexiones anteriores.

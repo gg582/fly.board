@@ -163,6 +163,17 @@ The worker count is scaled with the load to keep each test realistic: **4 worker
 
 The total RSS growth from **C10k to C1m is only ~492 KB** — essentially noise. This is the most important result of the benchmark.
 
+RSS values are the **Maximum resident set size (kbytes)** reported by `/usr/bin/time -v` for the server process.
+
+### Memory Cost
+
+| Transition | Δ RSS | Δ Connections | Approx. cost per additional connection |
+|---|---|---|---|
+| Idle → C10k | +62.22 MB | 10,000 | ~6.4 KB / connection |
+| C10k → C1m | +492 KB | 990,000 | ~0.5 byte / additional connection |
+
+The initial jump from idle to C10k pays for TLS state, connection buffers, and worker overhead up front. After that, adding 990,000 more connections costs less than half a byte of RSS each — the per-connection memory cost is effectively flat.
+
 ### C10k Concurrent Connection Test
 
 Measured with `h2load` maintaining 10,000 concurrent connections.
@@ -262,8 +273,14 @@ The benchmark above measures **connection scalability**, not absolute **request 
 | Duration | 13.95 s |
 | Mean RPS | **7167.28** |
 | Mean throughput | **290.51 MB/s** |
+| Request latency (h2load `time for request`) | min 183 µs, mean 30.69 ms, max 209.00 ms, sd 11.18 ms |
+| Approx. percentile latency* | p50 ~30.7 ms, p95 ~49.1 ms, p99 ~56.7 ms |
 
-For comparison, the same endpoint was tested with `wrk` over HTTP/1.1:
+\* Percentiles are approximated from the reported mean and standard deviation; h2load prints min/max/mean/sd by default. Run with `--latency-collect` for exact percentile histograms.
+
+#### HTTP/1.1 comparison with `wrk`
+
+For comparison, the same endpoint was tested with `wrk` over HTTP/1.1. These are different protocols and different tools, so the numbers below are **not directly comparable** to the HTTP/2 h2load results above.
 
 | Item | Value |
 |------|-------|
@@ -271,5 +288,6 @@ For comparison, the same endpoint was tested with `wrk` over HTTP/1.1:
 | Duration | 60 s |
 | Requests/sec | **1282.49** |
 | Transfer/sec | 52.29 MB |
+| Latency | Avg 138.61 ms, Stdev 39.26 ms, Max 311.70 ms |
 
 These numbers show the engine's absolute throughput ceiling under a focused, non-rate-limited load. They are separate from the connection-scalability tests above.
