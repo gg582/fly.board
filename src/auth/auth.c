@@ -43,21 +43,29 @@ static char g_jwt_secret[256] = {0};
  * (e.g. keep-alive/header reuse bug), we can fall back to the remembered
  * identity instead of treating the user as logged out. This is intentionally
  * a heuristic: it only covers missing-cookie cases, never invalid tokens,
- * and entries expire quickly. */
+ * and entries expire quickly.
+ *
+ * Implementation uses chained hash buckets instead of a flat array so that
+ * lookups/updates are O(1) average and do not scan thousands of entries under
+ * a single global lock. This prevents the cache from becoming a CPU and
+ * contention hot-spot when the server has been running for a long time and
+ * many distinct clients have been seen. */
 #include <pthread.h>
 
-#define AUTH_HINT_CACHE_SIZE 8192
-#define AUTH_HINT_TTL_SECONDS 3600
+#define AUTH_HINT_CACHE_BUCKETS 1024
+#define AUTH_HINT_MAX_ENTRIES   8192
+#define AUTH_HINT_TTL_SECONDS   3600
 
-typedef struct {
+typedef struct auth_hint_entry {
     uint64_t key_hash;
     int user_id;
     char role[32];
     time_t last_seen;
-    bool active;
+    struct auth_hint_entry *next;
 } auth_hint_entry_t;
 
-static auth_hint_entry_t g_auth_hint_cache[AUTH_HINT_CACHE_SIZE];
+static auth_hint_entry_t *g_auth_hint_buckets[AUTH_HINT_CACHE_BUCKETS];
+static size_t g_auth_hint_count = 0;
 static pthread_mutex_t g_auth_hint_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static uint64_t auth_hint_hash(const char *ip, const char *ua) {
@@ -78,6 +86,10 @@ static uint64_t auth_hint_hash(const char *ip, const char *ua) {
     return h;
 }
 
+static inline size_t auth_hint_bucket_index(uint64_t h) {
+    return (size_t)(h & (AUTH_HINT_CACHE_BUCKETS - 1));
+}
+
 static void auth_hint_get_client_info(cwist_http_request *req, const char **out_ip, cwist_sstring **out_ip_ss, const char **out_ua) {
     *out_ip = "";
     *out_ip_ss = NULL;
@@ -92,6 +104,21 @@ static void auth_hint_get_client_info(cwist_http_request *req, const char **out_
     if (!*out_ua) *out_ua = "";
 }
 
+/* Evict one arbitrary entry to keep the cache bounded. Called while the lock
+ * is held. This is intentionally simple (drop the head of a non-empty bucket)
+ * because the hint cache is a best-effort heuristic; exact LRU is not required. */
+static void auth_hint_evict_one_locked(void) {
+    for (size_t i = 0; i < AUTH_HINT_CACHE_BUCKETS; ++i) {
+        auth_hint_entry_t *e = g_auth_hint_buckets[i];
+        if (e) {
+            g_auth_hint_buckets[i] = e->next;
+            free(e);
+            g_auth_hint_count--;
+            return;
+        }
+    }
+}
+
 static void auth_hint_update(cwist_http_request *req, int user_id, const char *role) {
     const char *ip, *ua;
     cwist_sstring *ip_ss = NULL;
@@ -101,29 +128,35 @@ static void auth_hint_update(cwist_http_request *req, int user_id, const char *r
 
     pthread_mutex_lock(&g_auth_hint_mutex);
     time_t now = time(NULL);
-    int best_slot = -1;
-    time_t oldest = now;
-    for (int i = 0; i < AUTH_HINT_CACHE_SIZE; ++i) {
-        if (!g_auth_hint_cache[i].active) {
-            best_slot = i;
-            break;
+    size_t idx = auth_hint_bucket_index(h);
+    auth_hint_entry_t *e = g_auth_hint_buckets[idx];
+    while (e) {
+        if (e->key_hash == h) {
+            e->user_id = user_id;
+            snprintf(e->role, sizeof(e->role), "%s", role ? role : "");
+            e->last_seen = now;
+            pthread_mutex_unlock(&g_auth_hint_mutex);
+            return;
         }
-        if (g_auth_hint_cache[i].key_hash == h) {
-            best_slot = i;
-            break;
-        }
-        if (g_auth_hint_cache[i].last_seen < oldest) {
-            oldest = g_auth_hint_cache[i].last_seen;
-            best_slot = i;
-        }
+        e = e->next;
     }
-    if (best_slot >= 0) {
-        g_auth_hint_cache[best_slot].key_hash = h;
-        g_auth_hint_cache[best_slot].user_id = user_id;
-        snprintf(g_auth_hint_cache[best_slot].role, sizeof(g_auth_hint_cache[best_slot].role), "%s", role ? role : "");
-        g_auth_hint_cache[best_slot].last_seen = now;
-        g_auth_hint_cache[best_slot].active = true;
+
+    if (g_auth_hint_count >= AUTH_HINT_MAX_ENTRIES) {
+        auth_hint_evict_one_locked();
     }
+
+    e = (auth_hint_entry_t *)calloc(1, sizeof(*e));
+    if (!e) {
+        pthread_mutex_unlock(&g_auth_hint_mutex);
+        return;
+    }
+    e->key_hash = h;
+    e->user_id = user_id;
+    snprintf(e->role, sizeof(e->role), "%s", role ? role : "");
+    e->last_seen = now;
+    e->next = g_auth_hint_buckets[idx];
+    g_auth_hint_buckets[idx] = e;
+    g_auth_hint_count++;
     pthread_mutex_unlock(&g_auth_hint_mutex);
 }
 
@@ -136,19 +169,19 @@ static bool auth_hint_lookup(cwist_http_request *req, int *out_user_id, char *ou
 
     pthread_mutex_lock(&g_auth_hint_mutex);
     time_t now = time(NULL);
-    bool found = false;
-    for (int i = 0; i < AUTH_HINT_CACHE_SIZE; ++i) {
-        if (g_auth_hint_cache[i].active &&
-            g_auth_hint_cache[i].key_hash == h &&
-            (now - g_auth_hint_cache[i].last_seen) <= AUTH_HINT_TTL_SECONDS) {
-            *out_user_id = g_auth_hint_cache[i].user_id;
-            snprintf(out_role, role_len, "%s", g_auth_hint_cache[i].role);
-            found = true;
-            break;
+    size_t idx = auth_hint_bucket_index(h);
+    auth_hint_entry_t *e = g_auth_hint_buckets[idx];
+    while (e) {
+        if (e->key_hash == h && (now - e->last_seen) <= AUTH_HINT_TTL_SECONDS) {
+            *out_user_id = e->user_id;
+            snprintf(out_role, role_len, "%s", e->role);
+            pthread_mutex_unlock(&g_auth_hint_mutex);
+            return true;
         }
+        e = e->next;
     }
     pthread_mutex_unlock(&g_auth_hint_mutex);
-    return found;
+    return false;
 }
 
 static void auth_hint_remove(cwist_http_request *req) {
@@ -159,11 +192,17 @@ static void auth_hint_remove(cwist_http_request *req) {
     if (ip_ss) cwist_sstring_destroy(ip_ss);
 
     pthread_mutex_lock(&g_auth_hint_mutex);
-    for (int i = 0; i < AUTH_HINT_CACHE_SIZE; ++i) {
-        if (g_auth_hint_cache[i].active && g_auth_hint_cache[i].key_hash == h) {
-            g_auth_hint_cache[i].active = false;
+    size_t idx = auth_hint_bucket_index(h);
+    auth_hint_entry_t **pp = &g_auth_hint_buckets[idx];
+    while (*pp) {
+        auth_hint_entry_t *e = *pp;
+        if (e->key_hash == h) {
+            *pp = e->next;
+            free(e);
+            g_auth_hint_count--;
             break;
         }
+        pp = &e->next;
     }
     pthread_mutex_unlock(&g_auth_hint_mutex);
 }
