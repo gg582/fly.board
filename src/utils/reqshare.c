@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "reqshare.h"
 #include <cwist/core/log.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
