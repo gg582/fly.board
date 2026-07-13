@@ -103,9 +103,26 @@ cwist_sstring *reqshare_wait_or_start(const char *key, bool *leader) {
                 free_entry(e);
                 break;
             }
-            /* Another request is in flight.  Wait for it. */
+            /* Another request is in flight.  Wait for it, but wake up
+             * periodically to check whether the leader has exceeded its
+             * safety TTL. A stuck leader would otherwise block every later
+             * request for the same key indefinitely and eventually starve the
+             * worker pool on long-running servers. */
+            bool leader_timed_out = false;
             while (e->state == RS_IN_PROGRESS) {
-                pthread_cond_wait(&e->cond, &g_mutex);
+                struct timespec ts;
+                clock_gettime(CLOCK_REALTIME, &ts);
+                ts.tv_sec += 1;
+                int rc = pthread_cond_timedwait(&e->cond, &g_mutex, &ts);
+                if (rc == ETIMEDOUT && e->state == RS_IN_PROGRESS && time(NULL) > e->expires_at) {
+                    *prev = e->next;
+                    free_entry(e);
+                    leader_timed_out = true;
+                    break;
+                }
+            }
+            if (leader_timed_out) {
+                break;
             }
             if (e->state == RS_DONE && e->expires_at > now) {
                 cwist_sstring *copy = copy_sstring(e->result);
