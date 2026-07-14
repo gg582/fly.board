@@ -9,6 +9,9 @@
 /* Session lifetime in seconds. Used for both JWT claims and cookie Max-Age.
  * 12 hours gives users a generous workday window without constant re-auth. */
 #define AUTH_SESSION_LIFETIME 43200
+/* Allow globally distant clients, retransmits, and worker-queue delay to cross
+ * token boundary timestamps without being treated as auth failures. */
+#define AUTH_TIME_LEEWAY_SECONDS 300
 
 bool auth_jwt_init(const char *secret_path);
 const char *auth_jwt_secret(void);

@@ -465,13 +465,15 @@ char *auth_jwt_issue(int user_id, const char *username, const char *role) {
     char sub[32];
     snprintf(sub, sizeof(sub), "%d", user_id);
 
-    /* Use a single timestamp for all time claims so iat, nbf, and exp are
-     * perfectly aligned and not subject to clock drift between claim adds. */
+    /* Backdate the issue/not-before boundary and extend exp by a small grace
+     * window so high-RTT clients and queued workers do not fail at the exact
+     * session boundary. Cookie Max-Age remains AUTH_SESSION_LIFETIME. */
     time_t now = time(NULL);
-    time_t exp = now + AUTH_SESSION_LIFETIME;
+    time_t issued_at = now - AUTH_TIME_LEEWAY_SECONDS;
+    time_t exp = now + AUTH_SESSION_LIFETIME + AUTH_TIME_LEEWAY_SECONDS;
     char iat_str[32], nbf_str[32], exp_str[32];
-    snprintf(iat_str, sizeof(iat_str), "%ld", (long)now);
-    snprintf(nbf_str, sizeof(nbf_str), "%ld", (long)now);
+    snprintf(iat_str, sizeof(iat_str), "%ld", (long)issued_at);
+    snprintf(nbf_str, sizeof(nbf_str), "%ld", (long)issued_at);
     snprintf(exp_str, sizeof(exp_str), "%ld", (long)exp);
 
     cwist_sstring_append(payload, "{\"sub\":\"");
@@ -488,7 +490,7 @@ char *auth_jwt_issue(int user_id, const char *username, const char *role) {
     cwist_sstring_append(payload, exp_str);
     cwist_sstring_append(payload, "}");
 
-    char *token = cwist_jwt_sign(payload->data, secret, AUTH_SESSION_LIFETIME);
+    char *token = cwist_jwt_sign(payload->data, secret, 0);
     cwist_sstring_destroy(payload);
     return token;
 }
@@ -542,10 +544,6 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
     size_t session_token_len = 0;
     const char *reason = NULL;
     int parsed_uid = 0;
-    char last_role[32] = {0};
-    char last_iat[32] = {0};
-    char last_nbf[32] = {0};
-    char last_exp[32] = {0};
 
     for (cwist_http_header_node *h = req->headers; h; h = h->next) {
         if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
@@ -561,17 +559,17 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
             const char *start = scan + name_eq_len;
             const char *end = strchr(start, ';');
             size_t len = end ? (size_t)(end - start) : strlen(start);
-            session_token_len = len;
+            if (!reason) session_token_len = len;
             token_attempts++;
 
             if (len == 0) {
-                reason = AUTH_FAIL_EMPTY_SESSION_COOKIE;
+                if (!reason) reason = AUTH_FAIL_EMPTY_SESSION_COOKIE;
                 if (!end) break;
                 scan = end + 1;
                 continue;
             }
             if (len >= 1024) {
-                reason = AUTH_FAIL_TOKEN_TOO_LONG;
+                if (!reason) reason = AUTH_FAIL_TOKEN_TOO_LONG;
                 if (!end) break;
                 scan = end + 1;
                 continue;
@@ -587,7 +585,7 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
 
             cwist_jwt_claims *claims = cwist_jwt_verify(token->data, secret);
             if (!claims) {
-                reason = AUTH_FAIL_JWT_VERIFY_NULL;
+                if (!reason) reason = AUTH_FAIL_JWT_VERIFY_NULL;
                 cwist_sstring_destroy(token);
                 if (!end) break;
                 scan = end + 1;
@@ -598,26 +596,20 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
             const char *sub = cwist_jwt_claims_get(claims, "sub");
             const char *username = cwist_jwt_claims_get(claims, "username");
             const char *role = cwist_jwt_claims_get(claims, "role");
-            const char *claim_iat = cwist_jwt_claims_get(claims, "iat");
-            const char *claim_nbf = cwist_jwt_claims_get(claims, "nbf");
-            const char *claim_exp = cwist_jwt_claims_get(claims, "exp");
-            if (claim_iat) snprintf(last_iat, sizeof(last_iat), "%s", claim_iat);
-            if (claim_nbf) snprintf(last_nbf, sizeof(last_nbf), "%s", claim_nbf);
-            if (claim_exp) snprintf(last_exp, sizeof(last_exp), "%s", claim_exp);
-            if (role) snprintf(last_role, sizeof(last_role), "%s", role);
 
             if (!sub) {
-                reason = AUTH_FAIL_MISSING_SUB;
+                if (!reason) reason = AUTH_FAIL_MISSING_SUB;
             } else {
-                parsed_uid = atoi(sub);
-                if (parsed_uid <= 0) {
-                    reason = AUTH_FAIL_BAD_SUB;
+                int uid = atoi(sub);
+                if (!reason) parsed_uid = uid;
+                if (uid <= 0) {
+                    if (!reason) reason = AUTH_FAIL_BAD_SUB;
                 } else if (!username) {
-                    reason = AUTH_FAIL_MISSING_USERNAME;
+                    if (!reason) reason = AUTH_FAIL_MISSING_USERNAME;
                 } else if (!role) {
-                    reason = AUTH_FAIL_MISSING_ROLE;
+                    if (!reason) reason = AUTH_FAIL_MISSING_ROLE;
                 } else {
-                    *out_user_id = parsed_uid;
+                    *out_user_id = uid;
                     snprintf(out_role, role_len, "%s", role);
                     auth_hint_update(req, *out_user_id, out_role);
                     cwist_jwt_claims_destroy(claims);
@@ -669,8 +661,7 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
 
     CWIST_LOG_ERROR("auth verify failed: reason=%s method=%s path=%s "
                     "cookie_headers=%d session_found=%d token_len=%zu "
-                    "token_attempts=%d valid_claims=%d parsed_uid=%d "
-                    "parsed_role=%s iat=%s nbf=%s exp=%s now=%ld",
+                    "token_attempts=%d valid_claims=%d parsed_uid=%d now=%ld",
                     reason,
                     cwist_http_method_to_string(req->method),
                     (req->path && req->path->data) ? req->path->data : "?",
@@ -680,10 +671,6 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
                     token_attempts,
                     valid_claims,
                     parsed_uid,
-                    last_role[0] ? last_role : "(none)",
-                    last_iat[0] ? last_iat : "(none)",
-                    last_nbf[0] ? last_nbf : "(none)",
-                    last_exp[0] ? last_exp : "(none)",
                     (long)time(NULL));
     return false;
 }
