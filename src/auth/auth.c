@@ -542,10 +542,10 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
     size_t session_token_len = 0;
     const char *reason = NULL;
     int parsed_uid = 0;
-    const char *last_role = NULL;
-    const char *last_iat = NULL;
-    const char *last_nbf = NULL;
-    const char *last_exp = NULL;
+    char last_role[32] = {0};
+    char last_iat[32] = {0};
+    char last_nbf[32] = {0};
+    char last_exp[32] = {0};
 
     for (cwist_http_header_node *h = req->headers; h; h = h->next) {
         if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
@@ -598,9 +598,13 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
             const char *sub = cwist_jwt_claims_get(claims, "sub");
             const char *username = cwist_jwt_claims_get(claims, "username");
             const char *role = cwist_jwt_claims_get(claims, "role");
-            last_iat = cwist_jwt_claims_get(claims, "iat");
-            last_nbf = cwist_jwt_claims_get(claims, "nbf");
-            last_exp = cwist_jwt_claims_get(claims, "exp");
+            const char *claim_iat = cwist_jwt_claims_get(claims, "iat");
+            const char *claim_nbf = cwist_jwt_claims_get(claims, "nbf");
+            const char *claim_exp = cwist_jwt_claims_get(claims, "exp");
+            if (claim_iat) snprintf(last_iat, sizeof(last_iat), "%s", claim_iat);
+            if (claim_nbf) snprintf(last_nbf, sizeof(last_nbf), "%s", claim_nbf);
+            if (claim_exp) snprintf(last_exp, sizeof(last_exp), "%s", claim_exp);
+            if (role) snprintf(last_role, sizeof(last_role), "%s", role);
 
             if (!sub) {
                 reason = AUTH_FAIL_MISSING_SUB;
@@ -622,7 +626,6 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
                 }
             }
 
-            last_role = role;
             cwist_jwt_claims_destroy(claims);
             cwist_sstring_destroy(token);
             if (!end) break;
@@ -677,10 +680,10 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
                     token_attempts,
                     valid_claims,
                     parsed_uid,
-                    last_role ? last_role : "(none)",
-                    last_iat ? last_iat : "(none)",
-                    last_nbf ? last_nbf : "(none)",
-                    last_exp ? last_exp : "(none)",
+                    last_role[0] ? last_role : "(none)",
+                    last_iat[0] ? last_iat : "(none)",
+                    last_nbf[0] ? last_nbf : "(none)",
+                    last_exp[0] ? last_exp : "(none)",
                     (long)time(NULL));
     return false;
 }
