@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <arpa/inet.h>
 
 static const char *CLIENT_NONCE = "fly.board";
 
@@ -90,15 +91,21 @@ static inline size_t auth_hint_bucket_index(uint64_t h) {
     return (size_t)(h & (AUTH_HINT_CACHE_BUCKETS - 1));
 }
 
-static void auth_hint_get_client_info(cwist_http_request *req, const char **out_ip, cwist_sstring **out_ip_ss, const char **out_ua) {
-    *out_ip = "";
-    *out_ip_ss = NULL;
+/* Copy the client IP and User-Agent into caller-owned buffers so the hash
+ * key remains valid regardless of how cwist_get_client_ip_from_fd() manages
+ * its return value. This eliminates any chance of hashing a dangling pointer
+ * if the sstring is destroyed before the key is used. */
+static void auth_hint_get_client_info(cwist_http_request *req,
+                                      char *ip_buf, size_t ip_len,
+                                      const char **out_ua) {
+    ip_buf[0] = '\0';
     *out_ua = "";
     if (req->client_fd >= 0) {
-        *out_ip_ss = cwist_get_client_ip_from_fd(req->client_fd);
-        if (*out_ip_ss && (*out_ip_ss)->data) {
-            *out_ip = (*out_ip_ss)->data;
+        cwist_sstring *ip_ss = cwist_get_client_ip_from_fd(req->client_fd);
+        if (ip_ss && ip_ss->data) {
+            snprintf(ip_buf, ip_len, "%s", ip_ss->data);
         }
+        if (ip_ss) cwist_sstring_destroy(ip_ss);
     }
     *out_ua = cwist_http_header_get(req->headers, "User-Agent");
     if (!*out_ua) *out_ua = "";
@@ -120,11 +127,10 @@ static void auth_hint_evict_one_locked(void) {
 }
 
 static void auth_hint_update(cwist_http_request *req, int user_id, const char *role) {
-    const char *ip, *ua;
-    cwist_sstring *ip_ss = NULL;
-    auth_hint_get_client_info(req, &ip, &ip_ss, &ua);
+    char ip[INET6_ADDRSTRLEN];
+    const char *ua;
+    auth_hint_get_client_info(req, ip, sizeof(ip), &ua);
     uint64_t h = auth_hint_hash(ip, ua);
-    if (ip_ss) cwist_sstring_destroy(ip_ss);
 
     pthread_mutex_lock(&g_auth_hint_mutex);
     time_t now = time(NULL);
@@ -161,11 +167,10 @@ static void auth_hint_update(cwist_http_request *req, int user_id, const char *r
 }
 
 static bool auth_hint_lookup(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
-    const char *ip, *ua;
-    cwist_sstring *ip_ss = NULL;
-    auth_hint_get_client_info(req, &ip, &ip_ss, &ua);
+    char ip[INET6_ADDRSTRLEN];
+    const char *ua;
+    auth_hint_get_client_info(req, ip, sizeof(ip), &ua);
     uint64_t h = auth_hint_hash(ip, ua);
-    if (ip_ss) cwist_sstring_destroy(ip_ss);
 
     pthread_mutex_lock(&g_auth_hint_mutex);
     time_t now = time(NULL);
@@ -185,11 +190,10 @@ static bool auth_hint_lookup(cwist_http_request *req, int *out_user_id, char *ou
 }
 
 static void auth_hint_remove(cwist_http_request *req) {
-    const char *ip, *ua;
-    cwist_sstring *ip_ss = NULL;
-    auth_hint_get_client_info(req, &ip, &ip_ss, &ua);
+    char ip[INET6_ADDRSTRLEN];
+    const char *ua;
+    auth_hint_get_client_info(req, ip, sizeof(ip), &ua);
     uint64_t h = auth_hint_hash(ip, ua);
-    if (ip_ss) cwist_sstring_destroy(ip_ss);
 
     pthread_mutex_lock(&g_auth_hint_mutex);
     size_t idx = auth_hint_bucket_index(h);
@@ -495,7 +499,50 @@ char *auth_jwt_issue(int user_id, const char *username, const char *role) {
     return token;
 }
 
+/* Cookie name/value pair produced by auth_cookie_iter_next(). */
+typedef struct {
+    const char *name;
+    size_t name_len;
+    const char *value;
+    size_t value_len;
+} auth_cookie_iter_t;
+
+/* Iterate over cookies in a Cookie header value.
+ * Sets *cursor to the position after the consumed cookie and fills *out.
+ * Returns false when no more cookies remain. */
+static bool auth_cookie_iter_next(const char **cursor, auth_cookie_iter_t *out) {
+    if (!cursor || !out) return false;
+    const char *p = *cursor;
+    while (*p == ' ' || *p == '\t') p++;
+    if (!*p) return false;
+
+    out->name = p;
+    while (*p && *p != '=' && *p != ';') p++;
+    out->name_len = (size_t)(p - out->name);
+
+    out->value = NULL;
+    out->value_len = 0;
+
+    if (*p == '=') {
+        p++;
+        out->value = p;
+        while (*p && *p != ';') p++;
+        out->value_len = (size_t)(p - out->value);
+        while (out->value_len > 0 &&
+               (out->value[out->value_len - 1] == ' ' ||
+                out->value[out->value_len - 1] == '\t')) {
+            out->value_len--;
+        }
+    }
+
+    if (*p == ';') p++;
+    *cursor = p;
+    return true;
+}
+
 bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
+    if (!req || !out_user_id || !out_role || role_len == 0) return false;
+
     const char *secret = auth_jwt_secret();
     if (!secret) {
         CWIST_LOG_ERROR("auth verify failed: reason=%s method=%s path=%s detail=%s",
@@ -535,8 +582,8 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
         }
     }
 
-    const char *name_eq = SESSION_COOKIE_NAME "=";
-    size_t name_eq_len = strlen(name_eq);
+    const char *cookie_name = SESSION_COOKIE_NAME;
+    size_t cookie_name_len = strlen(cookie_name);
     int cookie_headers = 0;
     int token_attempts = 0;
     int valid_claims = 0;
@@ -552,43 +599,39 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
 
         /* Scan every occurrence of the session cookie in this header value.
          * Browsers may send duplicate session cookies (e.g. a stale domain-scoped
-         * cookie left over from a previous deployment plus the current one). */
-        const char *scan = h->value->data;
-        while ((scan = strstr(scan, name_eq)) != NULL) {
+         * cookie left over from a previous deployment plus the current one).
+         * We parse the header explicitly instead of using strstr() so another
+         * cookie whose name or value contains SESSION_COOKIE_NAME cannot be
+         * mistaken for the session cookie. */
+        auth_cookie_iter_t cookie;
+        const char *cursor = h->value->data;
+        while (auth_cookie_iter_next(&cursor, &cookie)) {
+            if (cookie.name_len != cookie_name_len ||
+                strncmp(cookie.name, cookie_name, cookie_name_len) != 0) {
+                continue;
+            }
             session_cookie_found = true;
-            const char *start = scan + name_eq_len;
-            const char *end = strchr(start, ';');
-            size_t len = end ? (size_t)(end - start) : strlen(start);
+            size_t len = cookie.value_len;
             if (!reason) session_token_len = len;
             token_attempts++;
 
             if (len == 0) {
                 if (!reason) reason = AUTH_FAIL_EMPTY_SESSION_COOKIE;
-                if (!end) break;
-                scan = end + 1;
                 continue;
             }
             if (len >= 1024) {
                 if (!reason) reason = AUTH_FAIL_TOKEN_TOO_LONG;
-                if (!end) break;
-                scan = end + 1;
                 continue;
             }
 
             cwist_sstring *token = cwist_sstring_create();
-            if (!token) {
-                if (!end) break;
-                scan = end + 1;
-                continue;
-            }
-            cwist_sstring_assign_len(token, start, len);
+            if (!token) continue;
+            cwist_sstring_assign_len(token, cookie.value, len);
 
             cwist_jwt_claims *claims = cwist_jwt_verify(token->data, secret);
             if (!claims) {
                 if (!reason) reason = AUTH_FAIL_JWT_VERIFY_NULL;
                 cwist_sstring_destroy(token);
-                if (!end) break;
-                scan = end + 1;
                 continue;
             }
 
@@ -620,8 +663,6 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
 
             cwist_jwt_claims_destroy(claims);
             cwist_sstring_destroy(token);
-            if (!end) break;
-            scan = end + 1;
         }
     }
 
@@ -638,8 +679,11 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
     /* If the cookie header was absent (likely keep-alive/header reuse bug),
      * fall back to a recent successful identity from the same IP+UA.
      * This is a heuristic: it keeps legitimate users logged in during
-     * transient cookie loss, but never overrides an explicitly sent token. */
-    if (reason &&
+     * transient cookie loss, but never overrides an explicitly sent token.
+     * If the client sent an Authorization header we deliberately skip the hint;
+     * an explicit bearer attempt that failed should not be silently overridden. */
+    bool has_auth_header = cwist_http_header_get(req->headers, "Authorization") != NULL;
+    if (!has_auth_header && reason &&
         (strcmp(reason, AUTH_FAIL_NO_COOKIE_HEADER) == 0 ||
          strcmp(reason, AUTH_FAIL_SESSION_COOKIE_MISSING) == 0 ||
          strcmp(reason, AUTH_FAIL_EMPTY_SESSION_COOKIE) == 0)) {
@@ -680,6 +724,7 @@ bool auth_is_logged_in(cwist_http_request *req, int *out_user_id, char *out_role
 }
 
 bool auth_require_login(cwist_http_request *req, cwist_http_response *res, int *out_user_id, char *out_role, size_t role_len) {
+    if (!res) return false;
     if (!auth_is_logged_in(req, out_user_id, out_role, role_len)) {
         res->status_code = CWIST_HTTP_UNAUTHORIZED;
         cwist_sstring_assign(res->body, "Unauthorized. Please <a href='/login'>login</a>.");
@@ -726,6 +771,7 @@ bool auth_admin_check(const char *username, const char *password) {
 }
 
 bool auth_require_admin(cwist_http_request *req, cwist_http_response *res) {
+    if (!res) return false;
     int uid = 0;
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return false;
@@ -749,11 +795,21 @@ bool auth_require_admin(cwist_http_request *req, cwist_http_response *res) {
  * anonymous fallback (e.g. post creation) to distinguish "anonymous by
  * choice" from "logged-in session unexpectedly missing/invalid". */
 bool auth_has_session_cookie(cwist_http_request *req) {
-    const char *name_eq = SESSION_COOKIE_NAME "=";
+    if (!req) return false;
+    const char *cookie_name = SESSION_COOKIE_NAME;
+    size_t cookie_name_len = strlen(cookie_name);
     for (cwist_http_header_node *h = req->headers; h; h = h->next) {
         if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
         if (strcasecmp(h->key->data, "Cookie") != 0) continue;
-        if (strstr(h->value->data, name_eq) != NULL) return true;
+
+        auth_cookie_iter_t cookie;
+        const char *cursor = h->value->data;
+        while (auth_cookie_iter_next(&cursor, &cookie)) {
+            if (cookie.name_len == cookie_name_len &&
+                strncmp(cookie.name, cookie_name, cookie_name_len) == 0) {
+                return true;
+            }
+        }
     }
     return false;
 }
