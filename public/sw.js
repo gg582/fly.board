@@ -442,6 +442,10 @@ self.addEventListener('fetch', function(event) {
      * cache entry in the background for the next navigation.  A short TTL keeps
      * dynamic content reasonably fresh. */
     if (event.request.mode === 'navigate' && event.request.method === 'GET') {
+        var ref = event.request.referrer || '';
+        if (ref.includes('/login') || ref.includes('/register') || ref.includes('/logout') || ref.includes('/account') || ref.includes('/admin')) {
+            return;
+        }
         event.respondWith(
             caches.open(NAVIGATION_CACHE).then(function(cache) {
                 return cache.match(event.request).then(function(cachedResponse) {
