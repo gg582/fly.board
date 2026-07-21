@@ -133,12 +133,12 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
 
     if (strcmp(kind, "image") == 0) {
         const bool is_gif = render_file_is_gif(file);
-        const char *display_url = is_gif ? url : preview_url;
         cwist_sstring_append(out, "<img ");
         cwist_sstring_append(out, "src=\"");
-        cwist_sstring_append(out, display_url);
+        cwist_sstring_append(out, preview_url);
         cwist_sstring_append(out, "\" data-tasfa-src=\"");
-        cwist_sstring_append(out, display_url);
+        cwist_sstring_append(out, preview_url);
+        cwist_sstring_append(out, "\" data-tasfa-fixed-preview=\"1");
         cwist_sstring_append(out, "\" data-tasfa-original=\"");
         cwist_sstring_append(out, url);
         if (is_gif) {
@@ -874,13 +874,13 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                     } else {
                         cwist_sstring_append(b, "<div class='media-attachment-block' style='margin-bottom:12px'>");
                         if (is_image) {
-                            cwist_sstring_append(b, "<img src='");
-                            cwist_sstring_append(b, is_gif ? "/file/download/" : "/file/preview/");
+                            cwist_sstring_append(b, "<img src='/file/preview/");
                             cwist_sstring_append(b, fid_buf2);
-                            cwist_sstring_append(b, "' data-tasfa-src='/file/download/");
+                            cwist_sstring_append(b, "' data-tasfa-src='/file/preview/");
                             cwist_sstring_append(b, fid_buf2);
                             cwist_sstring_append(b, "' data-tasfa-original='/file/download/");
                             cwist_sstring_append(b, fid_buf2);
+                            cwist_sstring_append(b, "' data-tasfa-fixed-preview='1");
                             if (is_gif) {
                                 cwist_sstring_append(b, "' data-tasfa-animated-gif='1");
                             }
