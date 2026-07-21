@@ -2036,4 +2036,50 @@ void rule_media(cJSON *rules) {
     cJSON *mq27 = create_mobile_rule(".board-line-title");
     add_decl(mq27, "font-size", "1.2rem");
     cJSON_AddItemToArray(rules, mq27);
+
+    cJSON *mq_search_form = create_mobile_rule(".search-form");
+    add_decl(mq_search_form, "max-width", "none");
+    add_decl(mq_search_form, "margin-bottom", "20px");
+    cJSON_AddItemToArray(rules, mq_search_form);
+
+    cJSON *mq_search_label = create_mobile_rule(".search-label-row");
+    add_decl(mq_search_label, "flex-wrap", "wrap");
+    add_decl(mq_search_label, "row-gap", "6px");
+    cJSON_AddItemToArray(rules, mq_search_label);
+
+    cJSON *mq_search_tag = create_mobile_rule(".search-label-row .tag");
+    add_decl(mq_search_tag, "max-width", "100%");
+    add_decl(mq_search_tag, "overflow", "hidden");
+    add_decl(mq_search_tag, "text-overflow", "ellipsis");
+    add_decl(mq_search_tag, "white-space", "nowrap");
+    cJSON_AddItemToArray(rules, mq_search_tag);
+
+    cJSON *mq_search_cluster = create_mobile_rule(".search-cluster");
+    add_decl(mq_search_cluster, "display", "grid");
+    add_decl(mq_search_cluster, "grid-template-columns", "repeat(2, minmax(0, 1fr))");
+    add_decl(mq_search_cluster, "gap", "8px");
+    cJSON_AddItemToArray(rules, mq_search_cluster);
+
+    cJSON *mq_search_input = create_mobile_rule(".search-cluster input");
+    add_decl(mq_search_input, "grid-column", "1 / -1");
+    add_decl(mq_search_input, "width", "100%");
+    add_decl(mq_search_input, "box-sizing", "border-box");
+    cJSON_AddItemToArray(rules, mq_search_input);
+
+    cJSON *mq_search_btn = create_mobile_rule(".search-cluster .btn");
+    add_decl(mq_search_btn, "width", "100%");
+    add_decl(mq_search_btn, "min-height", "42px");
+    add_decl(mq_search_btn, "white-space", "normal");
+    cJSON_AddItemToArray(rules, mq_search_btn);
+
+    cJSON *mq_adv_search = create_mobile_rule("#adv-search");
+    add_decl(mq_adv_search, "width", "100%");
+    add_decl(mq_adv_search, "box-sizing", "border-box");
+    cJSON_AddItemToArray(rules, mq_adv_search);
+
+    cJSON *mq_adv_select = create_mobile_rule(".search-adv-select");
+    add_decl(mq_adv_select, "width", "100%");
+    add_decl(mq_adv_select, "min-height", "42px");
+    add_decl(mq_adv_select, "box-sizing", "border-box");
+    cJSON_AddItemToArray(rules, mq_adv_select);
 }
