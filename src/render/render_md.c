@@ -314,7 +314,16 @@ static void rewrite_tasfa_bootstrap(cwist_sstring *html) {
                             if (path_len < sizeof(download_path)) {
                                 strncpy(download_path, src, path_len);
                             }
-                            snprintf(rewritten, sizeof(rewritten), "<%s data-tasfa-download=\"%s\"", tag_name, download_path);
+                            char *id_end = NULL;
+                            long file_id = strtol(download_path + 15, &id_end, 10);
+                            if (strcmp(tag_name, "img") == 0 && file_id > 0 && id_end && (*id_end == '\0' || *id_end == '?')) {
+                                snprintf(rewritten, sizeof(rewritten),
+                                         "<%s src=\"/file/preview/%ld\" data-tasfa-src=\"/file/preview/%ld\" "
+                                         "data-tasfa-original=\"%s\" data-tasfa-fixed-preview=\"1\"",
+                                         tag_name, file_id, file_id, download_path);
+                            } else {
+                                snprintf(rewritten, sizeof(rewritten), "<%s data-tasfa-download=\"%s\"", tag_name, download_path);
+                            }
                             cwist_sstring_append(out, rewritten);
                             const char *after_name = data + i + strlen(tag_name) + 1;
                             const char *src_pos = strstr(after_name, "src=\"");
