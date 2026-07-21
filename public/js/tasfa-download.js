@@ -1494,18 +1494,9 @@
             if (el.getAttribute('data-tasfa-animated-gif') === '1') {
                 el.style.opacity = '1';
                 el.setAttribute('data-tasfa-ready', '1');
-                // Decode the completed TASFA payload as a GIF blob. This keeps
-                // animation playback independent of service-worker cache handling.
-                fetchBlobViaTasfa(baseUrl, { silent: true }).then(function(result) {
-                    var gifBlob = result.blob.type === 'image/gif'
-                        ? result.blob
-                        : new Blob([result.blob], { type: 'image/gif' });
-                    var objectUrl = URL.createObjectURL(gifBlob);
-                    objectUrls.set(el, objectUrl);
-                    setImageSrc(objectUrl);
-                }).catch(function() {
-                    // The direct preview URL remains visible as the fallback.
-                });
+                // GIF preview responses are already image/gif and loop forever.
+                // Do not start a second TASFA transfer alongside the img request:
+                // concurrent duplicate downloads could exhaust post-load sessions.
                 return;
             }
 
