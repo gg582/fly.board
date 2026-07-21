@@ -1680,7 +1680,10 @@
             img.dataset.tasfaAnimationBound = '1';
             var animationUrl = img.getAttribute('data-tasfa-animation-url');
             if (!animationUrl) return;
-            fetch(animationUrl, { method: 'HEAD', credentials: 'same-origin' }).then(function(response) {
+            fetch(animationUrl, {
+                credentials: 'same-origin',
+                headers: { 'Range': 'bytes=0-0' }
+            }).then(function(response) {
                 var contentType = response.headers.get('content-type') || '';
                 if (!response.ok || contentType.indexOf('video/') !== 0) return;
                 var video = document.createElement('video');
