@@ -60,6 +60,8 @@ void engine_routes_register(cwist_app *app) {
 
     cwist_app_get(app, "/files", handler_file_repo);
     cwist_app_get(app, "/file/preview/:id", handler_file_preview);
+    cwist_app_get(app, "/file/preview/:id/handshake", handler_file_preview_handshake);
+    cwist_app_get(app, "/file/preview/:id/chunk/:chunk_index", handler_file_preview_chunk);
     cwist_app_get(app, "/file/:id", handler_file_detail_get);
     cwist_app_get(app, "/file/download/:id", handler_file_download);
     cwist_app_get(app, "/file/download/:id/handshake", handler_file_download_handshake);

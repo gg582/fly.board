@@ -120,6 +120,29 @@ bool generate_image_thumb(const char *src, const char *dst, int max_w, int max_h
     return run_ffmpeg(cmd);
 }
 
+bool generate_gif_thumb(const char *src, const char *dst, int max_w, int max_h, int fps) {
+    if (!src || !dst || max_w <= 0 || max_h <= 0 || fps <= 0) return false;
+    dir_ensure("public/uploads/.thumbs");
+    int needed = snprintf(NULL, 0,
+        "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' "
+        "-filter_complex '[0:v]fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,palettegen=stats_mode=diff[p];"
+        "[0:v]fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos[x];"
+        "[x][p]paletteuse=dither=bayer:bayer_scale=3' -y '%s'",
+        src, fps, max_w, max_h, fps, max_w, max_h, dst);
+    if (needed <= 0) return false;
+    char *cmd = (char *)malloc((size_t)needed + 1);
+    if (!cmd) return false;
+    snprintf(cmd, (size_t)needed + 1,
+        "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' "
+        "-filter_complex '[0:v]fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,palettegen=stats_mode=diff[p];"
+        "[0:v]fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos[x];"
+        "[x][p]paletteuse=dither=bayer:bayer_scale=3' -y '%s'",
+        src, fps, max_w, max_h, fps, max_w, max_h, dst);
+    bool ok = run_ffmpeg(cmd);
+    free(cmd);
+    return ok;
+}
+
 bool generate_static_asset_webp(const char *src, const char *dst, int max_w, int max_h) {
     if (!src || !dst || max_w <= 0 || max_h <= 0) return false;
     dir_ensure("public/uploads/.thumbs");
@@ -219,7 +242,13 @@ void media_preview_backfill(cwist_db *db) {
         bool ok = true;
 
         if (strcmp(mime, "image/gif") == 0) {
-            continue;
+            snprintf(next_thumb, sizeof(next_thumb), "public/uploads/.thumbs/%d.gif", id);
+            snprintf(next_preview, sizeof(next_preview), "%s", preview_path);
+            if (!regular_file_exists(next_thumb)) {
+                ok = generate_gif_thumb(path, next_thumb, 1024, 1024, 12);
+                if (ok) generated++;
+            }
+            changed = ok && strcmp(thumb_path, next_thumb) != 0;
         } else if (strncmp(mime, "image/", 6) == 0) {
             snprintf(next_thumb, sizeof(next_thumb), "public/uploads/.thumbs/%d.webp", id);
             snprintf(next_preview, sizeof(next_preview), "%s", preview_path);
@@ -314,6 +343,28 @@ static void backfill_static_dir(const char *scope_prefix, const char *dir_path,
         const char *mt = mime_type(ent->d_name);
         if (!mt || strncmp(mt, "image/", 6) != 0) continue;
         (*scanned)++;
+        if (strcmp(mt, "image/gif") == 0) {
+            char scope_fname[512] = {0};
+            snprintf(scope_fname, sizeof(scope_fname), "%s_", scope_prefix);
+            char *p = scope_fname + strlen(scope_fname);
+            for (size_t i = 0; ent->d_name[i] && (size_t)(p - scope_fname) < sizeof(scope_fname) - 1; i++) {
+                *p++ = (ent->d_name[i] == '/') ? '_' : ent->d_name[i];
+            }
+            *p = '\0';
+            for (size_t i = 0; i < count; i++) {
+                char dst[PATH_MAX];
+                snprintf(dst, sizeof(dst), "public/uploads/.thumbs/asset_%s_%dx%d.gif",
+                         scope_fname, sizes[i].w, sizes[i].h);
+                if (regular_file_exists(dst)) continue;
+                if (generate_gif_thumb(src_path, dst, sizes[i].w, sizes[i].h, 12)) {
+                    (*generated)++;
+                } else {
+                    (*failed)++;
+                    CWIST_LOG_WARN("Static asset gif thumb failed: %s -> %s", src_path, dst);
+                }
+            }
+            continue;
+        }
         generate_static_asset_thumbs(scope_prefix, src_path, ent->d_name, sizes, count, generated, failed);
     }
     closedir(d);

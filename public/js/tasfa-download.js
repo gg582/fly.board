@@ -330,6 +330,7 @@
         var query = path.indexOf('?') === -1 ? '' : path.slice(path.indexOf('?'));
         if (!path) return null;
         if (cleanPath.indexOf('/file/download/') === 0) return cleanPath + '/handshake' + query;
+        if (cleanPath.indexOf('/file/preview/') === 0) return cleanPath + '/handshake' + query;
         if (cleanPath.indexOf('/assets/uploads/') === 0) return '/assets/tasfa/uploads/' + encodeURIComponent(cleanPath.slice('/assets/uploads/'.length)) + '/handshake';
         return null;
     }
@@ -341,6 +342,10 @@
         if (!path) return null;
         var url = null;
         if (cleanPath.indexOf('/file/download/') === 0) {
+            url = cleanPath + '/chunk/' + String(chunkIndex) + '?';
+            if (extraQuery) url += extraQuery + '&';
+            url += 'session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
+        } else if (cleanPath.indexOf('/file/preview/') === 0) {
             url = cleanPath + '/chunk/' + String(chunkIndex) + '?';
             if (extraQuery) url += extraQuery + '&';
             url += 'session_id=' + encodeURIComponent(sessionId) + '&session_token=' + encodeURIComponent(sessionToken);
@@ -1480,13 +1485,19 @@
                 dlBtn.href = 'javascript:void(0);';
                 dlBtn.addEventListener('click', function(event) {
                     event.preventDefault();
-                    var currentSrc = el.getAttribute('src') || el.src || displayUrl;
+                    var currentSrc = el.getAttribute('src') || el.src || baseUrl;
                     triggerDownload(originalUrl, currentSrc).catch(function(){});
                 });
                 wrap.appendChild(dlBtn);
             }
 
             if (el.getAttribute('data-tasfa-animated-gif') === '1') {
+                el.style.opacity = '1';
+                el.setAttribute('data-tasfa-ready', '1');
+                return;
+            }
+
+            if (el.getAttribute('data-tasfa-fixed-preview') === '1') {
                 el.style.opacity = '1';
                 el.setAttribute('data-tasfa-ready', '1');
                 return;
@@ -1520,20 +1531,20 @@
                 }
                 displayHeight = Math.ceil(displayHeight / 100) * 100;
 
-                // Posts and uploads: guarantee a minimum resolution around 720x1080,
-                // adaptive to image orientation, capped at 1920.
-                if (displayWidth >= displayHeight) {
-                    if (displayWidth < 1080) displayWidth = 1080;
-                    if (displayHeight < 720) displayHeight = 720;
-                } else {
-                    if (displayWidth < 720) displayWidth = 720;
-                    if (displayHeight < 1080) displayHeight = 1080;
-                }
-                if (displayWidth > 1920) displayWidth = 1920;
-                if (displayHeight > 1920) displayHeight = 1920;
-
                 var displayUrl = baseUrl;
-                displayUrl += (displayUrl.indexOf('?') === -1 ? '?' : '&') + 'w=' + displayWidth + '&h=' + displayHeight;
+                if (el.getAttribute('data-tasfa-fixed-preview') !== '1') {
+                    // Posts and uploads: still adapt when the preview is not fixed.
+                    if (displayWidth >= displayHeight) {
+                        if (displayWidth < 1080) displayWidth = 1080;
+                        if (displayHeight < 720) displayHeight = 720;
+                    } else {
+                        if (displayWidth < 720) displayWidth = 720;
+                        if (displayHeight < 1080) displayHeight = 1080;
+                    }
+                    if (displayWidth > 1920) displayWidth = 1920;
+                    if (displayHeight > 1920) displayHeight = 1920;
+                    displayUrl += (displayUrl.indexOf('?') === -1 ? '?' : '&') + 'w=' + displayWidth + '&h=' + displayHeight;
+                }
 
                 fetchBlobViaTasfa(displayUrl, { silent: true }).then(function(result) {
                     return createMediaPlaybackUrl(displayUrl, result.blob, 'img');
@@ -1544,6 +1555,10 @@
                 });
             }
 
+            // Keep the browser-visible source on screen immediately.
+            // TASFA upgrades the element in the background when it succeeds.
+            el.style.opacity = '1';
+            el.style.transition = 'opacity 0.25s ease';
             tryTasfaImageDownload();
 
             if (posterUrl && isTasfaDownloadUrl(posterUrl)) {
@@ -1648,7 +1663,7 @@
 
     function upgradeMediaWithin(root) {
         if (!root || !root.querySelectorAll) return;
-        var mediaSelector = 'img[data-tasfa-download], img[src^="/file/download/"], img[src^="/assets/uploads/"], audio[data-tasfa-download], audio[src^="/file/download/"], video[data-tasfa-download], video[src^="/file/download/"]';
+        var mediaSelector = 'img[data-tasfa-download], img[data-tasfa-src], img[src^="/file/download/"], img[src^="/file/preview/"], img[src^="/assets/uploads/"], audio[data-tasfa-download], audio[src^="/file/download/"], video[data-tasfa-download], video[src^="/file/download/"]';
         if (root.matches) {
             if (root.matches(mediaSelector)) upgradeMediaElement(root);
         }

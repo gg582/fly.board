@@ -380,9 +380,14 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
         }
         media_preview_dimensions_from_score(media_quality_score, src_w, src_h,
                                            &image_max_w, &image_max_h, &video_max_h);
-        if (strncmp(out->mime_type, "image/", 6) == 0 && strcmp(out->mime_type, "image/gif") != 0) {
-            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
-            if (!generate_image_thumb(f->data, thumb_path, image_max_w, image_max_h)) thumb_path[0] = '\0';
+        if (strncmp(out->mime_type, "image/", 6) == 0) {
+            if (strcmp(out->mime_type, "image/gif") == 0) {
+                snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.gif", fid);
+                if (!generate_gif_thumb(f->data, thumb_path, image_max_w, image_max_h, 12)) thumb_path[0] = '\0';
+            } else {
+                snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
+                if (!generate_image_thumb(f->data, thumb_path, image_max_w, image_max_h)) thumb_path[0] = '\0';
+            }
         } else if (strncmp(out->mime_type, "video/", 6) == 0) {
             snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
             if (!generate_video_thumb(f->data, thumb_path, 1280, 720)) thumb_path[0] = '\0';
@@ -401,14 +406,11 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
         char preview_url[64] = {0};
         bool is_gif = strcmp(out->mime_type, "image/gif") == 0;
         if (fid > 0) {
-            if (is_gif)
-                snprintf(preview_url, sizeof(preview_url), "/file/download/%d", fid);
-            else
-                snprintf(preview_url, sizeof(preview_url), "/file/preview/%d", fid);
+            snprintf(preview_url, sizeof(preview_url), "/file/preview/%d", fid);
         }
         snprintf(out->html, sizeof(out->html),
-            "<img src=\"%s\" data-tasfa-src=\"%s\" data-tasfa-original=\"%s\"%s alt=\"%s\" style=\"max-width:100%%;height:auto;display:block\">",
-            preview_url, out->url, out->url, is_gif ? " data-tasfa-animated-gif=\"1\"" : "", out->filename);
+            "<img src=\"%s\" data-tasfa-src=\"%s\" data-tasfa-fixed-preview=\"1\" data-tasfa-original=\"%s\"%s alt=\"%s\" style=\"max-width:100%%;height:auto;display:block\">",
+            preview_url, preview_url, out->url, is_gif ? " data-tasfa-animated-gif=\"1\"" : "", out->filename);
     } else if (strncmp(out->mime_type, "video/", 6) == 0) {
         char play_url[576];
         snprintf(play_url, sizeof(play_url), "%s?preview=1", out->url);

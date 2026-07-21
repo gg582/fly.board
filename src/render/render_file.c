@@ -175,10 +175,11 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
             if (is_image) {
                 cwist_sstring_append(b, "<img src='/file/preview/");
                 cwist_sstring_append(b, fid_buf);
-                cwist_sstring_append(b, "' data-tasfa-src='/file/download/");
+                cwist_sstring_append(b, "' data-tasfa-src='/file/preview/");
                 cwist_sstring_append(b, fid_buf);
                 cwist_sstring_append(b, "' data-tasfa-original='/file/download/");
                 cwist_sstring_append(b, fid_buf);
+                cwist_sstring_append(b, "' data-tasfa-fixed-preview='1");
                 cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block;object-fit:cover'>");
             } else if (is_video) {
                 cwist_sstring_append(b, "<button type='button' class='media-load-btn file-video-thumb-link' data-tasfa-video-link='/file/download/");
