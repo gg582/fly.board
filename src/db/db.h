@@ -37,6 +37,7 @@ cJSON *db_board_perm_list(cwist_db *db, int board_id);
 
 /* Posts */
 int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, const char *slug, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
+int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const char *title, const char *slug_base, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category, char **out_slug);
 bool db_post_update(cwist_db *db, int id, int board_id, const char *title, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
 bool db_post_delete(cwist_db *db, int id);
 bool db_post_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_hash);
