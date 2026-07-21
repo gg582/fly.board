@@ -72,6 +72,21 @@ bool db_init(cwist_db *db) {
     return db_migrate(db);
 }
 
+static bool db_post_slugs_unique(cwist_db *db) {
+    const char *sql = "SELECT slug, COUNT(*) FROM posts GROUP BY slug HAVING COUNT(*) > 1 LIMIT 1";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    bool unique = true;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *slug = (const char *)sqlite3_column_text(stmt, 0);
+        int count = sqlite3_column_int(stmt, 1);
+        CWIST_LOG_ERROR("Duplicate post slug found: slug='%s' count=%d; refusing to migrate automatically", slug ? slug : "", count);
+        unique = false;
+    }
+    sqlite3_finalize(stmt);
+    return unique;
+}
+
 bool db_migrate(cwist_db *db) {
     const char *schema =
         "CREATE TABLE IF NOT EXISTS users ("
@@ -169,6 +184,8 @@ bool db_migrate(cwist_db *db) {
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC)");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_posts_board_created ON posts(board_id, created_at DESC)");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_posts_slug ON posts(slug)");
+    if (!db_post_slugs_unique(db)) return false;
+    if (!db_exec_sql(db, "CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_slug_unique ON posts(slug)")) return false;
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_boards_slug ON boards(slug)");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_comments_target ON comments(target_type, target_id, created_at DESC)");
     return true;
