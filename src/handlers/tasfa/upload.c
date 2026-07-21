@@ -938,7 +938,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     /* Generate thumbnails/previews via ffmpeg */
     char thumb_path[PATH_MAX] = {0};
     char preview_path[PATH_MAX] = {0};
-    if (strncmp(mime_buf, "image/", 6) == 0) {
+    if (strncmp(mime_buf, "image/", 6) == 0 && strcmp(mime_buf, "image/gif") != 0) {
         snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
         if (generate_image_thumb(final_path, thumb_path, 1280, 1280)) {
             char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);

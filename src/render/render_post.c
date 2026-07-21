@@ -9,6 +9,7 @@
 #include <cwist/core/sstring/sstring.h>
 #include <cwist/core/mem/alloc.h>
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <ctype.h>
 
@@ -39,6 +40,19 @@ static const char *render_file_media_kind(cJSON *file) {
     if (strncmp(mime, "video/", 6) == 0) return "video";
     if (strncmp(mime, "audio/", 6) == 0) return "audio";
     return "";
+}
+
+static bool render_file_is_gif(cJSON *file) {
+    if (!file) return false;
+    cJSON *jmime = cJSON_GetObjectItem(file, "mime_type");
+    cJSON *jname = cJSON_GetObjectItem(file, "filename");
+    const char *mime = jmime && jmime->valuestring ? jmime->valuestring : "";
+    if (strcmp(mime, "image/gif") == 0) return true;
+    if (jname && jname->valuestring) {
+        const char *dot = strrchr(jname->valuestring, '.');
+        if (dot && strcasecmp(dot, ".gif") == 0) return true;
+    }
+    return false;
 }
 
 static bool extract_download_id_from_anchor_tag(const char *tag, int *out_id) {
@@ -118,13 +132,18 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
     snprintf(video_preview_url, sizeof(video_preview_url), "/file/download/%d?preview=1", fid);
 
     if (strcmp(kind, "image") == 0) {
+        const bool is_gif = render_file_is_gif(file);
+        const char *display_url = is_gif ? url : preview_url;
         cwist_sstring_append(out, "<img ");
         cwist_sstring_append(out, "src=\"");
-        cwist_sstring_append(out, preview_url);
+        cwist_sstring_append(out, display_url);
         cwist_sstring_append(out, "\" data-tasfa-src=\"");
-        cwist_sstring_append(out, preview_url);
+        cwist_sstring_append(out, display_url);
         cwist_sstring_append(out, "\" data-tasfa-original=\"");
         cwist_sstring_append(out, url);
+        if (is_gif) {
+            cwist_sstring_append(out, "\" data-tasfa-animated-gif=\"1");
+        }
         cwist_sstring_append(out, "\" alt=\"");
         cwist_sstring_append_escaped(out, filename);
         cwist_sstring_append(out, "\" loading=\"lazy\" decoding=\"async\" style=\"max-width:100%;height:auto;display:block\">");
@@ -838,6 +857,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 int is_image = (strncmp(mime, "image/", 6) == 0);
                 int is_video = (strncmp(mime, "video/", 6) == 0);
                 int is_audio = (strncmp(mime, "audio/", 6) == 0);
+                int is_gif = (strcmp(mime, "image/gif") == 0);
 
                 if (is_image || is_video || is_audio) {
                     if (is_video) {
@@ -854,12 +874,16 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                     } else {
                         cwist_sstring_append(b, "<div class='media-attachment-block' style='margin-bottom:12px'>");
                         if (is_image) {
-                            cwist_sstring_append(b, "<img src='/file/preview/");
+                            cwist_sstring_append(b, "<img src='");
+                            cwist_sstring_append(b, is_gif ? "/file/download/" : "/file/preview/");
                             cwist_sstring_append(b, fid_buf2);
                             cwist_sstring_append(b, "' data-tasfa-src='/file/download/");
                             cwist_sstring_append(b, fid_buf2);
                             cwist_sstring_append(b, "' data-tasfa-original='/file/download/");
                             cwist_sstring_append(b, fid_buf2);
+                            if (is_gif) {
+                                cwist_sstring_append(b, "' data-tasfa-animated-gif='1");
+                            }
                             cwist_sstring_append(b, "' loading='lazy' decoding='async' style='max-width:100%;height:auto;display:block'>");
                         } else if (is_audio) {
                             cwist_sstring_append(b, "<audio src='/file/download/");

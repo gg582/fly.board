@@ -1486,6 +1486,12 @@
                 wrap.appendChild(dlBtn);
             }
 
+            if (el.getAttribute('data-tasfa-animated-gif') === '1') {
+                el.style.opacity = '1';
+                el.setAttribute('data-tasfa-ready', '1');
+                return;
+            }
+
             function setImageSrc(url) {
                 if (!url) return;
                 el.src = url;

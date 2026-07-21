@@ -686,6 +686,14 @@ void handler_file_preview(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
+    if (strcmp(mime, "image/gif") == 0) {
+        if (!send_cached_file_response(req, res, path, mime, IMAGE_CACHE_CONTROL, NULL)) {
+            send_upload_not_found(res);
+        }
+        cJSON_Delete(file);
+        return;
+    }
+
     int w = 1280;
     int h = 1280;
     const char *w_str = cwist_query_map_get(req->query_params, "w");
