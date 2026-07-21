@@ -608,7 +608,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             if (body_app) {
                 if (g_config.use_tasfa) {
                     cwist_sstring_append(body_app,
-                        "<script src=\"/assets/js/tasfa-download.js\" defer></script>");
+                        "<script src=\"/assets/js/tasfa-download.js?v=animated-video-v1\" defer></script>");
                 }
 
                 cwist_sstring *doc2 = cwist_sstring_create();
