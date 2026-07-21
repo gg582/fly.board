@@ -461,8 +461,21 @@ static bool build_image_preview_variant(cwist_http_request *req, cJSON *file,
     const char *h_str = cwist_query_map_get(req->query_params, "h");
     bool has_size = w_str && h_str;
     bool is_gif = strcmp(mime, "image/gif") == 0;
+    const char *poster_q = cwist_query_map_get(req->query_params, "poster");
+    bool wants_poster = poster_q && (strcmp(poster_q, "1") == 0 || strcmp(poster_q, "true") == 0);
 
     if (is_gif) {
+        if (wants_poster) {
+            char poster_path[PATH_MAX];
+            snprintf(poster_path, sizeof(poster_path), "public/uploads/.thumbs/%d_gif_poster.webp", id);
+            if (stat(poster_path, &(struct stat){0}) != 0 &&
+                !generate_image_thumb(orig_path, poster_path, 1024, 1024)) {
+                return false;
+            }
+            snprintf(path, path_len, "%s", poster_path);
+            snprintf(mime_buf, mime_len, "image/webp");
+            return true;
+        }
         char gif_path[PATH_MAX];
         if (has_size) {
             int w = atoi(w_str);
@@ -993,7 +1006,7 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
         wants_preview = true;
     }
     char generated_preview[PATH_MAX] = {0};
-    if (wants_preview && strncmp(mime, "video/", 6) == 0) {
+    if (wants_preview && (strncmp(mime, "video/", 6) == 0 || strcmp(mime, "image/gif") == 0)) {
         struct stat pst;
         if (preview_path[0] && strncmp(preview_path, "public/uploads/", 15) == 0 &&
             stat(preview_path, &pst) == 0 && S_ISREG(pst.st_mode) && pst.st_size > 0) {

@@ -243,9 +243,13 @@ void media_preview_backfill(cwist_db *db) {
 
         if (strcmp(mime, "image/gif") == 0) {
             snprintf(next_thumb, sizeof(next_thumb), "public/uploads/.thumbs/%d_animated_v2.gif", id);
-            snprintf(next_preview, sizeof(next_preview), "%s", preview_path);
+            snprintf(next_preview, sizeof(next_preview), "public/uploads/.previews/%d.mp4", id);
             if (!regular_file_exists(next_thumb)) {
                 ok = generate_gif_thumb(path, next_thumb, 1024, 1024, 12);
+                if (ok) generated++;
+            }
+            if (ok && !regular_file_exists(next_preview)) {
+                ok = generate_video_preview(path, next_preview, 720);
                 if (ok) generated++;
             }
             changed = ok && strcmp(thumb_path, next_thumb) != 0;

@@ -384,6 +384,8 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
             if (strcmp(out->mime_type, "image/gif") == 0) {
                 snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d_animated_v2.gif", fid);
                 if (!generate_gif_thumb(f->data, thumb_path, image_max_w, image_max_h, 12)) thumb_path[0] = '\0';
+                snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp4", fid);
+                if (!generate_video_preview(f->data, preview_path, 720)) preview_path[0] = '\0';
             } else {
                 snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
                 if (!generate_image_thumb(f->data, thumb_path, image_max_w, image_max_h)) thumb_path[0] = '\0';

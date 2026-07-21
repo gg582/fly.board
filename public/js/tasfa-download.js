@@ -1673,6 +1673,33 @@
         root.querySelectorAll(mediaSelector).forEach(upgradeMediaElement);
     }
 
+    function upgradeAnimatedPreviews(root) {
+        if (!root || !root.querySelectorAll) return;
+        root.querySelectorAll('img[data-tasfa-animation-url]').forEach(function(img) {
+            if (img.dataset.tasfaAnimationBound === '1') return;
+            img.dataset.tasfaAnimationBound = '1';
+            var animationUrl = img.getAttribute('data-tasfa-animation-url');
+            if (!animationUrl) return;
+            fetch(animationUrl, { method: 'HEAD', credentials: 'same-origin' }).then(function(response) {
+                var contentType = response.headers.get('content-type') || '';
+                if (!response.ok || contentType.indexOf('video/') !== 0) return;
+                var video = document.createElement('video');
+                video.src = animationUrl;
+                video.autoplay = true;
+                video.loop = true;
+                video.muted = true;
+                video.playsInline = true;
+                video.preload = 'metadata';
+                video.setAttribute('data-tasfa-skip', '1');
+                video.setAttribute('aria-label', img.alt || 'Animated image');
+                video.style.cssText = img.style.cssText;
+                var wrap = img.parentNode;
+                if (wrap) wrap.replaceChild(video, img);
+                video.play().catch(function() {});
+            }).catch(function() {});
+        });
+    }
+
     function init() {
         window.fetchBlobViaTasfa = fetchBlobViaTasfa;
         window.fetchVideoProgressive = fetchVideoProgressive;
@@ -1685,9 +1712,11 @@
             var r = root && root.querySelectorAll ? root : document;
             upgradeWithin(r);
             upgradeMediaWithin(r);
+            upgradeAnimatedPreviews(r);
         };
         upgradeWithin(document);
         upgradeMediaWithin(document);
+        upgradeAnimatedPreviews(document);
         if (window.MutationObserver) {
             new MutationObserver(function(mutations) {
                 mutations.forEach(function(mutation) {
@@ -1695,6 +1724,7 @@
                         if (node && node.nodeType === 1) {
                             upgradeWithin(node);
                             upgradeMediaWithin(node);
+                            upgradeAnimatedPreviews(node);
                         }
                     });
                 });
