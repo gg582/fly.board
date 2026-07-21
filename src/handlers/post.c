@@ -387,80 +387,51 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     fly_crypto_sign((const uint8_t *)msg, strlen(msg), &sig_b64);
     cwist_free(msg);
 
-    bool created = false;
     int created_id = 0;
-    int slug_idx = 0;
-    while (!created && slug_idx < 100) {
-        char *final_slug = NULL;
-        if (slug_idx == 0) {
-            final_slug = cwist_strdup_local(sl);
-        } else {
-            final_slug = (char *)cwist_alloc(strlen(sl) + 16);
-            snprintf(final_slug, strlen(sl) + 16, "%s%d", sl, slug_idx);
-        }
-        if (!final_slug) break;
-
-        cJSON *existing = db_post_get_by_slug(req->db, final_slug);
-        if (existing) {
-            cJSON_Delete(existing);
-            slug_idx++;
-            cwist_free(final_slug);
-        } else {
-            created_id = db_post_create(req->db, board_id, uid, title, final_slug, content, summary ? summary : "", sig_b64 ? sig_b64 : "", 0, 0, "");
-            created = created_id > 0;
-
-            /* The final_slug isn't strictly needed later but we update 'sl' to point to the created slug so publish_post uses the right slug. */
-            if (created) {
-                 if (uid == 0) {
-                     char delete_pin[13];
-                     char delete_pin_hash[512];
-                     delete_pin[0] = '\0';
-                     if (random_hex_local(delete_pin, 6) && auth_hash_password(delete_pin, delete_pin_hash, sizeof(delete_pin_hash))) {
-                         (void)db_post_set_delete_pin_hash(req->db, created_id, delete_pin_hash);
-                         char redirect_with_pin[1024];
-                         snprintf(redirect_with_pin, sizeof(redirect_with_pin), "/post/%s?delete_pin=%s", final_slug, delete_pin);
-                         cwist_free(sl);
-                         sl = final_slug;
-                         if (sig_b64) cwist_free(sig_b64);
-                         fly_nats_publish_post(title, sl, summary ? summary : "");
-                         attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
-                         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
-                         multipart_free(files);
-                         redirect(res, redirect_with_pin);
-                         return;
-                     }
-                 }
-                 cwist_free(sl);
-                 sl = final_slug;
-            } else {
-                 cwist_free(final_slug);
-                 break;
-            }
-        }
-    }
-    if (created) {
-        CWIST_LOG_INFO("Post created: uid=%d slug='%s' board_id=%d", uid, sl, board_id);
-    } else {
+    char *created_slug = NULL;
+    created_id = db_post_create_with_auto_slug(req->db, board_id, uid, title, sl, content, summary ? summary : "", sig_b64 ? sig_b64 : "", 0, 0, "", &created_slug);
+    if (!created_slug) {
         CWIST_LOG_ERROR("Post creation failed: uid=%d board_id=%d", uid, board_id);
+        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
+        cwist_sstring_assign(res->body, "Post creation failed");
+        if (sig_b64) cwist_free(sig_b64);
+        cwist_free(sl);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
+        multipart_free(files);
+        return;
     }
+    CWIST_LOG_INFO("Post created: uid=%d slug='%s' board_id=%d", uid, created_slug, board_id);
     if (sig_b64) cwist_free(sig_b64);
 
-    /* Publish post metadata to NATS for distributed subscribers */
-    fly_nats_publish_post(title, sl, summary ? summary : "");
+    if (uid == 0) {
+        char delete_pin[13];
+        char delete_pin_hash[512];
+        delete_pin[0] = '\0';
+        if (random_hex_local(delete_pin, 6) && auth_hash_password(delete_pin, delete_pin_hash, sizeof(delete_pin_hash))) {
+            (void)db_post_set_delete_pin_hash(req->db, created_id, delete_pin_hash);
+            char redirect_with_pin[1024];
+            snprintf(redirect_with_pin, sizeof(redirect_with_pin), "/post/%s?delete_pin=%s", created_slug, delete_pin);
+            fly_nats_publish_post(title, created_slug, summary ? summary : "");
+            attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
+            cwist_free(sl);
+            cwist_free(created_slug);
+            cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
+            multipart_free(files);
+            redirect(res, redirect_with_pin);
+            return;
+        }
+    }
 
-    /* Link orphaned uploads to this post.
-     * NOTE: Do NOT use sqlite3_last_insert_rowid() here – it reads from the
-     * shared connection and may return another thread's row ID when concurrent
-     * INSERTs are in flight.  db_post_create() already returns the correct id
-     * via its own call to sqlite3_last_insert_rowid() immediately after step(),
-     * before any other statement can run on that statement handle. */
-    int post_id = created_id;
-    attach_media_meta_to_post(req->db, media_meta, post_id, uid, role);
+    /* Publish post metadata to NATS for distributed subscribers */
+    fly_nats_publish_post(title, created_slug, summary ? summary : "");
+
+    attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
 
     /* New posts appear on home and board listings, so clear those caches. */
     page_cache_invalidate_all();
 
     cwist_free(sl);
+    cwist_free(created_slug);
     cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
     multipart_free(files);
     redirect(res, "/");

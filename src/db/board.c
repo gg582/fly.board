@@ -132,8 +132,129 @@ int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, c
     sqlite3_bind_int(stmt, 8, is_notice);
     sqlite3_bind_int(stmt, 9, is_secret);
     sqlite3_bind_text(stmt, 10, category ? category : "", -1, SQLITE_STATIC);
+    sqlite3_mutex *mutex = sqlite3_db_mutex(db->conn);
+    sqlite3_mutex_enter(mutex);
     int rc = sqlite3_step(stmt);
+    sqlite3_int64 id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(db->conn) : 0;
+    sqlite3_mutex_leave(mutex);
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return 0;
-    return (int)sqlite3_last_insert_rowid(db->conn);
+    return (int)id;
+}
+
+int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const char *title, const char *slug_base, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category, char **out_slug) {
+    if (out_slug) *out_slug = NULL;
+    if (!db || !db->conn || !slug_base || !slug_base[0]) return 0;
+
+    sqlite3_mutex *mutex = sqlite3_db_mutex(db->conn);
+    sqlite3_mutex_enter(mutex);
+
+    if (sqlite3_exec(db->conn, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) {
+        sqlite3_mutex_leave(mutex);
+        return 0;
+    }
+
+    const char *next_sql =
+        "WITH used(n) AS ("
+        "  SELECT 0 FROM posts WHERE slug=?"
+        "  UNION"
+        "  SELECT CAST(substr(slug, ?) AS INTEGER) FROM posts"
+        "  WHERE slug GLOB ?"
+        "    AND substr(slug, ?) NOT GLOB '*[^0-9]*'"
+        "    AND CAST(substr(slug, ?) AS INTEGER) > 0"
+        "    AND substr(slug, ?) = printf('%d', CAST(substr(slug, ?) AS INTEGER))"
+        "), candidate(n) AS ("
+        "  SELECT 0"
+        "  UNION"
+        "  SELECT n+1 FROM used"
+        ")"
+        "SELECT MIN(n) FROM candidate WHERE n NOT IN (SELECT n FROM used)";
+    sqlite3_stmt *next_stmt = NULL;
+    int rc = sqlite3_prepare_v2(db->conn, next_sql, -1, &next_stmt, NULL);
+    if (rc != SQLITE_OK) {
+        sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
+        sqlite3_mutex_leave(mutex);
+        return 0;
+    }
+
+    size_t base_len = strlen(slug_base);
+    char *pattern = (char *)cwist_alloc(base_len + 7);
+    if (!pattern) {
+        sqlite3_finalize(next_stmt);
+        sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
+        sqlite3_mutex_leave(mutex);
+        return 0;
+    }
+    snprintf(pattern, base_len + 7, "%s[0-9]*", slug_base);
+    sqlite3_bind_text(next_stmt, 1, slug_base, -1, SQLITE_STATIC);
+    sqlite3_bind_int(next_stmt, 2, (int)base_len + 1);
+    sqlite3_bind_text(next_stmt, 3, pattern, -1, SQLITE_STATIC);
+    sqlite3_bind_int(next_stmt, 4, (int)base_len + 1);
+    sqlite3_bind_int(next_stmt, 5, (int)base_len + 1);
+    sqlite3_bind_int(next_stmt, 6, (int)base_len + 1);
+    sqlite3_bind_int(next_stmt, 7, (int)base_len + 1);
+
+    int next_suffix = -1;
+    if (sqlite3_step(next_stmt) == SQLITE_ROW) next_suffix = sqlite3_column_int(next_stmt, 0);
+    sqlite3_finalize(next_stmt);
+    cwist_free(pattern);
+    if (next_suffix < 0) {
+        sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
+        sqlite3_mutex_leave(mutex);
+        return 0;
+    }
+
+    char suffix[32] = {0};
+    if (next_suffix > 0) snprintf(suffix, sizeof(suffix), "%d", next_suffix);
+    char *final_slug = (char *)cwist_alloc(base_len + strlen(suffix) + 1);
+    if (!final_slug) {
+        sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
+        sqlite3_mutex_leave(mutex);
+        return 0;
+    }
+    snprintf(final_slug, base_len + strlen(suffix) + 1, "%s%s", slug_base, suffix);
+
+    const char *insert_sql = "INSERT INTO posts (board_id, user_id, title, slug, content, summary, pqc_signature, is_notice, is_secret, category) VALUES (?,?,?,?,?,?,?,?,?,?)";
+    sqlite3_stmt *stmt = NULL;
+    rc = sqlite3_prepare_v2(db->conn, insert_sql, -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        cwist_free(final_slug);
+        sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
+        sqlite3_mutex_leave(mutex);
+        return 0;
+    }
+    sqlite3_bind_int(stmt, 1, board_id);
+    sqlite3_bind_int(stmt, 2, user_id);
+    sqlite3_bind_text(stmt, 3, title, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 4, final_slug, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 5, content, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 6, summary ? summary : "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 7, pqc_signature ? pqc_signature : "", -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 8, is_notice);
+    sqlite3_bind_int(stmt, 9, is_secret);
+    sqlite3_bind_text(stmt, 10, category ? category : "", -1, SQLITE_STATIC);
+    rc = sqlite3_step(stmt);
+    sqlite3_int64 id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(db->conn) : 0;
+    sqlite3_finalize(stmt);
+
+    if (rc == SQLITE_DONE && id > 0) {
+        if (sqlite3_exec(db->conn, "COMMIT", NULL, NULL, NULL) == SQLITE_OK) {
+            rc = SQLITE_DONE;
+        } else {
+            sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
+            rc = SQLITE_ERROR;
+        }
+    } else {
+        sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
+        rc = SQLITE_ERROR;
+    }
+    sqlite3_mutex_leave(mutex);
+
+    if (rc != SQLITE_DONE) {
+        cwist_free(final_slug);
+        return 0;
+    }
+    if (out_slug) *out_slug = final_slug;
+    else cwist_free(final_slug);
+    return (int)id;
 }
