@@ -1013,7 +1013,8 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
             path = preview_path;
         } else {
             snprintf(generated_preview, sizeof(generated_preview), "public/uploads/.previews/%d.mp4", atoi(id_str));
-            if (!generate_video_preview(path, generated_preview, 1080)) {
+            if ((stat(generated_preview, &pst) != 0 || !S_ISREG(pst.st_mode) || pst.st_size <= 0) &&
+                !generate_video_preview(path, generated_preview, 720)) {
                 cJSON_Delete(file);
                 send_upload_not_found(res);
                 return;
