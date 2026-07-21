@@ -218,7 +218,9 @@ void media_preview_backfill(cwist_db *db) {
         bool changed = false;
         bool ok = true;
 
-        if (strncmp(mime, "image/", 6) == 0) {
+        if (strcmp(mime, "image/gif") == 0) {
+            continue;
+        } else if (strncmp(mime, "image/", 6) == 0) {
             snprintf(next_thumb, sizeof(next_thumb), "public/uploads/.thumbs/%d.webp", id);
             snprintf(next_preview, sizeof(next_preview), "%s", preview_path);
             if (!regular_file_exists(next_thumb)) {
