@@ -127,7 +127,7 @@ bool generate_gif_thumb(const char *src, const char *dst, int max_w, int max_h, 
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' "
         "-filter_complex '[0:v]fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,palettegen=stats_mode=diff[p];"
         "[0:v]fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos[x];"
-        "[x][p]paletteuse=dither=bayer:bayer_scale=3' -y '%s'",
+        "[x][p]paletteuse=dither=bayer:bayer_scale=3' -loop 0 -y '%s'",
         src, fps, max_w, max_h, fps, max_w, max_h, dst);
     if (needed <= 0) return false;
     char *cmd = (char *)malloc((size_t)needed + 1);
@@ -136,7 +136,7 @@ bool generate_gif_thumb(const char *src, const char *dst, int max_w, int max_h, 
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' "
         "-filter_complex '[0:v]fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,palettegen=stats_mode=diff[p];"
         "[0:v]fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos[x];"
-        "[x][p]paletteuse=dither=bayer:bayer_scale=3' -y '%s'",
+        "[x][p]paletteuse=dither=bayer:bayer_scale=3' -loop 0 -y '%s'",
         src, fps, max_w, max_h, fps, max_w, max_h, dst);
     bool ok = run_ffmpeg(cmd);
     free(cmd);
@@ -242,7 +242,7 @@ void media_preview_backfill(cwist_db *db) {
         bool ok = true;
 
         if (strcmp(mime, "image/gif") == 0) {
-            snprintf(next_thumb, sizeof(next_thumb), "public/uploads/.thumbs/%d.gif", id);
+            snprintf(next_thumb, sizeof(next_thumb), "public/uploads/.thumbs/%d_animated_v2.gif", id);
             snprintf(next_preview, sizeof(next_preview), "%s", preview_path);
             if (!regular_file_exists(next_thumb)) {
                 ok = generate_gif_thumb(path, next_thumb, 1024, 1024, 12);

@@ -940,7 +940,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     char preview_path[PATH_MAX] = {0};
     if (strncmp(mime_buf, "image/", 6) == 0) {
         if (strcmp(mime_buf, "image/gif") == 0) {
-            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.gif", fid);
+            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d_animated_v2.gif", fid);
             if (generate_gif_thumb(final_path, thumb_path, 1024, 1024, 12)) {
                 char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
                 tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);

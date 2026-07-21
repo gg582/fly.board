@@ -480,15 +480,16 @@ static bool build_image_preview_variant(cwist_http_request *req, cJSON *file,
             }
             if (w > 1920) w = 1920;
             if (h > 1920) h = 1920;
-            snprintf(gif_path, sizeof(gif_path), "public/uploads/.thumbs/%d_%dx%d.gif", id, w, h);
+            snprintf(gif_path, sizeof(gif_path), "public/uploads/.thumbs/%d_%dx%d_animated_v2.gif", id, w, h);
             if (!generate_gif_thumb(orig_path, gif_path, w, h, 12)) {
                 snprintf(gif_path, sizeof(gif_path), "%s", orig_path);
             }
         } else {
-            if (thumb_path[0] && strncmp(thumb_path, "public/uploads/.thumbs/", 23) == 0 && thumb_is_gif) {
+            if (thumb_path[0] && strncmp(thumb_path, "public/uploads/.thumbs/", 23) == 0 && thumb_is_gif &&
+                strstr(thumb_path, "_animated_v2.gif")) {
                 snprintf(gif_path, sizeof(gif_path), "%s", thumb_path);
             } else {
-                snprintf(gif_path, sizeof(gif_path), "public/uploads/.thumbs/%d.gif", id);
+                snprintf(gif_path, sizeof(gif_path), "public/uploads/.thumbs/%d_animated_v2.gif", id);
                 if (!generate_gif_thumb(orig_path, gif_path, 1024, 1024, 12)) {
                     snprintf(gif_path, sizeof(gif_path), "%s", orig_path);
                 } else if (req->db) {
