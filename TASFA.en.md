@@ -303,6 +303,8 @@ Completed uploads receive a one-time delete PIN. The clear PIN is a 12-character
 3. Client fetches chunk groups with an adaptive `span=...`. All chunks are encrypted with **AES-256-GCM** when session keys are present.
 4. Client decrypts chunks in the browser using the **Web Crypto API** and the session keys.
 5. Browser assembles the response into one contiguous buffer.
+6. **Payload Compression (Zstd/Brotli/Gzip Fallback)**:
+   During downlinks, the client advertises supported decompression algorithms using the `X-TASFA-Accept-Encoding` header (e.g. `zstd, br, gzip`). The server evaluates this header and applies compression **before** GCM encryption using the highest-priority supported algorithm (ordered Zstd -> Brotli -> Gzip). This avoids double-compression and ensures clients only receive payloads they can decompress natively (using `DecompressionStream`). If compression does not yield enough gains (`TASFA_COMPRESS_MIN_GAIN_BYTES`), the server skips compression and serves the raw binary payload directly.
 
 ## DoS Mitigation via Bitmap
 

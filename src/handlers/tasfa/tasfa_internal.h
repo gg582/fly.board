@@ -234,7 +234,8 @@ bool decrypt_stream_block(const unsigned char *key, const unsigned char *iv_seed
                           const char *upload_id, const unsigned char *ciphertext, size_t ciphertext_len,
                           unsigned char *plaintext, size_t plaintext_len);
 bool tasfa_compress_alloc(const unsigned char *input, size_t input_len,
-                          unsigned char **out, size_t *out_len, tasfa_compress_type_t *out_type);
+                          unsigned char **out, size_t *out_len, tasfa_compress_type_t *out_type,
+                          bool allow_zstd, bool allow_brotli, bool allow_gzip);
 bool tasfa_decompress_to(const unsigned char *input, size_t input_len,
                          unsigned char *out, size_t expected_len, tasfa_compress_type_t type);
 unsigned char *ensure_decrypt_buf(size_t need);

@@ -234,10 +234,10 @@ Downloader -> DownloadAPI: GET .../handshake\npreferred chunk-size hint
 DownloadAPI --> Downloader: session_id, session_token,\nchunk_size, chunk_count,\nconcurrency hints,\nstream_key_hex, stream_iv_seed_hex
 
 loop Adaptive chunk groups
-    Downloader -> DownloadAPI: GET .../chunk/:chunk_index\n?span=N&chunk_rtt_ms=...
+    Downloader -> DownloadAPI: GET .../chunk/:chunk_index\n?span=N&chunk_rtt_ms=...\nHeader: X-TASFA-Accept-Encoding
     DownloadAPI -> Storage: read contiguous chunk range
     DownloadAPI -> Predictor: add RTT sample\nestimate remaining time
-    DownloadAPI --> Downloader: chunk bytes\nX-TASFA-Chunk-Index\nX-TASFA-Chunk-Count\nX-TASFA-Predicted-Remaining-Ms
+    DownloadAPI --> Downloader: chunk bytes\nX-TASFA-Chunk-Index\nX-TASFA-Chunk-Count\nX-TASFA-Content-Encoding\nX-TASFA-Predicted-Remaining-Ms
     Downloader -> Downloader: requeue short reads,\ntimeouts, and network errors by chunk index
     Downloader -> Downloader: grow span and parallelism\nafter successful chunk groups
 end

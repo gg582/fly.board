@@ -421,27 +421,14 @@ bool send_file_slice_response(cwist_http_request *req, cwist_http_response *res,
     const char *encoding_name = NULL;
 
     if (total >= TASFA_COMPRESS_MIN_GAIN_BYTES) {
-        if (client_accepts_zstd) {
-            if (tasfa_compress_alloc((const unsigned char *)buf, total, &comp_buf, &comp_len, &comp_type) &&
-                comp_type == TASFA_COMPRESS_ZSTD && comp_len + TASFA_COMPRESS_MIN_GAIN_BYTES < total) {
-                payload = comp_buf;
-                payload_len = comp_len;
-                encoding_name = "zstd";
-            }
-        } else if (client_accepts_brotli) {
-            if (tasfa_compress_alloc((const unsigned char *)buf, total, &comp_buf, &comp_len, &comp_type) &&
-                comp_type == TASFA_COMPRESS_BROTLI && comp_len + TASFA_COMPRESS_MIN_GAIN_BYTES < total) {
-                payload = comp_buf;
-                payload_len = comp_len;
-                encoding_name = "br";
-            }
-        } else if (client_accepts_gzip) {
-            if (tasfa_compress_alloc((const unsigned char *)buf, total, &comp_buf, &comp_len, &comp_type) &&
-                comp_type == TASFA_COMPRESS_GZIP && comp_len + TASFA_COMPRESS_MIN_GAIN_BYTES < total) {
-                payload = comp_buf;
-                payload_len = comp_len;
-                encoding_name = "gzip";
-            }
+        if (tasfa_compress_alloc((const unsigned char *)buf, total, &comp_buf, &comp_len, &comp_type,
+                                 client_accepts_zstd, client_accepts_brotli, client_accepts_gzip) &&
+            comp_len + TASFA_COMPRESS_MIN_GAIN_BYTES < total) {
+            payload = comp_buf;
+            payload_len = comp_len;
+            if (comp_type == TASFA_COMPRESS_ZSTD) encoding_name = "zstd";
+            else if (comp_type == TASFA_COMPRESS_BROTLI) encoding_name = "br";
+            else if (comp_type == TASFA_COMPRESS_GZIP) encoding_name = "gzip";
         }
         if (comp_buf && !encoding_name) {
             cwist_free(comp_buf);
