@@ -1567,10 +1567,65 @@
             if (posterUrl && isTasfaDownloadUrl(posterUrl)) {
                 fetchBlobViaTasfa(posterUrl, { silent: true }).then(async function(result) {
                     var objectUrl = await createMediaPlaybackUrl(posterUrl, result.blob);
+            }
+
+            return;
+        }
+
+        var isGifVideo = el.getAttribute('data-tasfa-gif-video') === '1' || (tagName === 'video' && !el.getAttribute('controls'));
+        if (isGifVideo) {
+            if (posterUrl && isTasfaDownloadUrl(posterUrl)) {
+                fetchBlobViaTasfa(posterUrl, { silent: true }).then(async function(result) {
+                    var objectUrl = await createMediaPlaybackUrl(posterUrl, result.blob);
                     if (objectUrl) el.setAttribute('poster', objectUrl);
                 }).catch(function() {});
             }
 
+            var wrap = document.createElement('div');
+            wrap.className = 'tasfa-media-wrap';
+            if (el.parentNode) {
+                el.parentNode.insertBefore(wrap, el);
+                wrap.appendChild(el);
+            }
+
+            var loader = document.createElement('div');
+            loader.className = 'tasfa-media-loader';
+            loader.innerHTML = '<div class="tasfa-media-loader-spinner"></div><span>Loading...</span>';
+            wrap.appendChild(loader);
+
+            el.style.opacity = '0';
+            el.style.transition = 'opacity 0.25s ease';
+
+            var removeLoader = function() {
+                if (loader.parentElement) loader.remove();
+                if (wrap.parentNode) {
+                    wrap.parentNode.insertBefore(el, wrap);
+                    wrap.remove();
+                }
+            };
+
+            if (baseUrl) {
+                fetchBlobViaTasfa(baseUrl, {
+                    silent: true,
+                    onProgress: function(percent) {
+                        el.setAttribute('data-tasfa-progress', String(percent));
+                    }
+                }).then(async function(result) {
+                    var objectUrl = await createMediaPlaybackUrl(baseUrl, result.blob, tagName);
+                    el.src = objectUrl;
+                    el.style.opacity = '1';
+                    el.setAttribute('data-tasfa-ready', '1');
+                    el.removeAttribute('data-tasfa-progress');
+                    if (typeof el.play === 'function') {
+                        el.play().catch(function(){});
+                    }
+                    removeLoader();
+                }).catch(function() {
+                    el.dataset.tasfaMediaBound = '0';
+                    el.setAttribute('data-tasfa-error', '1');
+                    removeLoader();
+                });
+            }
             return;
         }
 
