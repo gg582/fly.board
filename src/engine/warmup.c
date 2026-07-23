@@ -83,27 +83,27 @@ static void *gif_warmup_thread_func(void *arg) {
         int id = tasks[i].id;
         const char *orig_path = tasks[i].file_path;
         
-        char mp4_path[PATH_MAX];
-        snprintf(mp4_path, sizeof(mp4_path), "public/uploads/.previews/%d.mp4", id);
+        char webm_path[PATH_MAX];
+        snprintf(webm_path, sizeof(webm_path), "public/uploads/.previews/%d.webm", id);
 
         struct stat st;
-        if (stat(mp4_path, &st) != 0 || st.st_size <= 0) {
-            CWIST_LOG_INFO("GIF Warmup: Converting file %d (%s) to MP4...", id, orig_path);
-            if (generate_video_preview(orig_path, mp4_path, 720)) {
+        if (stat(webm_path, &st) != 0 || st.st_size <= 0) {
+            CWIST_LOG_INFO("GIF Warmup: Converting file %d (%s) to WebM...", id, orig_path);
+            if (generate_webm_preview(orig_path, webm_path, 720)) {
                 const char *sql_update = "UPDATE files SET preview_path = ? WHERE id = ?";
                 sqlite3_stmt *up_stmt = NULL;
                 if (sqlite3_prepare_v2(conn, sql_update, -1, &up_stmt, NULL) == SQLITE_OK) {
-                    sqlite3_bind_text(up_stmt, 1, mp4_path, -1, SQLITE_STATIC);
+                    sqlite3_bind_text(up_stmt, 1, webm_path, -1, SQLITE_STATIC);
                     sqlite3_bind_int(up_stmt, 2, id);
                     if (sqlite3_step(up_stmt) == SQLITE_DONE) {
-                        CWIST_LOG_INFO("GIF Warmup: Updated DB preview_path for file %d to %s", id, mp4_path);
+                        CWIST_LOG_INFO("GIF Warmup: Updated DB preview_path for file %d to %s", id, webm_path);
                     } else {
                         CWIST_LOG_ERROR("GIF Warmup: Failed to update DB preview_path for file %d", id);
                     }
                     sqlite3_finalize(up_stmt);
                 }
             } else {
-                CWIST_LOG_ERROR("GIF Warmup: Failed to convert file %d to MP4.", id);
+                CWIST_LOG_ERROR("GIF Warmup: Failed to convert file %d to WebM.", id);
             }
         }
     }

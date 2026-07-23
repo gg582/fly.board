@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE
 #include "tasfa_internal.h"
+#include "engine/pool.h"
 
 void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
@@ -868,10 +869,54 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
         pthread_mutex_unlock(&g_media_mtx);
     }
 
-    /* Post-quantum checksum (SHA-256 of final file) */
+    char mime_buf[128] = {0};
+    if (!mime_type_from_data(temp_path, mime_buf, sizeof(mime_buf))) {
+        snprintf(mime_buf, sizeof(mime_buf), "%s", mime_type(filename));
+    }
+
+    char final_path[PATH_MAX];
+    char final_filename[256];
+    snprintf(final_filename, sizeof(final_filename), "%s", filename);
+    bool is_gif_upload = (strcmp(mime_buf, "image/gif") == 0);
+    bool gif_converted = false;
+
+    if (is_gif_upload) {
+        char *ext = strrchr(final_filename, '.');
+        if (ext) {
+            strcpy(ext, ".webm");
+        } else {
+            strcat(final_filename, ".webm");
+        }
+        snprintf(final_path, sizeof(final_path), "public/uploads/%s_%s", upload_id, final_filename);
+        if (generate_webm_preview(temp_path, final_path, 720)) {
+            unlink(temp_path);
+            snprintf(mime_buf, sizeof(mime_buf), "video/webm");
+            cJSON_ReplaceItemInObject(meta, "filename", cJSON_CreateString(final_filename));
+            struct stat st;
+            if (stat(final_path, &st) == 0) {
+                cJSON_ReplaceItemInObject(meta, "total_size", cJSON_CreateNumber(st.st_size));
+            }
+            filename = json_string(meta, "filename", "upload.bin");
+            gif_converted = true;
+        }
+    }
+
+    if (!gif_converted) {
+        snprintf(final_path, sizeof(final_path), "public/uploads/%s_%s", upload_id, final_filename);
+        if (rename_fallback(temp_path, final_path) != 0) {
+            FLY_LOG_ERROR("[TASFA] final file rename failed from %s to %s: errno=%d (%s)", temp_path, final_path, errno, strerror(errno));
+            pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
+            cJSON_Delete(meta);
+            close_upload_session_lock(lock_fd);
+            cwist_query_map_destroy(kv);
+            send_json_response(res, session_error_json("final file create failed"), CWIST_HTTP_INTERNAL_ERROR);
+            return;
+        }
+    }
+
     if (!is_client_connected(req)) goto client_disconnect;
     unsigned char checksum[32];
-    if (!sha256_file(temp_path, checksum)) {
+    if (!sha256_file(final_path, checksum)) {
         pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
@@ -880,19 +925,6 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
         return;
     }
     if (!is_client_connected(req)) goto client_disconnect;
-
-    char final_path[PATH_MAX];
-    snprintf(final_path, sizeof(final_path), "public/uploads/%s_%s", upload_id, filename);
-    if (rename_fallback(temp_path, final_path) != 0) {
-        FLY_LOG_ERROR("[TASFA] final file rename failed from %s to %s: errno=%d (%s)", temp_path, final_path, errno, strerror(errno));
-        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
-        cJSON_Delete(meta);
-        close_upload_session_lock(lock_fd);
-        cwist_query_map_destroy(kv);
-        send_json_response(res, session_error_json("final file create failed"), CWIST_HTTP_INTERNAL_ERROR);
-        return;
-    }
-    char mime_buf[128] = {0};
     if (!mime_type_from_data(final_path, mime_buf, sizeof(mime_buf))) {
         snprintf(mime_buf, sizeof(mime_buf), "%s", mime_type(filename));
     }
@@ -940,13 +972,13 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     char preview_path[PATH_MAX] = {0};
     if (strncmp(mime_buf, "image/", 6) == 0) {
         if (strcmp(mime_buf, "image/gif") == 0) {
-            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d_animated_v2.gif", fid);
-            if (generate_gif_thumb(final_path, thumb_path, 1024, 1024, 12)) {
+            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d_gif_poster.webp", fid);
+            if (generate_image_thumb(final_path, thumb_path, 1024, 1024)) {
                 char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
                 tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
             } else thumb_path[0] = '\0';
-            snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp4", fid);
-            if (generate_video_preview(final_path, preview_path, 720)) {
+            snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.webm", fid);
+            if (generate_webm_preview(final_path, preview_path, 720)) {
                 char media_name[64]; snprintf(media_name, sizeof(media_name), "preview_%d", fid);
                 tasfa_generate_htp_metadata_for_file(preview_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
             } else preview_path[0] = '\0';
@@ -1036,9 +1068,9 @@ skip_disconnect:
     send_json_response(res, obj, CWIST_HTTP_OK);
 }
 
-static void upload_finalize_worker(void *arg) {
+static void *upload_finalize_worker(void *arg) {
     upload_finalize_job_t *job = (upload_finalize_job_t *)arg;
-    if (!job) return;
+    if (!job) return NULL;
 
     cwist_http_request *fake_req = cwist_http_request_create();
     cwist_http_response *fake_res = cwist_http_response_create();
@@ -1057,6 +1089,7 @@ static void upload_finalize_worker(void *arg) {
     if (fake_res) cwist_http_response_destroy(fake_res);
     if (fake_req) cwist_http_request_destroy(fake_req);
     free(job);
+    return NULL;
 }
 
 void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *res) {
@@ -1143,16 +1176,9 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     snprintf(job->upload_id, sizeof(job->upload_id), "%s", upload_id);
     snprintf(job->upload_token, sizeof(job->upload_token), "%s", upload_token);
 
-    tasfa_job_t *tjob = (tasfa_job_t *)calloc(1, sizeof(tasfa_job_t));
-    if (!tjob) {
-        free(job);
-        finalize_cache_mark_done(upload_id, 500, "{\"ok\":false,\"error\":\"finalize queue failed\"}");
-        cwist_query_map_destroy(kv);
-        send_json_response(res, session_error_json("finalize queue failed"), CWIST_HTTP_INTERNAL_ERROR);
-        return;
+    if (!engine_pool_schedule(upload_finalize_worker, job, 0x4d45444941ULL, TTAK_TASK_DOMAIN_THREAD, 30)) {
+        upload_finalize_worker(job);
     }
-    tjob->free_after_done = true;
-    tasfa_scheduler_submit(NULL, upload_finalize_worker, job, tjob);
 
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddBoolToObject(obj, "ok", false);

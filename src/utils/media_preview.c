@@ -259,6 +259,28 @@ bool generate_video_preview(const char *src, const char *dst, int max_h) {
     return ok;
 }
 
+bool generate_webm_preview(const char *src, const char *dst, int max_h) {
+    if (!src || !dst || max_h <= 0) return false;
+    dir_ensure("public/uploads/.previews");
+
+    char *esc_src = escape_shell_arg(src);
+    char *esc_dst = escape_shell_arg(dst);
+    if (!esc_src || !esc_dst) {
+        free(esc_src);
+        free(esc_dst);
+        return false;
+    }
+
+    char cmd[4096];
+    snprintf(cmd, sizeof(cmd),
+        "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vf 'scale=-2:min(%d\\,ih)' -c:v libvpx -crf 10 -b:v 1M -an -y '%s'",
+        esc_src, max_h, esc_dst);
+    bool ok = run_ffmpeg(cmd);
+    free(esc_src);
+    free(esc_dst);
+    return ok;
+}
+
 bool generate_audio_preview(const char *src, const char *dst, int bitrate_kbps) {
     if (!src || !dst || bitrate_kbps <= 0) return false;
     dir_ensure("public/uploads/.previews");
