@@ -410,9 +410,15 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
         if (fid > 0) {
             snprintf(preview_url, sizeof(preview_url), "/file/preview/%d", fid);
         }
-        snprintf(out->html, sizeof(out->html),
-            "<img src=\"%s\" data-tasfa-src=\"%s\" data-tasfa-fixed-preview=\"1\" data-tasfa-original=\"%s\"%s alt=\"%s\" style=\"max-width:100%%;height:auto;display:block\">",
-            preview_url, preview_url, out->url, is_gif ? " data-tasfa-animated-gif=\"1\"" : "", out->filename);
+        if (is_gif) {
+            snprintf(out->html, sizeof(out->html),
+                "<div class=\"gif-video-container\"><video src=\"%s\" autoplay loop muted playsinline onclick=\"this.paused ? this.play() : this.pause();\" style=\"max-width:100%%;height:auto;display:block;cursor:pointer;\"></video><div style=\"margin-top:8px\"><a href=\"#\" data-tasfa-download-link=\"%s\">Download original GIF</a></div></div>",
+                preview_url, out->url);
+        } else {
+            snprintf(out->html, sizeof(out->html),
+                "<img src=\"%s\" data-tasfa-src=\"%s\" data-tasfa-fixed-preview=\"1\" data-tasfa-original=\"%s\" alt=\"%s\" style=\"max-width:100%%;height:auto;display:block\">",
+                preview_url, preview_url, out->url, out->filename);
+        }
     } else if (strncmp(out->mime_type, "video/", 6) == 0) {
         char play_url[576];
         snprintf(play_url, sizeof(play_url), "%s?preview=1", out->url);
