@@ -18,6 +18,7 @@ bool generate_gif_thumb(const char *src, const char *dst, int max_w, int max_h, 
 bool generate_static_asset_webp(const char *src, const char *dst, int max_w, int max_h);
 bool generate_video_thumb(const char *src, const char *dst, int max_w, int max_h);
 bool generate_video_preview(const char *src, const char *dst, int max_h);
+bool generate_webm_preview(const char *src, const char *dst, int max_h);
 bool generate_audio_preview(const char *src, const char *dst, int bitrate_kbps);
 void media_preview_backfill(cwist_db *db);
 void media_preview_backfill_static_assets(void);

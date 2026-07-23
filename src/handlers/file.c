@@ -475,19 +475,19 @@ static bool build_image_preview_variant(cwist_http_request *req, cJSON *file,
             snprintf(mime_buf, mime_len, "image/webp");
             return true;
         }
-        char gif_mp4_path[PATH_MAX];
-        snprintf(gif_mp4_path, sizeof(gif_mp4_path), "public/uploads/.previews/%d.mp4", id);
-        if (stat(gif_mp4_path, &(struct stat){0}) != 0) {
-            if (!generate_video_preview(orig_path, gif_mp4_path, 720)) {
+        char gif_webm_path[PATH_MAX];
+        snprintf(gif_webm_path, sizeof(gif_webm_path), "public/uploads/.previews/%d.webm", id);
+        if (stat(gif_webm_path, &(struct stat){0}) != 0) {
+            if (!generate_webm_preview(orig_path, gif_webm_path, 720)) {
                 snprintf(path, path_len, "%s", orig_path);
                 snprintf(mime_buf, mime_len, "image/gif");
                 return true;
             } else if (req->db) {
-                db_file_set_preview_paths(req->db, id, thumb_path, gif_mp4_path);
+                db_file_set_preview_paths(req->db, id, thumb_path, gif_webm_path);
             }
         }
-        snprintf(path, path_len, "%s", gif_mp4_path);
-        snprintf(mime_buf, mime_len, "video/mp4");
+        snprintf(path, path_len, "%s", gif_webm_path);
+        snprintf(mime_buf, mime_len, "video/webm");
         return true;
     }
 
