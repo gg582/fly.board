@@ -972,7 +972,12 @@
         if (mime.indexOf('image/') === 0) {
             insertAtCursor('![' + name + '](' + url + ')\n');
         } else if (mime.indexOf('video/') === 0) {
-            insertAtCursor('<video src="' + url + '" controls playsinline style="max-width:100%;display:block;"></video>\n');
+            var posterUrl = url.replace('/file/download/', '/file/preview/');
+            if (asset.is_gif_converted || (name && name.toLowerCase().indexOf('_gif_poster') !== -1)) {
+                insertAtCursor('<video src="' + url + '" poster="' + posterUrl + '?poster=1" autoplay loop muted playsinline onclick="this.paused ? this.play() : this.pause();" style="max-width:100%;display:block;cursor:pointer;"></video>\n');
+            } else {
+                insertAtCursor('<video src="' + url + '" poster="' + posterUrl + '" controls playsinline style="max-width:100%;display:block;"></video>\n');
+            }
         } else if (mime.indexOf('audio/') === 0) {
             insertAtCursor('<audio src="' + url + '" controls style="max-width:100%;display:block;"></audio>\n');
         } else {
@@ -1633,6 +1638,7 @@
         asset.blob_url = response.url || '';
         asset.filename = response.filename || asset.filename;
         asset.mime_type = response.mime_type || asset.mime_type || '';
+        asset.is_gif_converted = response.is_gif_converted || false;
         asset.thumb_path = response.thumb_path || '';
         asset.preview_path = response.preview_path || '';
         asset.file_path = response.file_path || '';

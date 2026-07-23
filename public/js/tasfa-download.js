@@ -1463,7 +1463,10 @@
         var tagName = el.tagName ? el.tagName.toLowerCase() : '';
 
         var baseUrl = mediaBaseUrl(el);
-        var posterUrl = el.getAttribute('data-tasfa-poster') || '';
+        var posterUrl = el.getAttribute('data-tasfa-poster') || el.getAttribute('poster') || '';
+        if (posterUrl && !isTasfaDownloadUrl(posterUrl)) {
+            posterUrl = '';
+        }
         if (!baseUrl && !posterUrl) return;
 
         el.dataset.tasfaMediaBound = '1';
