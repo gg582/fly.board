@@ -1047,6 +1047,7 @@ client_disconnect:
 
 skip_disconnect:
     cJSON_AddBoolToObject(obj, "ok", true);
+    cJSON_AddBoolToObject(obj, "is_gif_converted", is_gif_upload && gif_converted);
     cJSON_AddNumberToObject(obj, "id", fid);
     cJSON_AddNumberToObject(obj, "fid", fid);
     cJSON_AddStringToObject(obj, "filename", filename_buf);
