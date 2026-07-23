@@ -230,47 +230,54 @@ static bool tasfa_gzip_decompress_to(const unsigned char *input, size_t input_le
 
 /* --- Unified compression with fallback: zstd -> brotli -> gzip --- */
 bool tasfa_compress_alloc(const unsigned char *input, size_t input_len,
-                          unsigned char **out, size_t *out_len, tasfa_compress_type_t *out_type) {
+                          unsigned char **out, size_t *out_len, tasfa_compress_type_t *out_type,
+                          bool allow_zstd, bool allow_brotli, bool allow_gzip) {
     if (!input || input_len == 0 || !out || !out_len || !out_type) return false;
     *out = NULL;
     *out_len = 0;
     *out_type = TASFA_COMPRESS_NONE;
 
     /* Try zstd first (fastest, good ratio) */
-    unsigned char *zstd_buf = NULL;
-    size_t zstd_len = 0;
-    if (tasfa_zstd_compress_alloc(input, input_len, &zstd_buf, &zstd_len) &&
-        zstd_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
-        *out = zstd_buf;
-        *out_len = zstd_len;
-        *out_type = TASFA_COMPRESS_ZSTD;
-        return true;
+    if (allow_zstd) {
+        unsigned char *zstd_buf = NULL;
+        size_t zstd_len = 0;
+        if (tasfa_zstd_compress_alloc(input, input_len, &zstd_buf, &zstd_len) &&
+            zstd_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
+            *out = zstd_buf;
+            *out_len = zstd_len;
+            *out_type = TASFA_COMPRESS_ZSTD;
+            return true;
+        }
+        if (zstd_buf) { cwist_free(zstd_buf); zstd_buf = NULL; }
     }
-    if (zstd_buf) { cwist_free(zstd_buf); zstd_buf = NULL; }
 
     /* Fallback to brotli (better ratio, slower) */
-    unsigned char *brotli_buf = NULL;
-    size_t brotli_len = 0;
-    if (tasfa_brotli_compress_alloc(input, input_len, &brotli_buf, &brotli_len) &&
-        brotli_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
-        *out = brotli_buf;
-        *out_len = brotli_len;
-        *out_type = TASFA_COMPRESS_BROTLI;
-        return true;
+    if (allow_brotli) {
+        unsigned char *brotli_buf = NULL;
+        size_t brotli_len = 0;
+        if (tasfa_brotli_compress_alloc(input, input_len, &brotli_buf, &brotli_len) &&
+            brotli_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
+            *out = brotli_buf;
+            *out_len = brotli_len;
+            *out_type = TASFA_COMPRESS_BROTLI;
+            return true;
+        }
+        if (brotli_buf) { cwist_free(brotli_buf); brotli_buf = NULL; }
     }
-    if (brotli_buf) { cwist_free(brotli_buf); brotli_buf = NULL; }
 
     /* Final fallback to gzip (universal compatibility) */
-    unsigned char *gzip_buf = NULL;
-    size_t gzip_len = 0;
-    if (tasfa_gzip_compress_alloc(input, input_len, &gzip_buf, &gzip_len) &&
-        gzip_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
-        *out = gzip_buf;
-        *out_len = gzip_len;
-        *out_type = TASFA_COMPRESS_GZIP;
-        return true;
+    if (allow_gzip) {
+        unsigned char *gzip_buf = NULL;
+        size_t gzip_len = 0;
+        if (tasfa_gzip_compress_alloc(input, input_len, &gzip_buf, &gzip_len) &&
+            gzip_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
+            *out = gzip_buf;
+            *out_len = gzip_len;
+            *out_type = TASFA_COMPRESS_GZIP;
+            return true;
+        }
+        if (gzip_buf) { cwist_free(gzip_buf); gzip_buf = NULL; }
     }
-    if (gzip_buf) { cwist_free(gzip_buf); gzip_buf = NULL; }
 
     return false;
 }

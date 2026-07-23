@@ -58,9 +58,9 @@ Client -> SW: TASFA_STREAM_OPEN\nReadableStream at /__tasfa_stream__/<streamId>
 par Bounded forward-window scheduler
     loop while fetchedChunks < chunk_count
         SW -> SW: select eligible chunk where\nnextFeedIndex <= chunk_index < window_end\nand not inflight/retry-delayed
-        SW -> DownloadAPI: GET .../chunk/:chunk_index
+        SW -> DownloadAPI: GET .../chunk/:chunk_index\n(with X-TASFA-Accept-Encoding)
         alt Chunk received
-            DownloadAPI --> SW: chunk bytes\nX-TASFA-Chunk-Index\nX-TASFA-Chunk-Count
+            DownloadAPI --> SW: chunk bytes\nX-TASFA-Chunk-Index\nX-TASFA-Chunk-Count\nX-TASFA-Content-Encoding
             SW -> SW: decrypt and store by chunk_index\nrelease inflight slot
         else short read / timeout / network error
             DownloadAPI --> SW: retryable failure
@@ -104,9 +104,9 @@ Client -> DownloadAPI: GET /assets/tasfa/img/.../handshake
 DownloadAPI --> Client: session_id, session_token, chunk_size,\npre-calculated HTP metadata hints
 
 loop Adaptive chunk groups
-    Client -> DownloadAPI: GET /assets/tasfa/img/.../chunk/:i
+    Client -> DownloadAPI: GET /assets/tasfa/img/.../chunk/:i\n(with X-TASFA-Accept-Encoding)
     DownloadAPI -> Storage: read chunk + verify with pre-calculated HTP
-    DownloadAPI --> Client: chunk bytes
+    DownloadAPI --> Client: chunk bytes\n(with X-TASFA-Content-Encoding)
 end
 
 note over FFmpeg
