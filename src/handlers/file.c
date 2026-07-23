@@ -454,7 +454,6 @@ static bool build_image_preview_variant(cwist_http_request *req, cJSON *file,
     char resolved[PATH_MAX];
     snprintf(resolved, sizeof(resolved), "%s", orig_path);
     const char *thumb_ext = thumb_path[0] ? strrchr(thumb_path, '.') : NULL;
-    bool thumb_is_gif = thumb_ext && strcasecmp(thumb_ext, ".gif") == 0;
     bool thumb_is_webp = thumb_ext && strcasecmp(thumb_ext, ".webp") == 0;
 
     const char *w_str = cwist_query_map_get(req->query_params, "w");
@@ -476,42 +475,19 @@ static bool build_image_preview_variant(cwist_http_request *req, cJSON *file,
             snprintf(mime_buf, mime_len, "image/webp");
             return true;
         }
-        char gif_path[PATH_MAX];
-        if (has_size) {
-            int w = atoi(w_str);
-            int h = atoi(h_str);
-            if (w <= 0 || h <= 0) {
-                w = 1024;
-                h = 1024;
-            }
-            if (w >= h) {
-                if (w < 960) w = 960;
-                if (h < 640) h = 640;
-            } else {
-                if (w < 640) w = 640;
-                if (h < 960) h = 960;
-            }
-            if (w > 1920) w = 1920;
-            if (h > 1920) h = 1920;
-            snprintf(gif_path, sizeof(gif_path), "public/uploads/.thumbs/%d_%dx%d_animated_v2.gif", id, w, h);
-            if (!generate_gif_thumb(orig_path, gif_path, w, h, 12)) {
-                snprintf(gif_path, sizeof(gif_path), "%s", orig_path);
-            }
-        } else {
-            if (thumb_path[0] && strncmp(thumb_path, "public/uploads/.thumbs/", 23) == 0 && thumb_is_gif &&
-                strstr(thumb_path, "_animated_v2.gif")) {
-                snprintf(gif_path, sizeof(gif_path), "%s", thumb_path);
-            } else {
-                snprintf(gif_path, sizeof(gif_path), "public/uploads/.thumbs/%d_animated_v2.gif", id);
-                if (!generate_gif_thumb(orig_path, gif_path, 1024, 1024, 12)) {
-                    snprintf(gif_path, sizeof(gif_path), "%s", orig_path);
-                } else if (req->db) {
-                    db_file_set_preview_paths(req->db, id, gif_path, preview_path);
-                }
+        char gif_mp4_path[PATH_MAX];
+        snprintf(gif_mp4_path, sizeof(gif_mp4_path), "public/uploads/.previews/%d.mp4", id);
+        if (stat(gif_mp4_path, &(struct stat){0}) != 0) {
+            if (!generate_video_preview(orig_path, gif_mp4_path, 720)) {
+                snprintf(path, path_len, "%s", orig_path);
+                snprintf(mime_buf, mime_len, "image/gif");
+                return true;
+            } else if (req->db) {
+                db_file_set_preview_paths(req->db, id, thumb_path, gif_mp4_path);
             }
         }
-        snprintf(path, path_len, "%s", gif_path);
-        snprintf(mime_buf, mime_len, "image/gif");
+        snprintf(path, path_len, "%s", gif_mp4_path);
+        snprintf(mime_buf, mime_len, "video/mp4");
         return true;
     }
 
