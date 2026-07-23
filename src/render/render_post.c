@@ -137,6 +137,9 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
             cwist_sstring_append(out, "<div class=\"gif-video-container\" style=\"position:relative;margin-bottom:12px;\">");
             cwist_sstring_append(out, "<video data-tasfa-src=\"");
             cwist_sstring_append(out, preview_url);
+            cwist_sstring_append(out, "\" data-tasfa-poster=\"");
+            cwist_sstring_append(out, preview_url);
+            cwist_sstring_append(out, "?poster=1");
             cwist_sstring_append(out, "\" autoplay loop muted playsinline onclick=\"this.paused ? this.play() : this.pause();\" style=\"max-width:100%;height:auto;display:block;cursor:pointer;\"></video>");
             cwist_sstring_append(out, "<div style=\"margin-top:8px\"><a href=\"#\" data-tasfa-download-link=\"");
             cwist_sstring_append(out, url);
@@ -885,7 +888,9 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                             if (is_gif) {
                                 cwist_sstring_append(b, "<video data-tasfa-src='/file/preview/");
                                 cwist_sstring_append(b, fid_buf2);
-                                cwist_sstring_append(b, "' autoplay loop muted playsinline onclick='this.paused ? this.play() : this.pause();' style='max-width:100%;height:auto;display:block;cursor:pointer;'></video>");
+                                cwist_sstring_append(b, "' data-tasfa-poster='/file/preview/");
+                                cwist_sstring_append(b, fid_buf2);
+                                cwist_sstring_append(b, "?poster=1' autoplay loop muted playsinline onclick='this.paused ? this.play() : this.pause();' style='max-width:100%;height:auto;display:block;cursor:pointer;'></video>");
                             } else {
                                 cwist_sstring_append(b, "<img src='/file/preview/");
                                 cwist_sstring_append(b, fid_buf2);
