@@ -412,7 +412,7 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
         }
         if (is_gif) {
             snprintf(out->html, sizeof(out->html),
-                "<div class=\"gif-video-container\"><video src=\"%s\" autoplay loop muted playsinline onclick=\"this.paused ? this.play() : this.pause();\" style=\"max-width:100%%;height:auto;display:block;cursor:pointer;\"></video><div style=\"margin-top:8px\"><a href=\"#\" data-tasfa-download-link=\"%s\">Download original GIF</a></div></div>",
+                "<div class=\"gif-video-container\"><video data-tasfa-src=\"%s\" autoplay loop muted playsinline onclick=\"this.paused ? this.play() : this.pause();\" style=\"max-width:100%%;height:auto;display:block;cursor:pointer;\"></video><div style=\"margin-top:8px\"><a href=\"#\" data-tasfa-download-link=\"%s\">Download original GIF</a></div></div>",
                 preview_url, out->url);
         } else {
             snprintf(out->html, sizeof(out->html),
