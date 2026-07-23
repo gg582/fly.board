@@ -15,17 +15,34 @@
 #include <pthread.h>
 #include <dirent.h>
 
-static pthread_mutex_t g_ffmpeg_mtx = PTHREAD_MUTEX_INITIALIZER;
+static char *escape_shell_arg(const char *src) {
+    if (!src) return NULL;
+    size_t len = strlen(src);
+    char *escaped = malloc(len * 4 + 1);
+    if (!escaped) return NULL;
+    char *dst = escaped;
+    for (size_t i = 0; i < len; i++) {
+        if (src[i] == '\'') {
+            *dst++ = '\'';
+            *dst++ = '\\';
+            *dst++ = '\'';
+            *dst++ = '\'';
+        } else {
+            *dst++ = src[i];
+        }
+    }
+    *dst = '\0';
+    return escaped;
+}
 
 static bool run_ffmpeg(const char *cmd) {
-    pthread_mutex_lock(&g_ffmpeg_mtx);
-    FILE *fp = popen(cmd, "r");
+    char timeout_cmd[8192];
+    snprintf(timeout_cmd, sizeof(timeout_cmd), "timeout 15 %s", cmd);
+    FILE *fp = popen(timeout_cmd, "r");
     if (!fp) {
-        pthread_mutex_unlock(&g_ffmpeg_mtx);
         return false;
     }
     int status = pclose(fp);
-    pthread_mutex_unlock(&g_ffmpeg_mtx);
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
@@ -107,85 +124,161 @@ void media_preview_dimensions_from_score(int score, int src_w, int src_h,
 bool generate_image_thumb(const char *src, const char *dst, int max_w, int max_h) {
     if (!src || !dst || max_w <= 0 || max_h <= 0) return false;
     dir_ensure("public/uploads/.thumbs");
+
+    char *esc_src = escape_shell_arg(src);
+    char *esc_dst = escape_shell_arg(dst);
+    if (!esc_src || !esc_dst) {
+        free(esc_src);
+        free(esc_dst);
+        return false;
+    }
+
     int quality = 60;
     int compression = 5;
     if (strstr(src, "uploads") != NULL) {
         quality = 82;
         compression = 5;
     }
-    char cmd[2048];
+    char cmd[4096];
     snprintf(cmd, sizeof(cmd),
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vf 'scale=%d:%d:force_original_aspect_ratio=decrease' -frames:v 1 -c:v libwebp -quality %d -compression_level %d -y '%s'",
-        src, max_w, max_h, quality, compression, dst);
-    return run_ffmpeg(cmd);
+        esc_src, max_w, max_h, quality, compression, esc_dst);
+    bool ok = run_ffmpeg(cmd);
+    free(esc_src);
+    free(esc_dst);
+    return ok;
 }
 
 bool generate_gif_thumb(const char *src, const char *dst, int max_w, int max_h, int fps) {
     if (!src || !dst || max_w <= 0 || max_h <= 0 || fps <= 0) return false;
     dir_ensure("public/uploads/.thumbs");
+
+    char *esc_src = escape_shell_arg(src);
+    char *esc_dst = escape_shell_arg(dst);
+    if (!esc_src || !esc_dst) {
+        free(esc_src);
+        free(esc_dst);
+        return false;
+    }
+
     int needed = snprintf(NULL, 0,
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' "
         "-filter_complex '[0:v]fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,palettegen=stats_mode=diff[p];"
         "[0:v]fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos[x];"
         "[x][p]paletteuse=dither=bayer:bayer_scale=3' -loop 0 -y '%s'",
-        src, fps, max_w, max_h, fps, max_w, max_h, dst);
-    if (needed <= 0) return false;
+        esc_src, fps, max_w, max_h, fps, max_w, max_h, esc_dst);
+    if (needed <= 0) {
+        free(esc_src);
+        free(esc_dst);
+        return false;
+    }
     char *cmd = (char *)malloc((size_t)needed + 1);
-    if (!cmd) return false;
+    if (!cmd) {
+        free(esc_src);
+        free(esc_dst);
+        return false;
+    }
     snprintf(cmd, (size_t)needed + 1,
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' "
         "-filter_complex '[0:v]fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,palettegen=stats_mode=diff[p];"
         "[0:v]fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos[x];"
         "[x][p]paletteuse=dither=bayer:bayer_scale=3' -loop 0 -y '%s'",
-        src, fps, max_w, max_h, fps, max_w, max_h, dst);
+        esc_src, fps, max_w, max_h, fps, max_w, max_h, esc_dst);
     bool ok = run_ffmpeg(cmd);
     free(cmd);
+    free(esc_src);
+    free(esc_dst);
     return ok;
 }
 
 bool generate_static_asset_webp(const char *src, const char *dst, int max_w, int max_h) {
     if (!src || !dst || max_w <= 0 || max_h <= 0) return false;
     dir_ensure("public/uploads/.thumbs");
-    /* Aggressive but visually acceptable compression for static site assets
-       (hero background, logo, favicon, profile pictures). These are re-rendered
-       once at deploy time, so we trade a little fidelity for much smaller bytes. */
+
+    char *esc_src = escape_shell_arg(src);
+    char *esc_dst = escape_shell_arg(dst);
+    if (!esc_src || !esc_dst) {
+        free(esc_src);
+        free(esc_dst);
+        return false;
+    }
+
     int quality = 55;
     int compression = 6;
-    char cmd[2048];
+    char cmd[4096];
     snprintf(cmd, sizeof(cmd),
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vf 'scale=%d:%d:force_original_aspect_ratio=decrease' -frames:v 1 -c:v libwebp -quality %d -compression_level %d -y '%s'",
-        src, max_w, max_h, quality, compression, dst);
-    return run_ffmpeg(cmd);
+        esc_src, max_w, max_h, quality, compression, esc_dst);
+    bool ok = run_ffmpeg(cmd);
+    free(esc_src);
+    free(esc_dst);
+    return ok;
 }
 
 bool generate_video_thumb(const char *src, const char *dst, int max_w, int max_h) {
     if (!src || !dst || max_w <= 0 || max_h <= 0) return false;
     dir_ensure("public/uploads/.thumbs");
-    char cmd[2048];
+
+    char *esc_src = escape_shell_arg(src);
+    char *esc_dst = escape_shell_arg(dst);
+    if (!esc_src || !esc_dst) {
+        free(esc_src);
+        free(esc_dst);
+        return false;
+    }
+
+    char cmd[4096];
     snprintf(cmd, sizeof(cmd),
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -ss 00:00:01 -vframes 1 -vf 'scale=%d:%d:force_original_aspect_ratio=decrease' -q:v 3 -y '%s'",
-        src, max_w, max_h, dst);
-    return run_ffmpeg(cmd);
+        esc_src, max_w, max_h, esc_dst);
+    bool ok = run_ffmpeg(cmd);
+    free(esc_src);
+    free(esc_dst);
+    return ok;
 }
 
 bool generate_video_preview(const char *src, const char *dst, int max_h) {
     if (!src || !dst || max_h <= 0) return false;
     dir_ensure("public/uploads/.previews");
-    char cmd[2048];
+
+    char *esc_src = escape_shell_arg(src);
+    char *esc_dst = escape_shell_arg(dst);
+    if (!esc_src || !esc_dst) {
+        free(esc_src);
+        free(esc_dst);
+        return false;
+    }
+
+    char cmd[4096];
     snprintf(cmd, sizeof(cmd),
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vf 'scale=-2:min(%d\\,ih)' -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 160k -movflags +faststart -y '%s'",
-        src, max_h, dst);
-    return run_ffmpeg(cmd);
+        esc_src, max_h, esc_dst);
+    bool ok = run_ffmpeg(cmd);
+    free(esc_src);
+    free(esc_dst);
+    return ok;
 }
 
 bool generate_audio_preview(const char *src, const char *dst, int bitrate_kbps) {
     if (!src || !dst || bitrate_kbps <= 0) return false;
     dir_ensure("public/uploads/.previews");
-    char cmd[2048];
+
+    char *esc_src = escape_shell_arg(src);
+    char *esc_dst = escape_shell_arg(dst);
+    if (!esc_src || !esc_dst) {
+        free(esc_src);
+        free(esc_dst);
+        return false;
+    }
+
+    char cmd[4096];
     snprintf(cmd, sizeof(cmd),
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -b:a %dk -f mp3 -y '%s'",
-        src, bitrate_kbps, dst);
-    return run_ffmpeg(cmd);
+        esc_src, bitrate_kbps, esc_dst);
+    bool ok = run_ffmpeg(cmd);
+    free(esc_src);
+    free(esc_dst);
+    return ok;
 }
 
 static bool regular_file_exists(const char *path) {
