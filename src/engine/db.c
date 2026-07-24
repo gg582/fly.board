@@ -41,11 +41,17 @@ bool engine_db_init(cwist_app *app, cwist_db **db_out) {
     CWIST_LOG_INFO("Database opened: %s", DB_PATH);
 
     cwist_db *db = cwist_app_get_db(app);
-    db_configure_connection(db->conn);
+    if (!db_configure_connection(db->conn)) {
+        FLY_LOG_ERROR("Failed to configure main database connection");
+        return false;
+    }
     if (!db_init(db)) {
         FLY_LOG_ERROR("Failed to initialize database schema");
         return false;
     }
+    /* Merge any WAL pages created during migration so the database file is
+     * self-contained on disk before workers start serving traffic. */
+    db_checkpoint(db);
     CWIST_LOG_INFO("Database schema initialized");
 
     if (!db_comment_init("data/comments.db")) {

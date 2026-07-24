@@ -145,6 +145,14 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
                     CWIST_LOG_WARN("Board creation POST: invalid slug='%s'", slug);
                 }
             }
+            if (!error) {
+                cJSON *existing = db_board_get_by_slug(req->db, slug);
+                if (existing) {
+                    error = "A board with this slug already exists.";
+                    CWIST_LOG_WARN("Board creation POST: slug conflict slug='%s'", slug);
+                    cJSON_Delete(existing);
+                }
+            }
         }
     }
 
@@ -305,10 +313,9 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
     }
     free(old_slug);
 
-    cJSON *slug_obj = cJSON_GetObjectItem(board, "slug");
     char redirect_url[128];
-    if (slug_obj && slug_obj->valuestring) {
-        snprintf(redirect_url, sizeof(redirect_url), "/board/%s", slug_obj->valuestring);
+    if (slug && slug[0]) {
+        snprintf(redirect_url, sizeof(redirect_url), "/board/%s", slug);
     } else {
         strcpy(redirect_url, "/boards");
     }

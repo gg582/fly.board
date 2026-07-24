@@ -8,6 +8,10 @@
 bool db_init(cwist_db *db);
 bool db_exec_sql(cwist_db *db, const char *sql);
 bool db_migrate(cwist_db *db);
+bool db_checkpoint(cwist_db *db);
+bool db_transaction_begin(cwist_db *db);
+bool db_transaction_commit(cwist_db *db);
+bool db_transaction_rollback(cwist_db *db);
 
 /* Users */
 cJSON *db_user_get_by_username(cwist_db *db, const char *username);
@@ -36,7 +40,6 @@ bool db_board_perm_revoke(cwist_db *db, int board_id, int user_id);
 cJSON *db_board_perm_list(cwist_db *db, int board_id);
 
 /* Posts */
-int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, const char *slug, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
 int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const char *title, const char *slug_base, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category, char **out_slug);
 bool db_post_update(cwist_db *db, int id, int board_id, const char *title, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
 bool db_post_delete(cwist_db *db, int id);

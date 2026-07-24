@@ -13,7 +13,12 @@ bool db_board_tree_init(const char *path) {
         CWIST_LOG_ERROR("Failed to open board_tree db: %s", sqlite3_errmsg(g_board_tree_db));
         return false;
     }
-    db_configure_connection(g_board_tree_db);
+    if (!db_configure_connection(g_board_tree_db)) {
+        CWIST_LOG_ERROR("Failed to configure board_tree db: %s", sqlite3_errmsg(g_board_tree_db));
+        sqlite3_close(g_board_tree_db);
+        g_board_tree_db = NULL;
+        return false;
+    }
     const char *schema =
         "CREATE TABLE IF NOT EXISTS board_tree ("
         "  board_id INTEGER PRIMARY KEY,"

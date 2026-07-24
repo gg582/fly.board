@@ -118,30 +118,6 @@ cJSON *db_board_perm_list(cwist_db *db, int board_id) {
     return db_sqlite3_rows_to_json(stmt);
 }
 
-int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, const char *slug, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category) {
-    const char *sql = "INSERT INTO posts (board_id, user_id, title, slug, content, summary, pqc_signature, is_notice, is_secret, category) VALUES (?,?,?,?,?,?,?,?,?,?)";
-    sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
-    sqlite3_bind_int(stmt, 1, board_id);
-    sqlite3_bind_int(stmt, 2, user_id);
-    sqlite3_bind_text(stmt, 3, title, -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 4, slug, -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 5, content, -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 6, summary ? summary : "", -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 7, pqc_signature ? pqc_signature : "", -1, SQLITE_STATIC);
-    sqlite3_bind_int(stmt, 8, is_notice);
-    sqlite3_bind_int(stmt, 9, is_secret);
-    sqlite3_bind_text(stmt, 10, category ? category : "", -1, SQLITE_STATIC);
-    sqlite3_mutex *mutex = sqlite3_db_mutex(db->conn);
-    sqlite3_mutex_enter(mutex);
-    int rc = sqlite3_step(stmt);
-    sqlite3_int64 id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(db->conn) : 0;
-    sqlite3_mutex_leave(mutex);
-    sqlite3_finalize(stmt);
-    if (rc != SQLITE_DONE) return 0;
-    return (int)id;
-}
-
 int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const char *title, const char *slug_base, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category, char **out_slug) {
     if (out_slug) *out_slug = NULL;
     if (!db || !db->conn || !slug_base || !slug_base[0]) return 0;

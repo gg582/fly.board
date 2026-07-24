@@ -73,12 +73,28 @@ char *generate_slug(const char *title) {
     char *slug = (char *)cwist_alloc(len * 3 + 1);
     if (!slug) return NULL;
     size_t j = 0;
-    for (size_t i = 0; i < len && j < len * 3; i++) {
+    for (size_t i = 0; i < len && j < len * 3; ) {
         unsigned char c = (unsigned char)title[i];
         if (isalnum(c)) {
             slug[j++] = (char)tolower(c);
+            i++;
         } else if (c == ' ' || c == '-' || c == '_') {
-            if (j == 0 || slug[j-1] != '-') slug[j++] = '-';
+            if (j > 0 && slug[j-1] != '-') slug[j++] = '-';
+            i++;
+        } else if (c >= 0x80) {
+            /* Preserve UTF-8 multi-byte characters (CJK, emoji, etc.) so
+             * non-Latin titles do not all collapse to the generic "post" slug. */
+            size_t seq_len = 1;
+            if ((c & 0xE0) == 0xC0) seq_len = 2;
+            else if ((c & 0xF0) == 0xE0) seq_len = 3;
+            else if ((c & 0xF8) == 0xF0) seq_len = 4;
+            if (i + seq_len > len) seq_len = 1;
+            for (size_t k = 0; k < seq_len && j < len * 3; k++) {
+                slug[j++] = title[i++];
+            }
+        } else {
+            /* Drop other ASCII punctuation. */
+            i++;
         }
     }
     if (j > 0 && slug[j-1] == '-') j--;

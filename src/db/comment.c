@@ -10,7 +10,11 @@ static sqlite3 *g_comments_db = NULL;
 
 bool db_comment_init(const char *path) {
     if (sqlite3_open(path, &g_comments_db) != SQLITE_OK) return false;
-    db_configure_connection(g_comments_db);
+    if (!db_configure_connection(g_comments_db)) {
+        sqlite3_close(g_comments_db);
+        g_comments_db = NULL;
+        return false;
+    }
     const char *schema =
         "CREATE TABLE IF NOT EXISTS comments ("
         "  id INTEGER PRIMARY KEY AUTOINCREMENT,"

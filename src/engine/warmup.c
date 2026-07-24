@@ -3,6 +3,7 @@
 #include "utils/cache.h"
 #include "render/render.h"
 #include "db/db.h"
+#include "db/db_internal.h"
 #include "utils/media_preview.h"
 #include <cwist/core/log.h>
 #include <cwist/core/sstring/sstring.h>
@@ -22,7 +23,10 @@ static void *gif_warmup_thread_func(void *arg) {
         if (conn) sqlite3_close(conn);
         return NULL;
     }
-    sqlite3_busy_timeout(conn, 5000);
+    if (!db_configure_connection(conn)) {
+        sqlite3_close(conn);
+        return NULL;
+    }
 
     const char *sql_select = "SELECT id, file_path, preview_path FROM files WHERE mime_type = 'image/gif'";
     sqlite3_stmt *stmt = NULL;
