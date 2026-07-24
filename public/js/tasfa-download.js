@@ -1566,12 +1566,6 @@
             el.style.opacity = '1';
             el.style.transition = 'opacity 0.25s ease';
             tryTasfaImageDownload();
-
-            if (posterUrl && isTasfaDownloadUrl(posterUrl)) {
-                fetchBlobViaTasfa(posterUrl, { silent: true }).then(async function(result) {
-                    var objectUrl = await createMediaPlaybackUrl(posterUrl, result.blob);
-            }
-
             return;
         }
 
@@ -1724,7 +1718,7 @@
 
     function upgradeMediaWithin(root) {
         if (!root || !root.querySelectorAll) return;
-        var mediaSelector = 'img[data-tasfa-download], img[data-tasfa-src], img[src^="/file/download/"], img[src^="/file/preview/"], img[src^="/assets/uploads/"], audio[data-tasfa-download], audio[src^="/file/download/"], video[data-tasfa-download], video[src^="/file/download/"]';
+        var mediaSelector = 'img[data-tasfa-download], img[data-tasfa-src], img[src^="/file/download/"], img[src^="/file/preview/"], img[src^="/assets/uploads/"], audio[data-tasfa-download], audio[src^="/file/download/"], video[data-tasfa-download], video[data-tasfa-src], video[src^="/file/download/"]';
         if (root.matches) {
             if (root.matches(mediaSelector)) upgradeMediaElement(root);
         }
