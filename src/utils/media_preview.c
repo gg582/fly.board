@@ -35,6 +35,14 @@ static char *escape_shell_arg(const char *src) {
     return escaped;
 }
 
+static bool validate_media_path(const char *path) {
+    if (!path || !path[0]) return false;
+    if (!is_safe_public_path(path)) return false;
+    const char *unsafe = ";'\"`|&<>(){}[]$\\\n\r";
+    if (strpbrk(path, unsafe)) return false;
+    return true;
+}
+
 static bool run_ffmpeg(const char *cmd) {
     char timeout_cmd[8192];
     snprintf(timeout_cmd, sizeof(timeout_cmd), "timeout 15 %s", cmd);
@@ -123,6 +131,7 @@ void media_preview_dimensions_from_score(int score, int src_w, int src_h,
 
 bool generate_image_thumb(const char *src, const char *dst, int max_w, int max_h) {
     if (!src || !dst || max_w <= 0 || max_h <= 0) return false;
+    if (!validate_media_path(src) || !validate_media_path(dst)) return false;
     dir_ensure("public/uploads/.thumbs");
 
     char *esc_src = escape_shell_arg(src);
@@ -151,6 +160,7 @@ bool generate_image_thumb(const char *src, const char *dst, int max_w, int max_h
 
 bool generate_gif_thumb(const char *src, const char *dst, int max_w, int max_h, int fps) {
     if (!src || !dst || max_w <= 0 || max_h <= 0 || fps <= 0) return false;
+    if (!validate_media_path(src) || !validate_media_path(dst)) return false;
     dir_ensure("public/uploads/.thumbs");
 
     char *esc_src = escape_shell_arg(src);
@@ -193,6 +203,7 @@ bool generate_gif_thumb(const char *src, const char *dst, int max_w, int max_h, 
 
 bool generate_static_asset_webp(const char *src, const char *dst, int max_w, int max_h) {
     if (!src || !dst || max_w <= 0 || max_h <= 0) return false;
+    if (!validate_media_path(src) || !validate_media_path(dst)) return false;
     dir_ensure("public/uploads/.thumbs");
 
     char *esc_src = escape_shell_arg(src);
@@ -217,6 +228,7 @@ bool generate_static_asset_webp(const char *src, const char *dst, int max_w, int
 
 bool generate_video_thumb(const char *src, const char *dst, int max_w, int max_h) {
     if (!src || !dst || max_w <= 0 || max_h <= 0) return false;
+    if (!validate_media_path(src) || !validate_media_path(dst)) return false;
     dir_ensure("public/uploads/.thumbs");
 
     char *esc_src = escape_shell_arg(src);
@@ -239,6 +251,7 @@ bool generate_video_thumb(const char *src, const char *dst, int max_w, int max_h
 
 bool generate_video_preview(const char *src, const char *dst, int max_h) {
     if (!src || !dst || max_h <= 0) return false;
+    if (!validate_media_path(src) || !validate_media_path(dst)) return false;
     dir_ensure("public/uploads/.previews");
 
     char *esc_src = escape_shell_arg(src);
@@ -261,6 +274,7 @@ bool generate_video_preview(const char *src, const char *dst, int max_h) {
 
 bool generate_webm_preview(const char *src, const char *dst, int max_h) {
     if (!src || !dst || max_h <= 0) return false;
+    if (!validate_media_path(src) || !validate_media_path(dst)) return false;
     dir_ensure("public/uploads/.previews");
 
     char *esc_src = escape_shell_arg(src);
@@ -283,6 +297,7 @@ bool generate_webm_preview(const char *src, const char *dst, int max_h) {
 
 bool generate_audio_preview(const char *src, const char *dst, int bitrate_kbps) {
     if (!src || !dst || bitrate_kbps <= 0) return false;
+    if (!validate_media_path(src) || !validate_media_path(dst)) return false;
     dir_ensure("public/uploads/.previews");
 
     char *esc_src = escape_shell_arg(src);

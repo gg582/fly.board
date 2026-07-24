@@ -37,7 +37,7 @@ typedef struct {
     char filename[256];
     char mime_type[128];
     char url[512];
-    char html[1024];
+    char html[1536];
     size_t file_size;
     char file_path[512];
     char error[256];
@@ -49,4 +49,12 @@ void get_file_timestamp_str(const char *file_path, char *out_ts, size_t max_len)
 
 /* Truncate UTF-8 string at a valid character boundary (returns byte length <= max_bytes) */
 size_t utf8_truncate_len(const char *str, size_t max_bytes);
+
+/* Validate that path is under one of the allowed public prefixes and contains
+ * no directory traversal.  Returns true only for safe, relative paths. */
+bool is_safe_public_path(const char *path);
+
+/* Sanitize a multipart filename to basename, removing any path components and
+ * rejecting unsafe characters.  Returns a newly allocated string or NULL. */
+char *sanitize_filename(const char *filename);
 #endif

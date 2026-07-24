@@ -65,12 +65,20 @@ static void *gif_warmup_thread_func(void *arg) {
         if (need_convert) {
             if (task_count >= task_cap) {
                 task_cap = task_cap == 0 ? 16 : task_cap * 2;
-                tasks = realloc(tasks, task_cap * sizeof(gif_task_t));
+                gif_task_t *new_tasks = realloc(tasks, task_cap * sizeof(gif_task_t));
+                if (!new_tasks) {
+                    CWIST_LOG_ERROR("GIF Warmup: failed to allocate task buffer");
+                    sqlite3_finalize(stmt);
+                    free(tasks);
+                    sqlite3_close(conn);
+                    return NULL;
+                }
+                tasks = new_tasks;
             }
             tasks[task_count].id = id;
-            snprintf(tasks[task_count].file_path, sizeof(tasks[task_count].file_path), "%s", fpath);
+            if (snprintf(tasks[task_count].file_path, sizeof(tasks[task_count].file_path), "%s", fpath) >= (int)sizeof(tasks[task_count].file_path)) continue;
             if (ppath) {
-                snprintf(tasks[task_count].preview_path, sizeof(tasks[task_count].preview_path), "%s", ppath);
+                if (snprintf(tasks[task_count].preview_path, sizeof(tasks[task_count].preview_path), "%s", ppath) >= (int)sizeof(tasks[task_count].preview_path)) continue;
             } else {
                 tasks[task_count].preview_path[0] = '\0';
             }

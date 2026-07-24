@@ -1103,17 +1103,10 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     if (post) {
         cJSON *c = cJSON_GetObjectItem(post, "content");
         const char *content_str = c && c->valuestring ? c->valuestring : "";
-        const char *p = content_str;
-        while (*p) {
-            const char *end = strstr(p, "</textarea>");
-            if (end) {
-                cwist_sstring_append_len(b, p, end - p);
-                cwist_sstring_append(b, "&lt;/textarea&gt;");
-                p = end + 11;
-            } else {
-                cwist_sstring_append(b, p);
-                break;
-            }
+        char *escaped = sql_escape(content_str);
+        if (escaped) {
+            cwist_sstring_append(b, escaped);
+            cwist_free(escaped);
         }
     }
     cwist_sstring_append(b, "</textarea></div>");

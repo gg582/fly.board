@@ -42,7 +42,7 @@ void handler_admin_user_role(cwist_http_request *req, cwist_http_response *res) 
     }
     cwist_query_map_destroy(kv);
     const char *referer = cwist_http_header_get(req->headers, "Referer");
-    redirect(res, referer && referer[0] ? referer : "/admin/users");
+    redirect_referer_safe(res, referer, "/admin/users");
 }
 
 void handler_admin_files_drop(cwist_http_request *req, cwist_http_response *res) {
@@ -51,7 +51,7 @@ void handler_admin_files_drop(cwist_http_request *req, cwist_http_response *res)
     CWIST_LOG_INFO("Admin dropped all files: count=%d", count);
     page_cache_invalidate_all();
     const char *referer = cwist_http_header_get(req->headers, "Referer");
-    redirect(res, referer && referer[0] ? referer : "/files");
+    redirect_referer_safe(res, referer, "/files");
 }
 
 void handler_admin_boards_get(cwist_http_request *req, cwist_http_response *res) {

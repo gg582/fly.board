@@ -6,6 +6,7 @@
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/log.h>
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stb_image.h>
@@ -13,6 +14,38 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <magic.h>
+
+/* Minimal HTML attribute/text escape for values inserted into rendered markup.
+ * Caller must cwist_free() the returned string. */
+static char *html_escape(const char *src) {
+    if (!src) return NULL;
+    size_t len = strlen(src);
+    size_t extra = 0;
+    for (size_t i = 0; i < len; i++) {
+        switch (src[i]) {
+            case '&': extra += 4; break;
+            case '<': extra += 3; break;
+            case '>': extra += 3; break;
+            case '"': extra += 5; break;
+            case '\'': extra += 5; break;
+        }
+    }
+    char *out = (char *)cwist_alloc(len + extra + 1);
+    if (!out) return NULL;
+    size_t j = 0;
+    for (size_t i = 0; i < len; i++) {
+        switch (src[i]) {
+            case '&': memcpy(out + j, "&amp;", 5); j += 5; break;
+            case '<': memcpy(out + j, "&lt;", 4); j += 4; break;
+            case '>': memcpy(out + j, "&gt;", 4); j += 4; break;
+            case '"': memcpy(out + j, "&quot;", 6); j += 6; break;
+            case '\'': memcpy(out + j, "&#x27;", 6); j += 6; break;
+            default: out[j++] = src[i]; break;
+        }
+    }
+    out[j] = '\0';
+    return out;
+}
 
 char *file_read(const char *path, size_t *out_len) {
     FILE *f = fopen(path, "rb");
@@ -182,11 +215,20 @@ static int mp_hv(multipart_parser *p, const char *at, size_t len) {
             const char *fne = (const char *)memchr(fn, '\"', len - (size_t)(fn - at));
             if (fne && (size_t)(fne - fn) < sizeof(ctx->filename)) {
                 memcpy(ctx->filename, fn, (size_t)(fne - fn)); ctx->filename[fne - fn] = '\0';
-                ctx->is_file = true;
-                dir_ensure("public/uploads");
-                snprintf(ctx->path, sizeof(ctx->path), "public/uploads/%ld_%s", (long)time(NULL), ctx->filename);
-                ctx->fp = fopen(ctx->path, "wb");
-                if (!ctx->fp) ctx->write_error = true;
+                char *safe = sanitize_filename(ctx->filename);
+                if (safe) {
+                    snprintf(ctx->filename, sizeof(ctx->filename), "%s", safe);
+                    cwist_free(safe);
+                } else {
+                    ctx->filename[0] = '\0';
+                }
+                if (ctx->filename[0]) {
+                    ctx->is_file = true;
+                    dir_ensure("public/uploads");
+                    snprintf(ctx->path, sizeof(ctx->path), "public/uploads/%ld_%s", (long)time(NULL), ctx->filename);
+                    ctx->fp = fopen(ctx->path, "wb");
+                    if (!ctx->fp) ctx->write_error = true;
+                }
             }
         }
     } else if (strncasecmp(ctx->hdr, "Content-Type", 12) == 0) {
@@ -317,7 +359,10 @@ bool get_media_dimensions(const char *src, bool is_video, int *w, int *h) {
         if (stbi_info(src, w, h, NULL)) return true;
     } else {
         // Video: use ffprobe to get dimensions
-        char cmd[256];
+        if (!is_safe_public_path(src)) return false;
+        const char *unsafe = ";'\"`|&<>(){}[]$\\\n\r";
+        if (strpbrk(src, unsafe)) return false;
+        char cmd[PATH_MAX + 128];
         snprintf(cmd, sizeof(cmd),
                  "ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 '%s'",
                  src);
@@ -420,6 +465,8 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
         }
     }
 
+    char *esc_filename = html_escape(out->filename);
+    const char *filename_for_html = esc_filename ? esc_filename : out->filename;
     if (strncmp(out->mime_type, "image/", 6) == 0) {
         char preview_url[64] = {0};
         bool is_gif = strcmp(out->mime_type, "image/gif") == 0;
@@ -433,14 +480,14 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
         } else {
             snprintf(out->html, sizeof(out->html),
                 "<img src=\"%s\" data-tasfa-src=\"%s\" data-tasfa-fixed-preview=\"1\" data-tasfa-original=\"%s\" alt=\"%s\" style=\"max-width:100%%;height:auto;display:block\">",
-                preview_url, preview_url, out->url, out->filename);
+                preview_url, preview_url, out->url, filename_for_html);
         }
     } else if (strncmp(out->mime_type, "video/", 6) == 0) {
         char play_url[576];
         snprintf(play_url, sizeof(play_url), "%s?preview=1", out->url);
         snprintf(out->html, sizeof(out->html),
             "<div class=\"media-video-placeholder\"><div class=\"media-video-title\">%s</div><div class=\"media-video-frame\"><button type=\"button\" class=\"media-load-btn media-video-open\" data-tasfa-video-link=\"%s\">Click to Load</button></div></div>",
-            out->filename, play_url);
+            filename_for_html, play_url);
     } else if (strncmp(out->mime_type, "audio/", 6) == 0) {
         snprintf(out->html, sizeof(out->html),
             "<audio controls src=\"%s\"></audio>",
@@ -448,8 +495,9 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
     } else {
         snprintf(out->html, sizeof(out->html),
             "[%s](%s)",
-            out->filename, out->url);
+            filename_for_html, out->url);
     }
+    if (esc_filename) cwist_free(esc_filename);
     if (fid <= 0) {
         snprintf(out->error, sizeof(out->error), "db insert failed");
         return false;
@@ -468,6 +516,66 @@ size_t utf8_truncate_len(const char *str, size_t max_bytes) {
         i--;
     }
     return i;
+}
+
+bool is_safe_public_path(const char *path) {
+    if (!path || path[0] == '\0') return false;
+    if (path[0] == '/') return false;
+    if (path[0] == '.' && path[1] == '.') return false;
+
+    static const char *allowed_prefixes[] = {
+        "public/uploads/",
+        "public/profile/",
+        "public/img/",
+        "public/media/",
+        "data/tasfa/"
+    };
+    bool has_allowed_prefix = false;
+    for (size_t i = 0; i < sizeof(allowed_prefixes) / sizeof(allowed_prefixes[0]); i++) {
+        size_t plen = strlen(allowed_prefixes[i]);
+        if (strncmp(path, allowed_prefixes[i], plen) == 0) {
+            has_allowed_prefix = true;
+            break;
+        }
+    }
+    if (!has_allowed_prefix) return false;
+
+    /* Reject any ".." segment anywhere in the path. */
+    const char *p = path;
+    while (*p) {
+        if (p[0] == '.' && p[1] == '.' && (p[2] == '/' || p[2] == '\0')) return false;
+        const char *slash = strchr(p, '/');
+        if (!slash) break;
+        p = slash + 1;
+    }
+    return true;
+}
+
+char *sanitize_filename(const char *filename) {
+    if (!filename) return NULL;
+    const char *base = strrchr(filename, '/');
+    if (base) base++;
+    else base = filename;
+    const char *base2 = strrchr(base, '\\');
+    if (base2) base = base2 + 1;
+    if (!base[0]) return NULL;
+
+    size_t len = strlen(base);
+    if (len > 255) len = 255;
+    char *out = (char *)cwist_alloc(len + 1);
+    if (!out) return NULL;
+    size_t j = 0;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)base[i];
+        if (c == '\0' || c == '/' || c == '\\' || c == '\r' || c == '\n' || c < 0x20) continue;
+        out[j++] = (char)c;
+    }
+    out[j] = '\0';
+    if (j == 0) {
+        cwist_free(out);
+        return NULL;
+    }
+    return out;
 }
 
 void get_file_timestamp_str(const char *file_path, char *out_ts, size_t max_len) {
