@@ -233,7 +233,7 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
                 snprintf(refresh_url, sizeof(refresh_url), "/post/%s?retry=%d", slug, retry + 1);
             }
             res->status_code = CWIST_HTTP_OK;
-            cwist_http_header_add(res->headers, "Content-Type", "text/html; charset=utf-8");
+            cwist_http_header_add(&res->headers, "Content-Type", "text/html; charset=utf-8");
             char body[2048];
             snprintf(body, sizeof(body), 
                 "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"1;url=%s\"><title>Loading post...</title></head>"
@@ -655,17 +655,41 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     char *deleted_slug = (slug_item && cJSON_IsString(slug_item) && slug_item->valuestring) ? strdup(slug_item->valuestring) : NULL;
     cJSON_Delete(post);
     int post_id = atoi(id_str);
+
+    /* Delete files and the post record in one main-DB transaction so a crash
+     * in the middle cannot leave a post pointing to deleted files. */
+    bool tx_ok = db_transaction_begin(req->db);
     db_file_delete_by_post(req->db, post_id);
-    db_comment_delete_by_target("post", post_id);
-    db_post_delete(req->db, post_id);
-    if (deleted_slug) {
-        page_cache_invalidate_post(deleted_slug);
-        free(deleted_slug);
-    } else {
-        page_cache_invalidate_all();
+    bool post_deleted = db_post_delete(req->db, post_id);
+    if (tx_ok) {
+        if (post_deleted) {
+            if (!db_transaction_commit(req->db)) {
+                db_transaction_rollback(req->db);
+                post_deleted = false;
+            }
+        } else {
+            db_transaction_rollback(req->db);
+        }
     }
-    CWIST_LOG_INFO("Post deleted: id=%s uid=%d", id_str, uid);
-    redirect(res, "/");
+
+    if (post_deleted) {
+        /* Comments live in a separate database; best-effort cleanup after the
+         * main transaction commits. */
+        db_comment_delete_by_target("post", post_id);
+        if (deleted_slug) {
+            page_cache_invalidate_post(deleted_slug);
+            free(deleted_slug);
+        } else {
+            page_cache_invalidate_all();
+        }
+        CWIST_LOG_INFO("Post deleted: id=%s uid=%d", id_str, uid);
+        redirect(res, "/");
+    } else {
+        CWIST_LOG_ERROR("Post delete failed: id=%s uid=%d", id_str, uid);
+        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
+        cwist_sstring_assign(res->body, "Failed to delete post");
+        free(deleted_slug);
+    }
 }
 
 /* ---- Files ---- */

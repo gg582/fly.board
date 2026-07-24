@@ -47,24 +47,64 @@ cJSON *db_sqlite3_row_to_json(sqlite3_stmt *stmt) {
     return NULL;
 }
 
-void db_configure_connection(sqlite3 *conn) {
-    if (!conn) return;
+bool db_configure_connection(sqlite3 *conn) {
+    if (!conn) return false;
     /* Wait up to 5s when the database is locked by another worker instead of
      * returning SQLITE_BUSY immediately. */
     sqlite3_busy_timeout(conn, 5000);
 
     char *err = NULL;
-    sqlite3_exec(conn, "PRAGMA journal_mode=WAL;", NULL, NULL, &err);
-    if (err) {
-        CWIST_LOG_WARN("Failed to set WAL mode: %s", err);
-        sqlite3_free(err);
+    int rc;
+
+    rc = sqlite3_exec(conn, "PRAGMA journal_mode=WAL;", NULL, NULL, &err);
+    if (rc != SQLITE_OK || err) {
+        CWIST_LOG_ERROR("Failed to set WAL mode: %s", err ? err : sqlite3_errmsg(conn));
+        if (err) sqlite3_free(err);
+        return false;
+    }
+
+    rc = sqlite3_exec(conn, "PRAGMA synchronous=NORMAL;", NULL, NULL, &err);
+    if (rc != SQLITE_OK || err) {
+        CWIST_LOG_ERROR("Failed to set synchronous level: %s", err ? err : sqlite3_errmsg(conn));
+        if (err) sqlite3_free(err);
+        return false;
+    }
+
+    /* Bound WAL file growth so a runaway writer cannot exhaust disk before the
+     * next checkpoint.  64 MiB is large enough for normal batch writes. */
+    rc = sqlite3_exec(conn, "PRAGMA journal_size_limit=67108864;", NULL, NULL, &err);
+    if (rc != SQLITE_OK || err) {
+        CWIST_LOG_WARN("Failed to set journal size limit: %s", err ? err : sqlite3_errmsg(conn));
+        if (err) sqlite3_free(err);
         err = NULL;
     }
-    sqlite3_exec(conn, "PRAGMA synchronous=NORMAL;", NULL, NULL, &err);
-    if (err) {
-        CWIST_LOG_WARN("Failed to set synchronous level: %s", err);
-        sqlite3_free(err);
+
+    return true;
+}
+
+bool db_checkpoint(cwist_db *db) {
+    if (!db || !db->conn) return false;
+    int rc = sqlite3_wal_checkpoint_v2(db->conn, NULL, SQLITE_CHECKPOINT_PASSIVE, NULL, NULL);
+    if (rc != SQLITE_OK && rc != SQLITE_BUSY) {
+        CWIST_LOG_WARN("WAL checkpoint failed: %s", sqlite3_errmsg(db->conn));
+        return false;
     }
+    return true;
+}
+
+bool db_transaction_begin(cwist_db *db) {
+    if (!db || !db->conn) return false;
+    return sqlite3_exec(db->conn, "BEGIN IMMEDIATE", NULL, NULL, NULL) == SQLITE_OK;
+}
+
+bool db_transaction_commit(cwist_db *db) {
+    if (!db || !db->conn) return false;
+    return sqlite3_exec(db->conn, "COMMIT", NULL, NULL, NULL) == SQLITE_OK;
+}
+
+bool db_transaction_rollback(cwist_db *db) {
+    if (!db || !db->conn) return false;
+    return sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL) == SQLITE_OK;
 }
 
 bool db_init(cwist_db *db) {
