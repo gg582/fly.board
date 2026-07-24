@@ -1178,7 +1178,17 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     snprintf(job->upload_token, sizeof(job->upload_token), "%s", upload_token);
 
     if (!engine_pool_schedule(upload_finalize_worker, job, 0x4d45444941ULL, TTAK_TASK_DOMAIN_THREAD, 30)) {
-        upload_finalize_worker(job);
+        /* A finalize can invoke transcoding and database writes.  Executing it
+         * inline when the executor is stopping would pin an HTTP worker and
+         * amplify load during an outage.  Keep the idempotency record and let
+         * the client retry instead. */
+        free(job);
+        finalize_cache_mark_done(upload_id, 503,
+                                 "{\"ok\":false,\"error\":\"finalize executor unavailable\"}");
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("finalize executor unavailable"),
+                           CWIST_HTTP_SERVICE_UNAVAILABLE);
+        return;
     }
 
     cJSON *obj = cJSON_CreateObject();

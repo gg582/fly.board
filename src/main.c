@@ -3,6 +3,7 @@
 #include "auth/auth.h"
 #include "crypto/fly_crypto.h"
 #include "db/db.h"
+#include "db/db_internal.h"
 #include "utils/media_preview.h"
 #include "cwist/board_tree.h"
 #include "nats/fly_nats.h"
@@ -105,10 +106,22 @@ static int create_daily_3am_timer(void) {
 }
 
 static void *cleanup_worker(void *arg) {
-    cwist_db *db = (cwist_db *)arg;
+    (void)arg;
+    /* Never share the request-serving connection with this long-lived worker.
+     * A dedicated WAL connection keeps its statements and busy state isolated
+     * from HTTP handlers. */
+    sqlite3 *conn = NULL;
+    if (sqlite3_open_v2("data/blog.db", &conn, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK ||
+        !db_configure_connection(conn)) {
+        FLY_LOG_ERROR("Failed to open cleanup database connection");
+        if (conn) sqlite3_close(conn);
+        return NULL;
+    }
+    cwist_db db = { .conn = conn };
     int tfd = create_daily_3am_timer();
     if (tfd < 0) {
         CWIST_LOG_ERROR("Failed to create cleanup timerfd");
+        sqlite3_close(conn);
         return NULL;
     }
     uint64_t exp;
@@ -119,9 +132,10 @@ static void *cleanup_worker(void *arg) {
         if (ready == 0) continue;
         ssize_t s = read(tfd, &exp, sizeof(exp));
         if (s != sizeof(exp)) continue;
-        db_cleanup_orphaned_files(db);
+        db_cleanup_orphaned_files(&db);
     }
     close(tfd);
+    sqlite3_close(conn);
     return NULL;
 }
 
@@ -200,7 +214,7 @@ int main(void) {
     page_cache_warmup(db);
 
     atomic_store_explicit(&g_cleanup_running, true, memory_order_release);
-    if (!engine_pool_schedule(cleanup_worker, db, 0x434c45414e5550ULL, TTAK_TASK_DOMAIN_IO, 10)) {
+    if (!engine_pool_schedule_service(cleanup_worker, NULL, 0x434c45414e5550ULL, TTAK_TASK_DOMAIN_IO, 10)) {
         atomic_store_explicit(&g_cleanup_running, false, memory_order_release);
         FLY_LOG_ERROR("Failed to schedule cleanup worker");
     }

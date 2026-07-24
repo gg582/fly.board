@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "engine/warmup.h"
+#include "engine/pool.h"
 #include "utils/cache.h"
 #include "render/render.h"
 #include "db/db.h"
@@ -127,16 +128,12 @@ static void *gif_warmup_thread_func(void *arg) {
 }
 
 static void gif_warmup_start(void) {
-    pthread_t thread;
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    if (pthread_create(&thread, &attr, gif_warmup_thread_func, NULL) == 0) {
+    if (engine_pool_schedule(gif_warmup_thread_func, NULL, 0x4749465741524d55ULL,
+                             TTAK_TASK_DOMAIN_IO, 5)) {
         CWIST_LOG_INFO("Started GIF to MP4 warmup thread successfully.");
     } else {
-        CWIST_LOG_ERROR("Failed to start GIF to MP4 warmup thread.");
+        CWIST_LOG_ERROR("Failed to schedule GIF to MP4 warmup task.");
     }
-    pthread_attr_destroy(&attr);
 }
 
 void page_cache_warmup(cwist_db *db) {

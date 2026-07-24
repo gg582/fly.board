@@ -70,6 +70,25 @@ bool db_configure_connection(sqlite3 *conn) {
         return false;
     }
 
+    /* Referential checks are connection-local in SQLite.  Enabling them for
+     * every request and worker connection prevents concurrent delete/update
+     * paths from leaving orphaned rows behind. */
+    rc = sqlite3_exec(conn, "PRAGMA foreign_keys=ON;", NULL, NULL, &err);
+    if (rc != SQLITE_OK || err) {
+        CWIST_LOG_ERROR("Failed to enable foreign keys: %s", err ? err : sqlite3_errmsg(conn));
+        if (err) sqlite3_free(err);
+        return false;
+    }
+
+    /* Checkpoint in small, predictable batches rather than allowing a burst
+     * of concurrent writers to grow the WAL indefinitely. */
+    rc = sqlite3_exec(conn, "PRAGMA wal_autocheckpoint=1000;", NULL, NULL, &err);
+    if (rc != SQLITE_OK || err) {
+        CWIST_LOG_WARN("Failed to configure WAL autocheckpoint: %s", err ? err : sqlite3_errmsg(conn));
+        if (err) sqlite3_free(err);
+        err = NULL;
+    }
+
     /* Bound WAL file growth so a runaway writer cannot exhaust disk before the
      * next checkpoint.  64 MiB is large enough for normal batch writes. */
     rc = sqlite3_exec(conn, "PRAGMA journal_size_limit=67108864;", NULL, NULL, &err);
