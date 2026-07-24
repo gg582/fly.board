@@ -221,29 +221,6 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
 
     cJSON *post = db_post_get_by_slug(req->db, slug);
     if (!post) {
-        int retry = 0;
-        const char *retry_str = cwist_query_map_get(req->query_params, "retry");
-        if (retry_str) retry = atoi(retry_str);
-        if (retry < 3) {
-            char refresh_url[1024];
-            const char *delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
-            if (delete_pin) {
-                snprintf(refresh_url, sizeof(refresh_url), "/post/%s?delete_pin=%s&retry=%d", slug, delete_pin, retry + 1);
-            } else {
-                snprintf(refresh_url, sizeof(refresh_url), "/post/%s?retry=%d", slug, retry + 1);
-            }
-            res->status_code = CWIST_HTTP_OK;
-            cwist_http_header_add(&res->headers, "Content-Type", "text/html; charset=utf-8");
-            char body[2048];
-            snprintf(body, sizeof(body), 
-                "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"1;url=%s\"><title>Loading post...</title></head>"
-                "<body style=\"font-family:sans-serif;text-align:center;padding:50px;\">"
-                "<p>Routing to post, please wait... (%d/3)</p>"
-                "<script>setTimeout(function(){window.location.replace('%s');}, 1500);</script>"
-                "</body></html>", refresh_url, retry + 1, refresh_url);
-            cwist_sstring_assign(res->body, body);
-            return;
-        }
         res->status_code = CWIST_HTTP_NOT_FOUND;
         cwist_sstring_assign(res->body, "Not found");
         return;

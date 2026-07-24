@@ -260,7 +260,11 @@ function isCdnUrl(url) {
 function shouldSkipCaching(response) {
     if (!response || !response.ok) return true;
     var cc = response.headers.get('Cache-Control') || '';
-    return cc.indexOf('no-store') !== -1;
+    if (cc.indexOf('no-store') !== -1) return true;
+    if (cc.indexOf('no-cache') !== -1) return true;
+    if (cc.indexOf('must-revalidate') !== -1) return true;
+    if (cc.indexOf('private') !== -1) return true;
+    return false;
 }
 
 function fetchAndCache(request, cacheName, maxAge, fetchOptions) {
@@ -442,10 +446,13 @@ self.addEventListener('fetch', function(event) {
      * cache entry in the background for the next navigation.  A short TTL keeps
      * dynamic content reasonably fresh. */
     if (event.request.mode === 'navigate' && event.request.method === 'GET') {
-        var ref = event.request.referrer || '';
-        if (ref.includes('/login') || ref.includes('/register') || ref.includes('/logout') || ref.includes('/account') || ref.includes('/admin')) {
-            return;
-        }
+        var refPath = '';
+        try { refPath = new URL(event.request.referrer || '').pathname; } catch (e) {}
+        var authPaths = ['/login', '/register', '/logout', '/account', '/admin'];
+        var fromAuthPage = authPaths.some(function(p) {
+            return refPath === p || refPath.indexOf(p + '/') === 0;
+        });
+        if (fromAuthPage) return;
         event.respondWith(
             caches.open(NAVIGATION_CACHE).then(function(cache) {
                 return cache.match(event.request).then(function(cachedResponse) {
