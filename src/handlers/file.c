@@ -1067,16 +1067,22 @@ void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
                 cJSON *fpath = cJSON_GetObjectItem(f, "file_path");
                 cJSON *thumb_path = cJSON_GetObjectItem(f, "thumb_path");
                 cJSON *preview_path = cJSON_GetObjectItem(f, "preview_path");
-                if (fpath && fpath->valuestring && fpath->valuestring[0]) {
+                if (fpath && fpath->valuestring && fpath->valuestring[0] && is_safe_public_path(fpath->valuestring)) {
                     unlink(fpath->valuestring);
+                } else if (fpath && fpath->valuestring && fpath->valuestring[0]) {
+                    CWIST_LOG_WARN("Refusing to delete unsafe file path: %s", fpath->valuestring);
                 }
-                if (thumb_path && thumb_path->valuestring && thumb_path->valuestring[0]) {
+                if (thumb_path && thumb_path->valuestring && thumb_path->valuestring[0] && is_safe_public_path(thumb_path->valuestring)) {
                     unlink(thumb_path->valuestring);
+                } else if (thumb_path && thumb_path->valuestring && thumb_path->valuestring[0]) {
+                    CWIST_LOG_WARN("Refusing to delete unsafe thumb path: %s", thumb_path->valuestring);
                 }
-                if (preview_path && preview_path->valuestring && preview_path->valuestring[0]) {
-                    if (!fpath || !fpath->valuestring || strcmp(preview_path->valuestring, fpath->valuestring) != 0) {
-                        unlink(preview_path->valuestring);
-                    }
+                if (preview_path && preview_path->valuestring && preview_path->valuestring[0] &&
+                    (!fpath || !fpath->valuestring || strcmp(preview_path->valuestring, fpath->valuestring) != 0) &&
+                    is_safe_public_path(preview_path->valuestring)) {
+                    unlink(preview_path->valuestring);
+                } else if (preview_path && preview_path->valuestring && preview_path->valuestring[0]) {
+                    CWIST_LOG_WARN("Refusing to delete unsafe preview path: %s", preview_path->valuestring);
                 }
                 int fid = atoi(id_str);
                 if (db_file_delete(req->db, fid)) {

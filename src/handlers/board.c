@@ -189,7 +189,7 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
     }
     cwist_query_map_destroy(kv);
     const char *referer = cwist_http_header_get(req->headers, "Referer");
-    redirect(res, referer && referer[0] ? referer : "/boards");
+    redirect_referer_safe(res, referer, "/boards");
 }
 
 void handler_board_edit_get(cwist_http_request *req, cwist_http_response *res) {
@@ -323,7 +323,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
     free(pp);
     cwist_query_map_destroy(kv);
     const char *referer = cwist_http_header_get(req->headers, "Referer");
-    redirect(res, referer && referer[0] ? referer : redirect_url);
+    redirect_referer_safe(res, referer, redirect_url);
 }
 
 void handler_board_delete(cwist_http_request *req, cwist_http_response *res) {
@@ -347,7 +347,7 @@ void handler_board_delete(cwist_http_request *req, cwist_http_response *res) {
         CWIST_LOG_INFO("Board deleted: bid=%d", bid);
     }
     const char *referer = cwist_http_header_get(req->headers, "Referer");
-    redirect(res, referer && referer[0] ? referer : "/boards");
+    redirect_referer_safe(res, referer, "/boards");
 }
 
 void handler_board_perms_get(cwist_http_request *req, cwist_http_response *res) {

@@ -166,29 +166,6 @@ static void auth_hint_update(cwist_http_request *req, int user_id, const char *r
     pthread_mutex_unlock(&g_auth_hint_mutex);
 }
 
-static bool auth_hint_lookup(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
-    char ip[INET6_ADDRSTRLEN];
-    const char *ua;
-    auth_hint_get_client_info(req, ip, sizeof(ip), &ua);
-    uint64_t h = auth_hint_hash(ip, ua);
-
-    pthread_mutex_lock(&g_auth_hint_mutex);
-    time_t now = time(NULL);
-    size_t idx = auth_hint_bucket_index(h);
-    auth_hint_entry_t *e = g_auth_hint_buckets[idx];
-    while (e) {
-        if (e->key_hash == h && (now - e->last_seen) <= AUTH_HINT_TTL_SECONDS) {
-            *out_user_id = e->user_id;
-            snprintf(out_role, role_len, "%s", e->role);
-            pthread_mutex_unlock(&g_auth_hint_mutex);
-            return true;
-        }
-        e = e->next;
-    }
-    pthread_mutex_unlock(&g_auth_hint_mutex);
-    return false;
-}
-
 static void auth_hint_remove(cwist_http_request *req) {
     char ip[INET6_ADDRSTRLEN];
     const char *ua;
@@ -673,33 +650,6 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
             reason = AUTH_FAIL_SESSION_COOKIE_MISSING;
         } else {
             reason = AUTH_FAIL_UNKNOWN;
-        }
-    }
-
-    /* If the cookie header was absent (likely keep-alive/header reuse bug),
-     * fall back to a recent successful identity from the same IP+UA.
-     * This is a heuristic: it keeps legitimate users logged in during
-     * transient cookie loss, but never overrides an explicitly sent token.
-     * If the client sent an Authorization header we deliberately skip the hint;
-     * an explicit bearer attempt that failed should not be silently overridden. */
-    bool has_auth_header = cwist_http_header_get(req->headers, "Authorization") != NULL;
-    if (!has_auth_header && reason &&
-        (strcmp(reason, AUTH_FAIL_NO_COOKIE_HEADER) == 0 ||
-         strcmp(reason, AUTH_FAIL_SESSION_COOKIE_MISSING) == 0 ||
-         strcmp(reason, AUTH_FAIL_EMPTY_SESSION_COOKIE) == 0)) {
-        int hint_uid = 0;
-        char hint_role[32] = {0};
-        if (auth_hint_lookup(req, &hint_uid, hint_role, sizeof(hint_role))) {
-            *out_user_id = hint_uid;
-            snprintf(out_role, role_len, "%s", hint_role);
-            CWIST_LOG_ERROR("auth verify hint fallback: reason=%s method=%s path=%s hint_uid=%d hint_role=%s now=%ld",
-                            reason,
-                            cwist_http_method_to_string(req->method),
-                            (req->path && req->path->data) ? req->path->data : "?",
-                            hint_uid,
-                            hint_role,
-                            (long)time(NULL));
-            return true;
         }
     }
 

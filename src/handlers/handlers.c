@@ -120,6 +120,25 @@ static bool origins_match(const char *a, const char *b) {
     return true;
 }
 
+/* Redirect to the Referer URL only when it is same-origin or a local path.
+ * Prevents open-redirect attacks via a forged Referer header. */
+void redirect_referer_safe(cwist_http_response *res, const char *referer, const char *fallback) {
+    if (referer && referer[0]) {
+        const char *origin = site_origin();
+        size_t origin_len = strlen(origin);
+        if (strncmp(referer, origin, origin_len) == 0 &&
+            (referer[origin_len] == '/' || referer[origin_len] == '\0')) {
+            redirect(res, referer + origin_len);
+            return;
+        }
+        if (referer[0] == '/' && referer[1] != '/') {
+            redirect(res, referer);
+            return;
+        }
+    }
+    redirect(res, fallback);
+}
+
 char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     if (uid <= 0) {
         if (role && strcmp(role, "admin") == 0) {

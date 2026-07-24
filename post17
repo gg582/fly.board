@@ -1,0 +1,409 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"></meta><meta name="viewport" content="width=device-width, initial-scale=1"></meta><title>흙 속과 천장, 코드는 같은데 성능이 전혀 다른 이유</title><link rel="icon" href="/assets/img/favicon.png"></link><style id="dyn-theme">:root{--bg:#f6f7f9;--fg:#111827;--muted:#4b5563;--panel:#ffffff;--accent:#AA3333;--accent2:#AA3333;--accent-high:color-mix(in srgb, var(--accent) 100%, black 0%);--accent-medium:color-mix(in srgb, var(--accent) 85%, var(--fg) 15%);--accent-low:color-mix(in srgb, var(--accent) 70%, var(--muted) 30%);--accent-bg-tint:color-mix(in srgb, var(--accent) 12%, var(--bg) 88%);--border:#d1d5db;--shadow:color-mix(in srgb, var(--shadow-base) 8%, transparent);--hover:#e5e7eb;--code-bg:#e4e4e7;--glass-bg:rgba(255,255,255,0.78);--glass-border:rgba(209,213,219,0.42);--shadow-base:#111827;--overlay:color-mix(in srgb, var(--bg) 72%, transparent);--font-display:'Outfit', sans-serif;}*{box-sizing:border-box;}html, body{margin:0;padding:0;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}body{background:var(--bg);color:var(--fg);font-family:'Space Grotesk', 'IBM Plex Sans KR', 'Pretendard Variable', 'Pretendard', sans-serif;font-size:16px;line-height:1.7;font-weight:350;letter-spacing:0em;transition:background 0.5s ease, color 0.5s ease;-webkit-font-smoothing:antialiased;}h1, .hero h1{font-family:'Outfit', sans-serif;font-weight:600;letter-spacing:-0.02em;line-height:1.1;color:var(--fg);}h2, .board-line-title, .board-card h2{font-family:'Outfit', sans-serif;font-weight:550;letter-spacing:-0.02em;line-height:1.15;color:var(--fg);}h3{font-family:'Outfit', sans-serif;font-weight:500;letter-spacing:-0.01em;line-height:1.2;color:var(--fg);}h4{font-family:'Outfit', sans-serif;font-weight:450;letter-spacing:0em;line-height:1.25;color:var(--muted);}h5, h6{font-family:'Outfit', sans-serif;font-weight:400;letter-spacing:0em;line-height:1.3;color:var(--muted);}.topbar-title{font-family:'Outfit', sans-serif;font-weight:600;letter-spacing:-0.02em;line-height:1.2;}a{color:var(--accent-medium);text-decoration:none;transition:color 0.2s ease;}a:hover{color:var(--accent-high);}::selection{background:var(--fg);color:var(--bg);}::-webkit-scrollbar{width:8px;height:8px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:var(--border);border-radius:0;border:none;}::-webkit-scrollbar-thumb:hover{background:var(--accent);}::-webkit-scrollbar-corner{background:transparent;}.shell{max-width:1400px;margin:0 auto;padding:24px;}.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;margin:0;padding:0 16px;background:color-mix(in srgb, var(--panel) 78%, transparent);border-bottom:1px solid var(--glass-border);position:sticky;top:0;z-index:100;backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);transition:background 0.5s ease, border-color 0.5s ease;}.nav-links{display:flex;gap:8px;align-items:center;flex-wrap:nowrap;min-width:0;}.nav-item{padding:8px 10px;border-radius:0;border-bottom:1px solid transparent;font-family:'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif;font-weight:500;font-size:14px;color:var(--fg);transition:background 0.2s ease, color 0.2s ease;}.nav-item:hover{background:color-mix(in srgb, var(--hover) 50%, transparent);color:var(--accent);border-bottom-color:var(--accent);}.nav-board-dropdown, .nav-admin-dropdown{position:relative;display:inline-flex;align-items:center;padding-bottom:20px;margin-bottom:-20px;}.nav-board-menu, .nav-admin-menu{position:absolute;top:100%;left:0;min-width:220px;max-height:420px;overflow-y:auto;background:var(--glass-bg);backdrop-filter:blur(16px) saturate(150%);-webkit-backdrop-filter:blur(16px) saturate(150%);border:1px solid var(--glass-border);box-shadow:0 10px 26px var(--shadow);padding:6px;display:block;visibility:hidden;opacity:0;pointer-events:none;z-index:200;transform:translateY(-8px);transition:opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;}.nav-board-dropdown:hover .nav-board-menu, .nav-board-menu.open{visibility:visible;opacity:1;pointer-events:auto;transform:translateY(0);}.nav-board-menu-list{display:flex;flex-direction:column;}.nav-board-menu::-webkit-scrollbar{width:4px;}.nav-board-menu::-webkit-scrollbar-track{background:transparent;}.nav-board-menu::-webkit-scrollbar-thumb{background:var(--accent);border-radius:0;}.nav-board-subitem, .nav-admin-subitem{display:block;padding:8px 10px;color:var(--fg);font-size:13px;font-weight:500;}.nav-board-subitem:hover, .nav-admin-subitem:hover{background:color-mix(in srgb, var(--hover) 70%, transparent);color:var(--accent);}.nav-board-subitem-all{font-weight:700;border-bottom:1px solid var(--border);margin-bottom:4px;}.nav-board-empty{display:block;padding:8px 10px;font-size:12px;color:var(--muted);}.topbar-brand{display:flex;flex-direction:column;align-items:flex-start;gap:4px;line-height:1.2;}.topbar-title{font-weight:600;font-size:20px;letter-spacing:-0.02em;}.site-footer{text-align:center;padding:80px 24px;color:var(--muted);font-size:13px;border-top:1px solid var(--glass-border);margin-top:80px;background:color-mix(in srgb, var(--panel) 60%, transparent);backdrop-filter:blur(8px) saturate(120%);-webkit-backdrop-filter:blur(8px) saturate(120%);transition:border-color 0.5s ease, color 0.5s ease, background 0.5s ease;}.footer-content{display:flex;align-items:center;justify-content:center;gap:8px;}.footer-logo{height:16px;width:auto;opacity:0.5;}.profile-pic{width:40px;height:40px;border-radius:0;object-fit:cover;border:1px solid var(--border);}.profile-pic-small{width:24px;height:24px;border-radius:0;object-fit:cover;}.burger-btn{display:none;align-items:center;justify-content:center;background:none;border:none;color:var(--fg);font-size:24px;line-height:1;cursor:pointer;padding:0;width:40px;height:40px;border-radius:0;position:relative;z-index:102;transition:color 0.2s ease, background 0.2s ease;}.burger-btn:hover{color:var(--accent);background:color-mix(in srgb, var(--hover) 60%, transparent);}.burger-icon{display:inline-block;transform-origin:50% 50%;transition:transform 0.4s cubic-bezier(0.2, 0.7, 0, 1);}.burger-btn.open .burger-icon{transform:rotate(180deg);}.mobile-overlay{display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:color-mix(in srgb, var(--shadow-base) 32%, transparent);opacity:0;pointer-events:none;transition:opacity 0.3s ease;z-index:98;}.mobile-overlay.open{opacity:1;pointer-events:auto;}.card{background:var(--glass-bg);backdrop-filter:blur(12px) saturate(140%);-webkit-backdrop-filter:blur(12px) saturate(140%);border:1px solid var(--glass-border);border-radius:0;padding:24px;box-shadow:0 4px 16px var(--shadow);transition:transform 0.25s ease, box-shadow 0.25s ease, background 0.5s ease, border-color 0.5s ease;}.card:hover{transform:translateY(-3px);box-shadow:0 16px 40px var(--shadow);border-color:color-mix(in srgb, var(--glass-border) 70%, var(--accent) 30%);background:color-mix(in srgb, var(--glass-bg) 96%, var(--accent) 4%);}.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border:none;border-radius:0;background:var(--accent);color:var(--panel);font-family:'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif;font-weight:500;letter-spacing:0.04em;cursor:pointer;transition:transform 0.15s ease, background 0.5s ease, box-shadow 0.2s ease;}.btn:hover{background:var(--accent2);box-shadow:0 6px 20px color-mix(in srgb, var(--accent) 30%, transparent);transform:translateY(-1px);box-shadow:0 4px 12px var(--shadow);}.btn:active{transform:scale(0.97);background:var(--accent2);box-shadow:inset 0 2px 6px color-mix(in srgb, var(--shadow-base) 12%, transparent);}.btn:focus-visible{outline:none;box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);}.btn-outline{background:transparent;color:var(--accent);border:1px solid var(--accent);}.btn-outline:hover{background:color-mix(in srgb, var(--accent) 10%, transparent);color:var(--accent2);border-color:var(--accent2);}input, textarea, select{width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:0;background:color-mix(in srgb, var(--panel) 92%, transparent);color:var(--fg);font:inherit;outline:none;transition:border-color 0.2s ease, box-shadow 0.2s ease, background 0.5s ease, color 0.5s ease;}input:focus, textarea:focus, select:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);}.styled-dropdown{position:relative;width:100%;}.styled-dropdown-trigger{width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:0;background:color-mix(in srgb, var(--panel) 92%, transparent);color:var(--fg);font:inherit;text-align:left;cursor:pointer;display:flex;justify-content:space-between;align-items:center;outline:none;transition:border-color 0.2s ease, box-shadow 0.2s ease, background 0.5s ease, color 0.5s ease;}.styled-dropdown-trigger:hover, .styled-dropdown-trigger:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);}.styled-dropdown-arrow{width:16px;height:16px;fill:var(--muted);transition:transform 0.2s ease;flex-shrink:0;}.styled-dropdown.open .styled-dropdown-arrow{transform:rotate(180deg);}.styled-dropdown-menu{position:absolute;top:calc(100% + 6px);left:0;right:0;max-height:280px;overflow-y:auto;background:var(--glass-bg);backdrop-filter:blur(16px) saturate(150%);-webkit-backdrop-filter:blur(16px) saturate(150%);border:1px solid var(--glass-border);border-radius:0;box-shadow:0 10px 26px var(--shadow);padding:6px;z-index:100;display:none;opacity:0;transform:translateY(-6px);transition:opacity 0.2s ease, transform 0.2s ease;}.styled-dropdown.open .styled-dropdown-menu{display:block;opacity:1;transform:translateY(0);}.styled-dropdown-item{padding:8px 10px;border-radius:0;cursor:pointer;font-size:14px;color:var(--fg);transition:background 0.15s ease, color 0.15s ease;}.styled-dropdown-item:hover{background:color-mix(in srgb, var(--hover) 70%, transparent);color:var(--accent);}.styled-dropdown-item.selected{background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent);font-weight:600;}.styled-dropdown-menu::-webkit-scrollbar{width:4px;}.styled-dropdown-menu::-webkit-scrollbar-track{background:transparent;}.styled-dropdown-menu::-webkit-scrollbar-thumb{background:var(--accent);border-radius:0;}::placeholder{color:var(--muted);opacity:0.55;}label{display:block;margin-bottom:6px;font-weight:600;font-size:14px;}.alert{padding:12px 14px;border-radius:0;background:color-mix(in srgb, var(--accent) 8%, var(--glass-bg));color:var(--accent2);border:1px solid color-mix(in srgb, var(--accent) 25%, transparent);margin-bottom:14px;backdrop-filter:blur(6px) saturate(120%);-webkit-backdrop-filter:blur(6px) saturate(120%);}.media-card{display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px;border:1px solid var(--glass-border);background:var(--glass-bg);backdrop-filter:blur(10px) saturate(130%);-webkit-backdrop-filter:blur(10px) saturate(130%);}.media-thumb{width:96px;height:72px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid var(--border);background:var(--bg);color:var(--muted);font-size:12px;font-weight:700;}.media-thumb img, .media-thumb .file-video-thumb-link{width:100%;height:100%;object-fit:cover;display:block;}.file-repo-thumb img{width:100%;height:100%;object-fit:cover;display:block;max-width:100%;}.media-info{min-width:0;}.media-name{font-size:14px;font-weight:600;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.media-status{color:var(--muted);font-size:12px;line-height:1.4;margin-top:4px;}.media-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}.media-actions .btn{font-size:12px;padding:4px 10px;}.media-progress-bar{height:4px;background:var(--border);overflow:hidden;margin-top:8px;}.media-progress-inner{height:100%;width:0%;background:var(--accent);transition:width 0.2s ease;}.table-scroll{width:100%;overflow-x:auto;}.admin-user-table{min-width:680px;}.admin-user-table .admin-role-col{width:120px;}.admin-user-table .admin-action-col{width:270px;}.admin-user-table .admin-action-cell{white-space:nowrap;}.admin-role-form, .admin-delete-form{display:inline-flex;align-items:center;}.admin-role-select{width:auto;min-width:96px;}.markdown-body pre{position:relative;}.code-copy{position:absolute;top:8px;right:8px;padding:4px 10px;font-size:12px;font-weight:600;border-radius:0;border:1px solid var(--glass-border);background:var(--glass-bg);backdrop-filter:blur(8px) saturate(120%);-webkit-backdrop-filter:blur(8px) saturate(120%);color:var(--muted);cursor:pointer;opacity:0;transition:opacity 0.2s ease, color 0.2s ease, background 0.2s ease;}.markdown-body pre:hover .code-copy{opacity:1;}.code-copy:hover{background:color-mix(in srgb, var(--accent) 85%, var(--glass-bg));color:var(--panel);border-color:var(--accent);}.comment-node{border-left:3px solid var(--border);padding-left:14px;margin-top:16px;position:relative;}.comment-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;}.comment-avatar{width:28px;height:28px;border-radius:0;background:var(--accent);color:var(--panel);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;}.comment-meta{font-size:13px;color:var(--muted);font-family:'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif;font-weight:500;}.comment-date{font-weight:400;opacity:0.8;}.comment-body{font-size:15px;line-height:1.6;}.comment-body p{margin:0 0 8px;}.tasfa-download-progress{position:fixed;bottom:24px;right:24px;width:320px;background:var(--glass-bg);border:1px solid var(--glass-border);padding:16px;z-index:10000;box-shadow:0 8px 32px var(--shadow);backdrop-filter:blur(12px) saturate(140%);-webkit-backdrop-filter:blur(12px) saturate(140%);font-family:'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif;}.tasfa-download-progress-text{display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:10px;color:var(--fg);}.tasfa-download-progress-bar{height:6px;background:var(--hover);overflow:hidden;border-radius:0;}.tasfa-download-progress-inner{height:100%;background:var(--accent);width:0%;transition:width 0.2s ease;}.media-loading-wrap, .tasfa-media-wrap{position:relative;margin:24px auto;background:var(--hover);min-height:120px;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;border:1px solid var(--border);}.media-loading-progress{position:absolute;bottom:0;left:0;right:0;height:4px;background:color-mix(in srgb, var(--shadow-base) 10%, transparent);z-index:2;}.media-loading-progress-inner{height:100%;background:var(--accent);width:0%;transition:width 0.2s ease;}.media-load-btn{padding:12px 24px;background:var(--accent);color:var(--panel);border:none;cursor:pointer;font-weight:700;font-size:14px;letter-spacing:0.04em;text-transform:uppercase;transition:opacity 0.2s ease;}.media-load-btn:hover{opacity:0.9;}.media-video-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;width:100%;max-width:760px;margin:24px auto;padding:16px;border:1px solid var(--border);background:var(--bg);box-shadow:0 2px 12px var(--shadow);box-sizing:border-box;aspect-ratio:16/9;}.media-video-frame{display:flex;align-items:center;justify-content:center;width:100%;}.media-video-title{width:100%;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-size:13px;font-weight:600;color:var(--muted);}.media-video-open{text-transform:none;min-height:40px;display:inline-flex;align-items:center;justify-content:center;padding:10px 16px;font-size:13px;line-height:1.2;}.file-video-thumb-link{width:100%;height:100%;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:8px;font-size:11px;line-height:1.15;text-align:center;text-transform:none;}.media-attachment-block img, .media-attachment-block audio{max-width:100%;height:auto;display:block;margin:0 auto;box-shadow:0 4px 20px var(--shadow);}.tasfa-image-wrap{position:relative;display:inline-block;}.tasfa-image-dl-btn{position:absolute;top:8px;right:8px;z-index:10;display:none;padding:6px 12px;background:color-mix(in srgb, var(--shadow-base) 70%, transparent);color:#ffffff;border-radius:0;font-size:12px;font-weight:600;text-decoration:none;cursor:pointer;backdrop-filter:blur(8px) saturate(120%);-webkit-backdrop-filter:blur(8px) saturate(120%);border:1px solid var(--glass-border);transition:opacity 0.2s ease, background 0.2s ease;}.tasfa-image-wrap:hover .tasfa-image-dl-btn{display:inline-flex;}.tasfa-image-dl-btn:hover{background:var(--accent);color:var(--panel);border-color:var(--accent);}.hero{padding:48px 0 40px;text-align:center;position:relative;}.hero h1{font-size:clamp(2.5rem, 6vw, 4.5rem);margin:0 0 16px;letter-spacing:-0.02em;line-height:1.05;font-weight:650;text-shadow:0 2px 16px var(--shadow);}.hero-logo{height:120px;width:auto;margin-bottom:12px;}.hero p{color:var(--muted);font-size:18px;max-width:640px;margin:0 auto;line-height:1.6;letter-spacing:0em;}.post-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(300px, 1fr));gap:18px;margin-top:24px;}.tag{display:inline-block;padding:6px 14px;border-radius:0;background:var(--hover);border:1px solid var(--border);font-family:'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif;font-size:12px;font-weight:600;color:var(--accent-low);margin:4px 6px;transition:background 0.5s ease, color 0.5s ease, border-color 0.5s ease, transform 0.2s ease;}.tag:hover{transform:translateY(-1px);border-color:var(--accent-medium);background:color-mix(in srgb, var(--hover) 60%, transparent);}.search-form{max-width:720px;margin:0 auto 18px;}.search-cluster{display:flex;gap:8px;align-items:stretch;}.search-cluster input{flex:1;min-width:0;}.search-cluster .btn{white-space:nowrap;}.search-label-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}.search-label-text{font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;}.search-adv-select{padding:6px 10px;border-radius:0;border:1px solid var(--border);background:var(--panel);color:var(--fg);font-family:inherit;}.board-section{background:var(--glass-bg);backdrop-filter:blur(12px) saturate(140%);-webkit-backdrop-filter:blur(12px) saturate(140%);border:1px solid var(--glass-border);border-radius:0;padding:20px;box-shadow:0 2px 4px color-mix(in srgb, var(--shadow-base) 4%, transparent), 0 8px 20px var(--shadow);transition:background 0.5s ease, border-color 0.5s ease;}.board-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(360px, 1fr));gap:24px;max-width:1200px;margin:0 auto;padding:0 0 40px;}.board-list{max-width:1100px;margin:0 auto;padding:28px 0 64px;display:flex;flex-direction:column;gap:28px;}.board-line{display:grid;gap:16px;padding:36px;background:color-mix(in srgb, var(--glass-bg) 88%, transparent);border:1px solid var(--glass-border);border-radius:0;backdrop-filter:blur(18px) saturate(155%);-webkit-backdrop-filter:blur(18px) saturate(155%);box-shadow:0 4px 18px color-mix(in srgb, var(--shadow) 28%, transparent);opacity:0.98;position:relative;overflow:hidden;transition:box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;}.board-line::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(180deg, var(--accent), transparent);opacity:0.78;}.board-line:hover{transform:none;box-shadow:0 4px 18px color-mix(in srgb, var(--shadow) 32%, transparent);border-color:color-mix(in srgb, var(--glass-border) 60%, var(--accent) 40%);opacity:1;}.board-line-hot{padding:42px;border-left:4px solid var(--accent);box-shadow:0 8px 30px color-mix(in srgb, var(--shadow) 40%, transparent);}.board-line-hot .board-line-title{font-size:clamp(2rem, 3.2vw, 2.8rem);}.board-line-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;}.board-line-title{margin:0;font-size:clamp(1.7rem, 2.8vw, 2.35rem);font-family:var(--font-display);font-weight:600;letter-spacing:-0.02em;color:var(--fg);}.board-card{background:var(--glass-bg);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1px solid var(--glass-border);border-radius:0;padding:28px;box-shadow:0 8px 32px var(--shadow);transition:transform 0.35s ease, box-shadow 0.35s ease, background 0.5s ease, border-color 0.5s ease;display:flex;flex-direction:column;gap:16px;}.board-card:hover{transform:translateY(-6px) scale(1.01);box-shadow:0 16px 48px var(--shadow);border-color:color-mix(in srgb, var(--glass-border) 60%, var(--accent) 40%);background:color-mix(in srgb, var(--glass-bg) 94%, var(--accent) 6%);}.board-card-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}.board-card h2{margin:0;font-size:24px;font-weight:550;color:var(--fg);letter-spacing:-0.02em;}.board-card h2 a{color:inherit;text-decoration:none;transition:color 0.2s ease;}.board-card h2 a:hover{color:var(--accent);}.board-card-desc{color:var(--muted);font-size:14px;line-height:1.6;margin:0;min-height:22px;}.board-point-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:2px 0 4px;}.board-point{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--glass-border);background:color-mix(in srgb, var(--glass-bg) 90%, transparent);color:var(--fg);font-size:12px;font-weight:800;line-height:1;letter-spacing:0;}.board-point span{color:var(--muted);font-size:10px;font-weight:700;letter-spacing:0;}.board-point-primary{border-color:color-mix(in srgb, var(--accent) 40%, var(--glass-border));background:color-mix(in srgb, var(--accent) 10%, var(--glass-bg));color:var(--accent);}.post-list{display:flex;flex-direction:column;gap:12px;max-width:920px;margin:0 auto;}.post-row{background:color-mix(in srgb, var(--panel) 88%, transparent);border:1px solid var(--glass-border);border-radius:0;text-align:left;overflow:hidden;box-shadow:0 2px 8px var(--shadow);backdrop-filter:blur(6px) saturate(120%);-webkit-backdrop-filter:blur(6px) saturate(120%);transition:background 0.2s ease, border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;}.post-row:hover{background:color-mix(in srgb, var(--hover) 82%, transparent);border-color:color-mix(in srgb, var(--accent) 55%, var(--glass-border) 45%);transform:translateY(-2px);box-shadow:0 4px 12px color-mix(in srgb, var(--shadow-base) 6%, transparent), 0 2px 6px color-mix(in srgb, var(--shadow-base) 4%, transparent);}.post-row.featured{border-left-width:4px;border-left-color:var(--accent);padding:16px 0;box-shadow:0 6px 20px color-mix(in srgb, var(--shadow) 35%, transparent);}.post-row.featured .post-row-title{font-size:1.25em;font-weight:900;}.post-row-head{display:flex;justify-content:flex-start;gap:8px;padding:10px 16px 10px 28px;border-bottom:1px solid var(--border);}.post-row-title{font-size:18px;font-family:var(--font-display);font-weight:800;color:var(--fg);text-decoration:none;display:block;padding:12px 16px 12px 28px;border-bottom:1px solid var(--border);transition:color 0.2s ease;}.post-row-title:hover{color:var(--accent);}.post-row-summary{font-size:14px;color:var(--muted);line-height:1.5;margin:0;padding:10px 16px 10px 28px;border-bottom:1px solid var(--border);}.post-row-meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:flex-start;padding:10px 16px 10px 28px;color:var(--muted);font-family:'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif;font-size:13px;}.dot{width:4px;height:4px;background:var(--muted);border-radius:0;display:inline-block;}.board-post-list{list-style:none;padding:0;margin:4px 0 0;display:flex;flex-direction:column;gap:0;border-top:1px solid var(--border);}.board-post-item{display:flex;flex-direction:column;padding:20px 18px;border-bottom:1px solid var(--border);border-left:3px solid transparent;transition:background 0.2s ease, border-color 0.2s ease;text-align:left;}.board-post-item:hover{background:color-mix(in srgb, var(--hover) 65%, transparent);border-left-color:var(--accent);}.board-post-title{font-size:1.05rem;font-weight:700;color:var(--fg);text-decoration:none;display:inline;padding:0;border-bottom:none;transition:color 0.2s ease;}.board-post-title:hover{color:var(--accent);}.board-post-summary{font-size:0.9rem;color:var(--muted);line-height:1.5;margin:0;padding:0;border-bottom:none;margin-top:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}.board-post-meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:flex-start;padding:8px 0 0;font-family:'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif;font-size:12px;}.post-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:0;background:color-mix(in srgb, var(--glass-bg) 85%, transparent);border:1px solid var(--glass-border);font-family:'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif;font-size:12px;color:var(--muted);font-weight:600;transition:background 0.2s ease, border-color 0.2s ease;}.board-post-date{font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;}.board-card-empty{color:var(--muted);font-size:13px;text-align:left;padding:16px 18px;background:color-mix(in srgb, var(--glass-bg) 85%, transparent);border-radius:0;border:1px dashed var(--glass-border);margin:0;}.post-row-notice{border-left:3px solid var(--accent);background:color-mix(in srgb, var(--hover) 82%, transparent);}.board-typography-list{border-top:2px solid var(--border);}.board-typography-list .post-row, .post-row-typography{background:transparent;border:none;border-bottom:1px solid var(--border);padding:18px 20px;}.board-typography-list .post-row:hover, .post-row-typography:hover{background:transparent;border-color:var(--border);}.board-typography-list .post-row-title{font-size:clamp(1.15rem, 1.7vw, 1.35rem);padding:0;border:none;line-height:1.4;}.board-typography-list .post-row-head{padding:0 0 8px;border:none;}.board-typography-list .post-row-summary{padding:6px 0 0;border:none;font-size:0.95rem;}.board-typography-list .post-row-meta{padding:8px 0 0;}.markdown-body{max-width:760px;margin:0 auto;line-height:1.8;overflow-wrap:break-word;word-break:break-word;min-width:0;}article{max-width:920px;margin:0 auto;padding:0 0 6px;overflow-wrap:break-word;word-break:break-word;min-width:0;}.markdown-body h1{font-size:2.25rem;font-weight:600;letter-spacing:-0.01em;line-height:1.2;margin-top:48px;margin-bottom:20px;}.markdown-body h2{font-size:1.75rem;font-weight:500;letter-spacing:0em;line-height:1.25;margin-top:40px;margin-bottom:16px;}.markdown-body h3{font-size:1.4rem;font-weight:500;letter-spacing:0em;line-height:1.3;margin-top:32px;margin-bottom:14px;}.markdown-body img, .markdown-body audio, .markdown-body .media-video-placeholder{max-width:100%;height:auto;box-shadow:0 2px 12px var(--shadow);display:block;margin:24px auto;transition:transform 0.3s ease, box-shadow 0.3s ease;}.markdown-body img:hover{transform:scale(1.01);box-shadow:0 8px 24px var(--shadow);}.markdown-body figure{margin:24px 0;overflow:hidden;}.markdown-body pre{background:color-mix(in srgb, var(--code-bg) 92%, transparent);padding:16px;border-radius:0;overflow:auto;border:1px solid var(--glass-border);font-family:'JetBrains Mono', 'Fira Code', 'D2Coding', Consolas, Monaco, 'Courier New', monospace;font-size:14px;line-height:1.6;backdrop-filter:blur(4px) saturate(110%);-webkit-backdrop-filter:blur(4px) saturate(110%);transition:background 0.5s ease, border-color 0.5s ease, opacity 0.2s ease;font-feature-settings:"liga" 1, "calt" 1;}.markdown-body pre code{font-family:inherit;font-size:inherit;}.markdown-body pre code span{transition:color 0.3s ease, background-color 0.3s ease;}.markdown-body code:not(pre code){background:var(--code-bg);padding:2px 6px;border-radius:0;font-size:0.92em;transition:background 0.5s ease;font-family:'JetBrains Mono', 'Fira Code', 'D2Coding', Consolas, Monaco, 'Courier New', monospace;font-feature-settings:"liga" 1, "calt" 1;word-break:break-word;overflow-wrap:break-word;}.markdown-body blockquote{border-left:4px solid var(--accent);background:color-mix(in srgb, var(--glass-bg) 92%, transparent);padding:16px 20px;margin:18px 0;border-radius:0;border:1px solid var(--glass-border);border-left-width:4px;border-left-color:var(--accent);backdrop-filter:blur(4px) saturate(120%);-webkit-backdrop-filter:blur(4px) saturate(120%);font-family:'Source Serif 4', 'IBM Plex Sans KR', serif;font-style:italic;font-size:1.05rem;line-height:1.7;transition:background 0.5s ease, border-color 0.5s ease;}.markdown-body table{border-collapse:collapse;width:100%;margin:18px 0;table-layout:fixed;display:block;overflow-x:auto;}.markdown-body th, .markdown-body td{border:1px solid var(--border);padding:8px 10px;transition:border-color 0.5s ease;word-break:break-word;overflow-wrap:break-word;}.markdown-body th{background:var(--hover);font-weight:600;transition:background 0.5s ease;}.markdown-body a{word-break:break-word;overflow-wrap:break-word;}.markdown-body tbody tr:nth-child(even){background:var(--hover);transition:background 0.5s ease;}#theme-slider{-webkit-appearance:none;appearance:none;height:4px;background:var(--border);border-radius:0;outline:none;margin:0;}#theme-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:12px;height:12px;border-radius:0;background:var(--accent);cursor:pointer;}#theme-slider::-moz-range-thumb{width:12px;height:12px;border-radius:0;background:var(--accent);cursor:pointer;border:none;}.theme-switch{position:relative;display:inline-flex;align-items:center;}.theme-toggle-btn{min-width:36px;height:36px;padding:0;justify-content:center;font-size:18px;line-height:1;}.adv-toggle-btn::after{content:'▾';display:inline-block;margin-left:4px;transition:transform 0.2s ease;}.adv-toggle-btn.open::after{transform:rotate(180deg);}.dropdown-panel{padding:10px 0 0;}.mobile-account-header{display:none;}.mobile-profile-link{display:block;flex-shrink:0;}.mobile-profile-pic{width:48px;height:48px;border-radius:0;object-fit:cover;display:block;}.mobile-profile-default{background:var(--accent);color:var(--panel);display:flex;align-items:center;justify-content:center;font-size:24px;}.mobile-auth-btns{display:flex;gap:8px;align-items:center;}@keyframes fadeIn{from:opacity:0; transform: translateY(12px) scale(0.98);to:opacity:1; transform: translateY(0) scale(1);}.fade-in{animation:fadeIn 0.5s ease both;}@keyframes shimmer{0%:background-position: -200% 0;100%:background-position: 200% 0;}.img-skeleton{background:linear-gradient(90deg, var(--hover) 25%, var(--panel) 50%, var(--hover) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;}@keyframes tasfa-spin{to:transform: rotate(360deg);}.stagger > *{animation:fadeIn 0.5s ease both;}.stagger > *:nth-child(1){animation-delay:0.05s;}.stagger > *:nth-child(2){animation-delay:0.10s;}.stagger > *:nth-child(3){animation-delay:0.15s;}.stagger > *:nth-child(4){animation-delay:0.20s;}.stagger > *:nth-child(5){animation-delay:0.25s;}.stagger > *:nth-child(6){animation-delay:0.30s;}.stagger > *:nth-child(7){animation-delay:0.35s;}.stagger > *:nth-child(8){animation-delay:0.40s;}.stagger > *:nth-child(9){animation-delay:0.45s;}.stagger > *:nth-child(10){animation-delay:0.50s;}.stagger > *:nth-child(11){animation-delay:0.55s;}.stagger > *:nth-child(12){animation-delay:0.60s;}html.mobile .mobile-account-header, body.mobile .mobile-account-header{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid var(--border);gap:12px;}html.mobile .desktop-only, body.mobile .desktop-only{display:none;}html.mobile .shell, body.mobile .shell{padding:16px;}html.mobile .topbar, body.mobile .topbar{align-items:center;padding:0 12px;}html.mobile .burger-btn, body.mobile .burger-btn{display:inline-flex;}html.mobile .nav-links, body.mobile .nav-links{display:none;position:fixed;top:60px;left:0;width:100%;flex-direction:column;background:color-mix(in srgb, var(--glass-bg) 92%, transparent);align-items:stretch;gap:0;padding:16px 0;z-index:101;border-bottom:1px solid var(--glass-border);backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);}html.mobile .nav-links.open, body.mobile .nav-links.open{display:flex;}html.mobile .nav-item, body.mobile .nav-item{padding:14px 24px;border-bottom:1px solid var(--border);}html.mobile .nav-item:hover, body.mobile .nav-item:hover{border-bottom-color:var(--border);}html.mobile .nav-board-dropdown, .nav-admin-dropdown, body.mobile .nav-board-dropdown, .nav-admin-dropdown{width:100%;}html.mobile .media-card, body.mobile .media-card{grid-template-columns:72px minmax(0,1fr);}html.mobile .media-thumb, body.mobile .media-thumb{width:72px;height:54px;}html.mobile .media-actions, body.mobile .media-actions{grid-column:1 / -1;justify-content:flex-start;}html.mobile .nav-board-menu, .nav-admin-menu, body.mobile .nav-board-menu, .nav-admin-menu{position:static;display:none;opacity:0;pointer-events:none;transform:translateY(-8px);box-shadow:none;border:none;padding:0;width:100%;overflow:hidden;max-height:0;transition:max-height 0.3s ease, opacity 0.2s ease, transform 0.2s ease;}html.mobile .nav-board-menu.open, .nav-admin-menu.open, body.mobile .nav-board-menu.open, .nav-admin-menu.open{display:block;opacity:1;pointer-events:auto;transform:translateY(0);max-height:300px;padding:4px 0;background:color-mix(in srgb, var(--glass-bg) 90%, transparent);border-left:3px solid var(--accent);backdrop-filter:blur(12px) saturate(140%);-webkit-backdrop-filter:blur(12px) saturate(140%);}html.mobile .nav-board-menu-list, body.mobile .nav-board-menu-list{display:none;}html.mobile .nav-board-dropdown:hover .nav-board-menu, .nav-admin-dropdown:hover .nav-admin-menu, body.mobile .nav-board-dropdown:hover .nav-board-menu, .nav-admin-dropdown:hover .nav-admin-menu{display:none !important;opacity:0;pointer-events:none;}html.mobile .nav-board-trigger, .nav-admin-trigger, body.mobile .nav-board-trigger, .nav-admin-trigger{cursor:pointer;}html.mobile .nav-board-subitem, .nav-admin-subitem, body.mobile .nav-board-subitem, .nav-admin-subitem{padding:10px 24px;border-bottom:1px solid var(--border);color:var(--muted);font-size:14px;}html.mobile .nav-board-subitem-all, body.mobile .nav-board-subitem-all{color:var(--fg);font-weight:700;border-bottom:1px solid var(--border);margin-bottom:0;}html.mobile .dropdown, body.mobile .dropdown, html.mobile .dropdown-content, body.mobile .dropdown-content{position:static;display:block;}html.mobile .dropdown-content a, body.mobile .dropdown-content a{display:list-item;list-style-type:disc;margin-left:20px;}html.mobile .theme-switch, body.mobile .theme-switch{padding:0;}html.mobile .mobile-overlay, body.mobile .mobile-overlay{display:block;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);}html.mobile .hero-logo, body.mobile .hero-logo{height:100px;}html.mobile .hero h1, body.mobile .hero h1{font-size:clamp(2rem, 8vw, 3rem);}html.mobile .post-grid, body.mobile .post-grid{grid-template-columns:1fr;}html.mobile .board-grid, body.mobile .board-grid{grid-template-columns:1fr;}html.mobile .board-list, body.mobile .board-list{border-top:1px solid var(--border);}html.mobile .board-line, body.mobile .board-line{padding:16px;}html.mobile .board-line-title, body.mobile .board-line-title{font-size:1.2rem;}</style><link rel="stylesheet" href="/assets/css/google-fonts.css"><link rel="stylesheet" href="/assets/css/pretendard.css"><link rel="stylesheet" href="/assets/css/d2coding.css"><script src="/assets/js/jwt.js?v=1" defer></script><script src="/assets/js/layout.js" defer></script></meta><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" id="hl-theme" data-active="light"></meta></head><body><nav class="topbar"><button type="button" class="burger-btn" aria-label="Menu" aria-expanded="false"><span class="burger-icon">☰</span></button><a href="/" class="topbar-brand"><span class="topbar-title">Оборона</span></a><div class="nav-links"><a href="/" class="nav-item">Home</a><div class="nav-board-dropdown"><a href="/boards" class="nav-item nav-board-trigger">Boards</a><div id="boards-dropdown" class="nav-board-menu"><a href="/boards" class="nav-board-subitem nav-board-subitem-all">All Boards</a><div id="boards-dropdown-list" class="nav-board-menu-list"></div></div></div><a href="/files" class="nav-item">Files</a><div class="mobile-account-header"><a href="/login" class="mobile-profile-link"><span class="mobile-profile-pic mobile-profile-default">☺</span></a><div class="mobile-auth-btns"><a href="/login" class="nav-item btn btn-outline">Login</a><a href="/register" class="nav-item btn btn-outline">Register</a></div></div><a href="/login" class="nav-item desktop-only">Login</a><a href="/register" class="nav-item desktop-only">Register</a></div><div class="theme-switch"><button type="button" id="theme-toggle-btn" class="btn btn-outline theme-toggle-btn">○</button></div></nav><div class="mobile-overlay"></div><div class="shell fade-in"><main class="content"><article><div style='margin-bottom:10px'></div><h1 style='margin-bottom:6px;font-size:2.25rem;font-weight:600;letter-spacing:-0.01em;line-height:1.2'>흙 속과 천장, 코드는 같은데 성능이 전혀 다른 이유</h1><p style='color:var(--muted);font-size:14px'>by <img src='/assets/profile/profile_1_1782225430_241605106_41355.png' style='width:22px;height:22px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px'><a href='/user/1'>gg582</a> &middot; 2026-07-21 07:06:20 &middot; 3 views</p><div style='margin:16px 0;display:flex;gap:10px;align-items:center'><button id='vote-up' class='btn btn-outline vote-btn' style='padding:6px 12px;font-size:13px'>&#9650; 0</button><button id='vote-down' class='btn btn-outline vote-btn' style='padding:6px 12px;font-size:13px'>&#9660; 0</button><span id='vote-msg' style='color:var(--muted);font-size:13px'></span></div><script>(function(){var pid=97;var uv=0;function updateVoteStyle(v){var up=document.getElementById('vote-up');var down=document.getElementById('vote-down');up.style.borderColor=v==1?'var(--accent)':'';up.style.color=v==1?'var(--accent)':'';down.style.borderColor=v==-1?'var(--accent)':'';down.style.color=v==-1?'var(--accent)':'';}updateVoteStyle(uv);function sendVote(vt){fetch('/post/vote',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'post_id='+pid+'&vote_type='+vt}).then(function(r){return r.json();}).then(function(d){if(d.ok){document.getElementById('vote-up').innerHTML='&#9650; '+d.up;document.getElementById('vote-down').innerHTML='&#9660; '+d.down;updateVoteStyle(d.user_vote);}});}document.getElementById('vote-up').addEventListener('click',function(){sendVote(1);});document.getElementById('vote-down').addEventListener('click',function(){sendVote(-1);});})();</script><div class='markdown-body'><h2>시나리오</h2>
+<p><img data-tasfa-download="/file/download/67"  alt="원 도안" loading="eager" fetchpriority="high" decoding="async"></p>
+<p><em>사진 출처: 구수략, 1700c. 최석정 저. 원 도안명: 낙서육고도</em></p>
+<p>이곳은 식물원의 열대식물관에 있는 정원이다. 육각형 모양의 정원 아래에 31종류의 토양, 화재, 독극물 센서 등이 있다.</p>
+<p>토양 환경은 감쇄가 심하기 때문에 노드들은 좁은 공간에 가깝게 붙어 있고, 채널 간의 간섭 역시 심하다.</p>
+<p>우리는 위와 같이 <strong>가운데의 항상 센서가 없는 분수대를 포함해</strong> 271개의 규칙적으로 배열된 노드들을 가지며(이것은 구수략 원문에서도 예외 처리한 노드이다), 목표는 센서 간의 통신을 하여 270개 센서의 모든 정보를 간섭 등의 비효율성을 줄여서 수집하고자 한다.</p>
+<p>이것을 위해서는 몇 가지 개념을 알아야 한다.</p>
+<h2>대척점 관계와 보수 쌍</h2>
+<p><img data-tasfa-download="/file/download/65"  alt="대척점 관계" loading="lazy" decoding="async"></p>
+<p>이것을 자세히 보면, 1+270=271, 45+226=271과 같이 점대칭 위치의 두 노드의 합은 항상 271이다.</p>
+<p>이것을 다르게 해석해 보면, 한 쪽 점의 위치와 그 값 i를 알면 중앙을 기준으로 점대칭 위치에 해당하는 점의 값은 항상 271-i라는 것이다.</p>
+<p>대척점 관계에 있는 보수 쌍은 점대칭 위치에 있는 두 노드는 항상 보수 관계를 갖는다. 영문으로는 Antipodal Complement Pairs라고 하며, 이하 대척 보수 쌍으로 줄여 말하겠다.</p>
+<h2>소수 스트라이드</h2>
+<p>시계에서 인접한 바늘끼리 바로 지나지 않게 시간을 건너 뛴다고 생각해 보자.</p>
+<p>바늘은 12시에서 출발하여 계속 건너 뛴다.
+이 때, 1과 자기 자신을 제외하고 12 나누기 n을 하였을 때 나누어 떨어지는 n을 모두 보자.</p>
+<p>N = {2, 3, 4, 6}</p>
+<p>2칸씩 건너뛰면 12-&gt;2-&gt;4-&gt;6-&gt;8-&gt;10-&gt;12 순환으로 1, 3, 5, 7, 9, 11이 누락이다.</p>
+<p>3칸씩 건너뛰면 12-&gt;3-&gt;6-&gt;9-&gt;12 순환으로 1, 2, 4, 5, 7, 8, 10, 11이 누락이다.</p>
+<p>4칸씩 건너뛰면 12-&gt;4-&gt;8-&gt;12 순환으로 1, 2, 3, 5, 6, 7, 9, 10, 11이 누락이다.</p>
+<p>6칸씩 건너 뛰면 12-&gt;6-&gt;12 순환으로 1, 2, 3, 4, 5, 7, 8, 9, 10, 11이 누락이다.</p>
+<p>그러나, 12와 서로소인 5를 이용해서 건너 뛰어 보자.</p>
+<p>12-&gt;5-&gt;10-&gt;3-&gt;8-&gt;1-&gt;6-&gt;11-&gt;4-&gt;9-&gt;2-&gt;7-&gt;12 순환으로 모든 수를 순환한다.</p>
+<p>따라서 이런 건너 뛰기 규칙에서, 서로소인 수를 건너뛰기(스트라이드) 값으로 잡으면 중복과 누락을 최소화할 수 있다.</p>
+<h2>이 도안과의 결합</h2>
+<p>이것은 가운데 한 개의 플레이스홀더, 즉 명목상 (0+271)이라는 유령 값을 포함하여 271이라는 기준 값이 있다.</p>
+<p>저자가 의도한 수인지는 알 수 없으나, 271은 소수이다.</p>
+<p>따라서 271의 스트라이드로 쓸 수 있는 수에는 제약이 없다. 즉, 31개의 센서가 아니더라도, 200개든 2개든 아무래도 상관이 없다.</p>
+<p>위의 두 개념을 모두 조합해 보면, 간섭이 발생할 때 점대칭 위치로 껑충 건너 뛰고, 정상적인 두 쌍인지는 정점의 고윳값 i에서 상대가 271-i 고윳값을 가지는지만 보면 무결성을 확인할 수 있다는 점, 그리고 노드 중복 접근이 발생할 시에는 센서의 모든 종류를 세아린 M만큼 소수 스트라이드를 진행시키면 된다는 것이다.</p>
+<p>이것의 기대 효과는 파장의 간섭이 일어날 때 즉시 점대칭 위치로 교섭 노드를 건너 뛰어서 간섭 현상으로 인한 수집 품질 저하를 개선하고, 소수 스트라이드를 이용하여 중복 접근 시 다른 노드와의 교섭 처리를 하여 270개 노드 전체의 값을 충실하게 수신할 수 있다는 것이다.</p>
+<p>아래 실험 코드로 간단하게 실증해 보자.</p>
+<pre><code class="language-python">&quot;&quot;&quot;
+================================================================================
+[시나리오] 식물원 지하 토양 센서망 데이터 수집 (Underground Sensor Harvesting)
+================================================================================
+1. 토양 매질 및 단일 채널 제약:
+   - 전파 매질이 흙(Soil)이므로 감쇄가 극심하고 투과 거리가 매우 짧음
+   - 주파수 점프(채널 분판)가 불가능하며, 단일 무선 채널을 270개 센서가 공유
+   - 31가지의 서로 다른 센서 데이터 프로토콜(패킷 형태/데이터 유형) 사용
+
+2. 문제점 및 목적:
+   - 연속 수집하는 인접 센서의 프로토콜 차이(Delta Protocol)가 0이거나 작으면 
+     동일 채널 내 매체 점유 경쟁(Contention) 및 토양 내 프레임 충돌 발생
+   - 목적: 270개 전체 센서를 100% 완주 수집하면서 프로토콜 간 격리도를 극대화
+
+3. 비교 알고리즘:
+   [방식 A] 전통적 토양 공간 인접 순회 (Geometric Nearest Neighbor Walk)
+     - 토양 속 인접 센서(1 -&gt; 2 -&gt; 3 -&gt; ... -&gt; 270)를 물리적 순서대로 순회
+     - 노드 순서와 프로토콜 배정이 정렬되어 있어 연속 수집 시 동일/유사 프로토콜 충돌 발생
+
+   [방식 B] 대척-소수배(31) 스큐 순회 (Antipodal Prime-Stride Walk)
+     - 대척 보수쌍(i + j = 271) 이동 및 소수 스트라이드(p = 31) 순회 적용
+     - 연속 순회 간 프로토콜 격리도를 물리적/수론적으로 극대화하여 충돌 0회 달성
+================================================================================
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+NUM_NODES = 270
+NUM_PROTOCOLS = 31  # 31가지 서로 다른 센서 데이터 프로토콜
+PAIR_SUM = 271       # 대척쌍 합 (PAIR_SUM)
+PRIME_STRIDE = 31    # 소수 31
+
+# 토양 매질 충돌 페널티
+SOIL_CONTENTION_PENALTY = 5.0
+
+
+@dataclass
+class ProtocolHarvestingMetrics:
+    method_name: str
+    total_nodes_visited: int
+    visited_coverage_ratio: float  # 센서 정보 수집 커버리지 (%)
+    total_protocol_collisions: int # 동일 프로토콜 연속 간섭 횟수
+    avg_protocol_distance: float   # 연속 수집 간 프로토콜 격리 거리 (높을수록 좋음)
+    harvesting_efficiency_score: float
+
+
+def run_protocol_harvesting_experiment():
+    # 270개 센서 노드에 31가지 프로토콜 배정
+    # 공간적으로 정렬된 기본 배치 (i % 31)
+    node_protocols = {i: (i % NUM_PROTOCOLS) for i in range(1, NUM_NODES + 1)}
+
+    # --------------------------------------------------------------------------
+    # 방식 A: 전통적 공간 인접 순회 (1 -&gt; 2 -&gt; 3 -&gt; ... -&gt; 270)
+    # --------------------------------------------------------------------------
+    trad_path = list(range(1, NUM_NODES + 1))
+
+    # --------------------------------------------------------------------------
+    # 방식 B: 대척-소수배(31) 스큐 순회
+    # --------------------------------------------------------------------------
+    antipodal_path = []
+    visited_set = set()
+
+    curr = 1
+    for _ in range(NUM_NODES):
+        if curr not in visited_set and 1 &lt;= curr &lt;= NUM_NODES:
+            antipodal_path.append(curr)
+            visited_set.add(curr)
+
+        # 대척점(271 - curr) 이동 후 소수 31 스트라이드 적용
+        opp = PAIR_SUM - curr
+        if opp not in visited_set and 1 &lt;= opp &lt;= NUM_NODES:
+            antipodal_path.append(opp)
+            visited_set.add(opp)
+            curr = (opp + PRIME_STRIDE) % NUM_NODES
+            if curr == 0:
+                curr = NUM_NODES
+        else:
+            curr = (curr + PRIME_STRIDE) % NUM_NODES
+            if curr == 0:
+                curr = NUM_NODES
+
+    for n in range(1, NUM_NODES + 1):
+        if n not in visited_set:
+            antipodal_path.append(n)
+
+    # --------------------------------------------------------------------------
+    # 평가지표 산출 (단일 채널 프로토콜 충돌 및 격리도 분석)
+    # --------------------------------------------------------------------------
+    def evaluate_path(path: list[int], name: str) -&gt; ProtocolHarvestingMetrics:
+        collisions = 0
+        protocol_diffs = []
+
+        for i in range(len(path) - 1):
+            u, v = path[i], path[i + 1]
+            p_u, p_v = node_protocols[u], node_protocols[v]
+
+            p_diff = abs(p_u - p_v)
+            protocol_diffs.append(p_diff)
+
+            # 동일 채널 내에서 동일 프로토콜(p_diff == 0) 연속 전송 시 프레임 충돌 발생
+            if p_diff == 0:
+                collisions += 1
+
+        unique_visited = len(set(path))
+        coverage = (unique_visited / NUM_NODES) * 100.0
+        avg_p_diff = sum(protocol_diffs) / len(protocol_diffs) if protocol_diffs else 0.0
+
+        # 종합 수집 효율 점수 = (커버리지 * 프로토콜 격리도) / (1 + (충돌 * 토양 페널티))
+        score = (coverage * avg_p_diff) / (1 + (collisions * SOIL_CONTENTION_PENALTY))
+
+        return ProtocolHarvestingMetrics(
+            method_name=name,
+            total_nodes_visited=unique_visited,
+            visited_coverage_ratio=coverage,
+            total_protocol_collisions=collisions,
+            avg_protocol_distance=round(avg_p_diff, 2),
+            harvesting_efficiency_score=round(score, 2),
+        )
+
+    trad_metrics = evaluate_path(trad_path, &quot;전통적 토양 공간 인접 순회&quot;)
+    antipodal_metrics = evaluate_path(antipodal_path, &quot;토양 대척-소수배(31) 스큐 순회&quot;)
+
+    return trad_metrics, antipodal_metrics
+
+
+if __name__ == &quot;__main__&quot;:
+    m1, m2 = run_protocol_harvesting_experiment()
+
+    print(&quot;=================================================================&quot;)
+    print(&quot; 식물원 토양 지하 센서망 프로토콜 수집 시뮬레이션 결과&quot;)
+    print(&quot; (270개 센서 / 단일 무선 채널 / 31개 센서 프로토콜 혼재)&quot;)
+    print(&quot;=================================================================\n&quot;)
+
+    for m in [m1, m2]:
+        print(f&quot;■ [{m.method_name}]&quot;)
+        print(f&quot;  - 수집 완료 노드 수     : {m.total_nodes_visited} / {NUM_NODES} 개&quot;)
+        print(f&quot;  - 센서 정보 수집 커버리지: {m.visited_coverage_ratio:.1f}%&quot;)
+        print(f&quot;  - 프로토콜 매체 충돌 횟수: {m.total_protocol_collisions} 회&quot;)
+        print(f&quot;  - 평균 프로토콜 격리 거리 : {m.avg_protocol_distance} (높을수록 충돌 적음)&quot;)
+        print(f&quot;  - 종합 수집 효율 점수   : {m.harvesting_efficiency_score}&quot;)
+        print()
+
+</code></pre>
+<p>결과 해석을 해 보자.</p>
+<pre><code class="language-text">=================================================================
+ 식물원 토양 지하 센서망 프로토콜 수집 시뮬레이션 결과
+ (270개 센서 / 단일 무선 채널 / 31개 센서 프로토콜 혼재)
+=================================================================
+
+■ [전통적 토양 공간 인접 순회]
+  - 수집 완료 노드 수     : 270 / 270 개
+  - 센서 정보 수집 커버리지: 100.0%
+  - 프로토콜 매체 충돌 횟수: 0 회
+  - 평균 프로토콜 격리 거리 : 1.86 (높을수록 충돌 적음)
+  - 종합 수집 효율 점수   : 186.25
+
+■ [토양 대척-소수배(31) 스큐 순회]
+  - 수집 완료 노드 수     : 270 / 270 개
+  - 센서 정보 수집 커버리지: 100.0%
+  - 프로토콜 매체 충돌 횟수: 0 회
+  - 평균 프로토콜 격리 거리 : 4.68 (높을수록 충돌 적음)
+  - 종합 수집 효율 점수   : 468.4
+
+</code></pre>
+<p>상대적으로 짧은 테스트를 진행하였기 때문에, 실질적인 충돌 지표를 재는 것보다는 프로토콜 격리 거리에 대해서 본다.</p>
+<p>점수 비교 메트릭은 비교적 단순하고 투명하다.</p>
+<p>(4.68÷1.86) × 186.25 = 468.4이므로 알기 쉬운 결과이다.</p>
+<p><em>이 경우에 대해서는 알기 쉬운 전통적 토폴로지를 쓰는 것이 특별히 감점 요인이라고 볼 수 없으며, 이론적인 최선을 위해 복잡도를 높이는 것은 오버 엔지니어링이다.</em></p>
+<p>이번에는 센서가 천장에 매달려, 흙이라는 감쇠 요인이 없는 경우를 본다.</p>
+<pre><code class="language-python">&quot;&quot;&quot;
+================================================================================
+[시나리오] 식물원 천장 매달림 센서망 데이터 수집 (Ceiling-Mounted Sensor Harvesting)
+================================================================================
+1. 공기/천장 매달림 매질 및 단일 채널 제약:
+   - 센서가 흙 속이 아니라 천장에 매달려 있어 전파 매질은 공기(Air/LOS)에 가까움
+   - 토양 투과 감쇄는 사라지지만, 천장 구조물 반사와 넓은 가시거리 때문에
+     같은 채널을 쓰는 센서들이 동시에 들리는 동시청취(Co-hearing) 간섭이 발생
+   - 주파수 점프(채널 분판)가 불가능하며, 단일 무선 채널을 270개 센서가 공유
+   - 31가지의 서로 다른 센서 데이터 프로토콜(패킷 형태/데이터 유형) 사용
+
+2. 문제점 및 목적:
+   - 공기 매질에서는 통신 도달거리가 길어져 수집 실패 위험은 낮아짐
+   - 대신 연속 수집하는 센서의 프로토콜 차이(Delta Protocol)가 0이거나 작으면
+     천장 반사/넓은 도달거리 환경에서 동일 채널 디코딩 경쟁 및 프레임 충돌 발생
+   - 목적: 270개 전체 센서를 100% 완주 수집하면서 프로토콜 간 격리도를 극대화
+
+3. 비교 알고리즘:
+   [방식 A] 전통적 천장 공간 인접 순회 (Geometric Nearest Neighbor Walk)
+     - 천장에 매달린 인접 센서(1 -&gt; 2 -&gt; 3 -&gt; ... -&gt; 270)를 물리적 순서대로 순회
+     - 노드 순서와 프로토콜 배정이 정렬되어 있어 연속 수집 시 동일/유사 프로토콜 충돌 발생
+
+   [방식 B] 대척-소수배(31) 스큐 순회 (Antipodal Prime-Stride Walk)
+     - 대척 보수쌍(i + j = 271) 이동 및 소수 스트라이드(p = 31) 순회 적용
+     - 연속 순회 간 프로토콜 격리도를 물리적/수론적으로 극대화하여 충돌을 줄임
+================================================================================
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+NUM_NODES = 270
+NUM_PROTOCOLS = 31  # 31가지 서로 다른 센서 데이터 프로토콜
+PAIR_SUM = 271       # 대척쌍 합 (PAIR_SUM)
+PRIME_STRIDE = 31    # 소수 31
+
+# 천장 매달림 센서 환경 매질 특성
+# 토양보다 감쇄는 작지만, 도달거리가 길어 같은 채널을 넓게 공유한다.
+AIR_LOS_ATTENUATION_FACTOR = 0.35
+CEILING_REFLECTION_FACTOR = 1.40
+CO_HEARING_CONTENTION_PENALTY = 2.0
+NEAR_PROTOCOL_INTERFERENCE_THRESHOLD = 1
+
+
+@dataclass
+class CeilingHarvestingMetrics:
+    method_name: str
+    total_nodes_visited: int
+    visited_coverage_ratio: float  # 센서 정보 수집 커버리지 (%)
+    exact_protocol_collisions: int  # 동일 프로토콜 연속 간섭 횟수
+    near_protocol_interference: int # 유사 프로토콜 연속 간섭 횟수
+    avg_protocol_distance: float    # 연속 수집 간 프로토콜 격리 거리 (높을수록 좋음)
+    medium_loss_factor: float
+    harvesting_efficiency_score: float
+
+
+def run_ceiling_protocol_harvesting_experiment():
+    # 270개 천장 매달림 센서 노드에 31가지 프로토콜 배정
+    # 공간적으로 정렬된 기본 배치 (i % 31)
+    node_protocols = {i: (i % NUM_PROTOCOLS) for i in range(1, NUM_NODES + 1)}
+
+    # --------------------------------------------------------------------------
+    # 방식 A: 전통적 공간 인접 순회 (1 -&gt; 2 -&gt; 3 -&gt; ... -&gt; 270)
+    # --------------------------------------------------------------------------
+    trad_path = list(range(1, NUM_NODES + 1))
+
+    # --------------------------------------------------------------------------
+    # 방식 B: 대척-소수배(31) 스큐 순회
+    # --------------------------------------------------------------------------
+    antipodal_path = []
+    visited_set = set()
+
+    curr = 1
+    for _ in range(NUM_NODES):
+        if curr not in visited_set and 1 &lt;= curr &lt;= NUM_NODES:
+            antipodal_path.append(curr)
+            visited_set.add(curr)
+
+        # 대척점(271 - curr) 이동 후 소수 31 스트라이드 적용
+        opp = PAIR_SUM - curr
+        if opp not in visited_set and 1 &lt;= opp &lt;= NUM_NODES:
+            antipodal_path.append(opp)
+            visited_set.add(opp)
+            curr = (opp + PRIME_STRIDE) % NUM_NODES
+            if curr == 0:
+                curr = NUM_NODES
+        else:
+            curr = (curr + PRIME_STRIDE) % NUM_NODES
+            if curr == 0:
+                curr = NUM_NODES
+
+    for n in range(1, NUM_NODES + 1):
+        if n not in visited_set:
+            antipodal_path.append(n)
+
+    # --------------------------------------------------------------------------
+    # 평가지표 산출 (공기/천장 반사 환경의 단일 채널 프로토콜 간섭 분석)
+    # --------------------------------------------------------------------------
+    def evaluate_path(path: list[int], name: str) -&gt; CeilingHarvestingMetrics:
+        exact_collisions = 0
+        near_interference = 0
+        protocol_diffs = []
+
+        for i in range(len(path) - 1):
+            u, v = path[i], path[i + 1]
+            p_u, p_v = node_protocols[u], node_protocols[v]
+
+            p_diff = abs(p_u - p_v)
+            protocol_diffs.append(p_diff)
+
+            # 동일 프로토콜은 직접 프레임 충돌로 계산한다.
+            if p_diff == 0:
+                exact_collisions += 1
+            # 공기/천장 환경에서는 유사 프로토콜도 넓은 동시청취 영역에서 간섭으로 잡힌다.
+            elif p_diff &lt;= NEAR_PROTOCOL_INTERFERENCE_THRESHOLD:
+                near_interference += 1
+
+        unique_visited = len(set(path))
+        coverage = (unique_visited / NUM_NODES) * 100.0
+        avg_p_diff = sum(protocol_diffs) / len(protocol_diffs) if protocol_diffs else 0.0
+
+        medium_loss = AIR_LOS_ATTENUATION_FACTOR * CEILING_REFLECTION_FACTOR
+        contention_cost = (
+            exact_collisions * CO_HEARING_CONTENTION_PENALTY
+            + near_interference * (CO_HEARING_CONTENTION_PENALTY * 0.5)
+        )
+
+        # 종합 수집 효율 점수 =
+        # (커버리지 * 프로토콜 격리도) / (1 + 매질손실 + 동시청취 간섭 비용)
+        score = (coverage * avg_p_diff) / (1 + medium_loss + contention_cost)
+
+        return CeilingHarvestingMetrics(
+            method_name=name,
+            total_nodes_visited=unique_visited,
+            visited_coverage_ratio=coverage,
+            exact_protocol_collisions=exact_collisions,
+            near_protocol_interference=near_interference,
+            avg_protocol_distance=round(avg_p_diff, 2),
+            medium_loss_factor=round(medium_loss, 2),
+            harvesting_efficiency_score=round(score, 2),
+        )
+
+    trad_metrics = evaluate_path(trad_path, &quot;전통적 천장 인접 순회&quot;)
+    antipodal_metrics = evaluate_path(antipodal_path, &quot;천장 대척-소수배(31) 스큐 순회&quot;)
+
+    return trad_metrics, antipodal_metrics
+
+
+if __name__ == &quot;__main__&quot;:
+    m1, m2 = run_ceiling_protocol_harvesting_experiment()
+
+    print(&quot;=================================================================&quot;)
+    print(&quot; 식물원 천장 매달림 센서망 프로토콜 수집 시뮬레이션 결과&quot;)
+    print(&quot; (270개 센서 / 공기-LOS 매질 / 단일 무선 채널 / 31개 센서 프로토콜 혼재)&quot;)
+    print(&quot;=================================================================\n&quot;)
+
+    for m in [m1, m2]:
+        print(f&quot;■ [{m.method_name}]&quot;)
+        print(f&quot;  - 수집 완료 노드 수       : {m.total_nodes_visited} / {NUM_NODES} 개&quot;)
+        print(f&quot;  - 센서 정보 수집 커버리지 : {m.visited_coverage_ratio:.1f}%&quot;)
+        print(f&quot;  - 동일 프로토콜 충돌 횟수 : {m.exact_protocol_collisions} 회&quot;)
+        print(f&quot;  - 유사 프로토콜 간섭 횟수 : {m.near_protocol_interference} 회&quot;)
+        print(f&quot;  - 평균 프로토콜 격리 거리 : {m.avg_protocol_distance} (높을수록 충돌 적음)&quot;)
+        print(f&quot;  - 공기/천장 매질 손실 계수: {m.medium_loss_factor}&quot;)
+        print(f&quot;  - 종합 수집 효율 점수     : {m.harvesting_efficiency_score}&quot;)
+        print()
+
+</code></pre>
+<p>결과 해석을 해 보자.</p>
+<pre><code class="language-text">=================================================================
+ 식물원 천장 매달림 센서망 프로토콜 수집 시뮬레이션 결과
+ (270개 센서 / 공기-LOS 매질 / 단일 무선 채널 / 31개 센서 프로토콜 혼재)
+=================================================================
+
+■ [전통적 천장 인접 순회]
+  - 수집 완료 노드 수       : 270 / 270 개
+  - 센서 정보 수집 커버리지 : 100.0%
+  - 동일 프로토콜 충돌 횟수 : 0 회
+  - 유사 프로토콜 간섭 횟수 : 261 회
+  - 평균 프로토콜 격리 거리 : 1.86 (높을수록 충돌 적음)
+  - 공기/천장 매질 손실 계수: 0.49
+  - 종합 수집 효율 점수     : 0.71
+
+■ [천장 대척-소수배(31) 스큐 순회]
+  - 수집 완료 노드 수       : 270 / 270 개
+  - 센서 정보 수집 커버리지 : 100.0%
+  - 동일 프로토콜 충돌 횟수 : 0 회
+  - 유사 프로토콜 간섭 횟수 : 201 회
+  - 평균 프로토콜 격리 거리 : 4.68 (높을수록 충돌 적음)
+  - 공기/천장 매질 손실 계수: 0.49
+  - 종합 수집 효율 점수     : 2.31
+
+</code></pre>
+<p>전파의 도달 거리가 확실히 길어진만큼, 유사 프로토콜 간섭 횟수에 대해 좋은 결과가 나왔다. 이 때 전통적인 토폴로지는 261회의 간섭이 발생하였으나, 대척 보수 쌍 구조를 이용한 순회는 201회의 간섭이 발생하여 60회의 간섭을 회피할 수 있었다. (60÷261)×100으로 퍼센티지 계산을 해 보면 약 22.98%의 간섭 횟수 감소가 이루어졌다.</p>
+<p>하지만 글로만 봐서는 발생 가능한 효용성 문제에 대해 알기 어려우니, 아래 시각화로 비교하도록 한다.</p>
+<h3>시각화</h3>
+<p><img data-tasfa-download="/file/download/63"  alt="대척쌍 기반 순회" loading="lazy" decoding="async">
+<img data-tasfa-download="/file/download/64"  alt="순서 기반 순회" loading="lazy" decoding="async"></p>
+<p>전통적인 방식대로 순서대로 순회하는 것에 비해, 대척 보수 쌍 구조의 토양 프로토콜 수집은 적은 연산량으로 쉽게 노드 간의 거리를 벌려 잠재적 신호 간섭을 미연에 방지한다. 밀집한 노드들의 연결의 경우, 경로를 좁히는 것보다 물리적 거리를 늘리는 것이 중심이 될 때가 때때로 존재한다.</p>
+<p>이런 상황에서 대척 보수 쌍의 성질을 적절하게 이용하면 잠재적인 물리 간섭을 회피할 수 있다.</p>
+<h2>이것이 주는 교훈</h2>
+<p>비교적 단순한 규칙으로 회피 시도를 하였음에도 두 개의 잠재력 차이가 확실하게 보이며, 20% 대 초반의 간섭 개선을 보였다.</p>
+<p>직관으로는 현대의 수많은 엔지니어들이 간섭을 줄이고, 필터를 거는 등의 고민을 하는 것이 오버 엔지니어링으로 보일 수도 있으며, 30% 간섭 문제가 개선된 것보다 모니터링의 난점이 더 크게 다가올 수도 있음을 인정하는 바이고, 이것은 토양 시나리오에서 정확히 실증되었다.</p>
+<p>하지만, 매질이 바뀌거나 배치 거리가 가까워지는 등 특정 상황이 주어지면 막상 극한을 상정하여 시도하는 이 실험이 정말로 도움이 될 수도 있음을 시사한다.</p>
+<p>이것은 오버 엔지니어링과 적절한 최적화는 코드만으로 판단할 수 있는 것이 아니고, 현장의 상황과 그 특성에 따라 같은 코드가 득이 될 수도, 실이 될 수도 있다는 것을 간접적이지만 명확하게 말하고 있다.</p>
+</div><script src='/assets/js/copy.js' defer></script></article><div style='margin-top:24px;display:flex;gap:10px;flex-wrap:wrap'><a href='/' class='btn btn-outline'>Back</a></div><div style='margin-top:40px'><h2>Comments</h2><p style='color:var(--muted)'>No comments yet.</p><form action='/comment/new' method='post' style='margin-top:18px'><input type='hidden' name='target_type' value='post'><input type='hidden' name='target_id' value='97'><input type='text' name='author_name' placeholder='Your name' style='width:100%;font-family:inherit;font-size:14px;margin-bottom:8px' required><textarea name='content' rows='3' placeholder='Write a comment...' required></textarea><div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div></form></div></main></div><footer class="site-footer"><div class="footer-content"><span>Served in Abuja, Nigeria 🇳🇬 | Powered by TFHost</span><img src="/assets/img/custom.png" alt="Logo" width="24" height="16" data-tasfa-skip="1" fetchpriority="high" class="footer-logo"></img></div></footer><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/fortran.min.js"></script><script>hljs.highlightAll();</script></meta><script src="/assets/js/tasfa-download.js" defer></script></meta></body></html>

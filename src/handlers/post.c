@@ -3,6 +3,10 @@
 #include "db/sql_escape.h"
 #include <openssl/rand.h>
 
+#define MAX_POST_TITLE_LEN   200
+#define MAX_POST_SUMMARY_LEN 1000
+#define MAX_POST_CONTENT_LEN (1024 * 1024)
+
 static bool random_hex_local(char *out, size_t byte_len) {
     unsigned char bytes[64];
     if (!out || byte_len == 0 || byte_len > sizeof(bytes)) return false;
@@ -379,6 +383,21 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
+    if (strlen(title) > MAX_POST_TITLE_LEN ||
+        (summary && strlen(summary) > MAX_POST_SUMMARY_LEN) ||
+        strlen(content) > MAX_POST_CONTENT_LEN) {
+        CWIST_LOG_WARN("Post creation failed: input too long uid=%d", uid);
+        cJSON *boards = db_board_list(req->db);
+        char *pp = get_profile_pic(req->db, uid, role);
+        cwist_sstring *page = render_post_editor(boards, NULL, NULL, is_dark(req), role, "Title, summary, or content is too long", pp, is_mobile_request(req));
+        if (boards) cJSON_Delete(boards);
+        send_html_res(res, page);
+        free(pp);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
+        multipart_free(files);
+        return;
+    }
+
     int board_id = board_id_str ? atoi(board_id_str) : 0;
     rewrite_content_legacy_urls(req->db, &content);
     char *sl = generate_slug(title);
@@ -536,6 +555,17 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     if (!id_str || !title || !content || !title[0] || !content[0]) {
+        reqshare_write_lock_release(wl_key);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
+        multipart_free(files);
+        redirect(res, "/");
+        return;
+    }
+
+    if (strlen(title) > MAX_POST_TITLE_LEN ||
+        (summary && strlen(summary) > MAX_POST_SUMMARY_LEN) ||
+        strlen(content) > MAX_POST_CONTENT_LEN) {
+        CWIST_LOG_WARN("Post edit failed: input too long id=%s uid=%d", id_str, uid);
         reqshare_write_lock_release(wl_key);
         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
         multipart_free(files);

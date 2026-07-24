@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "db.h"
 #include "db_internal.h"
+#include "utils/utils.h"
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/log.h>
 #include <stdio.h>
@@ -150,7 +151,8 @@ int db_file_drop_all(cwist_db *db) {
     if (sqlite3_prepare_v2(db->conn, sql_select, -1, &stmt, NULL) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             const char *path = (const char *)sqlite3_column_text(stmt, 0);
-            if (path && path[0]) unlink(path);
+            if (path && path[0] && is_safe_public_path(path)) unlink(path);
+            else if (path && path[0]) CWIST_LOG_WARN("Refusing to drop unsafe file path: %s", path);
         }
         sqlite3_finalize(stmt);
     }
@@ -318,10 +320,10 @@ void db_file_delete_by_post(cwist_db *db, int post_id) {
     sqlite3_finalize(stmt);
 
     for (int i = 0; i < count; i++) {
-        if (paths[i][0]) unlink(paths[i]);
-        if (thumbs[i][0]) unlink(thumbs[i]);
+        if (paths[i][0] && is_safe_public_path(paths[i])) unlink(paths[i]);
+        if (thumbs[i][0] && is_safe_public_path(thumbs[i])) unlink(thumbs[i]);
         if (previews[i][0]) {
-            if (paths[i][0] == '\0' || strcmp(previews[i], paths[i]) != 0) {
+            if ((paths[i][0] == '\0' || strcmp(previews[i], paths[i]) != 0) && is_safe_public_path(previews[i])) {
                 unlink(previews[i]);
             }
         }

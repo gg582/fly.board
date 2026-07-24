@@ -498,7 +498,7 @@ cwist_sstring *render_markdown_to_html(const char *md) {
         return NULL;
     }
     cwist_sstring_assign(html, "");
-    unsigned flags = MD_DIALECT_GITHUB | MD_FLAG_TABLES | MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS | MD_FLAG_LATEXMATHSPANS;
+    unsigned flags = MD_DIALECT_GITHUB | MD_FLAG_TABLES | MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS | MD_FLAG_LATEXMATHSPANS | MD_FLAG_NOHTML;
     int rc = md_html(protected, (MD_SIZE)strlen(protected), md_output_cb, html, flags, 0);
     free(protected);
     if (rc != 0) {

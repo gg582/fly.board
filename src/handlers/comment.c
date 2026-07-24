@@ -61,7 +61,7 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
         CWIST_LOG_WARN("Comment creation failed: missing fields");
     }
     cwist_query_map_destroy(kv);
-    redirect(res, referer && referer[0] ? referer : "/");
+    redirect_referer_safe(res, referer, "/");
 }
 
 void handler_comment_edit_post(cwist_http_request *req, cwist_http_response *res) {
@@ -92,7 +92,7 @@ void handler_comment_edit_post(cwist_http_request *req, cwist_http_response *res
         CWIST_LOG_WARN("Comment update failed: missing fields");
     }
     cwist_query_map_destroy(kv);
-    redirect(res, referer && referer[0] ? referer : "/");
+    redirect_referer_safe(res, referer, "/");
 }
 
 void handler_comment_delete_get(cwist_http_request *req, cwist_http_response *res) {
@@ -120,7 +120,7 @@ void handler_comment_delete_get(cwist_http_request *req, cwist_http_response *re
             db_comment_delete(req->db, cid, uid);
         }
     }
-    redirect(res, referer && referer[0] ? referer : "/");
+    redirect_referer_safe(res, referer, "/");
 }
 
 /* ---- Admin ---- */
