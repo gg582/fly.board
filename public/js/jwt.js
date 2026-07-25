@@ -29,6 +29,29 @@
         return getCookie('jwt_access');
     }
 
+    /* A document navigation cannot be decorated by this fetch wrapper. Keep
+     * the access token only in the controlling service worker's memory so it
+     * can add the same bearer credential for navigations from this tab when a
+     * broken/reused connection omits Cookie. Nothing is persisted to Cache or
+     * storage, and the token is scoped to the sending client. */
+    function syncServiceWorkerToken() {
+        if (!navigator.serviceWorker) return;
+        var message = { type: 'AUTH_TOKEN', token: currentJwt() || '' };
+        function send(worker) {
+            if (worker) worker.postMessage(message);
+        }
+        send(navigator.serviceWorker.controller);
+        navigator.serviceWorker.ready.then(function(registration) {
+            send(registration.active);
+        }).catch(function() {});
+    }
+
+    if (navigator.serviceWorker) {
+        syncServiceWorkerToken();
+        navigator.serviceWorker.addEventListener('controllerchange', syncServiceWorkerToken);
+        window.addEventListener('pageshow', syncServiceWorkerToken);
+    }
+
     function needsAuthHeader(headers) {
         if (!headers) return true;
         if (headers instanceof Headers) {

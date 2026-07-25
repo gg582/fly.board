@@ -475,13 +475,13 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     cwist_sstring_append(head_shell, "</script>");
 
                     if (!a->jwt_js) {
-                        cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=1\" defer></script>");
+                        cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=2\" defer></script>");
                     }
                     if (!a->layout_js) {
                         cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js\" defer></script>");
                     }
                 } else {
-                    cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=1\" defer></script>");
+                    cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=2\" defer></script>");
                     cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js\" defer></script>");
                 }
 
