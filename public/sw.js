@@ -3,17 +3,23 @@ var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
 var STATIC_CACHE = 'fly-static-v4';
 var CDN_CACHE = 'fly-cdn-v2';
 var PRECACHE = 'fly-precache-v2';
-var NAVIGATION_CACHE = 'fly-navigation-v1';
+/* Navigation documents are dynamic and may be personalized.  Do not retain
+   them in the service worker: a cached document can show the previous route
+   while the browser URL has already changed (and can also outlive a login).
+   Bump the name so clients with the previous worker discard its old entries
+   as soon as this worker activates. */
+var NAVIGATION_CACHE = 'fly-navigation-v2';
 var LOGO_MAX_AGE = 3600000; // 1 hour in milliseconds
 var STATIC_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days (immutable hashed assets)
 var CDN_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // 30 days (versioned CDN URLs)
-var NAVIGATION_MAX_AGE = 60 * 1000; // 60 seconds stale-while-revalidate for HTML pages
 var tasfaSessions = {};
+/* Client-scoped, memory-only access tokens supplied by jwt.js. They are never
+   written to Cache Storage and vanish when this worker is stopped. */
+var clientAuthTokens = {};
 
 /* Assets to prefetch on SW install so repeat navigations never hit the network
    for the shell JS/CSS, fonts, and the theme config. */
 var PRECACHE_URLS = [
-    '/',
     '/assets/js/jwt.js',
     '/assets/js/layout.js',
     '/assets/js/katex-render.js',
@@ -76,7 +82,15 @@ function waitForSession(rawUrl, timeoutMs) {
 self.addEventListener('message', function(event) {
     if (!event.data) return;
 
-    if (event.data.type === 'TASFA_SESSION') {
+    if (event.data.type === 'AUTH_TOKEN') {
+        var clientId = event.source && event.source.id;
+        if (!clientId) return;
+        if (typeof event.data.token === 'string' && event.data.token) {
+            clientAuthTokens[clientId] = { token: event.data.token, receivedAt: Date.now() };
+        } else {
+            delete clientAuthTokens[clientId];
+        }
+    } else if (event.data.type === 'TASFA_SESSION') {
         rememberTasfaSession(event.data.url, {
             sessionId: event.data.sessionId,
             sessionToken: event.data.sessionToken,
@@ -441,59 +455,28 @@ self.addEventListener('fetch', function(event) {
        because the ReadableStream is always fed from byte 0. Firefox in
        particular treats a Content-Length/range mismatch as a partial
        transfer error (NS_ERROR_PARTIAL_TRANSFER). */
-    /* Navigation requests (full page HTML): stale-while-revalidate.  Serve the
-     * cached page immediately so transitions feel instant, then refresh the
-     * cache entry in the background for the next navigation.  A short TTL keeps
-     * dynamic content reasonably fresh. */
+    /* Navigation requests are always fetched from the network.  HTML is
+     * dynamic (route, session, theme and permissions), so serving it from a
+     * service-worker cache can render '/' after navigating to '/post/:slug'. */
     if (event.request.mode === 'navigate' && event.request.method === 'GET') {
-        var refPath = '';
-        try { refPath = new URL(event.request.referrer || '').pathname; } catch (e) {}
-        var authPaths = ['/login', '/register', '/logout', '/account', '/admin'];
-        var fromAuthPage = authPaths.some(function(p) {
-            return refPath === p || refPath.indexOf(p + '/') === 0;
-        });
-        if (fromAuthPage) return;
+        var clientAuth = clientAuthTokens[event.clientId];
+        var navigationRequest = event.request;
+        /* A normal navigation carries cookies itself. If the transport loses
+           that header, use only the memory-only token explicitly provided by
+           this exact client. Do not share identity by IP, UA, cache, or any
+           persistent browser storage. */
+        if (clientAuth && Date.now() - clientAuth.receivedAt < 60 * 60 * 1000) {
+            var navigationHeaders = new Headers(event.request.headers);
+            navigationHeaders.set('Authorization', 'Bearer ' + clientAuth.token);
+            navigationRequest = new Request(event.request.url, {
+                method: 'GET',
+                headers: navigationHeaders,
+                credentials: 'same-origin',
+                cache: 'no-store'
+            });
+        }
         event.respondWith(
-            caches.open(NAVIGATION_CACHE).then(function(cache) {
-                return cache.match(event.request).then(function(cachedResponse) {
-                    var now = Date.now();
-                    var isFresh = false;
-                    if (cachedResponse) {
-                        var fetched = cachedResponse.headers.get('x-sw-fetched');
-                        isFresh = fetched && (now - parseInt(fetched, 10)) < NAVIGATION_MAX_AGE;
-                    }
-                    var networkFetch = fetchWithRetry(event.request, { maxRetries: 3, baseDelay: 150, firefoxFallback: true }).then(function(networkResponse) {
-                        if (!shouldSkipCaching(networkResponse)) {
-                            var cloned = networkResponse.clone();
-                            caches.open(NAVIGATION_CACHE).then(function(c) {
-                                var headers = new Headers(cloned.headers);
-                                headers.set('x-sw-fetched', Date.now().toString());
-                                headers.delete('content-encoding');
-                                cloned.blob().then(function(blob) {
-                                    headers.set('content-length', blob.size.toString());
-                                    c.put(event.request, new Response(blob, {
-                                        status: cloned.status,
-                                        statusText: cloned.statusText,
-                                        headers: headers
-                                    }));
-                                });
-                            });
-                        }
-                        return networkResponse;
-                    }).catch(function(err) {
-                        if (cachedResponse) return cachedResponse;
-                        throw err;
-                    });
-
-                    if (isFresh && cachedResponse) {
-                        // Use cache now, refresh in background.
-                        networkFetch.catch(function(){});
-                        return cachedResponse;
-                    }
-                    // Otherwise wait for network; fall back to stale cache on failure.
-                    return networkFetch;
-                });
-            })
+            fetchWithRetry(navigationRequest, { maxRetries: 3, baseDelay: 150, firefoxFallback: true })
         );
         return;
     }
