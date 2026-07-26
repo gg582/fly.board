@@ -131,6 +131,65 @@ bool db_init(cwist_db *db) {
     return db_migrate(db);
 }
 
+/* Anonymous posting stores user_id 0, which violates the posts.user_id
+ * foreign key once PRAGMA foreign_keys=ON is enforced.  Rebuild the posts
+ * table with a nullable user_id and rewrite legacy 0 values to NULL. */
+static bool db_posts_user_id_notnull(cwist_db *db) {
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->conn, "PRAGMA table_info(posts)", -1, &stmt, NULL) != SQLITE_OK) return false;
+    bool notnull = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *name = (const char *)sqlite3_column_text(stmt, 1);
+        if (name && strcmp(name, "user_id") == 0) {
+            notnull = sqlite3_column_int(stmt, 3) != 0;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return notnull;
+}
+
+static bool db_posts_relax_user_id(cwist_db *db) {
+    if (!db_posts_user_id_notnull(db)) return true;
+    CWIST_LOG_INFO("Migrating posts table: user_id becomes nullable (anonymous posts)");
+    /* DROP TABLE with foreign_keys=ON would cascade through files/post_votes,
+     * so the rebuild must run with enforcement temporarily disabled. */
+    if (!db_exec_sql(db, "PRAGMA foreign_keys=OFF")) return false;
+    bool ok = db_transaction_begin(db) &&
+        db_exec_sql(db,
+            "CREATE TABLE posts_migration ("
+            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  board_id INTEGER,"
+            "  user_id INTEGER,"
+            "  title TEXT NOT NULL,"
+            "  slug TEXT NOT NULL,"
+            "  content TEXT NOT NULL,"
+            "  summary TEXT,"
+            "  pqc_signature TEXT,"
+            "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  view_count INTEGER DEFAULT 0,"
+            "  is_notice INTEGER DEFAULT 0,"
+            "  is_secret INTEGER DEFAULT 0,"
+            "  category TEXT DEFAULT '',"
+            "  delete_pin_hash TEXT DEFAULT '',"
+            "  FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE SET NULL,"
+            "  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE"
+            ")") &&
+        db_exec_sql(db,
+            "INSERT INTO posts_migration (id, board_id, user_id, title, slug, content, summary, pqc_signature,"
+            "  created_at, updated_at, view_count, is_notice, is_secret, category, delete_pin_hash)"
+            " SELECT id, NULLIF(board_id,0), NULLIF(user_id,0), title, slug, content, summary, pqc_signature,"
+            "  created_at, updated_at, view_count, is_notice, is_secret, category, delete_pin_hash FROM posts") &&
+        db_exec_sql(db, "DROP TABLE posts") &&
+        db_exec_sql(db, "ALTER TABLE posts_migration RENAME TO posts");
+    if (ok) ok = db_transaction_commit(db);
+    else db_transaction_rollback(db);
+    if (!db_exec_sql(db, "PRAGMA foreign_keys=ON")) return false;
+    if (!ok) CWIST_LOG_ERROR("posts user_id migration failed");
+    return ok;
+}
+
 static bool db_post_slugs_unique(cwist_db *db) {
     const char *sql = "SELECT slug, COUNT(*) FROM posts GROUP BY slug HAVING COUNT(*) > 1 LIMIT 1";
     sqlite3_stmt *stmt = NULL;
@@ -177,7 +236,7 @@ bool db_migrate(cwist_db *db) {
         "CREATE TABLE IF NOT EXISTS posts ("
         "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "  board_id INTEGER,"
-        "  user_id INTEGER NOT NULL,"
+        "  user_id INTEGER,"
         "  title TEXT NOT NULL,"
         "  slug TEXT NOT NULL,"
         "  content TEXT NOT NULL,"
@@ -233,6 +292,11 @@ bool db_migrate(cwist_db *db) {
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_votes_anon (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, vote_type INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_tags (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, UNIQUE(post_id, tag_id), FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE, FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE)");
+
+    /* Rebuild posts with nullable user_id so anonymous posts (user_id 0)
+     * survive PRAGMA foreign_keys=ON. Runs before the posts indexes below
+     * are (re)created. */
+    if (!db_posts_relax_user_id(db)) return false;
 
     /* Enforce one filename per post so auto-rename cannot race and create
      * hidden duplicate records. Clean up any legacy duplicates first. */
