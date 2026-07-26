@@ -10,7 +10,10 @@ bool db_post_update(cwist_db *db, int id, int board_id, const char *title, const
     const char *sql = "UPDATE posts SET board_id=?, title=?, content=?, summary=?, pqc_signature=?, is_notice=?, is_secret=?, category=?, updated_at=CURRENT_TIMESTAMP WHERE id=?";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, board_id);
+    /* board_id 0 means "no board"; store NULL so the foreign key to
+     * boards(id) (enforced via PRAGMA foreign_keys=ON) is not violated. */
+    if (board_id > 0) sqlite3_bind_int(stmt, 1, board_id);
+    else sqlite3_bind_null(stmt, 1);
     sqlite3_bind_text(stmt, 2, title, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 3, content, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 4, summary ? summary : "", -1, SQLITE_STATIC);

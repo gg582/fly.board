@@ -122,8 +122,14 @@ int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, c
     const char *sql = "INSERT INTO posts (board_id, user_id, title, slug, content, summary, pqc_signature, is_notice, is_secret, category) VALUES (?,?,?,?,?,?,?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
-    sqlite3_bind_int(stmt, 1, board_id);
-    sqlite3_bind_int(stmt, 2, user_id);
+    /* board_id 0 means "no board"; store NULL so the foreign key to
+     * boards(id) (enforced via PRAGMA foreign_keys=ON) is not violated. */
+    if (board_id > 0) sqlite3_bind_int(stmt, 1, board_id);
+    else sqlite3_bind_null(stmt, 1);
+    /* user_id 0 means anonymous; store NULL so the foreign key to
+     * users(id) is not violated. */
+    if (user_id > 0) sqlite3_bind_int(stmt, 2, user_id);
+    else sqlite3_bind_null(stmt, 2);
     sqlite3_bind_text(stmt, 3, title, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 4, slug, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 5, content, -1, SQLITE_STATIC);
@@ -223,8 +229,14 @@ int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const
         sqlite3_mutex_leave(mutex);
         return 0;
     }
-    sqlite3_bind_int(stmt, 1, board_id);
-    sqlite3_bind_int(stmt, 2, user_id);
+    /* board_id 0 means "no board"; store NULL so the foreign key to
+     * boards(id) (enforced via PRAGMA foreign_keys=ON) is not violated. */
+    if (board_id > 0) sqlite3_bind_int(stmt, 1, board_id);
+    else sqlite3_bind_null(stmt, 1);
+    /* user_id 0 means anonymous; store NULL so the foreign key to
+     * users(id) is not violated. */
+    if (user_id > 0) sqlite3_bind_int(stmt, 2, user_id);
+    else sqlite3_bind_null(stmt, 2);
     sqlite3_bind_text(stmt, 3, title, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 4, final_slug, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 5, content, -1, SQLITE_STATIC);
