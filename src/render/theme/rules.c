@@ -1191,6 +1191,7 @@ void rule_boards(cJSON *rules) {
 
     cJSON *bline = create_rule(".board-line");
     add_decl(bline, "display", "grid");
+    add_decl(bline, "grid-template-columns", "minmax(0, 1fr)");
     add_decl(bline, "gap", "16px");
     add_decl(bline, "padding", "36px");
     add_decl(bline, "background", "color-mix(in srgb, var(--glass-bg) 88%, transparent)");
@@ -1408,6 +1409,7 @@ void rule_boards(cJSON *rules) {
     add_decl(prow_sum, "margin", "0");
     add_decl(prow_sum, "padding", "10px 16px 10px 28px");
     add_decl(prow_sum, "border-bottom", "1px solid var(--border)");
+    add_decl(prow_sum, "overflow-wrap", "anywhere");
     cJSON_AddItemToArray(rules, prow_sum);
 
     cJSON *prow_meta = create_rule(".post-row-meta");
@@ -1434,6 +1436,7 @@ void rule_boards(cJSON *rules) {
     add_decl(list, "list-style", "none");
     add_decl(list, "padding", "0");
     add_decl(list, "margin", "4px 0 0");
+    add_decl(list, "min-width", "0");
     add_decl(list, "display", "flex");
     add_decl(list, "flex-direction", "column");
     add_decl(list, "gap", "0");
@@ -1463,6 +1466,7 @@ void rule_boards(cJSON *rules) {
     add_decl(ptitle, "display", "inline");
     add_decl(ptitle, "padding", "0");
     add_decl(ptitle, "border-bottom", "none");
+    add_decl(ptitle, "overflow-wrap", "anywhere");
     add_decl(ptitle, "transition", "color 0.2s ease");
     cJSON_AddItemToArray(rules, ptitle);
 
@@ -1478,6 +1482,7 @@ void rule_boards(cJSON *rules) {
     add_decl(psum, "padding", "0");
     add_decl(psum, "border-bottom", "none");
     add_decl(psum, "margin-top", "6px");
+    add_decl(psum, "overflow-wrap", "anywhere");
     add_decl(psum, "display", "-webkit-box");
     add_decl(psum, "-webkit-line-clamp", "2");
     add_decl(psum, "-webkit-box-orient", "vertical");
