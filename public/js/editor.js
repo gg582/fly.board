@@ -49,6 +49,40 @@
     var FileUploadQueueSeq = 0;
     var isFileUploadRunning = false;
 
+    var draftKey = 'flyboard:draft:' + location.pathname;
+    var draftTimer = null;
+
+    function loadDraft() {
+        try {
+            var raw = localStorage.getItem(draftKey);
+            return raw ? JSON.parse(raw) : null;
+        } catch (err) {
+            return null;
+        }
+    }
+
+    function saveDraft() {
+        if (!ta) return;
+        try {
+            localStorage.setItem(draftKey, JSON.stringify({
+                title: titleInput ? titleInput.value : '',
+                content: ta.value,
+                savedAt: Date.now()
+            }));
+        } catch (err) {}
+    }
+
+    function clearDraft() {
+        try {
+            localStorage.removeItem(draftKey);
+        } catch (err) {}
+    }
+
+    function scheduleDraftSave() {
+        if (draftTimer) clearTimeout(draftTimer);
+        draftTimer = setTimeout(saveDraft, 800);
+    }
+
     function escapeHtml(value) {
         return String(value || '')
             .replace(/&/g, '&amp;')
@@ -3369,6 +3403,7 @@
             }
             isSubmitting = true;
             syncMediaMeta();
+            clearDraft();
         });
     }
 
@@ -3691,6 +3726,17 @@
     bootstrapExistingAssets();
     updateSubmitButtons();
     if (isEditorMode) {
+        var savedDraft = loadDraft();
+        if (savedDraft && typeof savedDraft.content === 'string' && savedDraft.content !== ta.value) {
+            ta.value = savedDraft.content;
+            if (titleInput && typeof savedDraft.title === 'string') {
+                titleInput.value = savedDraft.title;
+            }
+        }
+        ta.addEventListener('input', scheduleDraftSave);
+        if (titleInput) {
+            titleInput.addEventListener('input', scheduleDraftSave);
+        }
         switchTab('write');
         updatePreview();
     }
