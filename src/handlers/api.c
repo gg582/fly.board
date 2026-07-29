@@ -230,6 +230,72 @@ void handler_rss_xml(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring_destroy(rss);
 }
 
+/* ---- Sitemap / robots ---- */
+static void append_sitemap_url(cwist_sstring *sm, const char *path, const char *lastmod) {
+    cwist_sstring_append(sm, "<url>\n<loc>");
+    append_rss_link(sm, g_config.root_url, path);
+    cwist_sstring_append(sm, "</loc>\n");
+    if (lastmod && strlen(lastmod) >= 10) {
+        cwist_sstring_append(sm, "<lastmod>");
+        cwist_sstring_append_len(sm, lastmod, 10); /* YYYY-MM-DD */
+        cwist_sstring_append(sm, "</lastmod>\n");
+    }
+    cwist_sstring_append(sm, "</url>\n");
+}
+
+void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res) {
+    cJSON *posts = db_post_list_search(req->db, 0, NULL, NULL, 5000, 0);
+    cwist_sstring *sm = cwist_sstring_create();
+    cwist_sstring_append(sm, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    cwist_sstring_append(sm, "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
+
+    static const char *const static_paths[] = {"/", "/boards", "/files"};
+    for (size_t i = 0; i < sizeof(static_paths) / sizeof(static_paths[0]); i++) {
+        append_sitemap_url(sm, static_paths[i], NULL);
+    }
+
+    if (posts) {
+        int n = cJSON_GetArraySize(posts);
+        for (int i = 0; i < n; i++) {
+            cJSON *p = cJSON_GetArrayItem(posts, i);
+            cJSON *secret = cJSON_GetObjectItem(p, "is_secret");
+            if (secret && secret->valueint) continue;
+            cJSON *slug = cJSON_GetObjectItem(p, "slug");
+            if (!slug || !slug->valuestring || !slug->valuestring[0]) continue;
+            cwist_sstring *path = cwist_sstring_create();
+            cwist_sstring_append(path, "/post/");
+            cwist_sstring_append_escaped(path, slug->valuestring);
+            cJSON *upd = cJSON_GetObjectItem(p, "updated_at");
+            cJSON *crt = cJSON_GetObjectItem(p, "created_at");
+            const char *lastmod = (upd && upd->valuestring && upd->valuestring[0]) ? upd->valuestring
+                                : (crt && crt->valuestring) ? crt->valuestring : NULL;
+            append_sitemap_url(sm, path->data, lastmod);
+            cwist_sstring_destroy(path);
+        }
+        cJSON_Delete(posts);
+    }
+    cwist_sstring_append(sm, "</urlset>");
+
+    cwist_http_header_add(&res->headers, "Content-Type", "application/xml; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=3600");
+    cwist_sstring_assign(res->body, sm->data);
+    cwist_sstring_destroy(sm);
+}
+
+void handler_robots_txt(cwist_http_request *req, cwist_http_response *res) {
+    (void)req;
+    cwist_sstring *robots = cwist_sstring_create();
+    cwist_sstring_append(robots, "User-agent: *\nAllow: /\n");
+    cwist_sstring_append(robots, "Sitemap: ");
+    append_rss_link(robots, g_config.root_url, "/sitemap.xml");
+    cwist_sstring_append(robots, "\n");
+
+    cwist_http_header_add(&res->headers, "Content-Type", "text/plain; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=3600");
+    cwist_sstring_assign(res->body, robots->data);
+    cwist_sstring_destroy(robots);
+}
+
 /* ---- My Files ---- */
 void handler_api_my_files(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
