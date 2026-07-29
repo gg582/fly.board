@@ -141,6 +141,7 @@ void redirect_referer_safe(cwist_http_response *res, const char *referer, const 
 
 char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     if (uid <= 0) {
+        render_set_nav_notifications(0);
         if (role && strcmp(role, "admin") == 0) {
             render_set_nav_profile("Admin", "@admin");
             const char *logo_url = image_inline_logo();
@@ -152,6 +153,7 @@ char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     }
     cJSON *user = db_user_get_by_id(db, uid);
     if (!user) {
+        render_set_nav_notifications(0);
         if (role && strcmp(role, "admin") == 0) {
             render_set_nav_profile("Admin", "@admin");
             const char *logo_url = image_inline_logo();
@@ -169,6 +171,7 @@ char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     if (uname[0]) snprintf(account, sizeof(account), "@%s", uname);
     else snprintf(account, sizeof(account), "%s", role && role[0] ? role : "@account");
     render_set_nav_profile(nname[0] ? nname : (uname[0] ? uname : "Profile"), account);
+    render_set_nav_notifications(db_notification_unread_count(db, uid));
 
     cJSON *pp = cJSON_GetObjectItem(user, "profile_pic");
     char *res = NULL;

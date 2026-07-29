@@ -88,7 +88,7 @@ void db_file_delete_by_post(cwist_db *db, int post_id);
 /* Comments (separate DB) */
 bool db_comment_init(const char *path);
 void db_comment_close(void);
-bool db_comment_create(cwist_db *db, const char *target_type, int target_id, int user_id, const char *author_name, int parent_id, const char *content);
+int db_comment_create(cwist_db *db, const char *target_type, int target_id, int user_id, const char *author_name, int parent_id, const char *content);
 bool db_comment_update(cwist_db *db, int id, int user_id, const char *content);
 bool db_comment_delete(cwist_db *db, int id, int user_id);
 cJSON *db_comment_get_by_id(cwist_db *db, int id);
@@ -97,5 +97,13 @@ bool db_comment_delete_by_target(const char *target_type, int target_id);
 
 /* User delete with cascade */
 bool db_user_delete_with_cascade(cwist_db *db, int id, bool delete_replies);
+
+/* Notifications (main DB; db may be NULL from the NATS worker thread) */
+bool db_notification_create(cwist_db *db, int user_id, const char *actor_name, const char *kind, int post_id, const char *post_slug, int comment_id, const char *excerpt);
+int db_notification_unread_count(cwist_db *db, int user_id);
+cJSON *db_notification_list(cwist_db *db, int user_id, int limit);
+bool db_notification_mark_all_read(cwist_db *db, int user_id);
+/* Federated delivery: inserts only when the recipient exists locally. */
+bool db_notification_deliver_federated(long user_id, const char *actor_name, const char *kind, const char *post_slug, const char *excerpt);
 
 #endif

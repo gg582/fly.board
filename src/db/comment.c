@@ -46,12 +46,12 @@ void db_comment_reopen(void) {
     db_comment_init("data/comments.db");
 }
 
-bool db_comment_create(cwist_db *db, const char *target_type, int target_id, int user_id, const char *author_name, int parent_id, const char *content) {
+int db_comment_create(cwist_db *db, const char *target_type, int target_id, int user_id, const char *author_name, int parent_id, const char *content) {
     (void)db;
-    if (!g_comments_db) return false;
+    if (!g_comments_db) return -1;
     const char *sql = "INSERT INTO comments (target_type, target_id, user_id, author_name, parent_id, content) VALUES (?,?,?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(g_comments_db, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(g_comments_db, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, target_type, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, target_id);
     sqlite3_bind_int(stmt, 3, user_id);
@@ -64,7 +64,8 @@ bool db_comment_create(cwist_db *db, const char *target_type, int target_id, int
     sqlite3_bind_text(stmt, 6, content, -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    if (rc != SQLITE_DONE) return -1;
+    return (int)sqlite3_last_insert_rowid(g_comments_db);
 }
 
 bool db_comment_update(cwist_db *db, int id, int user_id, const char *content) {

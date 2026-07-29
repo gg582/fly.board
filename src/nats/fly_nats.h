@@ -23,6 +23,20 @@ bool fly_nats_init(const char *url);
 bool fly_nats_publish_post(const char *title, const char *slug, const char *summary);
 
 /**
+ * @brief Publish a comment/reply notification event to flyboard.comments.
+ * Signed JSON payload like fly_nats_publish_post, plus an origin field so
+ * receiving nodes can skip events they already recorded locally.
+ * @param origin            Site origin of the publishing node (g_config.root_url).
+ * @param actor_name        Display name of the comment author.
+ * @param kind              "comment" (on a post) or "reply" (to a comment).
+ * @param post_slug         Slug of the target post, "" when unknown/file target.
+ * @param recipient_user_id Local user id of the notification recipient.
+ * @param excerpt           Short excerpt of the comment content.
+ * @return true on success.
+ */
+bool fly_nats_publish_comment(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt);
+
+/**
  * @brief Dispatch incoming NATS messages.
  * Call this in a background thread.
  */
