@@ -8,6 +8,8 @@ void handler_home(cwist_http_request *req, cwist_http_response *res);
 void handler_theme_json(cwist_http_request *req, cwist_http_response *res);
 void handler_themes_json(cwist_http_request *req, cwist_http_response *res);
 void handler_rss_xml(cwist_http_request *req, cwist_http_response *res);
+void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res);
+void handler_robots_txt(cwist_http_request *req, cwist_http_response *res);
 void handler_post_vote(cwist_http_request *req, cwist_http_response *res);
 
 void handler_login_get(cwist_http_request *req, cwist_http_response *res);
@@ -69,6 +71,8 @@ void handler_file_delete(cwist_http_request *req, cwist_http_response *res);
 void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res);
 void handler_comment_edit_post(cwist_http_request *req, cwist_http_response *res);
 void handler_comment_delete_get(cwist_http_request *req, cwist_http_response *res);
+
+void handler_notifications_get(cwist_http_request *req, cwist_http_response *res);
 
 void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_users(cwist_http_request *req, cwist_http_response *res);

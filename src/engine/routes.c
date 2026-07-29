@@ -23,6 +23,8 @@ void engine_routes_register(cwist_app *app) {
     cwist_app_get(app, "/theme.json", handler_theme_json);
     cwist_app_get(app, "/themes.json", handler_themes_json);
     cwist_app_get(app, "/rss.xml", handler_rss_xml);
+    cwist_app_get(app, "/sitemap.xml", handler_sitemap_xml);
+    cwist_app_get(app, "/robots.txt", handler_robots_txt);
 
     cwist_app_get(app, "/login", handler_login_get);
     cwist_app_post(app, "/login", handler_login_post);
