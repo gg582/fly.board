@@ -104,6 +104,7 @@ static bool inline_asset_fits(const char *asset) {
 
 static __thread char g_nav_profile_name[128];
 static __thread char g_nav_profile_account[128];
+static __thread int g_nav_notif_count = 0;
 
 static char *read_file_to_string(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -145,7 +146,35 @@ void render_set_nav_profile(const char *display_name, const char *account_name) 
     }
 }
 
+void render_set_nav_notifications(int unread_count) {
+    g_nav_notif_count = unread_count > 0 ? unread_count : 0;
+}
+
+/* Bell icon link to /notifications with an unread-count badge. */
+static cwist_html_element_t *notif_bell_link(int count, const char *extra_class) {
+    cwist_html_element_t *bell = cwist_html_element_create("a");
+    cwist_html_element_add_attr(bell, "href", "/notifications");
+    cwist_html_element_add_class(bell, "nav-item notif-bell");
+    if (extra_class) cwist_html_element_add_class(bell, extra_class);
+    cwist_html_element_t *icon = cwist_html_element_create("span");
+    cwist_html_element_add_class(icon, "notif-bell-icon");
+    cwist_html_element_set_text(icon, "\U0001F514");
+    cwist_html_element_add_child(bell, icon);
+    cwist_html_element_t *badge = cwist_html_element_create("span");
+    cwist_html_element_add_class(badge, "notif-badge");
+    char cnt[16];
+    snprintf(cnt, sizeof(cnt), "%d", count);
+    cwist_html_element_set_text(badge, cnt);
+    cwist_html_element_add_child(bell, badge);
+    return bell;
+}
+
 cwist_sstring *render_page(const char *title, const char *body_html, bool dark, const char *user_role, const char *profile_pic, bool is_mobile) {
+
+    /* Consume and reset the per-request TLS so a count set for this render
+     * can never leak into the next request handled on the same thread. */
+    int notif_count = g_nav_notif_count;
+    g_nav_notif_count = 0;
 
     cwist_html_element_t *html = cwist_html_element_create("html");
     cwist_html_element_add_attr(html, "lang", "ko");
@@ -297,6 +326,9 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_t *mobile_auth_wrap = cwist_html_element_create("div");
     cwist_html_element_add_class(mobile_auth_wrap, "mobile-auth-btns");
     if (user_role && user_role[0]) {
+        if (notif_count > 0) {
+            cwist_html_element_add_child(mobile_auth_wrap, notif_bell_link(notif_count, NULL));
+        }
         cwist_html_element_t *logout_btn = nav_link("/logout", "Logout");
         cwist_html_element_add_class(logout_btn, "btn btn-outline");
         cwist_html_element_add_child(mobile_auth_wrap, logout_btn);
@@ -314,6 +346,9 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     if (user_role && user_role[0]) {
         const char *display_pp2 = profile_pic;
 
+        if (notif_count > 0) {
+            cwist_html_element_add_child(navlinks, notif_bell_link(notif_count, "desktop-only"));
+        }
         if (display_pp2 && display_pp2[0]) {
             cwist_html_element_t *p_link = cwist_html_element_create("a");
             cwist_html_element_add_attr(p_link, "href", "/profile");

@@ -6,6 +6,7 @@
 #include <cjson/cJSON.h>
 
 void render_set_nav_profile(const char *display_name, const char *account_name);
+void render_set_nav_notifications(int unread_count);
 cwist_sstring *render_page(const char *title, const char *body_html, bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, const char *profile_pic, bool is_own_profile, bool is_mobile);
 cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewer_role, const char *profile_pic, const char *error, bool is_mobile);
@@ -23,6 +24,7 @@ cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool i
 cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_admin_boards(cJSON *boards, cJSON *tree, bool dark, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, int user_id, const char *profile_pic, bool is_mobile);
+cwist_sstring *render_notifications_page(cJSON *notifs, bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_markdown_to_html(const char *md);
 
 #endif

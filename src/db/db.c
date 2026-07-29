@@ -292,6 +292,8 @@ bool db_migrate(cwist_db *db) {
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_votes_anon (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, vote_type INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_tags (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, UNIQUE(post_id, tag_id), FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE, FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE)");
+    db_exec_sql(db, "CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, actor_name TEXT, kind TEXT NOT NULL, post_id INTEGER, post_slug TEXT, comment_id INTEGER, excerpt TEXT, is_read INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read, created_at DESC)");
 
     /* Rebuild posts with nullable user_id so anonymous posts (user_id 0)
      * survive PRAGMA foreign_keys=ON. Runs before the posts indexes below

@@ -16,12 +16,12 @@ LIBMAGIC_A := $(LIBMAGIC_DIR)/src/.libs/libmagic.a
 CWIST_ROOT ?= /home/yjlee/cwist
 
 SRCS := src/main.c \
-        src/db/db.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/vote.c src/db/tag.c src/db/sql_escape.c src/db/orm.c \
+        src/db/db.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/notification.c src/db/vote.c src/db/tag.c src/db/sql_escape.c src/db/orm.c \
         src/auth/auth.c \
         src/crypto/fly_crypto.c \
         src/render/theme/theme.c src/render/theme/rules.c src/render/theme/json.c src/render/theme/css.c \
-        src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c \
-        src/handlers/handlers.c src/handlers/home.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/file.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c \
+        src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/render/render_notifications.c \
+        src/handlers/handlers.c src/handlers/home.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/notifications.c src/handlers/file.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c \
         src/utils/utils.c \
         src/utils/cache.c \
         src/utils/reqshare.c \

@@ -21,6 +21,57 @@ static void invalidate_comment_target(cwist_db *db, const char *target_type, int
     }
 }
 
+/* Notify the post author (new comment) or the parent comment author (reply)
+ * and broadcast the event to federated nodes. Silently skips notification
+ * when there is no resolvable recipient, the recipient is the actor, or any
+ * lookup fails. */
+static void notify_comment_recipient(cwist_db *db, int actor_uid, const char *actor_name,
+                                     const char *target_type, int target_id, int parent_id,
+                                     const char *content, int comment_id) {
+    int recipient = 0;
+    const char *kind = NULL;
+    int post_id = 0;
+    char post_slug[256] = {0};
+
+    cJSON *post = NULL;
+    if (target_type && strcmp(target_type, "post") == 0) {
+        post = db_post_get_by_id(db, target_id);
+    }
+
+    if (parent_id > 0) {
+        cJSON *parent = db_comment_get_by_id(db, parent_id);
+        if (!parent) {
+            if (post) cJSON_Delete(post);
+            return;
+        }
+        cJSON *pu = cJSON_GetObjectItem(parent, "user_id");
+        if (pu && cJSON_IsNumber(pu)) recipient = pu->valueint;
+        cJSON_Delete(parent);
+        kind = "reply";
+    } else if (post) {
+        cJSON *pu = cJSON_GetObjectItem(post, "user_id");
+        if (pu && cJSON_IsNumber(pu)) recipient = pu->valueint;
+        kind = "comment";
+    }
+
+    if (post) {
+        cJSON *ps = cJSON_GetObjectItem(post, "slug");
+        if (ps && cJSON_IsString(ps) && ps->valuestring) {
+            snprintf(post_slug, sizeof(post_slug), "%s", ps->valuestring);
+            post_id = target_id;
+        }
+        cJSON_Delete(post);
+    }
+
+    if (!kind || recipient <= 0 || recipient == actor_uid) return;
+
+    char excerpt[121];
+    snprintf(excerpt, sizeof(excerpt), "%s", content ? content : "");
+
+    db_notification_create(db, recipient, actor_name, kind, post_id, post_slug, comment_id, excerpt);
+    fly_nats_publish_comment(g_config.root_url, actor_name, kind, post_slug, recipient, excerpt);
+}
+
 void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -51,9 +102,11 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
         } else {
             author_name = (author_name_input && author_name_input[0]) ? author_name_input : "Anonymous";
         }
-        if (db_comment_create(req->db, target_type, target_id, uid, author_name, parent_id, content)) {
+        int new_comment_id = db_comment_create(req->db, target_type, target_id, uid, author_name, parent_id, content);
+        if (new_comment_id > 0) {
             CWIST_LOG_INFO("Comment created: target_type=%s target_id=%d uid=%d", target_type, target_id, uid);
             invalidate_comment_target(req->db, target_type, target_id);
+            notify_comment_recipient(req->db, uid, author_name, target_type, target_id, parent_id, content, new_comment_id);
         } else {
             CWIST_LOG_ERROR("Comment creation failed: target_type=%s target_id=%d uid=%d", target_type, target_id, uid);
         }

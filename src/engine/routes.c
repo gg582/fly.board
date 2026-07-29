@@ -81,6 +81,8 @@ void engine_routes_register(cwist_app *app) {
     cwist_app_post(app, "/comment/edit", handler_comment_edit_post);
     cwist_app_get(app, "/comment/:id/delete", handler_comment_delete_get);
 
+    cwist_app_get(app, "/notifications", handler_notifications_get);
+
     cwist_app_get(app, "/admin", handler_admin_dashboard);
     cwist_app_get(app, "/admin/users", handler_admin_users);
     cwist_app_post(app, "/admin/user/role", handler_admin_user_role);

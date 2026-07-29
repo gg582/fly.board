@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "fly_nats.h"
 #include "../crypto/fly_crypto.h"
+#include "../config/config.h"
+#include "../db/db.h"
 #if defined __has_include
 #  if __has_include (<cwist/net/nats/cwist_nats.h>)
 #    define HAVE_NATS 1
@@ -74,6 +76,85 @@ static char *build_signed_post_payload(const char *title, const char *slug, cons
     cwist_free(pubkey_b64);
     return signed_json;
 }
+
+static const char *json_str(cJSON *obj, const char *key) {
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(obj, key);
+    return (cJSON_IsString(item) && item->valuestring) ? item->valuestring : "";
+}
+
+static void on_comment_msg(const char *subject, const char *data, size_t len, void *ctx) {
+    (void)subject; (void)ctx;
+    cJSON *obj = cJSON_ParseWithLength(data, len);
+    if (!obj) return;
+    const char *origin = json_str(obj, "origin");
+    const char *actor_name = json_str(obj, "actor_name");
+    const char *kind = json_str(obj, "kind");
+    const char *post_slug = json_str(obj, "post_slug");
+    const char *excerpt = json_str(obj, "excerpt");
+    cJSON *sig_item = cJSON_GetObjectItemCaseSensitive(obj, "sig_b64");
+    bool has_sig = cJSON_IsString(sig_item) && sig_item->valuestring && sig_item->valuestring[0] != '\0';
+    cJSON *recipient_item = cJSON_GetObjectItemCaseSensitive(obj, "recipient_user_id");
+    long recipient = cJSON_IsNumber(recipient_item) ? (long)recipient_item->valuedouble : 0;
+
+    /* Events published by this node were already recorded locally when the
+     * comment was created; only federated (remote-origin) events deliver. */
+    if (g_config.root_url[0] && origin[0] && strcmp(origin, g_config.root_url) == 0) {
+        cJSON_Delete(obj);
+        return;
+    }
+    if (recipient > 0 && kind[0]) {
+        if (db_notification_deliver_federated(recipient, actor_name, kind, post_slug, excerpt)) {
+            FLY_LOG_DEBUG("[fly_nats] federated %s notification delivered to user=%ld sig=%s",
+                          kind, recipient, has_sig ? "present" : "missing");
+        }
+    }
+    cJSON_Delete(obj);
+}
+
+static char *build_signed_comment_payload(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt) {
+    char *sig_b64 = NULL;
+    char *pubkey_b64 = NULL;
+    char *signed_json = NULL;
+    cJSON *canonical = cJSON_CreateObject();
+    if (!canonical) return NULL;
+
+    cJSON_AddStringToObject(canonical, "origin", origin ? origin : "");
+    cJSON_AddStringToObject(canonical, "actor_name", actor_name ? actor_name : "");
+    cJSON_AddStringToObject(canonical, "kind", kind ? kind : "");
+    cJSON_AddStringToObject(canonical, "post_slug", post_slug ? post_slug : "");
+    cJSON_AddNumberToObject(canonical, "recipient_user_id", (double)recipient_user_id);
+    cJSON_AddStringToObject(canonical, "excerpt", excerpt ? excerpt : "");
+
+    char *canonical_json = cJSON_PrintUnformatted(canonical);
+    cJSON_Delete(canonical);
+    if (!canonical_json) return NULL;
+
+    if (!fly_crypto_sign((const uint8_t *)canonical_json, strlen(canonical_json), &sig_b64)) {
+        free(canonical_json);
+        return NULL;
+    }
+    if (!fly_crypto_pubkey_export(&pubkey_b64)) {
+        free(canonical_json);
+        cwist_free(sig_b64);
+        return NULL;
+    }
+
+    cJSON *envelope = cJSON_Parse(canonical_json);
+    free(canonical_json);
+    if (!envelope) {
+        cwist_free(sig_b64);
+        cwist_free(pubkey_b64);
+        return NULL;
+    }
+    cJSON_AddStringToObject(envelope, "sig_alg", "ML-DSA-65");
+    cJSON_AddStringToObject(envelope, "sig_b64", sig_b64);
+    cJSON_AddStringToObject(envelope, "pubkey_b64", pubkey_b64);
+    signed_json = cJSON_PrintUnformatted(envelope);
+    cJSON_Delete(envelope);
+    cwist_free(sig_b64);
+    cwist_free(pubkey_b64);
+    return signed_json;
+}
 #endif
 
 bool fly_nats_init(const char *url) {
@@ -86,6 +167,13 @@ bool fly_nats_init(const char *url) {
         return false;
     }
     err = cwist_nats_subscribe(g_nats, "flyboard.posts", on_post_msg, NULL);
+    if (err.errtype != CWIST_ERR_INT16 || err.error.err_i16 != 0) {
+        FLY_LOG_ERROR("[fly_nats] subscribe failed");
+        cwist_nats_destroy(g_nats);
+        g_nats = NULL;
+        return false;
+    }
+    err = cwist_nats_subscribe(g_nats, "flyboard.comments", on_comment_msg, NULL);
     if (err.errtype != CWIST_ERR_INT16 || err.error.err_i16 != 0) {
         FLY_LOG_ERROR("[fly_nats] subscribe failed");
         cwist_nats_destroy(g_nats);
@@ -110,6 +198,20 @@ bool fly_nats_publish_post(const char *title, const char *slug, const char *summ
     return err.errtype == CWIST_ERR_INT16 && err.error.err_i16 == 0;
 #else
     (void)title; (void)slug; (void)summary;
+    return true;
+#endif
+}
+
+bool fly_nats_publish_comment(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt) {
+#ifdef HAVE_NATS
+    if (!g_nats) return false;
+    char *json = build_signed_comment_payload(origin, actor_name, kind, post_slug, recipient_user_id, excerpt);
+    if (!json) return false;
+    cwist_error_t err = cwist_nats_publish_string(g_nats, "flyboard.comments", json);
+    free(json);
+    return err.errtype == CWIST_ERR_INT16 && err.error.err_i16 == 0;
+#else
+    (void)origin; (void)actor_name; (void)kind; (void)post_slug; (void)recipient_user_id; (void)excerpt;
     return true;
 #endif
 }
