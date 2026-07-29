@@ -1972,6 +1972,21 @@ void rule_animations(cJSON *rules) {
 }
 
 void rule_media(cJSON *rules) {
+    /* Keep the document's rendering viewport aligned with the topbar on
+     * mobile.  Wide content remains scrollable in its own containers, but it
+     * must not increase the page's horizontal scroll width. */
+    cJSON *mq_viewport = create_rule("html.mobile, body.mobile");
+    add_decl(mq_viewport, "width", "100%");
+    add_decl(mq_viewport, "max-width", "100%");
+    add_decl(mq_viewport, "overflow-x", "hidden");
+    cJSON_AddItemToArray(rules, mq_viewport);
+
+    cJSON *mq_shell_width = create_mobile_rule(".shell");
+    add_decl(mq_shell_width, "width", "100%");
+    add_decl(mq_shell_width, "max-width", "100%");
+    add_decl(mq_shell_width, "min-width", "0");
+    cJSON_AddItemToArray(rules, mq_shell_width);
+
     cJSON *mq_acct = create_mobile_rule(".mobile-account-header");
     add_decl(mq_acct, "display", "flex");
     add_decl(mq_acct, "align-items", "center");
