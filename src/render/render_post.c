@@ -725,6 +725,87 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     return page_html;
 }
 
+/* Scan rendered markdown HTML for <h2>/<h3> tags, inject id="toc-N" anchors
+ * (shared sequential counter) and build a collapsible table of contents.
+ * Returns the TOC block when there are 2+ headings (md_html is then replaced
+ * with the id-injected version); returns NULL and leaves md_html untouched
+ * otherwise. */
+static cwist_sstring *render_post_build_toc(cwist_sstring *md_html) {
+    if (!md_html || !md_html->data) return NULL;
+    const char *p = md_html->data;
+    size_t len = strlen(p);
+    cwist_sstring *out = cwist_sstring_create();
+    cwist_sstring *items = cwist_sstring_create();
+    int count = 0;
+    size_t seg_start = 0;
+    size_t i = 0;
+
+    while (i + 3 < len) {
+        int level = 0;
+        if (p[i] == '<' && p[i + 1] == 'h' && (p[i + 2] == '2' || p[i + 2] == '3') &&
+            (p[i + 3] == '>' || p[i + 3] == ' ' || p[i + 3] == '\t' || p[i + 3] == '\n')) {
+            level = p[i + 2] - '0';
+        }
+        if (!level) { i++; continue; }
+
+        /* end of the opening tag */
+        size_t j = i + 3;
+        while (j < len && p[j] != '>') j++;
+        if (j >= len) { i++; continue; }
+
+        /* matching close tag */
+        char close_pat[8];
+        snprintf(close_pat, sizeof(close_pat), "</h%d>", level);
+        const char *close = strstr(p + j + 1, close_pat);
+        if (!close) { i++; continue; }
+
+        count++;
+        /* copy everything up to and including "<hN", then inject the id */
+        cwist_sstring_append_len(out, p + seg_start, (i + 3) - seg_start);
+        char idbuf[32];
+        snprintf(idbuf, sizeof(idbuf), " id=\"toc-%d\"", count);
+        cwist_sstring_append(out, idbuf);
+        /* copy the rest of the opening tag */
+        cwist_sstring_append_len(out, p + i + 3, (j + 1) - (i + 3));
+
+        /* TOC entry: inner text with nested tags stripped */
+        cwist_sstring_append(items, level == 3 ? "<li class='post-toc-sub'><a href=\"#toc-" : "<li><a href=\"#toc-");
+        char numbuf[16];
+        snprintf(numbuf, sizeof(numbuf), "%d", count);
+        cwist_sstring_append(items, numbuf);
+        cwist_sstring_append(items, "\">");
+        size_t text_end = (size_t)(close - p);
+        int in_tag = 0;
+        for (size_t k = j + 1; k < text_end; k++) {
+            if (p[k] == '<') { in_tag = 1; continue; }
+            if (p[k] == '>') { in_tag = 0; continue; }
+            if (in_tag) continue;
+            cwist_sstring_append_len(items, p + k, 1);
+        }
+        cwist_sstring_append(items, "</a></li>");
+
+        i = j + 1;
+        seg_start = j + 1;
+    }
+    cwist_sstring_append_len(out, p + seg_start, len - seg_start);
+
+    if (count < 2) {
+        cwist_sstring_destroy(out);
+        cwist_sstring_destroy(items);
+        return NULL;
+    }
+
+    cwist_sstring_assign_len(md_html, out->data, out->size);
+    cwist_sstring_destroy(out);
+
+    cwist_sstring *block = cwist_sstring_create();
+    cwist_sstring_append(block, "<details class='post-toc' open><summary>목차</summary><ul class='post-toc-list'>");
+    cwist_sstring_append_sstring(block, items);
+    cwist_sstring_append(block, "</ul></details>");
+    cwist_sstring_destroy(items);
+    return block;
+}
+
 cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, const char *author_profile_pic, int user_id, const char *ephemeral_delete_pin, bool is_mobile) {
     if (!post) {
         return render_page("Post", "<p style='color:var(--muted)'>Post not found.</p>", dark, user_role, profile_pic, is_mobile);
@@ -829,11 +910,18 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring_append(b, "</script>");
 
     cwist_sstring *md_html = render_markdown_to_html(content_text);
-    cwist_sstring_append(b, "<div class='markdown-body'>");
     if (md_html) {
         upgrade_markdown_file_links_to_media(md_html, files);
+        cwist_sstring *toc = render_post_build_toc(md_html);
+        if (toc) {
+            cwist_sstring_append_sstring(b, toc);
+            cwist_sstring_destroy(toc);
+        }
+        cwist_sstring_append(b, "<div class='markdown-body'>");
         cwist_sstring_append_sstring(b, md_html);
         cwist_sstring_destroy(md_html);
+    } else {
+        cwist_sstring_append(b, "<div class='markdown-body'>");
     }
     cwist_sstring_append(b, "</div>");
 
@@ -976,6 +1064,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div>");
     cwist_sstring_append(b, "</form>");
     cwist_sstring_append(b, "</div>");
+    cwist_sstring_append(b, "<script src='/assets/js/lightbox.js?v=1' defer></script>");
 
     cwist_sstring *page = render_page(title_text[0] ? title_text : "Post", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);

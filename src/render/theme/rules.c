@@ -1054,6 +1054,70 @@ void rule_components(cJSON *rules) {
     add_decl(imgDlBtnHover, "color", "var(--panel)");
     add_decl(imgDlBtnHover, "border-color", "var(--accent)");
     cJSON_AddItemToArray(rules, imgDlBtnHover);
+
+    cJSON *lb_overlay = create_rule(".lightbox-overlay");
+    add_decl(lb_overlay, "position", "fixed");
+    add_decl(lb_overlay, "top", "0");
+    add_decl(lb_overlay, "left", "0");
+    add_decl(lb_overlay, "width", "100vw");
+    add_decl(lb_overlay, "height", "100vh");
+    add_decl(lb_overlay, "display", "none");
+    add_decl(lb_overlay, "align-items", "center");
+    add_decl(lb_overlay, "justify-content", "center");
+    add_decl(lb_overlay, "background", "color-mix(in srgb, var(--shadow-base) 60%, transparent)");
+    add_decl(lb_overlay, "backdrop-filter", "blur(10px) saturate(120%)");
+    add_decl(lb_overlay, "-webkit-backdrop-filter", "blur(10px) saturate(120%)");
+    add_decl(lb_overlay, "z-index", "200");
+    add_decl(lb_overlay, "cursor", "zoom-out");
+    cJSON_AddItemToArray(rules, lb_overlay);
+
+    cJSON *lb_img = create_rule(".lightbox-overlay img");
+    add_decl(lb_img, "max-width", "95vw");
+    add_decl(lb_img, "max-height", "95vh");
+    add_decl(lb_img, "object-fit", "contain");
+    add_decl(lb_img, "border-radius", radius_str(8));
+    add_decl(lb_img, "box-shadow", "0 16px 48px var(--shadow)");
+    add_decl(lb_img, "cursor", "zoom-out");
+    cJSON_AddItemToArray(rules, lb_img);
+
+    cJSON *lb_caption = create_rule(".lightbox-caption");
+    add_decl(lb_caption, "position", "absolute");
+    add_decl(lb_caption, "bottom", "24px");
+    add_decl(lb_caption, "left", "50%");
+    add_decl(lb_caption, "transform", "translateX(-50%)");
+    add_decl(lb_caption, "max-width", "90vw");
+    add_decl(lb_caption, "padding", "6px 14px");
+    add_decl(lb_caption, "background", "var(--glass-bg)");
+    add_decl(lb_caption, "border", "1px solid var(--glass-border)");
+    add_decl(lb_caption, "border-radius", radius_str(8));
+    add_decl(lb_caption, "color", "var(--fg)");
+    add_decl(lb_caption, "font-size", "14px");
+    add_decl(lb_caption, "cursor", "default");
+    cJSON_AddItemToArray(rules, lb_caption);
+
+    cJSON *lb_close = create_rule(".lightbox-close");
+    add_decl(lb_close, "position", "absolute");
+    add_decl(lb_close, "top", "20px");
+    add_decl(lb_close, "right", "24px");
+    add_decl(lb_close, "width", "40px");
+    add_decl(lb_close, "height", "40px");
+    add_decl(lb_close, "display", "flex");
+    add_decl(lb_close, "align-items", "center");
+    add_decl(lb_close, "justify-content", "center");
+    add_decl(lb_close, "background", "var(--glass-bg)");
+    add_decl(lb_close, "border", "1px solid var(--glass-border)");
+    add_decl(lb_close, "border-radius", radius_str(50));
+    add_decl(lb_close, "color", "var(--fg)");
+    add_decl(lb_close, "font-size", "22px");
+    add_decl(lb_close, "line-height", "1");
+    add_decl(lb_close, "cursor", "pointer");
+    cJSON_AddItemToArray(rules, lb_close);
+
+    cJSON *lb_close_hover = create_rule(".lightbox-close:hover");
+    add_decl(lb_close_hover, "background", "var(--accent)");
+    add_decl(lb_close_hover, "color", "var(--panel)");
+    add_decl(lb_close_hover, "border-color", "var(--accent)");
+    cJSON_AddItemToArray(rules, lb_close_hover);
 }
 
 void rule_home(cJSON *rules) {
@@ -1819,6 +1883,51 @@ void rule_markdown(cJSON *rules) {
     add_decl(mobile_auth_btns, "gap", "8px");
     add_decl(mobile_auth_btns, "align-items", "center");
     cJSON_AddItemToArray(rules, mobile_auth_btns);
+
+    cJSON *toc = create_rule(".post-toc");
+    add_decl(toc, "max-width", "760px");
+    add_decl(toc, "margin", "0 auto 24px");
+    add_decl(toc, "padding", "12px 16px");
+    add_decl(toc, "background", "var(--glass-bg)");
+    add_decl(toc, "backdrop-filter", "blur(12px) saturate(140%)");
+    add_decl(toc, "-webkit-backdrop-filter", "blur(12px) saturate(140%)");
+    add_decl(toc, "border", "1px solid var(--glass-border)");
+    add_decl(toc, "border-radius", radius_str(8));
+    cJSON_AddItemToArray(rules, toc);
+
+    cJSON *toc_summary = create_rule(".post-toc summary");
+    add_decl(toc_summary, "cursor", "pointer");
+    add_decl(toc_summary, "font-weight", "600");
+    add_decl(toc_summary, "font-size", "14px");
+    add_decl(toc_summary, "color", "var(--fg)");
+    add_decl(toc_summary, "user-select", "none");
+    cJSON_AddItemToArray(rules, toc_summary);
+
+    cJSON *toc_list = create_rule(".post-toc-list");
+    add_decl(toc_list, "list-style", "none");
+    add_decl(toc_list, "margin", "8px 0 0");
+    add_decl(toc_list, "padding", "0");
+    cJSON_AddItemToArray(rules, toc_list);
+
+    cJSON *toc_item = create_rule(".post-toc-list li");
+    add_decl(toc_item, "margin-top", "4px");
+    add_decl(toc_item, "margin-bottom", "4px");
+    cJSON_AddItemToArray(rules, toc_item);
+
+    cJSON *toc_link = create_rule(".post-toc-list a");
+    add_decl(toc_link, "color", "var(--fg)");
+    add_decl(toc_link, "text-decoration", "none");
+    add_decl(toc_link, "transition", "color 0.2s ease");
+    cJSON_AddItemToArray(rules, toc_link);
+
+    cJSON *toc_link_hover = create_rule(".post-toc-list a:hover");
+    add_decl(toc_link_hover, "color", "var(--accent)");
+    cJSON_AddItemToArray(rules, toc_link_hover);
+
+    cJSON *toc_sub = create_rule(".post-toc-sub");
+    add_decl(toc_sub, "margin-left", "16px");
+    add_decl(toc_sub, "font-size", "0.9em");
+    cJSON_AddItemToArray(rules, toc_sub);
 }
 
 void rule_animations(cJSON *rules) {
