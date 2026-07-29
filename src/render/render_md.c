@@ -5,6 +5,7 @@
 #include <md4c-html.h>
 #include <md4c.h>
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -64,6 +65,80 @@ static bool is_line_start(const char *s, size_t pos) {
     return pos == 0 || s[pos - 1] == '\n';
 }
 
+/* Case-insensitive search for a "</tag" style needle, used to find the end of
+ * a raw <video>/<audio> block before md4c runs with MD_FLAG_NOHTML. */
+static const char *find_closing_tag(const char *hay, size_t hay_len, const char *needle, size_t needle_len) {
+    if (needle_len == 0 || hay_len < needle_len) return NULL;
+    for (size_t i = 0; i + needle_len <= hay_len; i++) {
+        if (strncasecmp(hay + i, needle, needle_len) == 0) return hay + i;
+    }
+    return NULL;
+}
+
+static bool media_attr_allowed(const char *name, size_t len) {
+    static const char *const allowed[] = {
+        "src", "poster", "controls", "autoplay", "loop", "muted", "playsinline",
+        "preload", "width", "height", "style", "class", "id", "title", "crossorigin"
+    };
+    if (len >= 5 && strncasecmp(name, "data-", 5) == 0) return true;
+    for (size_t k = 0; k < sizeof(allowed) / sizeof(allowed[0]); k++) {
+        if (strlen(allowed[k]) == len && strncasecmp(name, allowed[k], len) == 0) return true;
+    }
+    return false;
+}
+
+/* Rebuild a raw <video>/<audio> snippet keeping only whitelisted attributes.
+ * Event handlers (on*) and everything not on the list are dropped so that
+ * restoring the tag cannot smuggle script past MD_FLAG_NOHTML.
+ * Inner content and the closing tag are discarded; the editor never emits any. */
+static void sanitize_media_tag(cwist_sstring *out, const char *snippet, size_t len, const char *tag_name) {
+    cwist_sstring_append(out, "<");
+    cwist_sstring_append(out, tag_name);
+    size_t i = strlen(tag_name) + 1; /* skip "<video" / "<audio" */
+    while (i < len && snippet[i] != '>') {
+        while (i < len && (snippet[i] == ' ' || snippet[i] == '\t' || snippet[i] == '\n' || snippet[i] == '\r' || snippet[i] == '/')) i++;
+        if (i >= len || snippet[i] == '>') break;
+        size_t name_start = i;
+        while (i < len && snippet[i] != '=' && snippet[i] != '>' && snippet[i] != ' ' &&
+               snippet[i] != '\t' && snippet[i] != '\n' && snippet[i] != '\r' && snippet[i] != '/') i++;
+        size_t name_len = i - name_start;
+        if (name_len == 0) { i++; continue; }
+        while (i < len && (snippet[i] == ' ' || snippet[i] == '\t' || snippet[i] == '\n' || snippet[i] == '\r')) i++;
+        const char *value = NULL;
+        size_t value_len = 0;
+        if (i < len && snippet[i] == '=') {
+            i++;
+            while (i < len && (snippet[i] == ' ' || snippet[i] == '\t' || snippet[i] == '\n' || snippet[i] == '\r')) i++;
+            if (i < len && (snippet[i] == '"' || snippet[i] == '\'')) {
+                char quote = snippet[i++];
+                value = snippet + i;
+                while (i < len && snippet[i] != quote) i++;
+                value_len = (size_t)(snippet + i - value);
+                if (i < len) i++; /* skip closing quote */
+            } else {
+                value = snippet + i;
+                while (i < len && snippet[i] != '>' && snippet[i] != ' ' && snippet[i] != '\t' &&
+                       snippet[i] != '\n' && snippet[i] != '\r') i++;
+                value_len = (size_t)(snippet + i - value);
+            }
+        }
+        if (!media_attr_allowed(snippet + name_start, name_len)) continue;
+        cwist_sstring_append(out, " ");
+        cwist_sstring_append_len(out, snippet + name_start, name_len);
+        if (value) {
+            cwist_sstring_append(out, "=\"");
+            for (size_t v = 0; v < value_len; v++) {
+                if (value[v] == '"') cwist_sstring_append(out, "&quot;");
+                else cwist_sstring_append_len(out, value + v, 1);
+            }
+            cwist_sstring_append(out, "\"");
+        }
+    }
+    cwist_sstring_append(out, "></");
+    cwist_sstring_append(out, tag_name);
+    cwist_sstring_append(out, ">");
+}
+
 static bool is_code_fence_line(const char *s, size_t pos, size_t len, int *out_len) {
     size_t k = pos;
     while (k < len && (s[k] == ' ' || s[k] == '\t')) k++;
@@ -83,7 +158,7 @@ static bool is_code_fence_line(const char *s, size_t pos, size_t len, int *out_l
     return false;
 }
 
-static char *protect_math(const char *md, math_registry_t *blocks, math_registry_t *inlines) {
+static char *protect_math(const char *md, math_registry_t *blocks, math_registry_t *inlines, math_registry_t *media) {
     size_t len = strlen(md);
     cwist_sstring *out = cwist_sstring_create();
     size_t i = 0;
@@ -140,6 +215,45 @@ static char *protect_math(const char *md, math_registry_t *blocks, math_registry
                 }
                 i = j + 1;
                 continue;
+            }
+        }
+
+        /* Raw <video>/<audio> tags inserted by the editor. md4c runs with
+         * MD_FLAG_NOHTML and would escape them, so swap them for placeholders
+         * here and restore a sanitized version after rendering. */
+        if (md[i] == '<' && media) {
+            const char *tag_name = NULL;
+            size_t name_len = 0;
+            if (i + 6 <= len && strncasecmp(md + i, "<video", 6) == 0) { tag_name = "video"; name_len = 6; }
+            else if (i + 6 <= len && strncasecmp(md + i, "<audio", 6) == 0) { tag_name = "audio"; name_len = 6; }
+            if (tag_name && (i + name_len >= len || md[i + name_len] == ' ' || md[i + name_len] == '\t' ||
+                             md[i + name_len] == '\n' || md[i + name_len] == '\r' ||
+                             md[i + name_len] == '>' || md[i + name_len] == '/')) {
+                size_t tag_end = i + name_len;
+                while (tag_end < len && md[tag_end] != '>') tag_end++;
+                if (tag_end < len) {
+                    char closing[16];
+                    snprintf(closing, sizeof(closing), "</%s", tag_name);
+                    size_t block_end = tag_end + 1;
+                    const char *close = find_closing_tag(md + tag_end + 1, len - (tag_end + 1), closing, strlen(closing));
+                    if (close) {
+                        const char *close_gt = memchr(close, '>', len - (size_t)(close - md));
+                        if (close_gt) block_end = (size_t)(close_gt - md) + 1;
+                    }
+                    if (block_end - i <= 4096) {
+                        cwist_sstring *sanitized = cwist_sstring_create();
+                        if (sanitized) {
+                            sanitize_media_tag(sanitized, md + i, tag_end + 1 - i, tag_name);
+                            math_registry_add(media, sanitized->data, strlen(sanitized->data));
+                            cwist_sstring_destroy(sanitized);
+                            char placeholder[64];
+                            snprintf(placeholder, sizeof(placeholder), "@@RAW_MEDIA_%d@@", media->count - 1);
+                            cwist_sstring_append(out, placeholder);
+                            i = block_end;
+                            continue;
+                        }
+                    }
+                }
             }
         }
 
@@ -227,6 +341,39 @@ static void restore_math(cwist_sstring *html, const math_registry_t *blocks, con
                     append_escaped_math(out, inlines->expressions[idx]);
                 }
                 cwist_sstring_append(out, "</span>");
+                i = j + 2;
+                continue;
+            }
+        }
+        cwist_sstring_append_len(out, data + i, 1);
+        i++;
+    }
+
+    cwist_sstring_assign(html, out->data);
+    cwist_sstring_destroy(out);
+}
+
+/* Swap the @@RAW_MEDIA_N@@ placeholders back for the sanitized <video>/<audio>
+ * markup captured by protect_math. */
+static void restore_media(cwist_sstring *html, const math_registry_t *media) {
+    if (!media || media->count == 0) return;
+    const char *data = html->data;
+    size_t len = strlen(data);
+    cwist_sstring *out = cwist_sstring_create();
+    size_t i = 0;
+
+    while (i < len) {
+        if (i + 12 <= len && strncmp(data + i, "@@RAW_MEDIA_", 12) == 0) {
+            size_t j = i + 12;
+            int idx = 0;
+            while (j < len && data[j] >= '0' && data[j] <= '9') {
+                idx = idx * 10 + (data[j] - '0');
+                j++;
+            }
+            if (j + 2 <= len && strncmp(data + j, "@@", 2) == 0) {
+                if (idx >= 0 && idx < media->count) {
+                    cwist_sstring_append(out, media->expressions[idx]);
+                }
                 i = j + 2;
                 continue;
             }
@@ -485,16 +632,18 @@ static void inject_img_attrs(cwist_sstring *html) {
 }
 
 cwist_sstring *render_markdown_to_html(const char *md) {
-    math_registry_t blocks = {0}, inlines = {0};
+    math_registry_t blocks = {0}, inlines = {0}, media = {0};
     math_registry_init(&blocks);
     math_registry_init(&inlines);
-    char *protected = protect_math(md, &blocks, &inlines);
+    math_registry_init(&media);
+    char *protected = protect_math(md, &blocks, &inlines, &media);
 
     cwist_sstring *html = cwist_sstring_create();
     if (!html) {
         free(protected);
         math_registry_free(&blocks);
         math_registry_free(&inlines);
+        math_registry_free(&media);
         return NULL;
     }
     cwist_sstring_assign(html, "");
@@ -505,11 +654,14 @@ cwist_sstring *render_markdown_to_html(const char *md) {
         cwist_sstring_destroy(html);
         math_registry_free(&blocks);
         math_registry_free(&inlines);
+        math_registry_free(&media);
         return NULL;
     }
     restore_math(html, &blocks, &inlines);
+    restore_media(html, &media);
     math_registry_free(&blocks);
     math_registry_free(&inlines);
+    math_registry_free(&media);
     rewrite_x_equation(html);
     inject_img_attrs(html);
     rewrite_tasfa_bootstrap(html);
