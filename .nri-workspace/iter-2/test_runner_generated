@@ -1,0 +1,142 @@
+// test_fly_board.c
+/* Unit tests for the keep-alive route drift fix in fly.board.c. */
+
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+
+/* Include the unit under test so its static helpers are visible. */
+#include "fly.board.c"
+
+struct route {
+    const char *path;
+};
+
+static const struct route routes[] = {
+    { "/" },
+    { "/slug" },
+    { "/about" },
+};
+
+const struct route *route_lookup(const char *path)
+{
+    size_t i;
+    for (i = 0; i < sizeof(routes) / sizeof(routes[0]); ++i) {
+        if (strcmp(path, routes[i].path) == 0)
+            return &routes[i];
+    }
+    return NULL;
+}
+
+struct io_state {
+    const char **inputs;
+    int idx;
+};
+
+static struct io_state g_io;
+static const char *g_served[8];
+static int g_served_count;
+static int g_last_status;
+
+int http_read_request(struct connection *conn, struct request *req)
+{
+    const char *next;
+    (void)conn;
+    next = g_io.inputs[g_io.idx++];
+    if (!next)
+        return 0;
+    strncpy(req->path, next, sizeof(req->path) - 1);
+    req->path[sizeof(req->path) - 1] = '\0';
+    req->keep_alive = (g_io.inputs[g_io.idx] != NULL);
+    return 1;
+}
+
+void http_send_status(struct connection *conn, int status)
+{
+    (void)conn;
+    g_last_status = status;
+    g_served[g_served_count++] = "(404)";
+}
+
+void serve_route(struct connection *conn, const struct route *route)
+{
+    (void)conn;
+    g_served[g_served_count++] = route->path;
+}
+
+static void reset_state(void)
+{
+    g_io.idx = 0;
+    g_served_count = 0;
+    g_last_status = 0;
+}
+
+static void test_drift(void)
+{
+    const char *inputs[] = { "/", "/slug", NULL };
+    struct connection conn = { .fd = -1 };
+
+    reset_state();
+    g_io.inputs = inputs;
+    connection_serve(&conn);
+
+    assert(g_served_count == 2);
+    assert(strcmp(g_served[0], "/") == 0);
+    assert(strcmp(g_served[1], "/slug") == 0);
+}
+
+static void test_missing_route_404(void)
+{
+    const char *inputs[] = { "/missing", NULL };
+    struct connection conn = { .fd = -1 };
+
+    reset_state();
+    g_io.inputs = inputs;
+    connection_serve(&conn);
+
+    assert(g_served_count == 1);
+    assert(g_last_status == 404);
+    assert(strcmp(g_served[0], "(404)") == 0);
+}
+
+static void test_single_non_keepalive(void)
+{
+    const char *inputs[] = { "/about", NULL };
+    struct connection conn = { .fd = -1 };
+
+    reset_state();
+    g_io.inputs = inputs;
+    connection_serve(&conn);
+
+    assert(g_served_count == 1);
+    assert(strcmp(g_served[0], "/about") == 0);
+}
+
+static void test_helpers(void)
+{
+    struct request req;
+    const struct route *r;
+    size_t i;
+
+    memset(&req, 0xAA, sizeof(req));
+    req.keep_alive = 1;
+    request_reset(&req);
+    for (i = 0; i < sizeof(req.path); ++i)
+        assert(req.path[i] == '\0');
+    assert(req.keep_alive == 0);
+
+    assert(route_resolve(NULL) == NULL);
+    assert(route_resolve("slug") == NULL);
+    r = route_resolve("/slug");
+    assert(r == &routes[1]);
+}
+
+int main(void)
+{
+    test_drift();
+    test_missing_route_404();
+    test_single_non_keepalive();
+    test_helpers();
+    printf("All tests passed.\n");
+    return 0;
+}

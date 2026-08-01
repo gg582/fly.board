@@ -368,3 +368,25 @@ void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
     if (json) free(json);
     cwist_query_map_destroy(kv);
 }
+
+/* ---- Prometheus / OpenTelemetry Metrics Endpoint ---- */
+void handler_api_metrics(cwist_http_request *req, cwist_http_response *res) {
+    (void)req;
+    cwist_sstring *m = cwist_sstring_create();
+    int post_count = db_post_count(req->db, 0);
+
+    cwist_sstring_append(m, "# HELP flyboard_posts_total Total number of posts in database.\n");
+    cwist_sstring_append(m, "# TYPE flyboard_posts_total counter\n");
+    char pbuf[64];
+    snprintf(pbuf, sizeof(pbuf), "flyboard_posts_total %d\n\n", post_count);
+    cwist_sstring_append(m, pbuf);
+
+    cwist_sstring_append(m, "# HELP flyboard_up_status Operational status of flyboard process.\n");
+    cwist_sstring_append(m, "# TYPE flyboard_up_status gauge\n");
+    cwist_sstring_append(m, "flyboard_up_status 1\n");
+
+    cwist_http_header_add(&res->headers, "Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
+    cwist_sstring_assign(res->body, m->data);
+    cwist_sstring_destroy(m);
+}
