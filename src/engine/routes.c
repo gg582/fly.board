@@ -93,5 +93,6 @@ void engine_routes_register(cwist_app *app) {
     cwist_app_post(app, "/api/upload", handler_api_upload);
     cwist_app_get(app, "/api/boards", handler_api_boards_json);
     cwist_app_get(app, "/api/my-files", handler_api_my_files);
+    cwist_app_get(app, "/metrics", handler_api_metrics);
     cwist_app_post(app, "/post/vote", handler_post_vote);
 }

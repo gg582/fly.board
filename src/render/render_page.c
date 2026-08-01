@@ -192,6 +192,26 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(head, vp);
     cwist_html_element_add_child(head, title_el);
 
+    cwist_html_element_t *og_title = cwist_html_element_create("meta");
+    cwist_html_element_add_attr(og_title, "property", "og:title");
+    cwist_html_element_add_attr(og_title, "content", title);
+    cwist_html_element_add_child(head, og_title);
+
+    cwist_html_element_t *og_type = cwist_html_element_create("meta");
+    cwist_html_element_add_attr(og_type, "property", "og:type");
+    cwist_html_element_add_attr(og_type, "content", "website");
+    cwist_html_element_add_child(head, og_type);
+
+    cwist_html_element_t *og_site = cwist_html_element_create("meta");
+    cwist_html_element_add_attr(og_site, "property", "og:site_name");
+    cwist_html_element_add_attr(og_site, "content", g_config.title[0] ? g_config.title : "Fly Board");
+    cwist_html_element_add_child(head, og_site);
+
+    cwist_html_element_t *tw_card = cwist_html_element_create("meta");
+    cwist_html_element_add_attr(tw_card, "name", "twitter:card");
+    cwist_html_element_add_attr(tw_card, "content", "summary_large_image");
+    cwist_html_element_add_child(head, tw_card);
+
     const char *favicon_url = image_inline_favicon();
     if (favicon_url) {
         cwist_html_element_t *favicon_el = cwist_html_element_create("link");
