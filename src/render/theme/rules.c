@@ -416,20 +416,20 @@ void rule_layout(cJSON *rules) {
 void rule_components(cJSON *rules) {
     cJSON *card = create_rule(".card");
     add_decl(card, "background", "var(--glass-bg)");
-    add_decl(card, "backdrop-filter", "blur(16px) saturate(160%)");
-    add_decl(card, "-webkit-backdrop-filter", "blur(16px) saturate(160%)");
+    add_decl(card, "backdrop-filter", "blur(12px) saturate(140%)");
+    add_decl(card, "-webkit-backdrop-filter", "blur(12px) saturate(140%)");
     add_decl(card, "border", "1px solid var(--glass-border)");
-    add_decl(card, "border-radius", radius_str(12));
-    add_decl(card, "padding", "28px");
-    add_decl(card, "box-shadow", "0 10px 30px -10px var(--shadow)");
-    add_decl(card, "transition", "transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.5s ease, border-color 0.3s ease");
+    add_decl(card, "border-radius", radius_str(8));
+    add_decl(card, "padding", "24px");
+    add_decl(card, "box-shadow", "0 4px 16px var(--shadow)");
+    add_decl(card, "transition", "transform 0.25s ease, box-shadow 0.25s ease, background 0.5s ease, border-color 0.5s ease");
     cJSON_AddItemToArray(rules, card);
 
     cJSON *cardh = create_rule(".card:hover");
-    add_decl(cardh, "transform", "translateY(-4px) scale(1.008)");
-    add_decl(cardh, "box-shadow", "0 22px 50px -12px var(--shadow)");
-    add_decl(cardh, "border-color", "color-mix(in srgb, var(--accent) 45%, var(--glass-border) 55%)");
-    add_decl(cardh, "background", "color-mix(in srgb, var(--glass-bg) 92%, var(--accent) 8%)");
+    add_decl(cardh, "transform", "translateY(-3px)");
+    add_decl(cardh, "box-shadow", "0 16px 40px var(--shadow)");
+    add_decl(cardh, "border-color", "color-mix(in srgb, var(--glass-border) 70%, var(--accent) 30%)");
+    add_decl(cardh, "background", "color-mix(in srgb, var(--glass-bg) 96%, var(--accent) 4%)");
     cJSON_AddItemToArray(rules, cardh);
 
     cJSON *btn = create_rule(".btn");
