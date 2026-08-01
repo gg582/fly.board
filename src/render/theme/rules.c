@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <ctype.h>
 
 static cJSON *create_rule(const char *sel) {
     cJSON *r = cJSON_CreateObject();
@@ -21,6 +22,37 @@ static cJSON *create_mobile_rule(const char *sel) {
 static void add_decl(cJSON *r, const char *p, const char *v) {
     cJSON *decls = cJSON_GetObjectItem(r, "decls");
     if (decls) cJSON_AddStringToObject(decls, p, v);
+}
+
+/* Build an asset URL that is safe to embed in a CSS url().  Image names are
+ * validated while loading the config, but percent-encoding also makes spaces
+ * and CSS-significant filename characters unambiguous to the browser. */
+static void static_image_url(char *out, size_t out_len, const char *filename) {
+    static const char hex[] = "0123456789ABCDEF";
+    const char *prefix = "/assets/img/";
+    size_t pos = 0;
+
+    if (!out || out_len == 0) return;
+    out[0] = '\0';
+    if (!filename || !filename[0]) return;
+
+    size_t prefix_len = strlen(prefix);
+    if (prefix_len >= out_len) return;
+    memcpy(out, prefix, prefix_len);
+    pos = prefix_len;
+
+    for (const unsigned char *p = (const unsigned char *)filename; *p; p++) {
+        if (isalnum(*p) || *p == '-' || *p == '_' || *p == '.' || *p == '~') {
+            if (pos + 1 >= out_len) { out[0] = '\0'; return; }
+            out[pos++] = (char)*p;
+        } else {
+            if (pos + 3 >= out_len) { out[0] = '\0'; return; }
+            out[pos++] = '%';
+            out[pos++] = hex[*p >> 4];
+            out[pos++] = hex[*p & 0x0f];
+        }
+    }
+    out[pos] = '\0';
 }
 
 static const char *radius_str(float base) {
@@ -57,6 +89,17 @@ void rule_root(cJSON *vars, theme_color_t *t) {
     cJSON_AddStringToObject(vars, "--shadow-base", t->shadow_base);
     cJSON_AddStringToObject(vars, "--overlay", "color-mix(in srgb, var(--bg) 72%, transparent)");
     cJSON_AddStringToObject(vars, "--font-display", g_font_settings.display[0] ? g_font_settings.display : "'Outfit', sans-serif");
+
+    const char *background_filename = (t == &light) ? g_config.bg_full_light : g_config.bg_full_dark;
+    char background_url[1024];
+    char background_image[1040];
+    static_image_url(background_url, sizeof(background_url), background_filename);
+    if (background_url[0]) {
+        snprintf(background_image, sizeof(background_image), "url(\"%s\")", background_url);
+        cJSON_AddStringToObject(vars, "--full-page-background", background_image);
+    } else {
+        cJSON_AddStringToObject(vars, "--full-page-background", "none");
+    }
 }
 
 void rule_base(cJSON *rules) {
@@ -76,6 +119,12 @@ void rule_base(cJSON *rules) {
 
     cJSON *body = create_rule("body");
     add_decl(body, "background", "var(--bg)");
+    add_decl(body, "background-image", "var(--full-page-background)");
+    add_decl(body, "background-size", "cover");
+    add_decl(body, "background-position", "center center");
+    add_decl(body, "background-attachment", "fixed");
+    add_decl(body, "background-repeat", "no-repeat");
+    add_decl(body, "min-height", "100vh");
     add_decl(body, "color", "var(--fg)");
     add_decl(body, "font-family", g_font_settings.body[0] ? g_font_settings.body : "'Space Grotesk', 'IBM Plex Sans KR', 'Pretendard Variable', 'Pretendard', sans-serif");
     add_decl(body, "font-size", "16px");
@@ -85,30 +134,6 @@ void rule_base(cJSON *rules) {
     add_decl(body, "transition", "background 0.5s ease, color 0.5s ease");
     add_decl(body, "-webkit-font-smoothing", "antialiased");
     cJSON_AddItemToArray(rules, body);
-
-    /* Full-page background wallpaper: only emitted when configured */
-    if (g_config.bg_full_light[0]) {
-        char url_light[384];
-        snprintf(url_light, sizeof(url_light), "url('/img/%s')", g_config.bg_full_light);
-        cJSON *bg_light = create_rule("body:not(.dark)");
-        add_decl(bg_light, "background-image", url_light);
-        add_decl(bg_light, "background-size", "cover");
-        add_decl(bg_light, "background-position", "center center");
-        add_decl(bg_light, "background-attachment", "fixed");
-        add_decl(bg_light, "background-repeat", "no-repeat");
-        cJSON_AddItemToArray(rules, bg_light);
-    }
-    if (g_config.bg_full_dark[0]) {
-        char url_dark[384];
-        snprintf(url_dark, sizeof(url_dark), "url('/img/%s')", g_config.bg_full_dark);
-        cJSON *bg_dark = create_rule("body.dark");
-        add_decl(bg_dark, "background-image", url_dark);
-        add_decl(bg_dark, "background-size", "cover");
-        add_decl(bg_dark, "background-position", "center center");
-        add_decl(bg_dark, "background-attachment", "fixed");
-        add_decl(bg_dark, "background-repeat", "no-repeat");
-        cJSON_AddItemToArray(rules, bg_dark);
-    }
 
     cJSON *h1 = create_rule("h1, .hero h1");
     add_decl(h1, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
