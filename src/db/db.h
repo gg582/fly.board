@@ -8,6 +8,9 @@
 bool db_init(cwist_db *db);
 bool db_exec_sql(cwist_db *db, const char *sql);
 bool db_migrate(cwist_db *db);
+bool db_transaction_begin(cwist_db *db);
+bool db_transaction_commit(cwist_db *db);
+bool db_transaction_rollback(cwist_db *db);
 
 /* Users */
 cJSON *db_user_get_by_username(cwist_db *db, const char *username);
