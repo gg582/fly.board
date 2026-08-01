@@ -100,6 +100,8 @@ bool blog_config_load(const char *path) {
             fprintf(f, "boards_img=%s\n", g_config.boards_img);
             fprintf(f, "files_img=%s\n", g_config.files_img);
             fprintf(f, "favicon=%s\n", g_config.favicon);
+            fprintf(f, "bg_full_light=%s\n", g_config.bg_full_light);
+            fprintf(f, "bg_full_dark=%s\n", g_config.bg_full_dark);
             fprintf(f, "root_url=%s\n", g_config.root_url);
             fprintf(f, "use_tasfa=%s\n", g_config.use_tasfa ? "true" : "false");
             fprintf(f, "use_rss=%s\n", g_config.use_rss ? "true" : "false");
@@ -146,6 +148,10 @@ bool blog_config_load(const char *path) {
             snprintf(g_config.favicon, sizeof(g_config.favicon), "%s", val);
         } else if (strcmp(key, "root_url") == 0) {
             snprintf(g_config.root_url, sizeof(g_config.root_url), "%s", val);
+        } else if (strcmp(key, "bg_full_light") == 0) {
+            snprintf(g_config.bg_full_light, sizeof(g_config.bg_full_light), "%s", val);
+        } else if (strcmp(key, "bg_full_dark") == 0) {
+            snprintf(g_config.bg_full_dark, sizeof(g_config.bg_full_dark), "%s", val);
         } else if (strcmp(key, "use_tasfa") == 0) {
             g_config.use_tasfa = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "use_rss") == 0) {
@@ -188,6 +194,8 @@ bool blog_config_load(const char *path) {
     validate_image_setting(g_config.boards_img, "boards_img");
     validate_image_setting(g_config.files_img, "files_img");
     validate_image_setting(g_config.favicon, "favicon");
+    validate_image_setting(g_config.bg_full_light, "bg_full_light");
+    validate_image_setting(g_config.bg_full_dark, "bg_full_dark");
     return true;
 }
 
