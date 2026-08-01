@@ -1186,9 +1186,9 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<button type='button' class='btn' data-editor-tab='write'>Write</button>");
     cwist_sstring_append(b, "<button type='button' class='btn btn-outline' data-editor-tab='preview'>Preview</button>");
     cwist_sstring_append(b, "</div>");
-    cwist_sstring_append(b, "<div style='border:1px solid var(--border);border-radius:0;overflow:hidden;margin-top:10px'>");
+    cwist_sstring_append(b, "<div style='border:1px solid var(--border);overflow:hidden;margin-top:10px'>");
     cwist_sstring_append(b, "<div data-editor-pane='write' class='is-active' style='display:block'>");
-    cwist_sstring_append(b, "<textarea id='md-editor' name='content' rows='18' style='width:100%;min-height:500px;height:60vh;font-family:monospace;font-size:15px;border:none;border-radius:0;padding:16px;background:transparent;resize:vertical;outline:none;' required>");
+    cwist_sstring_append(b, "<textarea id='md-editor' name='content' rows='18' style='width:100%;min-height:500px;height:60vh;font-family:monospace;font-size:15px;border:none;padding:16px;background:transparent;resize:vertical;outline:none;' required>");
     if (post) {
         cJSON *c = cJSON_GetObjectItem(post, "content");
         const char *content_str = c && c->valuestring ? c->valuestring : "";
@@ -1210,7 +1210,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "</div></article></div></div></div>");
 
     cwist_sstring_append(b, "<details style='margin-top:16px'><summary style='cursor:pointer;font-weight:600;font-size:14px;color:var(--accent);user-select:none;'>Markdown Guide</summary>");
-    cwist_sstring_append(b, "<pre style='font-size:12px;background:var(--code-bg);padding:12px;border-radius:0;overflow:auto;white-space:pre-wrap;word-break:break-word;margin-top:8px;'>");
+    cwist_sstring_append(b, "<pre style='font-size:12px;background:var(--code-bg);padding:12px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin-top:8px;'>");
     cwist_sstring_append(b, "# Heading\n");
     cwist_sstring_append(b, "## Subheading\n");
     cwist_sstring_append(b, "**bold**  *italic*\n");
