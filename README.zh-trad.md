@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> 少數能在連線數增加時仍幾乎維持記憶體平坦的簡易部落格引擎之一：閒置時 **~82 MB RSS**（4 個 workers；在單一 worker 的實際生產伺服器上則維持於 **68–120 MB**），即使在 C10k、C100k 乃至 C1m 下仍維持 **~146 MB**。  
+> 少數能在連線數增加時仍幾乎維持記憶體平坦的簡易部落格引擎之一：閒置時 **~82 MB RSS**（4 個 workers；在單一 worker 的實際生產伺服器上則維持於 **68–120 MB**），即使在 C10k、C100k 乃至 C1m 下仍維持 **~94–96 MB**。
 > 以 C 語言 CWIST Web 框架為基礎，支援 HTTPS/3、Argon2id、PQC 簽章與 NATS 訊息的輕量化論壇兼部落格引擎。
 
 ## 特性
 
-- **記憶體高效且具連線擴展性** – 堆疊+堆積 C 實作。閒置時 **~82 MB RSS**；從 C10k 到 C1m 的併發連線下，RSS 皆維持在 **~146 MB**。
+- **記憶體高效且具連線擴展性** – 堆疊+堆積 C 實作。閒置時 **~82 MB RSS**；從 C10k 到 C1m 的併發連線下，RSS 皆維持在 **~94–96 MB**。
 - **現代傳輸層** – 預設 TLS 1.3 + HTTP/3（QUIC）。可選 ECH（Encrypted Client Hello）。
 - **安全認證** – 用戶端 SHA-512 預雜湊 + 伺服端 **Argon2id**（OpenSSL 3 KDF）。JWT 工作階段 Cookie。
 - **論壇 / 部落格混合** – Slug 式 Markdown 文章 + 多看板 + 巢狀評論。
@@ -157,11 +157,11 @@ worker 數量會隨負載調整，讓每項測試貼近現實：C10k 為 **4 個
 | 狀態 | RSS | 較前項變化 | 備註 |
 |-------|-----|-----------------|-------|
 | 閒置 | **~82 MB** (83,708 KB) | — | 4 workers, no connections |
-| C10k | **~146 MB** (145,928 KB) | +62.22 MB | 10,000 concurrent connections |
-| C100k | **~146 MB** (146,076 KB) | +148 KB | 100,000 concurrent connections |
-| C1m | **~146 MB** (146,420 KB) | +344 KB | 1,000,000 concurrent connections |
+| C10k | **~96 MB** (96,252 KB) | +12.25 MB | 10,000 concurrent connections |
+| C100k | **~94 MB** (94,352 KB) | -1,900 KB | 100,000 concurrent connections |
+| C1m | **~95 MB** (94,944 KB) | +592 KB | 1,000,000 concurrent connections |
 
-從 **C10k 到 C1m 的總 RSS 增長僅約 492 KB** —— 基本上只是雜訊。這是本基準測試最重要的結果。
+從 **C10k 到 C1m 的總 RSS 變化為 -1,308 KB** —— 基本上屬於測量雜訊。這是本基準測試最重要的結果。
 
 RSS 值為伺服器處理序 `/usr/bin/time -v` 回報的 **Maximum resident set size (kbytes)**。
 
@@ -169,10 +169,10 @@ RSS 值為伺服器處理序 `/usr/bin/time -v` 回報的 **Maximum resident set
 
 | 階段 | Δ RSS | Δ 連線數 | 每條新增連線的約略成本 |
 |---|---|---|---|
-| Idle → C10k | +62.22 MB | 10,000 | ~6.4 KB / 連線 |
-| C10k → C1m | +492 KB | 990,000 | ~0.5 byte / 新增連線 |
+| Idle → C10k | +12.25 MB | 10,000 | ~1.3 KB / 連線 |
+| C10k → C1m | -1,308 KB | 990,000 | ~-1.4 bytes / 新增連線（雜訊） |
 
-從 Idle 到 C10k 的初始躍升預先支付了 TLS 狀態、連線緩衝區與 worker 開銷。此後，再增加 990,000 條連線，每條連線的 RSS 成本還不到半個位元組 —— 每條連線的記憶體成本實際上是平坦的。
+從 Idle 到 C10k 的初始躍升預先支付了 TLS 狀態、連線緩衝區與 worker 開銷。此後，C10k 到 C1m 的 RSS 變化仍在測量雜訊範圍內 —— 每條連線的記憶體成本實際上是平坦的。
 
 ### C10k 併發連線測試
 
@@ -182,20 +182,20 @@ RSS 值為伺服器處理序 `/usr/bin/time -v` 回報的 **Maximum resident set
 |------|-------|
 | Workers | 4 |
 | Concurrent connections | 10,000 |
-| Duration | 17.04 s |
-| Max RSS | **~146 MB** (145,928 KB) |
-| CPU usage | ~480% |
-| User time | 73.54 s |
-| System time | 8.25 s |
-| Major page faults | 51 |
-| Minor page faults | 267,239 |
-| Voluntary context switches | 1,959,611 |
-| Involuntary context switches | 17,100 |
-| File system outputs | 10,600 |
+| Duration | 13.62 s |
+| Max RSS | **~96 MB** (96,252 KB) |
+| CPU usage | ~578% |
+| User time | 72.53 s |
+| System time | 6.23 s |
+| Major page faults | 0 |
+| Minor page faults | 82,722 |
+| Voluntary context switches | 1,689,448 |
+| Involuntary context switches | 18,959 |
+| File system outputs | 200 |
 | Total requests | 20000 |
 | Total succeeded | 20000 |
 | Total failed | 0 |
-| Approx total RPS | **2383.81** |
+| Approx total RPS | **2490.60** |
 | Success rate | **100.00%** |
 | Exit status | **0** |
 
@@ -207,20 +207,20 @@ RSS 值為伺服器處理序 `/usr/bin/time -v` 回報的 **Maximum resident set
 |------|-------|
 | Workers | 12 |
 | Concurrent connections | 100,000 |
-| Duration | 1:30.30 |
-| Max RSS | **~146 MB** (146,076 KB) |
-| CPU usage | ~824% |
-| User time | 700.38 s |
-| System time | 44.12 s |
+| Duration | 1:24.88 |
+| Max RSS | **~94 MB** (94,352 KB) |
+| CPU usage | ~871% |
+| User time | 701.20 s |
+| System time | 38.28 s |
 | Major page faults | 0 |
-| Minor page faults | 472,679 |
-| Voluntary context switches | 3,908,475 |
-| Involuntary context switches | 165,739 |
-| File system outputs | 101,672 |
+| Minor page faults | 292,073 |
+| Voluntary context switches | 3,522,910 |
+| Involuntary context switches | 184,003 |
+| File system outputs | 208 |
 | Total requests | 200000 |
 | Total succeeded | 200000 |
 | Total failed | 0 |
-| Approx total RPS | **2458.23** |
+| Approx total RPS | **2541.24** |
 | Success rate | **100.00%** |
 | Exit status | **0** |
 
@@ -232,31 +232,31 @@ RSS 值為伺服器處理序 `/usr/bin/time -v` 回報的 **Maximum resident set
 |------|-------|
 | Workers | 24 |
 | Concurrent connections | 1,000,000 |
-| Duration | 7:02.81 |
-| Max RSS | **~146 MB** (146,420 KB) |
-| CPU usage | ~654% |
-| User time | 2553.88 s |
-| System time | 211.70 s |
-| Major page faults | 3 |
-| Minor page faults | 895,633 |
-| Voluntary context switches | 24,007,690 |
-| Involuntary context switches | 931,088 |
-| File system outputs | 366,248 |
+| Duration | 7:05.71 |
+| Max RSS | **~95 MB** (94,944 KB) |
+| CPU usage | ~641% |
+| User time | 2517.01 s |
+| System time | 215.52 s |
+| Major page faults | 0 |
+| Minor page faults | 789,451 |
+| Voluntary context switches | 23,921,809 |
+| Involuntary context switches | 943,712 |
+| File system outputs | 208 |
 | Total requests | 2000000 |
-| Total succeeded | 722910 |
-| Total failed | 1277090 |
-| Approx total RPS | **1744.04** |
-| Success rate | **36.14%** |
+| Total succeeded | 711274 |
+| Total failed | 1288726 |
+| Approx total RPS | **1694.48** |
+| Success rate | **35.56%** |
 | Exit status | **0** |
 
 > 注意：這些數值是在 HTTP/2（TLS 1.3）上維持實際客戶端連線時測得。每次測試的 worker 數量不同；請參閱「此基準測試測量什麼」。
 
 **重點摘要**
 
-- **連線擴展性**：從 10,000 到 1,000,000 個併發連線，RSS 皆維持在 **~146 MB**。每條連線的記憶體成本幾乎是平坦的。
+- **連線擴展性**：從 10,000 到 1,000,000 個併發連線，RSS 皆維持在 **~94–96 MB**。每條連線的記憶體成本幾乎是平坦的。
 - **在現實負載下穩定**：C10k 與 C100k 在 **100% 成功率**下完成，且記憶體使用維持在相同範圍內。
-- **C1m 仍維持記憶體範圍**：即使測試硬體無法完整服務全部 1,000,000 條連線（成功率 36.14%），記憶體使用量仍幾乎不變 —— 伺服器並未失控膨脹。
-- **資料安全性**：SQLite 在 SIGINT 時安全地持久化所有資料（C10k 時為 10,600 次 FS 輸出）。
+- **C1m 仍維持記憶體範圍**：即使測試硬體無法完整服務全部 1,000,000 條連線（成功率 35.56%），記憶體使用量仍幾乎不變 —— 伺服器並未失控膨脹。
+- **資料安全性**：SQLite 在 SIGINT 時安全地持久化所有資料（C10k 時為 200 次 FS 輸出）。
 
 ### 吞吐量基準測試
 

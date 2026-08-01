@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> 연결이 증가할 때 메모리를 거의 일정하게 유지하는 몇 안 되는 심플한 블로그 엔진입니다: idle 시 **~82 MB RSS**(4 workers; single worker 운영 시 실제 프로덕션 서버에서 **68–120 MB** 유지), 그리고 C10k, C100k, 심지어 C1m에서도 **~146 MB**를 유지합니다.  
+> 연결이 증가할 때 메모리를 거의 일정하게 유지하는 몇 안 되는 심플한 블로그 엔진입니다: idle 시 **~82 MB RSS**(4 workers; single worker 운영 시 실제 프로덕션 서버에서 **68–120 MB** 유지), 그리고 C10k, C100k, 심지어 C1m에서도 **~94–96 MB**를 유지합니다.
 > C 기반 CWIST 웹 프레임워크 위에 구축된 가벼운 게시판 겸 블로그 엔진으로, HTTPS/3, Argon2id, PQC 서명, NATS 메시징을 지원합니다.
 
 ## 특징
 
-- **메모리 효율 및 연결 확장성** – 스택+힙 C 구현. idle 시 **~82 MB RSS**; C10k부터 C1m 동시 연결까지 RSS가 **~146 MB**를 유지합니다.
+- **메모리 효율 및 연결 확장성** – 스택+힙 C 구현. idle 시 **~82 MB RSS**; C10k부터 C1m 동시 연결까지 RSS가 **~94–96 MB**를 유지합니다.
 - **최신 전송 계층** – 기본적으로 TLS 1.3 + HTTP/3 (QUIC). 선택적 ECH(Encrypted Client Hello).
 - **안전한 인증** – 클라이언트 측 SHA-512 프리해시 + 서버 측 **Argon2id** (OpenSSL 3 KDF). JWT 세션 쿠키.
 - **게시판 / 블로그 하이브리드** – 슬러그 기반 마크다운 포스트 + 다중 게시판 + 계층형 댓글.
@@ -157,11 +157,11 @@ MIT License
 | 상태 | RSS | 이전 대비 변화 | 비고 |
 |-------|-----|----------------|-------|
 | Idle | **~82 MB** (83,708 KB) | — | 4 workers, no connections |
-| C10k | **~146 MB** (145,928 KB) | +62.22 MB | 10,000 concurrent connections |
-| C100k | **~146 MB** (146,076 KB) | +148 KB | 100,000 concurrent connections |
-| C1m | **~146 MB** (146,420 KB) | +344 KB | 1,000,000 concurrent connections |
+| C10k | **~96 MB** (96,252 KB) | +12.25 MB | 10,000 concurrent connections |
+| C100k | **~94 MB** (94,352 KB) | -1,900 KB | 100,000 concurrent connections |
+| C1m | **~95 MB** (94,944 KB) | +592 KB | 1,000,000 concurrent connections |
 
-C10k에서 C1m까지의 총 RSS 증가량은 **약 492 KB**에 불과합니다 — 사실상 노이즈 수준입니다. 이것이 이 벤치마크에서 가장 중요한 결과입니다.
+C10k에서 C1m까지의 총 RSS 변화량은 **-1,308 KB**입니다 — 사실상 측정 노이즈 수준입니다. 이것이 이 벤치마크에서 가장 중요한 결과입니다.
 
 RSS 값은 서버 프로세스에 대해 `/usr/bin/time -v`가 보고한 **Maximum resident set size (kbytes)**입니다.
 
@@ -169,10 +169,10 @@ RSS 값은 서버 프로세스에 대해 `/usr/bin/time -v`가 보고한 **Maxim
 
 | 전환 | Δ RSS | Δ 연결 수 | 연결당 대략적 비용 |
 |---|---|---|---|
-| Idle → C10k | +62.22 MB | 10,000 | 연결당 ~6.4 KB |
-| C10k → C1m | +492 KB | 990,000 | 추가 연결당 ~0.5 byte |
+| Idle → C10k | +12.25 MB | 10,000 | 연결당 ~1.3 KB |
+| C10k → C1m | -1,308 KB | 990,000 | 추가 연결당 ~-1.4 bytes (노이즈) |
 
-Idle에서 C10k로의 초기 증가는 TLS 상태, 연결 버퍼, worker 오버헤드를 미리 지불하는 비용입니다. 그 이후 990,000개의 연결을 더 추가했어도 RSS는 연결당 반 byte도 채 되지 않습니다 — 연결당 메모리 비용은 사실상 일정합니다.
+Idle에서 C10k로의 초기 증가는 TLS 상태, 연결 버퍼, worker 오버헤드를 미리 지불하는 비용입니다. 그 이후 C10k에서 C1m까지 RSS 변화는 측정 노이즈 범위에 머뭅니다 — 연결당 메모리 비용은 사실상 일정합니다.
 
 ### C10k 동시 연결 테스트
 
@@ -182,20 +182,20 @@ Idle에서 C10k로의 초기 증가는 TLS 상태, 연결 버퍼, worker 오버�
 |------|-------|
 | Workers | 4 |
 | Concurrent connections | 10,000 |
-| Duration | 17.04 s |
-| Max RSS | **~146 MB** (145,928 KB) |
-| CPU usage | ~480% |
-| User time | 73.54 s |
-| System time | 8.25 s |
-| Major page faults | 51 |
-| Minor page faults | 267,239 |
-| Voluntary context switches | 1,959,611 |
-| Involuntary context switches | 17,100 |
-| File system outputs | 10,600 |
+| Duration | 13.62 s |
+| Max RSS | **~96 MB** (96,252 KB) |
+| CPU usage | ~578% |
+| User time | 72.53 s |
+| System time | 6.23 s |
+| Major page faults | 0 |
+| Minor page faults | 82,722 |
+| Voluntary context switches | 1,689,448 |
+| Involuntary context switches | 18,959 |
+| File system outputs | 200 |
 | Total requests | 20000 |
 | Total succeeded | 20000 |
 | Total failed | 0 |
-| Approx total RPS | **2383.81** |
+| Approx total RPS | **2490.60** |
 | Success rate | **100.00%** |
 | Exit status | **0** |
 
@@ -207,20 +207,20 @@ Idle에서 C10k로의 초기 증가는 TLS 상태, 연결 버퍼, worker 오버�
 |------|-------|
 | Workers | 12 |
 | Concurrent connections | 100,000 |
-| Duration | 1:30.30 |
-| Max RSS | **~146 MB** (146,076 KB) |
-| CPU usage | ~824% |
-| User time | 700.38 s |
-| System time | 44.12 s |
+| Duration | 1:24.88 |
+| Max RSS | **~94 MB** (94,352 KB) |
+| CPU usage | ~871% |
+| User time | 701.20 s |
+| System time | 38.28 s |
 | Major page faults | 0 |
-| Minor page faults | 472,679 |
-| Voluntary context switches | 3,908,475 |
-| Involuntary context switches | 165,739 |
-| File system outputs | 101,672 |
+| Minor page faults | 292,073 |
+| Voluntary context switches | 3,522,910 |
+| Involuntary context switches | 184,003 |
+| File system outputs | 208 |
 | Total requests | 200000 |
 | Total succeeded | 200000 |
 | Total failed | 0 |
-| Approx total RPS | **2458.23** |
+| Approx total RPS | **2541.24** |
 | Success rate | **100.00%** |
 | Exit status | **0** |
 
@@ -232,31 +232,31 @@ Idle에서 C10k로의 초기 증가는 TLS 상태, 연결 버퍼, worker 오버�
 |------|-------|
 | Workers | 24 |
 | Concurrent connections | 1,000,000 |
-| Duration | 7:02.81 |
-| Max RSS | **~146 MB** (146,420 KB) |
-| CPU usage | ~654% |
-| User time | 2553.88 s |
-| System time | 211.70 s |
-| Major page faults | 3 |
-| Minor page faults | 895,633 |
-| Voluntary context switches | 24,007,690 |
-| Involuntary context switches | 931,088 |
-| File system outputs | 366,248 |
+| Duration | 7:05.71 |
+| Max RSS | **~95 MB** (94,944 KB) |
+| CPU usage | ~641% |
+| User time | 2517.01 s |
+| System time | 215.52 s |
+| Major page faults | 0 |
+| Minor page faults | 789,451 |
+| Voluntary context switches | 23,921,809 |
+| Involuntary context switches | 943,712 |
+| File system outputs | 208 |
 | Total requests | 2000000 |
-| Total succeeded | 722910 |
-| Total failed | 1277090 |
-| Approx total RPS | **1744.04** |
-| Success rate | **36.14%** |
+| Total succeeded | 711274 |
+| Total failed | 1288726 |
+| Approx total RPS | **1694.48** |
+| Success rate | **35.56%** |
 | Exit status | **0** |
 
 > 참고: HTTP/2(TLS 1.3) 상에서 실제 클라이언트 연결을 유지하며 측정한 값입니다. 테스트별 worker 수는 다르며, 자세한 내용은 "이 벤치마크가 측정하는 것"을 참조하세요.
 
 **핵심 결론**
 
-- **연결 확장성**: 10,000개부터 1,000,000개의 동시 연결까지 RSS가 **~146 MB**를 유지합니다. 연결당 메모리 비용은 사실상 일정합니다.
+- **연결 확장성**: 10,000개부터 1,000,000개의 동시 연결까지 RSS가 **~94–96 MB**를 유지합니다. 연결당 메모리 비용은 사실상 일정합니다.
 - **현실적인 부하 하에서 안정적**: C10k와 C100k는 동일한 메모리 범위 내에서 **100% 성공**으로 완료되었습니다.
-- **C1m에서도 메모리 범위 유지**: 테스트 하드웨어가 1,000,000개 연결을 모두 처리하지 못했을 때(36.14% 성공)에도 메모리 사용량은 본질적으로 변하지 않았습니다 — 서버가 통제 불능 상태로 빠지지 않았습니다.
-- **데이터 안전성**: SQLite가 SIGINT 시 모든 데이터를 안전하게 저장했습니다(C10k에서 10,600 FS outputs).
+- **C1m에서도 메모리 범위 유지**: 테스트 하드웨어가 1,000,000개 연결을 모두 처리하지 못했을 때(35.56% 성공)에도 메모리 사용량은 본질적으로 변하지 않았습니다 — 서버가 통제 불능 상태로 빠지지 않았습니다.
+- **데이터 안전성**: SQLite가 SIGINT 시 모든 데이터를 안전하게 저장했습니다(C10k에서 200 FS outputs).
 
 ### 처리량 벤치마크
 

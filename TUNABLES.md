@@ -137,10 +137,10 @@ bash run_all_bench.sh
 | Total Requests | 20000 |
 | Succeeded | 20000 |
 | Failed | 0 |
-| Approx RPS | 2383.81 |
+| Approx RPS | 2490.60 |
 | Success Rate | 100.00% |
-| Wall time | 17.04 s |
-| Max RSS | 145928 kB |
+| Wall time | 13.62 s |
+| Max RSS | 96252 kB |
 
 ### C100K
 
@@ -149,19 +149,19 @@ bash run_all_bench.sh
 | Total Requests | 200000 |
 | Succeeded | 200000 |
 | Failed | 0 |
-| Approx RPS | 2458.23 |
+| Approx RPS | 2541.24 |
 | Success Rate | 100.00% |
-| Wall time | 1:30.30 |
-| Max RSS | 146076 kB |
+| Wall time | 1:24.88 |
+| Max RSS | 94352 kB |
 
 ### C1M
 
 | Metric | Value |
 |--------|-------|
 | Total Requests | 2000000 |
-| Succeeded | 722910 |
-| Failed | 1277090 |
-| Approx RPS | 1744.04 |
-| Success Rate | 36.14% |
-| Wall time | 7:02.81 |
-| Max RSS | 146420 kB |
+| Succeeded | 711274 |
+| Failed | 1288726 |
+| Approx RPS | 1694.48 |
+| Success Rate | 35.56% |
+| Wall time | 7:05.71 |
+| Max RSS | 94944 kB |

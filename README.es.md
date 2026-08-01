@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> Uno de los pocos motores de blog sencillos que mantiene la memoria casi plana a medida que escalan las conexiones: **~82 MB RSS** en reposo (4 workers; mantiene **68–120 MB** en un servidor de producción real con un solo worker) y todavía **~146 MB** bajo C10k, C100k e incluso C1m.  
+> Uno de los pocos motores de blog sencillos que mantiene la memoria casi plana a medida que escalan las conexiones: **~82 MB RSS** en reposo (4 workers; mantiene **68–120 MB** en un servidor de producción real con un solo worker) y todavía **~94–96 MB** bajo C10k, C100k e incluso C1m.
 > Motor híbrido ligero de foro y blog construido sobre el framework web CWIST en C, con soporte para HTTPS/3, Argon2id, firmas PQC y mensajería NATS.
 
 ## Características
 
-- **Eficiente en memoria y escalable en conexiones** – Implementación en C con pila y montón. **~82 MB RSS** en reposo; el RSS se mantiene alrededor de **~146 MB** desde C10k hasta C1m conexiones simultáneas.
+- **Eficiente en memoria y escalable en conexiones** – Implementación en C con pila y montón. **~82 MB RSS** en reposo; el RSS se mantiene alrededor de **~94–96 MB** desde C10k hasta C1m conexiones simultáneas.
 - **Transporte moderno** – TLS 1.3 + HTTP/3 (QUIC) por defecto. ECH (Encrypted Client Hello) opcional.
 - **Autenticación segura** – Prehash SHA-512 del lado del cliente + **Argon2id** del lado del servidor (KDF de OpenSSL 3). Cookies de sesión JWT.
 - **Híbrido foro / blog** – Publicaciones Markdown basadas en slug + múltiples tableros + comentarios anidados.
@@ -157,11 +157,11 @@ La cantidad de workers se escala con la carga para mantener cada prueba realista
 | Estado | RSS | Δ desde el anterior | Notas |
 |--------|-----|---------------------|-------|
 | En reposo | **~82 MB** (83,708 KB) | — | 4 workers, no connections |
-| C10k | **~146 MB** (145,928 KB) | +62.22 MB | 10,000 concurrent connections |
-| C100k | **~146 MB** (146,076 KB) | +148 KB | 100,000 concurrent connections |
-| C1m | **~146 MB** (146,420 KB) | +344 KB | 1,000,000 concurrent connections |
+| C10k | **~96 MB** (96,252 KB) | +12.25 MB | 10,000 concurrent connections |
+| C100k | **~94 MB** (94,352 KB) | -1,900 KB | 100,000 concurrent connections |
+| C1m | **~95 MB** (94,944 KB) | +592 KB | 1,000,000 concurrent connections |
 
-El crecimiento total de RSS de **C10k a C1m es solo ~492 KB** — básicamente ruido. Este es el resultado más importante de la prueba.
+El cambio total de RSS de **C10k a C1m es de -1,308 KB** — básicamente ruido de medición. Este es el resultado más importante de la prueba.
 
 Los valores RSS son el **Maximum resident set size (kbytes)** reportado por `/usr/bin/time -v` para el proceso del servidor.
 
@@ -169,10 +169,10 @@ Los valores RSS son el **Maximum resident set size (kbytes)** reportado por `/us
 
 | Transición | Δ RSS | Δ Conexiones | Costo aproximado por conexión adicional |
 |---|---|---|---|
-| Idle → C10k | +62.22 MB | 10,000 | ~6.4 KB / conexión |
-| C10k → C1m | +492 KB | 990,000 | ~0.5 byte / conexión adicional |
+| Idle → C10k | +12.25 MB | 10,000 | ~1.3 KB / conexión |
+| C10k → C1m | -1,308 KB | 990,000 | ~-1.4 bytes / conexión adicional (ruido) |
 
-El salto inicial de Idle a C10k paga por adelantado el estado TLS, los búferes de conexión y la sobrecarga de workers. Después de eso, agregar 990,000 conexiones más cuesta menos de medio byte de RSS cada una — el costo de memoria por conexión es efectivamente plano.
+El salto inicial de Idle a C10k paga por adelantado el estado TLS, los búferes de conexión y la sobrecarga de workers. Después de eso, el cambio de RSS de C10k a C1m se mantiene dentro del ruido de medición — el costo de memoria por conexión es efectivamente plano.
 
 ### Prueba de conexiones simultáneas C10k
 
@@ -182,20 +182,20 @@ Medido con `h2load` manteniendo 10,000 conexiones simultáneas.
 |------|-------|
 | Workers | 4 |
 | Conexiones simultáneas | 10,000 |
-| Duración | 17.04 s |
-| RSS máximo | **~146 MB** (145,928 KB) |
-| Uso de CPU | ~480% |
-| Tiempo de usuario | 73.54 s |
-| Tiempo de sistema | 8.25 s |
-| Fallos de página mayores | 51 |
-| Fallos de página menores | 267,239 |
-| Cambios de contexto voluntarios | 1,959,611 |
-| Cambios de contexto forzosos | 17,100 |
-| Salidas del sistema de archivos | 10,600 |
+| Duración | 13.62 s |
+| RSS máximo | **~96 MB** (96,252 KB) |
+| Uso de CPU | ~578% |
+| Tiempo de usuario | 72.53 s |
+| Tiempo de sistema | 6.23 s |
+| Fallos de página mayores | 0 |
+| Fallos de página menores | 82,722 |
+| Cambios de contexto voluntarios | 1,689,448 |
+| Cambios de contexto forzosos | 18,959 |
+| Salidas del sistema de archivos | 200 |
 | Peticiones totales | 20000 |
 | Exitosas totales | 20000 |
 | Fallidas totales | 0 |
-| RPS total aprox. | **2383.81** |
+| RPS total aprox. | **2490.60** |
 | Tasa de éxito | **100.00%** |
 | Estado de salida | **0** |
 
@@ -207,20 +207,20 @@ Medido con `h2load` manteniendo 100,000 conexiones simultáneas.
 |------|-------|
 | Workers | 12 |
 | Conexiones simultáneas | 100,000 |
-| Duración | 1:30.30 |
-| RSS máximo | **~146 MB** (146,076 KB) |
-| Uso de CPU | ~824% |
-| Tiempo de usuario | 700.38 s |
-| Tiempo de sistema | 44.12 s |
+| Duración | 1:24.88 |
+| RSS máximo | **~94 MB** (94,352 KB) |
+| Uso de CPU | ~871% |
+| Tiempo de usuario | 701.20 s |
+| Tiempo de sistema | 38.28 s |
 | Fallos de página mayores | 0 |
-| Fallos de página menores | 472,679 |
-| Cambios de contexto voluntarios | 3,908,475 |
-| Cambios de contexto forzosos | 165,739 |
-| Salidas del sistema de archivos | 101,672 |
+| Fallos de página menores | 292,073 |
+| Cambios de contexto voluntarios | 3,522,910 |
+| Cambios de contexto forzosos | 184,003 |
+| Salidas del sistema de archivos | 208 |
 | Peticiones totales | 200000 |
 | Exitosas totales | 200000 |
 | Fallidas totales | 0 |
-| RPS total aprox. | **2458.23** |
+| RPS total aprox. | **2541.24** |
 | Tasa de éxito | **100.00%** |
 | Estado de salida | **0** |
 
@@ -232,31 +232,31 @@ Medido con `h2load` manteniendo 1,000,000 conexiones simultáneas.
 |------|-------|
 | Workers | 24 |
 | Conexiones simultáneas | 1,000,000 |
-| Duración | 7:02.81 |
-| RSS máximo | **~146 MB** (146,420 KB) |
-| Uso de CPU | ~654% |
-| Tiempo de usuario | 2553.88 s |
-| Tiempo de sistema | 211.70 s |
-| Fallos de página mayores | 3 |
-| Fallos de página menores | 895,633 |
-| Cambios de contexto voluntarios | 24,007,690 |
-| Cambios de contexto forzosos | 931,088 |
-| Salidas del sistema de archivos | 366,248 |
+| Duración | 7:05.71 |
+| RSS máximo | **~95 MB** (94,944 KB) |
+| Uso de CPU | ~641% |
+| Tiempo de usuario | 2517.01 s |
+| Tiempo de sistema | 215.52 s |
+| Fallos de página mayores | 0 |
+| Fallos de página menores | 789,451 |
+| Cambios de contexto voluntarios | 23,921,809 |
+| Cambios de contexto forzosos | 943,712 |
+| Salidas del sistema de archivos | 208 |
 | Peticiones totales | 2000000 |
-| Exitosas totales | 722910 |
-| Fallidas totales | 1277090 |
-| RPS total aprox. | **1744.04** |
-| Tasa de éxito | **36.14%** |
+| Exitosas totales | 711274 |
+| Fallidas totales | 1288726 |
+| RPS total aprox. | **1694.48** |
+| Tasa de éxito | **35.56%** |
 | Estado de salida | **0** |
 
 > Nota: Valores medidos manteniendo conexiones reales de cliente sobre HTTP/2 (TLS 1.3). La cantidad de workers difiere en cada prueba; consulta "Qué mide esta prueba".
 
 **Conclusiones clave**
 
-- **Escalabilidad de conexiones**: El RSS se mantiene alrededor de **~146 MB** desde 10,000 hasta 1,000,000 conexiones simultáneas. El costo de memoria por conexión es efectivamente plano.
+- **Escalabilidad de conexiones**: El RSS se mantiene alrededor de **~94–96 MB** desde 10,000 hasta 1,000,000 conexiones simultáneas. El costo de memoria por conexión es efectivamente plano.
 - **Estable bajo carga realista**: C10k y C100k terminaron con **100% de éxito** manteniéndose dentro del mismo margen de memoria.
-- **El margen de memoria se mantiene en C1m**: Incluso cuando el hardware de prueba no pudo atender todas las 1,000,000 conexiones (36.14% de éxito), el uso de memoria permaneció esencialmente igual — el servidor no se descontroló.
-- **Seguridad de datos**: SQLite persistió todos los datos de forma segura ante SIGINT (10,600 FS outputs en C10k).
+- **El margen de memoria se mantiene en C1m**: Incluso cuando el hardware de prueba no pudo atender todas las 1,000,000 conexiones (35.56% de éxito), el uso de memoria permaneció esencialmente igual — el servidor no se descontroló.
+- **Seguridad de datos**: SQLite persistió todos los datos de forma segura ante SIGINT (200 FS outputs en C10k).
 
 ### Prueba de rendimiento
 
