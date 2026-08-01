@@ -3483,7 +3483,20 @@
         });
     };
 
+    function syncVelogPreviewHeader() {
+        var vTitle = document.getElementById('velog-preview-title');
+        var vSummary = document.getElementById('velog-preview-summary');
+        if (vTitle) {
+            vTitle.textContent = (titleInput && titleInput.value.trim()) ? titleInput.value : '(Title)';
+        }
+        if (vSummary) {
+            vSummary.textContent = (summaryInput && summaryInput.value.trim()) ? summaryInput.value : '';
+            vSummary.style.display = (summaryInput && summaryInput.value.trim()) ? 'block' : 'none';
+        }
+    }
+
     if (titleInput) {
+        titleInput.addEventListener('input', syncVelogPreviewHeader);
         titleInput.addEventListener('keydown', function(event) {
             if (event.key === 'Enter') {
                 event.preventDefault();
@@ -3495,8 +3508,10 @@
     if (summaryInput) {
         summaryInput.addEventListener('input', function() {
             if (syncStatus) syncStatus.textContent = 'Publish rail updated';
+            syncVelogPreviewHeader();
         });
     }
+    syncVelogPreviewHeader();
 
     document.addEventListener('submit', function(event) {
         var form = event.target;

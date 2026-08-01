@@ -1200,10 +1200,14 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     }
     cwist_sstring_append(b, "</textarea></div>");
     cwist_sstring_append(b, "<div data-editor-pane='preview' style='display:none;background:var(--bg)'>");
-    cwist_sstring_append(b, "<div class='preview-edit-hint' style='font-size:12px;color:var(--muted);padding:12px 16px 0;border-bottom:1px dashed var(--border);margin-bottom:-1px'>Edit preview directly; changes sync back to Markdown source</div>");
-    cwist_sstring_append(b, "<div id='md-preview' contenteditable='true' style='padding:16px;min-height:500px;height:60vh;overflow:auto'>");
+    cwist_sstring_append(b, "<div class='preview-edit-hint' style='font-size:12px;color:var(--muted);padding:12px 16px 0;border-bottom:1px dashed var(--border);margin-bottom:-1px'>Velog-style Live Preview (Directly editable)</div>");
+    cwist_sstring_append(b, "<div id='md-preview-wrapper' style='padding:24px 32px;min-height:500px;height:60vh;overflow:auto;background:var(--bg)'>");
+    cwist_sstring_append(b, "<article class='velog-preview-article' style='max-width:768px;margin:0 auto'>");
+    cwist_sstring_append(b, "<h1 id='velog-preview-title' style='margin-bottom:12px;font-size:2.25rem;font-weight:800;letter-spacing:-0.03em;line-height:1.2;color:var(--fg)'>(Title)</h1>");
+    cwist_sstring_append(b, "<p id='velog-preview-summary' style='color:var(--muted);font-size:1.1rem;margin-bottom:24px;line-height:1.5'></p>");
+    cwist_sstring_append(b, "<div id='md-preview' contenteditable='true' class='markdown-body' style='outline:none;min-height:300px'>");
     cwist_sstring_append(b, "<p style='color:var(--muted)'>Preview will appear here...</p>");
-    cwist_sstring_append(b, "</div></div></div>");
+    cwist_sstring_append(b, "</div></article></div></div></div>");
 
     cwist_sstring_append(b, "<details style='margin-top:16px'><summary style='cursor:pointer;font-weight:600;font-size:14px;color:var(--accent);user-select:none;'>Markdown Guide</summary>");
     cwist_sstring_append(b, "<pre style='font-size:12px;background:var(--code-bg);padding:12px;border-radius:0;overflow:auto;white-space:pre-wrap;word-break:break-word;margin-top:8px;'>");
