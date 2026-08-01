@@ -32,21 +32,62 @@
 #endif
 #include <cwist/core/log.h>
 #include <sqlite3.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <stdbool.h>
 #include <stdatomic.h>
+#include <pthread.h>
 #include <unistd.h>
-#include <poll.h>
 #include <sys/stat.h>
 #include <sys/timerfd.h>
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <limits.h>
 
 #define BLOG_CERT "server.crt"
 #define BLOG_KEY  "server.key"
 
 static _Atomic bool g_cleanup_running = false;
+static int g_cleanup_wake_fd = -1;
+static pthread_t g_cleanup_thread;
+static bool g_cleanup_thread_started = false;
+
+/* Wake the cleanup worker immediately during shutdown instead of making it
+ * periodically poll just to observe g_cleanup_running. */
+static void cleanup_stop(void) {
+    atomic_store_explicit(&g_cleanup_running, false, memory_order_release);
+    if (g_cleanup_wake_fd >= 0) {
+        uint64_t one = 1;
+        (void)write(g_cleanup_wake_fd, &one, sizeof(one));
+    }
+}
+
+static void cleanup_close_wake_fd(void) {
+    if (g_cleanup_wake_fd >= 0) {
+        close(g_cleanup_wake_fd);
+        g_cleanup_wake_fd = -1;
+    }
+}
+
+static void cleanup_join(void) {
+    if (g_cleanup_thread_started) {
+        pthread_join(g_cleanup_thread, NULL);
+        g_cleanup_thread_started = false;
+    }
+}
+
+/* Full preview regeneration can launch many ffmpeg processes.  New uploads
+ * and TASFA assets already create their derivatives on demand, so reserve a
+ * complete legacy backfill for an explicit maintenance run. */
+static bool startup_media_backfill_enabled(void) {
+    const char *value = getenv("FLYBOARD_MEDIA_BACKFILL_ON_START");
+    return value && (strcmp(value, "1") == 0 ||
+                     strcasecmp(value, "true") == 0 ||
+                     strcasecmp(value, "on") == 0);
+}
 
 static bool dir_exists(const char *path) {
     struct stat st;
@@ -124,16 +165,46 @@ static void *cleanup_worker(void *arg) {
         sqlite3_close(conn);
         return NULL;
     }
+    int epfd = epoll_create1(EPOLL_CLOEXEC);
+    if (epfd < 0) {
+        FLY_LOG_ERROR("Failed to create cleanup epoll instance");
+        close(tfd);
+        sqlite3_close(conn);
+        return NULL;
+    }
+    struct epoll_event event = { .events = EPOLLIN };
+    event.data.fd = tfd;
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, tfd, &event) < 0) {
+        FLY_LOG_ERROR("Failed to register cleanup timer");
+        close(epfd);
+        close(tfd);
+        sqlite3_close(conn);
+        return NULL;
+    }
+    event.data.fd = g_cleanup_wake_fd;
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, g_cleanup_wake_fd, &event) < 0) {
+        FLY_LOG_ERROR("Failed to register cleanup wake event");
+        close(epfd);
+        close(tfd);
+        sqlite3_close(conn);
+        return NULL;
+    }
+
     uint64_t exp;
-    struct pollfd pfd = { .fd = tfd, .events = POLLIN };
     while (atomic_load_explicit(&g_cleanup_running, memory_order_acquire)) {
-        int ready = poll(&pfd, 1, 1000);
-        if (ready < 0) break;
-        if (ready == 0) continue;
+        struct epoll_event ready_event;
+        int ready = epoll_wait(epfd, &ready_event, 1, -1);
+        if (ready < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (ready_event.data.fd == g_cleanup_wake_fd) break;
+        if (ready_event.data.fd != tfd) continue;
         ssize_t s = read(tfd, &exp, sizeof(exp));
         if (s != sizeof(exp)) continue;
         db_cleanup_orphaned_files(&db);
     }
+    close(epfd);
     close(tfd);
     sqlite3_close(conn);
     return NULL;
@@ -204,8 +275,12 @@ int main(void) {
     }
 
     db_file_cleanup_duplicates(db);
-    media_preview_backfill(db);
-    media_preview_backfill_static_assets();
+    if (startup_media_backfill_enabled()) {
+        media_preview_backfill(db);
+        media_preview_backfill_static_assets();
+    } else {
+        CWIST_LOG_INFO("Startup media backfill skipped; set FLYBOARD_MEDIA_BACKFILL_ON_START=1 for maintenance");
+    }
     db_cleanup_orphaned_files(db);
     CWIST_LOG_INFO("Orphaned files cleanup completed");
 
@@ -213,10 +288,18 @@ int main(void) {
     reqshare_init();
     page_cache_warmup(db);
 
-    atomic_store_explicit(&g_cleanup_running, true, memory_order_release);
-    if (!engine_pool_schedule_service(cleanup_worker, NULL, 0x434c45414e5550ULL, TTAK_TASK_DOMAIN_IO, 10)) {
-        atomic_store_explicit(&g_cleanup_running, false, memory_order_release);
-        FLY_LOG_ERROR("Failed to schedule cleanup worker");
+    g_cleanup_wake_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    if (g_cleanup_wake_fd < 0) {
+        FLY_LOG_ERROR("Failed to create cleanup wake event");
+    } else {
+        atomic_store_explicit(&g_cleanup_running, true, memory_order_release);
+    }
+    if (g_cleanup_wake_fd >= 0 &&
+        pthread_create(&g_cleanup_thread, NULL, cleanup_worker, NULL) != 0) {
+        cleanup_stop();
+        FLY_LOG_ERROR("Failed to start cleanup worker");
+    } else if (g_cleanup_wake_fd >= 0) {
+        g_cleanup_thread_started = true;
     }
 
     cwist_app_set_max_memspace(app, CWIST_MIB(512));
@@ -244,9 +327,11 @@ int main(void) {
         cwist_error_t tls = cwist_app_use_https(app, BLOG_CERT, BLOG_KEY);
         if (tls.errtype != CWIST_ERR_INT16 || tls.error.err_i16 != 0) {
             FLY_LOG_ERROR("HTTPS init failed; run ./keygen.sh first");
-            atomic_store_explicit(&g_cleanup_running, false, memory_order_release);
+            cleanup_stop();
+            cleanup_join();
             engine_nats_stop();
             engine_pool_shutdown();
+            cleanup_close_wake_fd();
             cwist_app_destroy(app);
             return 1;
         }
@@ -261,9 +346,11 @@ int main(void) {
         cwist_error_t ech = cwist_app_use_ech(app, ech_key, ech_dir);
         if (ech.errtype != CWIST_ERR_INT16 || ech.error.err_i16 != 0) {
             FLY_LOG_ERROR("ECH init failed");
-            atomic_store_explicit(&g_cleanup_running, false, memory_order_release);
+            cleanup_stop();
+            cleanup_join();
             engine_nats_stop();
             engine_pool_shutdown();
+            cleanup_close_wake_fd();
             cwist_app_destroy(app);
             return 1;
         }
@@ -305,9 +392,11 @@ int main(void) {
         }
     }
     int rc = cwist_app_listen(app, g_config.port);
-    atomic_store_explicit(&g_cleanup_running, false, memory_order_release);
+    cleanup_stop();
+    cleanup_join();
     engine_nats_stop();
     engine_pool_shutdown();
+    cleanup_close_wake_fd();
     db_comment_close();
     db_board_tree_close();
     cwist_app_destroy(app);
