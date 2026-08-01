@@ -28,6 +28,26 @@ typedef struct {
     char *highlight_dark_css;
     char *highlight_js;
     char *highlight_fortran_js;
+    char *highlight_prolog_js;
+    char *highlight_erlang_js;
+    char *highlight_elixir_js;
+    char *highlight_elm_js;
+    char *highlight_haskell_js;
+    char *highlight_ocaml_js;
+    char *highlight_scheme_js;
+    char *highlight_lisp_js;
+    char *highlight_clojure_js;
+    char *highlight_vhdl_js;
+    char *highlight_verilog_js;
+    char *highlight_matlab_js;
+    char *highlight_r_js;
+    char *highlight_perl_js;
+    char *highlight_groovy_js;
+    char *highlight_nix_js;
+    char *highlight_x86asm_js;
+    char *highlight_llvm_js;
+    char *highlight_sparql_js;
+    char *highlight_brainfuck_js;
     char *katex_js;
     char *katex_css;
 } inline_assets_t;
@@ -51,9 +71,29 @@ static void load_inline_assets(void) {
     g_inline_assets.highlight_light_css = read_file_to_string("public/inline_assets/highlight-light.css");
     g_inline_assets.highlight_dark_css  = read_file_to_string("public/inline_assets/highlight-dark.css");
     g_inline_assets.highlight_js        = read_file_to_string("public/inline_assets/highlight.js");
-    g_inline_assets.highlight_fortran_js = read_file_to_string("public/inline_assets/highlight-fortran.js");
-    g_inline_assets.katex_js            = read_file_to_string("public/inline_assets/katex.js");
-    g_inline_assets.katex_css           = read_file_to_string("public/inline_assets/katex.css");
+    g_inline_assets.highlight_fortran_js  = read_file_to_string("public/inline_assets/highlight-fortran.js");
+    g_inline_assets.highlight_prolog_js   = read_file_to_string("public/inline_assets/highlight-prolog.js");
+    g_inline_assets.highlight_erlang_js   = read_file_to_string("public/inline_assets/highlight-erlang.js");
+    g_inline_assets.highlight_elixir_js   = read_file_to_string("public/inline_assets/highlight-elixir.js");
+    g_inline_assets.highlight_elm_js      = read_file_to_string("public/inline_assets/highlight-elm.js");
+    g_inline_assets.highlight_haskell_js  = read_file_to_string("public/inline_assets/highlight-haskell.js");
+    g_inline_assets.highlight_ocaml_js    = read_file_to_string("public/inline_assets/highlight-ocaml.js");
+    g_inline_assets.highlight_scheme_js   = read_file_to_string("public/inline_assets/highlight-scheme.js");
+    g_inline_assets.highlight_lisp_js     = read_file_to_string("public/inline_assets/highlight-lisp.js");
+    g_inline_assets.highlight_clojure_js  = read_file_to_string("public/inline_assets/highlight-clojure.js");
+    g_inline_assets.highlight_vhdl_js     = read_file_to_string("public/inline_assets/highlight-vhdl.js");
+    g_inline_assets.highlight_verilog_js  = read_file_to_string("public/inline_assets/highlight-verilog.js");
+    g_inline_assets.highlight_matlab_js   = read_file_to_string("public/inline_assets/highlight-matlab.js");
+    g_inline_assets.highlight_r_js        = read_file_to_string("public/inline_assets/highlight-r.js");
+    g_inline_assets.highlight_perl_js     = read_file_to_string("public/inline_assets/highlight-perl.js");
+    g_inline_assets.highlight_groovy_js   = read_file_to_string("public/inline_assets/highlight-groovy.js");
+    g_inline_assets.highlight_nix_js      = read_file_to_string("public/inline_assets/highlight-nix.js");
+    g_inline_assets.highlight_x86asm_js   = read_file_to_string("public/inline_assets/highlight-x86asm.js");
+    g_inline_assets.highlight_llvm_js     = read_file_to_string("public/inline_assets/highlight-llvm.js");
+    g_inline_assets.highlight_sparql_js   = read_file_to_string("public/inline_assets/highlight-sparql.js");
+    g_inline_assets.highlight_brainfuck_js= read_file_to_string("public/inline_assets/highlight-brainfuck.js");
+    g_inline_assets.katex_js              = read_file_to_string("public/inline_assets/katex.js");
+    g_inline_assets.katex_css             = read_file_to_string("public/inline_assets/katex.css");
 }
 
 static char *concat_two_files(const char *a, const char *b) {
@@ -616,15 +656,57 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     if (inline_cdn_enabled() &&
                         inline_asset_fits(a->highlight_js) &&
                         inline_asset_fits(a->highlight_fortran_js)) {
+                        /* Inline highlight.js core + all language extensions */
                         cwist_sstring_append(body_cdn, "<script>");
                         cwist_sstring_append(body_cdn, a->highlight_js);
-                        cwist_sstring_append(body_cdn, "\n");
-                        cwist_sstring_append(body_cdn, a->highlight_fortran_js);
+#define APPEND_HL_LANG(field) do { if (a->field) { cwist_sstring_append(body_cdn, "\n"); cwist_sstring_append(body_cdn, a->field); } } while(0)
+                        APPEND_HL_LANG(highlight_fortran_js);
+                        APPEND_HL_LANG(highlight_prolog_js);
+                        APPEND_HL_LANG(highlight_erlang_js);
+                        APPEND_HL_LANG(highlight_elixir_js);
+                        APPEND_HL_LANG(highlight_elm_js);
+                        APPEND_HL_LANG(highlight_haskell_js);
+                        APPEND_HL_LANG(highlight_ocaml_js);
+                        APPEND_HL_LANG(highlight_scheme_js);
+                        APPEND_HL_LANG(highlight_lisp_js);
+                        APPEND_HL_LANG(highlight_clojure_js);
+                        APPEND_HL_LANG(highlight_vhdl_js);
+                        APPEND_HL_LANG(highlight_verilog_js);
+                        APPEND_HL_LANG(highlight_matlab_js);
+                        APPEND_HL_LANG(highlight_r_js);
+                        APPEND_HL_LANG(highlight_perl_js);
+                        APPEND_HL_LANG(highlight_groovy_js);
+                        APPEND_HL_LANG(highlight_nix_js);
+                        APPEND_HL_LANG(highlight_x86asm_js);
+                        APPEND_HL_LANG(highlight_llvm_js);
+                        APPEND_HL_LANG(highlight_sparql_js);
+                        APPEND_HL_LANG(highlight_brainfuck_js);
+#undef APPEND_HL_LANG
                         cwist_sstring_append(body_cdn, "\nhljs.highlightAll();</script>");
                     } else {
+                        /* CDN fallback: core + all language extensions */
                         cwist_sstring_append(body_cdn,
                             "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js\"></script>"
                             "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/fortran.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/prolog.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/erlang.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/elixir.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/elm.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/haskell.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/ocaml.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/scheme.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/lisp.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/clojure.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/vhdl.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/verilog.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/matlab.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/r.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/perl.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/groovy.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/nix.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/x86asm.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/llvm.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/brainfuck.min.js\"></script>"
                             "<script>hljs.highlightAll();</script>");
                     }
                 }
