@@ -115,7 +115,7 @@ deps: $(MD4C_LIB) $(LIBMAGIC_A) $(LIBTTAK_A) prepare_assets
 prepare_assets: tools/prepare_assets.py
 	python3 tools/prepare_assets.py
 
-$(LIBTTAK_A):
+$(LIBTTAK_A): src/utils/libttak_worker.c
 	cp src/utils/libttak_worker.c $(LIBTTAK_DIR)/src/thread/worker.c
 	$(MAKE) -C $(LIBTTAK_DIR)
 
