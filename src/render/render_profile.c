@@ -41,7 +41,7 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
         cwist_sstring_append(b, display_pic);
         cwist_sstring_append(b, "' class='profile-pic' style='margin:20px 0'><br>");
     } else {
-        cwist_sstring_append(b, "<div style='width:100px;height:100px;background:#eee;border-radius:0;margin:20px auto;display:flex;align-items:center;justify-content:center;color:#999'>No Pic</div>");
+        cwist_sstring_append(b, "<div style='width:100px;height:100px;background:#eee;margin:20px auto;display:flex;align-items:center;justify-content:center;color:#999'>No Pic</div>");
     }
 
     if (nickname && nickname[0]) {
