@@ -1,30 +1,30 @@
-C100K Benchmark Result - 2026. 07. 09. (목) 19:38:25 KST
+C100K Benchmark Result - Sat Aug  1 15:33:38 KST 2026
 Total Requests: 200000
 Total Succeeded: 200000
 Total Failed: 0
-Approx Total RPS: 2458.23
+Approx Total RPS: 2541.24
 Success Rate: 100.00%
 
 SERVER RESOURCE REPORT
 ========================================
 	Command being timed: "./fly_board"
-	User time (seconds): 700.38
-	System time (seconds): 44.12
-	Percent of CPU this job got: 824%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:30.30
+	User time (seconds): 701.20
+	System time (seconds): 38.28
+	Percent of CPU this job got: 871%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:24.88
 	Average shared text size (kbytes): 0
 	Average unshared data size (kbytes): 0
 	Average stack size (kbytes): 0
 	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 146076
+	Maximum resident set size (kbytes): 94352
 	Average resident set size (kbytes): 0
 	Major (requiring I/O) page faults: 0
-	Minor (reclaiming a frame) page faults: 472679
-	Voluntary context switches: 3908475
-	Involuntary context switches: 165739
+	Minor (reclaiming a frame) page faults: 292073
+	Voluntary context switches: 3522910
+	Involuntary context switches: 184003
 	Swaps: 0
 	File system inputs: 0
-	File system outputs: 101672
+	File system outputs: 208
 	Socket messages sent: 0
 	Socket messages received: 0
 	Signals delivered: 0
