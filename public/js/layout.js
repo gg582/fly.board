@@ -118,6 +118,15 @@
         var btn=document.getElementById('theme-toggle-btn');
         if(btn)btn.textContent=(name==='dark'?'●':'○');
     }
+    function spinThemeButton(){
+        var btn=document.getElementById('theme-toggle-btn');
+        if(!btn||!btn.animate||(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches))return;
+        if(btn._themeSpin)btn._themeSpin.cancel();
+        btn._themeSpin=btn.animate(
+            [{transform:'rotate(0deg)'},{transform:'rotate(360deg)'}],
+            {duration:360,easing:'cubic-bezier(.2,.8,.2,1)'}
+        );
+    }
     function saveThemes(arr){
         try{localStorage.setItem(CACHE_KEY,JSON.stringify({themes:arr,ts:Date.now()}));}catch(e){}
     }
@@ -172,6 +181,7 @@
         document.cookie='theme='+mode+';path=/;max-age=31536000';
         setHlCss(mode,myGen);
         updateBtn(mode,myGen);
+        spinThemeButton();
         if(themes){applyTheme(findTheme(themes,mode));return;}
         fetch('/theme.json?mode='+encodeURIComponent(mode),{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(t){
             if(myGen!==themeGen)return;
