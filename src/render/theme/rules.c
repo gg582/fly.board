@@ -1184,8 +1184,8 @@ void rule_home(cJSON *rules) {
     cJSON_AddItemToArray(rules, tagh);
 
     cJSON *search_form = create_rule(".search-form");
-    add_decl(search_form, "max-width", "720px");
-    add_decl(search_form, "margin", "0 auto 18px");
+    add_decl(search_form, "max-width", "960px");
+    add_decl(search_form, "margin", "0 auto 24px");
     cJSON_AddItemToArray(rules, search_form);
 
     cJSON *search_cluster = create_rule(".search-cluster");
@@ -1411,8 +1411,8 @@ void rule_boards(cJSON *rules) {
     cJSON *plist = create_rule(".post-list");
     add_decl(plist, "display", "flex");
     add_decl(plist, "flex-direction", "column");
-    add_decl(plist, "gap", "12px");
-    add_decl(plist, "max-width", "920px");
+    add_decl(plist, "gap", "16px");
+    add_decl(plist, "max-width", "1120px");
     add_decl(plist, "margin", "0 auto");
     cJSON_AddItemToArray(rules, plist);
 
@@ -1648,7 +1648,7 @@ void rule_boards(cJSON *rules) {
 
 void rule_markdown(cJSON *rules) {
     cJSON *md = create_rule(".markdown-body");
-    add_decl(md, "max-width", "760px");
+    add_decl(md, "max-width", "900px");
     add_decl(md, "margin", "0 auto");
     add_decl(md, "line-height", "1.8");
     add_decl(md, "overflow-wrap", "break-word");
@@ -1657,7 +1657,7 @@ void rule_markdown(cJSON *rules) {
     cJSON_AddItemToArray(rules, md);
 
     cJSON *article = create_rule("article");
-    add_decl(article, "max-width", "920px");
+    add_decl(article, "max-width", "1040px");
     add_decl(article, "margin", "0 auto");
     add_decl(article, "padding", "0 0 6px");
     add_decl(article, "overflow-wrap", "break-word");
