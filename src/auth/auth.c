@@ -653,7 +653,7 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
         }
     }
 
-    CWIST_LOG_ERROR("auth verify failed: reason=%s method=%s path=%s "
+    CWIST_LOG_WARN("auth verify failed: reason=%s method=%s path=%s "
                     "cookie_headers=%d session_found=%d token_len=%zu "
                     "token_attempts=%d valid_claims=%d parsed_uid=%d now=%ld",
                     reason,
