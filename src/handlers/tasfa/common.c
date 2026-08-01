@@ -103,6 +103,26 @@ int choose_chunk_size_download(bool mobile, int requested, long long total_size,
     return normalize_chunk_size_hint(requested, fallback, TASFA_DOWNLOAD_CHUNK_SIZE_MIN, max_value);
 }
 
+void normalize_tasfa_image_dimensions(int *width, int *height) {
+    const int min_dimension = 256;
+    const int max_dimension = 1920;
+    const int bucket = 128;
+    int w = width ? *width : 0;
+    int h = height ? *height : 0;
+
+    if (w < min_dimension) w = min_dimension;
+    if (h < min_dimension) h = min_dimension;
+    if (w > max_dimension) w = max_dimension;
+    if (h > max_dimension) h = max_dimension;
+
+    w = ((w + bucket - 1) / bucket) * bucket;
+    h = ((h + bucket - 1) / bucket) * bucket;
+    if (w > max_dimension) w = max_dimension;
+    if (h > max_dimension) h = max_dimension;
+    if (width) *width = w;
+    if (height) *height = h;
+}
+
 void add_keepalive_headers(cwist_http_response *res) {
     /* Connection and Keep-Alive are handled globally by global_middleware. */
     (void)res;

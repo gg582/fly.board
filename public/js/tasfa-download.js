@@ -1,6 +1,7 @@
 (function() {
     var cache = new Map();
     var downloadStates = {};
+    var mediaSessionWarmups = new Map();
     var CACHE_NAME = 'tasfa-small-files-v1';
     var SMALL_FILE_THRESHOLD = 100 * 1024 * 1024; // 100MB
     var DOWNLOAD_CHUNK_STORE = 'tasfa_download_chunk_size_v3';
@@ -479,6 +480,24 @@
             });
         }
         return session;
+    }
+
+    /* Media uses native range requests after TASFA session gating.  Warm only
+       that control-plane request on deliberate user intent; payload fetching,
+       chunk scheduling, and retry behaviour remain unchanged. */
+    function warmMediaSession(baseUrl) {
+        var key = normalizeUrlWithQuery(baseUrl);
+        if (!key) return Promise.reject(new Error('unsupported media url'));
+        var existing = mediaSessionWarmups.get(key);
+        if (existing && existing.expiresAt > Date.now()) return existing.promise;
+
+        var entry = { expiresAt: Date.now() + 90000 };
+        entry.promise = fetchDownloadSession(baseUrl).catch(function(error) {
+            if (mediaSessionWarmups.get(key) === entry) mediaSessionWarmups.delete(key);
+            throw error;
+        });
+        mediaSessionWarmups.set(key, entry);
+        return entry.promise;
     }
 
     function chunkByteSize(session, chunkIndex) {
@@ -1378,6 +1397,12 @@
         el.dataset.tasfaVideoBound = '1';
 
         var isThumb = el.classList.contains('file-video-thumb-link');
+        function prewarmMediaSession() {
+            warmMediaSession(videoLink).catch(function() {});
+        }
+        el.addEventListener('pointerenter', prewarmMediaSession, { once: true });
+        el.addEventListener('focus', prewarmMediaSession, { once: true });
+        el.addEventListener('touchstart', prewarmMediaSession, { once: true, passive: true });
 
         el.addEventListener('click', function(event) {
             event.preventDefault();
@@ -1526,7 +1551,8 @@
                 if (!displayWidth) {
                     displayWidth = window.innerWidth || 800;
                 }
-                displayWidth = Math.ceil(displayWidth / 100) * 100;
+                var imageDpr = Math.min(Math.max(Number(window.devicePixelRatio) || 1, 1), 2);
+                displayWidth = Math.ceil((displayWidth * imageDpr) / 128) * 128;
 
                 var displayHeight = el.offsetHeight || el.clientHeight;
                 if (!displayHeight && el.parentNode) {
@@ -1535,18 +1561,13 @@
                 if (!displayHeight) {
                     displayHeight = window.innerHeight || 800;
                 }
-                displayHeight = Math.ceil(displayHeight / 100) * 100;
+                displayHeight = Math.ceil((displayHeight * imageDpr) / 128) * 128;
 
                 var displayUrl = baseUrl;
                 if (el.getAttribute('data-tasfa-fixed-preview') !== '1') {
                     // Posts and uploads: still adapt when the preview is not fixed.
-                    if (displayWidth >= displayHeight) {
-                        if (displayWidth < 1080) displayWidth = 1080;
-                        if (displayHeight < 720) displayHeight = 720;
-                    } else {
-                        if (displayWidth < 720) displayWidth = 720;
-                        if (displayHeight < 1080) displayHeight = 1080;
-                    }
+                    if (displayWidth < 256) displayWidth = 256;
+                    if (displayHeight < 256) displayHeight = 256;
                     if (displayWidth > 1920) displayWidth = 1920;
                     if (displayHeight > 1920) displayHeight = 1920;
                     displayUrl += (displayUrl.indexOf('?') === -1 ? '?' : '&') + 'w=' + displayWidth + '&h=' + displayHeight;
@@ -1759,6 +1780,7 @@
         window.fetchBlobViaTasfa = fetchBlobViaTasfa;
         window.fetchVideoProgressive = fetchVideoProgressive;
         window.fetchDownloadSession = fetchDownloadSession;
+        window.tasfaWarmMediaSession = warmMediaSession;
         window.normalizeTasfaDownloadUrl = normalizeUrl;
         window.tasfaDirectMediaUrl = directMediaUrl;
         window.openTasfaDownload = triggerDownload;

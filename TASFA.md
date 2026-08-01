@@ -237,6 +237,8 @@ This prevents browser connection pool exhaustion and keeps stall detection relia
 - max upload size: `max_upload_size` in `blog.settings`
 - max browser download sessions: server-defined, currently up to `48` chunk requests per session
 - download coalesce (span group size): success `*1.2`, failure `*0.8`, up to `16` chunks
+- image previews: request a DPR-aware 128px size bucket (minimum `256px`, maximum `1920px`) so image transfers do not inflate to a desktop-sized preview when rendered small
+- video/audio playback: prewarm only the TASFA session handshake on pointer/focus intent, then retain native range-request playback; no media payload is fetched early and the progressive scheduler remains unchanged
 - upload xhr timeout: adaptive by chunk size, at least `180 s`
 - upload session fetch timeout: `30 s`
 
