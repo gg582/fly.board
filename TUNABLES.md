@@ -66,6 +66,8 @@ Accepted boolean values for the flags above: `1`, `true`, `on`.
 | `boards_img` | *(empty)* | Boards background image. |
 | `files_img` | *(empty)* | Files background image. |
 | `favicon` | *(empty)* | Favicon image. |
+| `bg_full_light` | *(empty)* | Full-page wallpaper for the light theme, served from `public/img/`. |
+| `bg_full_dark` | *(empty)* | Full-page wallpaper for dark-theme variants, served from `public/img/`. |
 | `use_rss` | `true` | Enable RSS feed. |
 | `use_tasfa` | `true` | Enable TASFA large-file upload/download. |
 | `use_tls` | `true` | Enable HTTPS. |
