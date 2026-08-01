@@ -1494,6 +1494,10 @@ void rule_boards(cJSON *rules) {
     cJSON *prow_feat_title = create_rule(".post-row.featured .post-row-title");
     add_decl(prow_feat_title, "font-size", "clamp(2.4rem, 4vw, 3.6rem)");
     add_decl(prow_feat_title, "font-weight", "900");
+    add_decl(prow_feat_title, "width", "fit-content");
+    add_decl(prow_feat_title, "max-width", "100%");
+    add_decl(prow_feat_title, "padding-bottom", "8px");
+    add_decl(prow_feat_title, "border-bottom", "3px solid var(--accent)");
     cJSON_AddItemToArray(rules, prow_feat_title);
 
     cJSON *prow_head = create_rule(".post-row-head");
