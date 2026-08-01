@@ -1492,7 +1492,7 @@ void rule_boards(cJSON *rules) {
     cJSON_AddItemToArray(rules, prow_feat);
 
     cJSON *prow_feat_title = create_rule(".post-row.featured .post-row-title");
-    add_decl(prow_feat_title, "font-size", "1.25em");
+    add_decl(prow_feat_title, "font-size", "clamp(2.4rem, 4vw, 3.6rem)");
     add_decl(prow_feat_title, "font-weight", "900");
     cJSON_AddItemToArray(rules, prow_feat_title);
 
