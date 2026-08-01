@@ -199,6 +199,7 @@ int tasfa_download_session_limit(void);
 int tasfa_upload_parallel_limit(void);
 int fast_download_chunk_max_from_request(const char *downlink_mbps, const char *rtt_ms, const char *effective_type, const char *save_data);
 int choose_chunk_size_download(bool mobile, int requested, long long total_size, int fast_link_max);
+void normalize_tasfa_image_dimensions(int *width, int *height);
 void add_keepalive_headers(cwist_http_response *res);
 void send_queued_json(cwist_http_response *res, const char *msg, int retry_after);
 void send_json_response(cwist_http_response *res, cJSON *obj, int status_code);

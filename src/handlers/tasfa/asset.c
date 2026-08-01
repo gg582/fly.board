@@ -24,15 +24,7 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
             int w = atoi(w_str);
             int h = atoi(h_str);
             if (w > 0 && h > 0) {
-                if (w >= h) {
-                    if (w < 1080) w = 1080;
-                    if (h < 720) h = 720;
-                } else {
-                    if (w < 720) w = 720;
-                    if (h < 1080) h = 1080;
-                }
-                if (w > 3072) w = 3072;
-                if (h > 3072) h = 3072;
+                normalize_tasfa_image_dimensions(&w, &h);
 
                 char scope_fname[512] = {0};
                 const char *raw_fname = cwist_query_map_get(req->path_params, "filename");

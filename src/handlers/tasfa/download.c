@@ -37,15 +37,7 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
             int w = atoi(w_str);
             int h = atoi(h_str);
             if (w > 0 && h > 0) {
-                if (w >= h) {
-                    if (w < 1080) w = 1080;
-                    if (h < 720) h = 720;
-                } else {
-                    if (w < 720) w = 720;
-                    if (h < 1080) h = 1080;
-                }
-                if (w > 3072) w = 3072;
-                if (h > 3072) h = 3072;
+                normalize_tasfa_image_dimensions(&w, &h);
 
                 char thumb_img_path[PATH_MAX];
                 snprintf(thumb_img_path, sizeof(thumb_img_path), "public/uploads/.thumbs/%d_%dx%d.webp", atoi(id_str), w, h);

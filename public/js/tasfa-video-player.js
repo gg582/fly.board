@@ -133,7 +133,9 @@ export function openTasfaVideoModal(url, title, isAudio) {
     // let the browser media engine drive playback with native Range requests.
     if (window.fetchDownloadSession && /\/file\/download\/\d+/.test(url)) {
         _openModal(null, title, isAudio, true);
-        window.fetchDownloadSession(url).then(function(session) {
+        var sessionPromise = window.tasfaWarmMediaSession ?
+            window.tasfaWarmMediaSession(url) : window.fetchDownloadSession(url);
+        sessionPromise.then(function(session) {
             var loading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
             function attachSource(streamUrl) {
                 if (!streamUrl) return;
