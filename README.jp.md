@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> 接続数が増えてもメモリをほぼ平坦に保つ、数少ないシンプルなブログエンジンの一つ: idle 時 **~82 MB RSS**（4 workers 構成。single worker 構成では実運用サーバーで **68–120 MB** を維持）、C10k、C100k、さらに C1m でも **~146 MB**。  
+> 接続数が増えてもメモリをほぼ平坦に保つ、数少ないシンプルなブログエンジンの一つ: idle 時 **~82 MB RSS**（4 workers 構成。single worker 構成では実運用サーバーで **68–120 MB** を維持）、C10k、C100k、さらに C1m でも **~94–96 MB**。
 > C 言語製 CWIST Web フレームワークをベースに、HTTPS/3、Argon2id、PQC 署名、NATS メッセージングをサポートする軽量な掲示板＆ブログエンジン。
 
 ## 機能
 
-- **メモリ効率と接続スケーラビリティ** – スタック＋ヒープの C 実装。idle 時 **~82 MB RSS**、C10k から C1m までの同時接続で RSS は **~146 MB** 前後に維持される。
+- **メモリ効率と接続スケーラビリティ** – スタック＋ヒープの C 実装。idle 時 **~82 MB RSS**、C10k から C1m までの同時接続で RSS は **~94–96 MB** 前後に維持される。
 - **最新トランスポート** – デフォルトで TLS 1.3 + HTTP/3（QUIC）。オプションで ECH（Encrypted Client Hello）も利用可能。
 - **安全な認証** – クライアント側 SHA-512 プリハッシュ + サーバー側 **Argon2id**（OpenSSL 3 KDF）。JWT セッション Cookie。
 - **掲示板 / ブログ ハイブリッド** – Slug ベースの Markdown 投稿 + 複数掲示板 + 入れ子コメント。
@@ -157,11 +157,11 @@ MIT License
 | 状態 | RSS | 前状態からの Δ | 備考 |
 |-------|-----|-----------------|-------|
 | Idle | **~82 MB** (83,708 KB) | — | 4 workers, no connections |
-| C10k | **~146 MB** (145,928 KB) | +62.22 MB | 10,000 concurrent connections |
-| C100k | **~146 MB** (146,076 KB) | +148 KB | 100,000 concurrent connections |
-| C1m | **~146 MB** (146,420 KB) | +344 KB | 1,000,000 concurrent connections |
+| C10k | **~96 MB** (96,252 KB) | +12.25 MB | 10,000 concurrent connections |
+| C100k | **~94 MB** (94,352 KB) | -1,900 KB | 100,000 concurrent connections |
+| C1m | **~95 MB** (94,944 KB) | +592 KB | 1,000,000 concurrent connections |
 
-**C10k から C1m までの RSS 増加はわずか ~492 KB** — 実質的にノイズの範囲です。これが本ベンチマークにおいて最も重要な結果です。
+**C10k から C1m までの RSS 変化は -1,308 KB** — 実質的に測定ノイズの範囲です。これが本ベンチマークにおいて最も重要な結果です。
 
 RSS 値は、サーバープロセスに対する `/usr/bin/time -v` の **Maximum resident set size (kbytes)** です。
 
@@ -169,10 +169,10 @@ RSS 値は、サーバープロセスに対する `/usr/bin/time -v` の **Maxim
 
 | 遷移 | Δ RSS | Δ 接続数 | 追加接続あたりの概算コスト |
 |---|---|---|---|
-| Idle → C10k | +62.22 MB | 10,000 | 接続あたり ~6.4 KB |
-| C10k → C1m | +492 KB | 990,000 | 追加接続あたり ~0.5 byte |
+| Idle → C10k | +12.25 MB | 10,000 | 接続あたり ~1.3 KB |
+| C10k → C1m | -1,308 KB | 990,000 | 追加接続あたり ~-1.4 bytes（ノイズ） |
 
-Idle から C10k への初期ジャンプは、TLS 状態、接続バッファ、worker オーバーヘッドを前払いするコストです。その後、さらに 990,000 接続を追加しても、RSS は接続あたり半 byte にも満たず — 接続あたりのメモリコストは実質的に平坦です。
+Idle から C10k への初期ジャンプは、TLS 状態、接続バッファ、worker オーバーヘッドを前払いするコストです。その後の C10k から C1m までの RSS 変化は測定ノイズの範囲であり、接続あたりのメモリコストは実質的に平坦です。
 
 ### C10k 同時接続テスト
 
@@ -182,20 +182,20 @@ Idle から C10k への初期ジャンプは、TLS 状態、接続バッファ�
 |------|-------|
 | Workers | 4 |
 | 同時接続数 | 10,000 |
-| 継続時間 | 17.04 s |
-| 最大 RSS | **~146 MB** (145,928 KB) |
-| CPU 使用率 | ~480% |
-| User time | 73.54 s |
-| System time | 8.25 s |
-| Major page faults | 51 |
-| Minor page faults | 267,239 |
-| Voluntary context switches | 1,959,611 |
-| Involuntary context switches | 17,100 |
-| File system outputs | 10,600 |
+| 継続時間 | 13.62 s |
+| 最大 RSS | **~96 MB** (96,252 KB) |
+| CPU 使用率 | ~578% |
+| User time | 72.53 s |
+| System time | 6.23 s |
+| Major page faults | 0 |
+| Minor page faults | 82,722 |
+| Voluntary context switches | 1,689,448 |
+| Involuntary context switches | 18,959 |
+| File system outputs | 200 |
 | 総リクエスト数 | 20000 |
 | 成功数 | 20000 |
 | 失敗数 | 0 |
-| 概算合計 RPS | **2383.81** |
+| 概算合計 RPS | **2490.60** |
 | 成功率 | **100.00%** |
 | 終了ステータス | **0** |
 
@@ -207,20 +207,20 @@ Idle から C10k への初期ジャンプは、TLS 状態、接続バッファ�
 |------|-------|
 | Workers | 12 |
 | 同時接続数 | 100,000 |
-| 継続時間 | 1:30.30 |
-| 最大 RSS | **~146 MB** (146,076 KB) |
-| CPU 使用率 | ~824% |
-| User time | 700.38 s |
-| System time | 44.12 s |
+| 継続時間 | 1:24.88 |
+| 最大 RSS | **~94 MB** (94,352 KB) |
+| CPU 使用率 | ~871% |
+| User time | 701.20 s |
+| System time | 38.28 s |
 | Major page faults | 0 |
-| Minor page faults | 472,679 |
-| Voluntary context switches | 3,908,475 |
-| Involuntary context switches | 165,739 |
-| File system outputs | 101,672 |
+| Minor page faults | 292,073 |
+| Voluntary context switches | 3,522,910 |
+| Involuntary context switches | 184,003 |
+| File system outputs | 208 |
 | 総リクエスト数 | 200000 |
 | 成功数 | 200000 |
 | 失敗数 | 0 |
-| 概算合計 RPS | **2458.23** |
+| 概算合計 RPS | **2541.24** |
 | 成功率 | **100.00%** |
 | 終了ステータス | **0** |
 
@@ -232,31 +232,31 @@ Idle から C10k への初期ジャンプは、TLS 状態、接続バッファ�
 |------|-------|
 | Workers | 24 |
 | 同時接続数 | 1,000,000 |
-| 継続時間 | 7:02.81 |
-| 最大 RSS | **~146 MB** (146,420 KB) |
-| CPU 使用率 | ~654% |
-| User time | 2553.88 s |
-| System time | 211.70 s |
-| Major page faults | 3 |
-| Minor page faults | 895,633 |
-| Voluntary context switches | 24,007,690 |
-| Involuntary context switches | 931,088 |
-| File system outputs | 366,248 |
+| 継続時間 | 7:05.71 |
+| 最大 RSS | **~95 MB** (94,944 KB) |
+| CPU 使用率 | ~641% |
+| User time | 2517.01 s |
+| System time | 215.52 s |
+| Major page faults | 0 |
+| Minor page faults | 789,451 |
+| Voluntary context switches | 23,921,809 |
+| Involuntary context switches | 943,712 |
+| File system outputs | 208 |
 | 総リクエスト数 | 2000000 |
-| 成功数 | 722910 |
-| 失敗数 | 1277090 |
-| 概算合計 RPS | **1744.04** |
-| 成功率 | **36.14%** |
+| 成功数 | 711274 |
+| 失敗数 | 1288726 |
+| 概算合計 RPS | **1694.48** |
+| 成功率 | **35.56%** |
 | 終了ステータス | **0** |
 
 > 注記: HTTP/2（TLS 1.3）上で実際のクライアント接続を維持しながら測定した値です。ワーカー数はテストごとに異なります。詳細は「このベンチマークが測定するもの」を参照してください。
 
 **主なポイント**
 
-- **接続スケーラビリティ**: RSS は 10,000 から 1,000,000 同時接続まで **~146 MB** 前後を維持。接続あたりのメモリコストは実質的に平坦です。
+- **接続スケーラビリティ**: RSS は 10,000 から 1,000,000 同時接続まで **~94–96 MB** 前後を維持。接続あたりのメモリコストは実質的に平坦です。
 - **現実的な負荷下で安定**: C10k と C100k は **100% 成功**で完了し、同じメモリ領域内に収まりました。
-- **C1m でもメモリ領域を維持**: テストハードウェアが 1,000,000 接続すべてを完全に処理できなかった場合（36.14% 成功）でも、メモリ使用量は事実上変わらず — サーバーは暴走しませんでした。
-- **データ安全性**: SQLite は SIGINT ですべてのデータを安全に永続化しました（C10k で 10,600 FS outputs）。
+- **C1m でもメモリ領域を維持**: テストハードウェアが 1,000,000 接続すべてを完全に処理できなかった場合（35.56% 成功）でも、メモリ使用量は事実上変わらず — サーバーは暴走しませんでした。
+- **データ安全性**: SQLite は SIGINT ですべてのデータを安全に永続化しました（C10k で 200 FS outputs）。
 
 ### スループットベンチマーク
 
