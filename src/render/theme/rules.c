@@ -1122,9 +1122,12 @@ void rule_components(cJSON *rules) {
 
 void rule_home(cJSON *rules) {
     cJSON *hero = create_rule(".hero");
-    add_decl(hero, "padding", "48px 0 40px");
+    add_decl(hero, "padding", "56px 0 44px");
     add_decl(hero, "text-align", "center");
     add_decl(hero, "position", "relative");
+    add_decl(hero, "display", "flex");
+    add_decl(hero, "flex-direction", "column");
+    add_decl(hero, "align-items", "center");
     cJSON_AddItemToArray(rules, hero);
 
     cJSON *hero_h1 = create_rule(".hero h1");
@@ -1137,9 +1140,11 @@ void rule_home(cJSON *rules) {
     cJSON_AddItemToArray(rules, hero_h1);
 
     cJSON *hero_logo = create_rule(".hero-logo");
-    add_decl(hero_logo, "height", "120px");
+    add_decl(hero_logo, "height", "100px");
     add_decl(hero_logo, "width", "auto");
-    add_decl(hero_logo, "margin-bottom", "12px");
+    add_decl(hero_logo, "margin-bottom", "20px");
+    add_decl(hero_logo, "object-fit", "contain");
+    add_decl(hero_logo, "transition", "transform 0.3s ease, filter 0.3s ease");
     cJSON_AddItemToArray(rules, hero_logo);
 
     cJSON *hero_p = create_rule(".hero p");
