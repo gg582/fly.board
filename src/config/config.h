@@ -15,6 +15,8 @@ typedef struct {
     char files_img[256];
     char favicon[256];
     char root_url[256];
+    char bg_full_light[256];
+    char bg_full_dark[256];
     bool use_tasfa;
     bool use_rss;
     bool use_tls;

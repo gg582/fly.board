@@ -86,6 +86,30 @@ void rule_base(cJSON *rules) {
     add_decl(body, "-webkit-font-smoothing", "antialiased");
     cJSON_AddItemToArray(rules, body);
 
+    /* Full-page background wallpaper: only emitted when configured */
+    if (g_config.bg_full_light[0]) {
+        char url_light[384];
+        snprintf(url_light, sizeof(url_light), "url('/img/%s')", g_config.bg_full_light);
+        cJSON *bg_light = create_rule("body:not(.dark)");
+        add_decl(bg_light, "background-image", url_light);
+        add_decl(bg_light, "background-size", "cover");
+        add_decl(bg_light, "background-position", "center center");
+        add_decl(bg_light, "background-attachment", "fixed");
+        add_decl(bg_light, "background-repeat", "no-repeat");
+        cJSON_AddItemToArray(rules, bg_light);
+    }
+    if (g_config.bg_full_dark[0]) {
+        char url_dark[384];
+        snprintf(url_dark, sizeof(url_dark), "url('/img/%s')", g_config.bg_full_dark);
+        cJSON *bg_dark = create_rule("body.dark");
+        add_decl(bg_dark, "background-image", url_dark);
+        add_decl(bg_dark, "background-size", "cover");
+        add_decl(bg_dark, "background-position", "center center");
+        add_decl(bg_dark, "background-attachment", "fixed");
+        add_decl(bg_dark, "background-repeat", "no-repeat");
+        cJSON_AddItemToArray(rules, bg_dark);
+    }
+
     cJSON *h1 = create_rule("h1, .hero h1");
     add_decl(h1, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
     add_decl(h1, "font-weight", g_font_settings.font_weight_h1[0] ? g_font_settings.font_weight_h1 : "800");
