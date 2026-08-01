@@ -1684,6 +1684,17 @@ void rule_boards(cJSON *rules) {
     add_decl(typo_title, "line-height", "1.4");
     cJSON_AddItemToArray(rules, typo_title);
 
+    /* The front page needs a strong featured-post hierarchy, while a board
+     * already provides context through its heading and filters.  Keep a
+     * board's popular post recognisable without inheriting the home feed's
+     * display-sized title. */
+    cJSON *typo_featured_title = create_rule(".board-typography-list .post-row.featured .post-row-title");
+    add_decl(typo_featured_title, "font-size", "clamp(1.35rem, 2.1vw, 1.75rem)");
+    add_decl(typo_featured_title, "font-weight", "850");
+    add_decl(typo_featured_title, "padding-bottom", "4px");
+    add_decl(typo_featured_title, "border-bottom-width", "2px");
+    cJSON_AddItemToArray(rules, typo_featured_title);
+
     cJSON *typo_head = create_rule(".board-typography-list .post-row-head");
     add_decl(typo_head, "padding", "0 0 8px");
     add_decl(typo_head, "border", "none");
@@ -2224,6 +2235,10 @@ void rule_media(cJSON *rules) {
     cJSON *mq_post_summary = create_mobile_rule(".post-row-summary");
     add_decl(mq_post_summary, "font-size", "1.05rem");
     cJSON_AddItemToArray(rules, mq_post_summary);
+
+    cJSON *mq_board_featured_title = create_mobile_rule(".board-typography-list .post-row.featured .post-row-title");
+    add_decl(mq_board_featured_title, "font-size", "clamp(1.3rem, 6.2vw, 1.6rem)");
+    cJSON_AddItemToArray(rules, mq_board_featured_title);
 
     cJSON *mq24 = create_mobile_rule(".board-grid");
     add_decl(mq24, "grid-template-columns", "1fr");
