@@ -175,9 +175,9 @@ void rule_base(cJSON *rules) {
 
 void rule_layout(cJSON *rules) {
     cJSON *shell = create_rule(".shell");
-    add_decl(shell, "max-width", "1400px");
+    add_decl(shell, "max-width", "1800px");
     add_decl(shell, "margin", "0 auto");
-    add_decl(shell, "padding", "24px");
+    add_decl(shell, "padding", "48px");
     cJSON_AddItemToArray(rules, shell);
 
     cJSON *nav = create_rule(".topbar");
@@ -187,7 +187,7 @@ void rule_layout(cJSON *rules) {
     add_decl(nav, "gap", "16px");
     add_decl(nav, "width", "100%");
     add_decl(nav, "margin", "0");
-    add_decl(nav, "padding", "0 16px");
+    add_decl(nav, "padding", "0 32px");
     add_decl(nav, "background", "color-mix(in srgb, var(--panel) 78%, transparent)");
     add_decl(nav, "border-bottom", "1px solid var(--glass-border)");
     add_decl(nav, "position", "sticky");
@@ -1122,7 +1122,7 @@ void rule_components(cJSON *rules) {
 
 void rule_home(cJSON *rules) {
     cJSON *hero = create_rule(".hero");
-    add_decl(hero, "padding", "56px 0 44px");
+    add_decl(hero, "padding", "80px 0 60px");
     add_decl(hero, "text-align", "center");
     add_decl(hero, "position", "relative");
     add_decl(hero, "display", "flex");
@@ -1411,28 +1411,31 @@ void rule_boards(cJSON *rules) {
     cJSON *plist = create_rule(".post-list");
     add_decl(plist, "display", "flex");
     add_decl(plist, "flex-direction", "column");
-    add_decl(plist, "gap", "16px");
-    add_decl(plist, "max-width", "1120px");
+    add_decl(plist, "gap", "0");
+    add_decl(plist, "width", "100%");
+    add_decl(plist, "max-width", "1800px");
     add_decl(plist, "margin", "0 auto");
+    add_decl(plist, "padding", "0 32px");
     cJSON_AddItemToArray(rules, plist);
 
     cJSON *prow = create_rule(".post-row");
-    add_decl(prow, "background", "color-mix(in srgb, var(--panel) 88%, transparent)");
-    add_decl(prow, "border", "1px solid var(--glass-border)");
-    add_decl(prow, "border-radius", radius_str(8));
+    add_decl(prow, "background", "none");
+    add_decl(prow, "border", "none");
+    add_decl(prow, "border-bottom", "1px solid var(--glass-border)");
+    add_decl(prow, "border-radius", "0");
     add_decl(prow, "text-align", "left");
     add_decl(prow, "overflow", "hidden");
-    add_decl(prow, "box-shadow", "0 2px 8px var(--shadow)");
-    add_decl(prow, "backdrop-filter", "blur(6px) saturate(120%)");
-    add_decl(prow, "-webkit-backdrop-filter", "blur(6px) saturate(120%)");
-    add_decl(prow, "transition", "background 0.2s ease, border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease");
+    add_decl(prow, "box-shadow", "none");
+    add_decl(prow, "backdrop-filter", "none");
+    add_decl(prow, "-webkit-backdrop-filter", "none");
+    add_decl(prow, "padding", "20px 0");
+    add_decl(prow, "transition", "background 0.2s ease");
+    add_decl(prow, "width", "100%");
     cJSON_AddItemToArray(rules, prow);
 
     cJSON *prow_h = create_rule(".post-row:hover");
-    add_decl(prow_h, "background", "color-mix(in srgb, var(--hover) 82%, transparent)");
-    add_decl(prow_h, "border-color", "color-mix(in srgb, var(--accent) 55%, var(--glass-border) 45%)");
-    add_decl(prow_h, "transform", "translateY(-2px)");
-    add_decl(prow_h, "box-shadow", "0 4px 12px color-mix(in srgb, var(--shadow-base) 6%, transparent), 0 2px 6px color-mix(in srgb, var(--shadow-base) 4%, transparent)");
+    add_decl(prow_h, "background", "color-mix(in srgb, var(--hover) 50%, transparent)");
+    add_decl(prow_h, "padding-left", "8px");
     cJSON_AddItemToArray(rules, prow_h);
 
     cJSON *prow_feat = create_rule(".post-row.featured");
@@ -1456,7 +1459,7 @@ void rule_boards(cJSON *rules) {
     cJSON_AddItemToArray(rules, prow_head);
 
     cJSON *prow_title = create_rule(".post-row-title");
-    add_decl(prow_title, "font-size", "18px");
+    add_decl(prow_title, "font-size", "24px");
     add_decl(prow_title, "font-family", "var(--font-display)");
     add_decl(prow_title, "font-weight", "800");
     add_decl(prow_title, "color", "var(--fg)");
@@ -1472,7 +1475,7 @@ void rule_boards(cJSON *rules) {
     cJSON_AddItemToArray(rules, prow_title_h);
 
     cJSON *prow_sum = create_rule(".post-row-summary");
-    add_decl(prow_sum, "font-size", "14px");
+    add_decl(prow_sum, "font-size", "16px");
     add_decl(prow_sum, "color", "var(--muted)");
     add_decl(prow_sum, "line-height", "1.5");
     add_decl(prow_sum, "margin", "0");
