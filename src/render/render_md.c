@@ -65,6 +65,34 @@ static bool is_line_start(const char *s, size_t pos) {
     return pos == 0 || s[pos - 1] == '\n';
 }
 
+/* A dollar preceded by an odd number of backslashes is escaped.  md4c's
+ * LaTeX span parser is intentionally conservative, but that also means that
+ * otherwise valid expressions can be left as plain text.  We protect dollar
+ * spans ourselves so the server and KaTeX see the exact expression. */
+static bool is_escaped(const char *s, size_t pos) {
+    size_t backslashes = 0;
+    while (pos > 0 && s[pos - 1] == '\\') {
+        backslashes++;
+        pos--;
+    }
+    return (backslashes & 1) != 0;
+}
+
+static size_t find_math_delimiter(const char *s, size_t len, size_t start,
+                                  size_t delimiter_len, bool allow_newline) {
+    for (size_t i = start; i + delimiter_len <= len; i++) {
+        if (!allow_newline && s[i] == '\n') return SIZE_MAX;
+        if (s[i] == '$' && !is_escaped(s, i)) {
+            if (delimiter_len == 2) {
+                if (i + 1 < len && s[i + 1] == '$') return i;
+            } else if (i + 1 >= len || s[i + 1] != '$') {
+                return i;
+            }
+        }
+    }
+    return SIZE_MAX;
+}
+
 /* Case-insensitive search for a "</tag" style needle, used to find the end of
  * a raw <video>/<audio> block before md4c runs with MD_FLAG_NOHTML. */
 static const char *find_closing_tag(const char *hay, size_t hay_len, const char *needle, size_t needle_len) {
@@ -271,6 +299,29 @@ static char *protect_math(const char *md, math_registry_t *blocks, math_registry
                 snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
                 cwist_sstring_append(out, placeholder);
                 i = j + 2;
+                continue;
+            }
+        }
+
+        /* Protect dollar-delimited math before md4c sees it.  This handles
+         * display math ($$...$$), inline math ($...$), escaped dollars, and
+         * multiline display expressions consistently. */
+        if (md[i] == '$' && !is_escaped(md, i)) {
+            size_t delimiter_len = (i + 1 < len && md[i + 1] == '$') ? 2 : 1;
+            size_t expr_start = i + delimiter_len;
+            size_t close = find_math_delimiter(md, len, expr_start,
+                                               delimiter_len, delimiter_len == 2);
+            if (close != SIZE_MAX && close > expr_start) {
+                math_registry_t *registry = delimiter_len == 2 ? blocks : inlines;
+                math_registry_add(registry, md + expr_start, close - expr_start);
+                char placeholder[64];
+                if (delimiter_len == 2) {
+                    snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", registry->count - 1);
+                } else {
+                    snprintf(placeholder, sizeof(placeholder), "@@MATH_INLINE_%d@@", registry->count - 1);
+                }
+                cwist_sstring_append(out, placeholder);
+                i = close + delimiter_len;
                 continue;
             }
         }

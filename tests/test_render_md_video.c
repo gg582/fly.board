@@ -61,6 +61,18 @@ int main(void) {
           "\\[x^2\\]\n",
           "math-block", NULL);
 
+    check("dollar inline math with Korean text",
+          "$(x+M)^N$에서 $M$은 미지수이다.\n",
+          "class=\"math-inline\"", NULL);
+
+    check("dollar display math",
+          "$$x^3+3Mx^2+3M^2x+M^3$$\n",
+          "class=\"math-block\"", NULL);
+
+    check("dollars in code stay literal",
+          "```python\nvalue = $x$\n```\n",
+          "value = $x$", "class=\"math-inline\"");
+
     if (failures == 0) printf("ALL TESTS PASSED\n");
     return failures ? 1 : 0;
 }
