@@ -371,6 +371,10 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
         snprintf(out->error, sizeof(out->error), "no file");
         return false;
     }
+    if (uid <= 0) {
+        snprintf(out->error, sizeof(out->error), "login required");
+        return false;
+    }
 
     char *original_filename = f->filename;
     char *unique_filename = db_file_unique_filename(db, post_id, original_filename);
