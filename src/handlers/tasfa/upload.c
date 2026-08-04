@@ -7,6 +7,10 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
+    if (uid <= 0) {
+        send_json_response(res, session_error_json("login required"), CWIST_HTTP_UNAUTHORIZED);
+        return;
+    }
     cwist_query_map *kv = cwist_query_map_create();
     cwist_query_map_parse(kv, req->body->data);
     const char *filename = cwist_query_map_get(kv, "filename");
@@ -641,6 +645,13 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     int post_id = json_int(meta, "post_id", 0);
     int owner_uid = json_int(meta, "uid", uid);
     bool media_acquired = false;
+    if (owner_uid <= 0) {
+        cJSON_Delete(meta);
+        close_upload_session_lock(lock_fd);
+        cwist_query_map_destroy(kv);
+        send_json_response(res, session_error_json("login required"), CWIST_HTTP_UNAUTHORIZED);
+        return;
+    }
 
     /* === Server-Authoritative HTP Recovery === */
     uint64_t modulus_M = (uint64_t)json_long_long(meta, "modulus_M", 0);

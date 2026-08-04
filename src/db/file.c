@@ -12,11 +12,19 @@
 #include <sys/stat.h>
 #include <dirent.h>
 
+static void bind_post_id(sqlite3_stmt *stmt, int idx, int post_id) {
+    if (post_id > 0) {
+        sqlite3_bind_int(stmt, idx, post_id);
+    } else {
+        sqlite3_bind_null(stmt, idx);
+    }
+}
+
 bool db_file_create_volume(cwist_db *db, int post_id, int user_id, const char *filename, const char *mime_type, const char *file_path, size_t len) {
     const char *sql = "INSERT INTO files (post_id, user_id, filename, mime_type, file_path, size) VALUES (?,?,?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, post_id);
+    bind_post_id(stmt, 1, post_id);
     sqlite3_bind_int(stmt, 2, user_id);
     sqlite3_bind_text(stmt, 3, filename, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 4, mime_type ? mime_type : "application/octet-stream", -1, SQLITE_STATIC);
@@ -31,7 +39,7 @@ int db_file_create_volume_get_id(cwist_db *db, int post_id, int user_id, const c
     const char *sql = "INSERT INTO files (post_id, user_id, filename, mime_type, file_path, size) VALUES (?,?,?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
-    sqlite3_bind_int(stmt, 1, post_id);
+    bind_post_id(stmt, 1, post_id);
     sqlite3_bind_int(stmt, 2, user_id);
     sqlite3_bind_text(stmt, 3, filename, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 4, mime_type ? mime_type : "application/octet-stream", -1, SQLITE_STATIC);
@@ -49,10 +57,11 @@ int db_file_create_volume_get_id(cwist_db *db, int post_id, int user_id, const c
 }
 
 static bool filename_exists_for_post(cwist_db *db, int post_id, const char *filename) {
-    const char *sql = "SELECT 1 FROM files WHERE post_id=? AND filename=? LIMIT 1";
+    const char *sql = "SELECT 1 FROM files WHERE ((?1 IS NULL AND post_id IS NULL) OR post_id=?1) AND filename=?2 LIMIT 1";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
-    sqlite3_bind_int(stmt, 1, post_id);
+    if (post_id > 0) sqlite3_bind_int(stmt, 1, post_id);
+    else sqlite3_bind_null(stmt, 1);
     sqlite3_bind_text(stmt, 2, filename, -1, SQLITE_STATIC);
     bool exists = (sqlite3_step(stmt) == SQLITE_ROW);
     sqlite3_finalize(stmt);
