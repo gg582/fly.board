@@ -757,22 +757,13 @@
         });
 
         /* Protect block math before line splitting */
-        normalized = normalized.replace(/\$\$([\s\S]*?)\$\$/g, function(_, expr) {
-            var token = '@@MATHBLOCK' + mathBlocks.length + '@@';
-            mathBlocks.push(escapeHtml(expr));
-            return token;
-        });
+        normalized = protectDollarMath(normalized, mathBlocks, mathInlines);
         normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, function(_, expr) {
             var token = '@@MATHBLOCK' + mathBlocks.length + '@@';
             mathBlocks.push(escapeHtml(expr));
             return token;
         });
         /* Protect inline math */
-        normalized = normalized.replace(/\$([^$\n]+)\$/g, function(_, expr) {
-            var token = '@@MATHINLINE' + mathInlines.length + '@@';
-            mathInlines.push(escapeHtml(expr));
-            return token;
-        });
         normalized = normalized.replace(/\\\((.*?)\\\)/g, function(_, expr) {
             var token = '@@MATHINLINE' + mathInlines.length + '@@';
             mathInlines.push(escapeHtml(expr));
@@ -936,6 +927,59 @@
             return '<span class="math-inline">' + (mathInlines[Number(idx)] || '') + '</span>';
         });
         return rendered;
+    }
+
+    /* md4c and KaTeX use the same dollar delimiters, but a regular expression
+     * can mistake the second dollar in an escaped `\$...$` sequence for an
+     * opening delimiter. Scan spans explicitly so escaped dollars and
+     * multiline display math remain literal/complete in the live preview. */
+    function protectDollarMath(text, blocks, inlines) {
+        var result = '';
+        var i = 0;
+        while (i < text.length) {
+            if (text.charAt(i) !== '$') {
+                result += text.charAt(i++);
+                continue;
+            }
+
+            var slashCount = 0;
+            for (var s = i - 1; s >= 0 && text.charAt(s) === '\\'; s--) slashCount++;
+            if (slashCount % 2 === 1) {
+                result += text.charAt(i++);
+                continue;
+            }
+
+            var width = text.charAt(i + 1) === '$' ? 2 : 1;
+            var start = i + width;
+            var close = -1;
+            for (var j = start; j < text.length; j++) {
+                if (width === 1 && text.charAt(j) === '\n') break;
+                if (text.charAt(j) !== '$') continue;
+                var closeSlashes = 0;
+                for (var p = j - 1; p >= 0 && text.charAt(p) === '\\'; p--) closeSlashes++;
+                if (closeSlashes % 2 === 1) continue;
+                if (width === 2 ? text.charAt(j + 1) === '$' : text.charAt(j + 1) !== '$') {
+                    close = j;
+                    break;
+                }
+            }
+            if (close <= start) {
+                result += text.charAt(i++);
+                continue;
+            }
+
+            var token;
+            if (width === 2) {
+                token = '@@MATHBLOCK' + blocks.length + '@@';
+                blocks.push(escapeHtml(text.slice(start, close)));
+            } else {
+                token = '@@MATHINLINE' + inlines.length + '@@';
+                inlines.push(escapeHtml(text.slice(start, close)));
+            }
+            result += token;
+            i = close + width;
+        }
+        return result;
     }
 
     function insertAtCursor(text, selectOffset) {
