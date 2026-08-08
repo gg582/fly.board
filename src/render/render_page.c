@@ -169,7 +169,9 @@ static bool body_needs_highlight(const char *html) {
 
 static bool body_needs_katex(const char *html) {
     return html && (strstr(html, "class=\"math-block\"") != NULL ||
-                    strstr(html, "class=\"math-inline\"") != NULL);
+                    strstr(html, "class=\"math-inline\"") != NULL ||
+                    strstr(html, "class=\"tikz-block\"") != NULL ||
+                    strstr(html, "class=\"language-tikz\"") != NULL);
 }
 
 void render_set_nav_profile(const char *display_name, const char *account_name) {

@@ -285,6 +285,20 @@ static char *protect_math(const char *md, math_registry_t *blocks, math_registry
             }
         }
 
+        /* TikZ environment: \begin{tikzpicture}...\end{tikzpicture} */
+        if (i + 17 <= len && strncmp(md + i, "\\begin{tikzpicture}", 18) == 0) {
+            const char *end_tag = strstr(md + i + 18, "\\end{tikzpicture}");
+            if (end_tag) {
+                size_t total_len = (size_t)(end_tag + 17 - (md + i));
+                math_registry_add(blocks, md + i, total_len);
+                char placeholder[64];
+                snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
+                cwist_sstring_append(out, placeholder);
+                i += total_len;
+                continue;
+            }
+        }
+
         /* Block math: \[...\]
          * $$...$$ and $...$ are handled natively by md4c when
          * MD_FLAG_LATEXMATHSPANS is enabled; we only protect the LaTeX-style
