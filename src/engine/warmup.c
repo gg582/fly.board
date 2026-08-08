@@ -52,6 +52,8 @@ static void *gif_warmup_thread_func(void *arg) {
         const char *ppath = (const char *)sqlite3_column_text(stmt, 2);
 
         if (!fpath || fpath[0] == '\0') continue;
+        struct stat st_src;
+        if (stat(fpath, &st_src) != 0 || st_src.st_size <= 0) continue;
 
         bool need_convert = false;
         if (!ppath || ppath[0] == '\0') {
