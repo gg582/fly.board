@@ -59,6 +59,7 @@
 
                     var script = document.createElement('script');
                     script.type = 'text/tikz';
+                    script.setAttribute('data-raw-tikz', el.textContent || code);
                     if (dataPackages || code.includes('\\usetikzlibrary') || code.includes('\\usepackage')) {
                         script.setAttribute('data-has-packages', 'true');
                     }
