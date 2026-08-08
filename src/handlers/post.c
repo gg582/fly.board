@@ -610,18 +610,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
 
     attach_media_meta_to_post(req->db, media_meta, atoi(id_str), uid, role);
 
-    cJSON *updated_post = db_post_get_by_id(req->db, atoi(id_str));
-    if (updated_post) {
-        cJSON *slug_item = cJSON_GetObjectItem(updated_post, "slug");
-        if (slug_item && cJSON_IsString(slug_item) && slug_item->valuestring) {
-            page_cache_invalidate_post(slug_item->valuestring);
-        } else {
-            page_cache_invalidate_all();
-        }
-        cJSON_Delete(updated_post);
-    } else {
-        page_cache_invalidate_all();
-    }
+    page_cache_invalidate_all();
 
     reqshare_write_lock_release(wl_key);
     cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
