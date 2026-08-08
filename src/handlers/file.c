@@ -233,6 +233,7 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
     http_date(st.st_mtime, last_modified, sizeof(last_modified));
 
     cwist_http_header_add(&res->headers, "Content-Type", mime ? mime : "application/octet-stream");
+    cwist_http_header_add(&res->headers, "Vary", "Accept-Encoding");
     if (encoding) {
         cwist_http_header_add(&res->headers, "Content-Encoding", encoding);
     }
