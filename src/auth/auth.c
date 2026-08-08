@@ -719,7 +719,13 @@ bool auth_admin_load(const char *path) {
 }
 
 bool auth_admin_check(const char *username, const char *password) {
-    return strcmp(username, g_admin_id) == 0 && strcmp(password, g_admin_pw) == 0;
+    if (!username || !password || !g_admin_id[0] || !g_admin_pw[0]) return false;
+    if (strcmp(username, g_admin_id) != 0) return false;
+    char combined[512];
+    snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, password);
+    char hashed[129];
+    if (!sha512_string_hex(combined, hashed, sizeof(hashed))) return false;
+    return strcmp(hashed, g_admin_pw) == 0;
 }
 
 bool auth_require_admin(cwist_http_request *req, cwist_http_response *res) {
