@@ -3282,12 +3282,13 @@
         if (node.nodeType !== Node.ELEMENT_NODE) return '';
         var tag = node.tagName.toLowerCase();
         if (tag === 'br') return '\n';
+        if (tag === 'svg' || tag === 'path' || tag === 'g') return '';
         if (node.classList && node.classList.contains('katex-html')) return '';
         if (node.classList && node.classList.contains('katex-mathml')) {
             var annotation = node.querySelector('annotation[encoding="application/x-tex"]');
             if (annotation) {
                 var tex = annotation.textContent;
-                var isBlock = !!(node.closest && node.closest('.math-block'));
+                var isBlock = !!(node.closest && (node.closest('.math-block') || node.closest('.katex-display')));
                 return isBlock ? '$$' + tex + '$$' : '$' + tex + '$';
             }
         }
@@ -3297,6 +3298,11 @@
                 var rawTex = mathAnnotation.textContent;
                 return node.classList.contains('math-block') ? '$$' + rawTex + '$$' : '$' + rawTex + '$';
             }
+        }
+        if (node.classList && node.classList.contains('tikz-block')) {
+            var tikzScript = node.querySelector('script[type="text/tikz"]');
+            var rawTikz = tikzScript ? tikzScript.textContent : node.getAttribute('data-raw-tikz') || '';
+            if (rawTikz) return '```tikz\n' + rawTikz + '\n```';
         }
         var inner = '';
         Array.prototype.forEach.call(node.childNodes, function(child) {
