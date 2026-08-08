@@ -65,13 +65,7 @@ static bool is_compressible_mime(const char *mime) {
            strncmp(mime, "application/json", 16) == 0;
 }
 
-static const char *choose_encoding(const char *accept_encoding) {
-    if (!accept_encoding || !accept_encoding[0]) return NULL;
-    if (strstr(accept_encoding, "zstd")) return "zstd";
-    if (strstr(accept_encoding, "br")) return "br";
-    if (strstr(accept_encoding, "gzip")) return "gzip";
-    return NULL;
-}
+
 
 static char *compress_buffer_zstd(const char *data, size_t len, size_t *out_len) {
     size_t bound = ZSTD_compressBound(len);
@@ -214,11 +208,18 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
     char compressed_path_buf[PATH_MAX];
 
     if (is_compressible_mime(mime) && accept_encoding && accept_encoding[0]) {
-        encoding = choose_encoding(accept_encoding);
-        if (encoding && ensure_compressed_cache(path, encoding, compressed_path_buf, sizeof(compressed_path_buf))) {
-            path = compressed_path_buf;
-        } else {
-            encoding = NULL;
+        const char *enc_candidates[3];
+        int enc_count = 0;
+        if (strstr(accept_encoding, "zstd")) enc_candidates[enc_count++] = "zstd";
+        if (strstr(accept_encoding, "br")) enc_candidates[enc_count++] = "br";
+        if (strstr(accept_encoding, "gzip")) enc_candidates[enc_count++] = "gzip";
+
+        for (int i = 0; i < enc_count; i++) {
+            if (ensure_compressed_cache(path, enc_candidates[i], compressed_path_buf, sizeof(compressed_path_buf))) {
+                encoding = enc_candidates[i];
+                path = compressed_path_buf;
+                break;
+            }
         }
     }
 
