@@ -21,3 +21,4 @@ max_upload_size=1G
 max_total_parallel_uploads=8
 max_upload_parallel_chunks=32
 max_concurrent_downloads=128
+use_special_modes=ocean,forest

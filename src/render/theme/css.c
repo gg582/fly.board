@@ -6,7 +6,12 @@
 #include <string.h>
 
 char *theme_build_css(bool dark_mode) {
-    cJSON *theme = build_theme_object(dark_mode ? "dark" : "light", dark_mode ? &dark : &light);
+    char l_theme[64], d_theme[64];
+    get_special_themes(l_theme, d_theme);
+    const char *resolved_name = dark_mode ? d_theme : l_theme;
+    theme_color_t *t = theme_by_name(resolved_name);
+
+    cJSON *theme = build_theme_object(dark_mode ? "dark" : "light", t);
     cJSON *vars = cJSON_GetObjectItem(theme, "vars");
     cJSON *rules = cJSON_GetObjectItem(theme, "rules");
 

@@ -90,7 +90,7 @@ void rule_root(cJSON *vars, theme_color_t *t) {
     cJSON_AddStringToObject(vars, "--overlay", "color-mix(in srgb, var(--bg) 72%, transparent)");
     cJSON_AddStringToObject(vars, "--font-display", g_font_settings.display[0] ? g_font_settings.display : "'Outfit', sans-serif");
 
-    const char *background_filename = (t == &light) ? g_config.bg_full_light : g_config.bg_full_dark;
+    const char *background_filename = (t == &light || t == &sepia) ? g_config.bg_full_light : g_config.bg_full_dark;
     char background_url[1024];
     char background_image[1040];
     static_image_url(background_url, sizeof(background_url), background_filename);

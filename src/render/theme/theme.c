@@ -3,6 +3,7 @@
 #include <cjson/cJSON.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 
 theme_color_t light = {
@@ -50,12 +51,50 @@ theme_color_t sepia = {
     .shadow_base = "#1a1208"
 };
 
+void get_special_themes(char *out_light, char *out_dark) {
+    strcpy(out_light, "light");
+    strcpy(out_dark, "dark");
+    if (g_config.use_special_modes[0]) {
+        char temp[128];
+        snprintf(temp, sizeof(temp), "%s", g_config.use_special_modes);
+        char *comma = strchr(temp, ',');
+        if (comma) {
+            *comma = '\0';
+            char *p1 = temp;
+            char *p2 = comma + 1;
+            while (*p1 == ' ') p1++;
+            char *e1 = p1 + strlen(p1) - 1;
+            while (e1 >= p1 && *e1 == ' ') { *e1 = '\0'; e1--; }
+
+            while (*p2 == ' ') p2++;
+            char *e2 = p2 + strlen(p2) - 1;
+            while (e2 >= p2 && *e2 == ' ') { *e2 = '\0'; e2--; }
+
+            if (p1[0]) strcpy(out_light, p1);
+            if (p2[0]) strcpy(out_dark, p2);
+        } else {
+            char *p1 = temp;
+            while (*p1 == ' ') p1++;
+            char *e1 = p1 + strlen(p1) - 1;
+            while (e1 >= p1 && *e1 == ' ') { *e1 = '\0'; e1--; }
+            if (p1[0]) strcpy(out_light, p1);
+        }
+    }
+}
+
 theme_color_t *theme_by_name(const char *name) {
-    if (!name) return &light;
-    if (strcmp(name, "dark") == 0) return &dark;
-    if (strcmp(name, "ocean") == 0) return &ocean;
-    if (strcmp(name, "forest") == 0) return &forest;
-    if (strcmp(name, "sepia") == 0) return &sepia;
+    char l_theme[64], d_theme[64];
+    get_special_themes(l_theme, d_theme);
+
+    const char *resolved = name;
+    if (!resolved) resolved = l_theme;
+    else if (strcmp(resolved, "light") == 0) resolved = l_theme;
+    else if (strcmp(resolved, "dark") == 0) resolved = d_theme;
+
+    if (strcmp(resolved, "dark") == 0) return &dark;
+    if (strcmp(resolved, "ocean") == 0) return &ocean;
+    if (strcmp(resolved, "forest") == 0) return &forest;
+    if (strcmp(resolved, "sepia") == 0) return &sepia;
     return &light;
 }
 

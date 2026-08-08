@@ -26,6 +26,9 @@ extern theme_color_t ocean;
 extern theme_color_t forest;
 extern theme_color_t sepia;
 
+theme_color_t *theme_by_name(const char *name);
+void get_special_themes(char *out_light, char *out_dark);
+
 cJSON *build_theme_object(const char *name, theme_color_t *t);
 char *theme_build_json(bool dark_mode);
 char *theme_build_all_json(void);

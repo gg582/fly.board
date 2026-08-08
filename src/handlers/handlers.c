@@ -29,6 +29,7 @@
    This includes the explicit dark theme as well as the dark-themed variants
    (ocean, forest, sepia). A missing or unrecognized theme defaults to light. */
 bool is_dark(cwist_http_request *req) {
+    char theme_name[64] = "light";
     cwist_http_header_node *curr = req->headers;
     while (curr) {
         if (curr->key && curr->key->data && strcasecmp(curr->key->data, "Cookie") == 0) {
@@ -42,11 +43,11 @@ bool is_dark(cwist_http_request *req) {
                         const char *end = p;
                         while (*end && *end != ';' && *end != ' ' && *end != '\t') end++;
                         size_t len = (size_t)(end - p);
-                        if (len == 4 && strncmp(p, "dark", 4) == 0) return true;
-                        if (len == 5 && strncmp(p, "ocean", 5) == 0) return true;
-                        if (len == 6 && strncmp(p, "forest", 6) == 0) return true;
-                        if (len == 5 && strncmp(p, "sepia", 5) == 0) return true;
-                        return false;
+                        if (len > 0 && len < sizeof(theme_name)) {
+                            memcpy(theme_name, p, len);
+                            theme_name[len] = '\0';
+                        }
+                        break;
                     }
                     while (*p && *p != ';') p++;
                     if (*p == ';') p++;
@@ -54,6 +55,11 @@ bool is_dark(cwist_http_request *req) {
             }
         }
         curr = curr->next;
+    }
+
+    theme_color_t *t = theme_by_name(theme_name);
+    if (t == &dark || t == &ocean || t == &forest) {
+        return true;
     }
     return false;
 }
