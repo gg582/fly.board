@@ -2,6 +2,7 @@
 #include "db.h"
 #include "db_internal.h"
 #include <cwist/core/mem/alloc.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,13 +49,21 @@ bool db_post_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_ha
     return rc == SQLITE_DONE;
 }
 
+static int extract_post_id_from_slug(const char *slug) {
+    if (!slug || !slug[0]) return 0;
+    if (strncmp(slug, "post-", 5) == 0 && isdigit((unsigned char)slug[5])) return atoi(slug + 5);
+    if (strncmp(slug, "post", 4) == 0 && isdigit((unsigned char)slug[4])) return atoi(slug + 4);
+    if (isdigit((unsigned char)slug[0])) return atoi(slug);
+    return 0;
+}
+
 cJSON *db_post_get_by_slug(cwist_db *db, const char *slug) {
     if (!slug || !slug[0]) return NULL;
     const char *sql = "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.slug=? OR p.id=? LIMIT 1";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_text(stmt, 1, slug, -1, SQLITE_STATIC);
-    sqlite3_bind_int(stmt, 2, atoi(slug));
+    sqlite3_bind_int(stmt, 2, extract_post_id_from_slug(slug));
     return db_sqlite3_row_to_json(stmt);
 }
 
