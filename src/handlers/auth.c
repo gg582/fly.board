@@ -27,6 +27,12 @@ static void clear_auth_cookies(cwist_http_response *res, bool use_tls) {
 }
 
 void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (auth_is_logged_in(req, &uid, role, sizeof(role))) {
+        redirect(res, "/");
+        return;
+    }
     send_html_res(res, render_login(is_dark(req), NULL, is_mobile_request(req)));
 }
 

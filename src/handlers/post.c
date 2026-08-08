@@ -624,9 +624,12 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     reqshare_write_lock_release(wl_key);
-    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
+    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
     multipart_free(files);
-    redirect(res, "/");
+    char redir_target[128];
+    snprintf(redir_target, sizeof(redir_target), "/post/%s", id_str ? id_str : "");
+    cwist_free(id_str);
+    redirect(res, redir_target);
 }
 void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
