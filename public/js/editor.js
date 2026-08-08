@@ -1856,9 +1856,6 @@
         var percent = asset.fileSize ? Math.min(100, Math.round((totalTransferred / asset.fileSize) * 100)) : 0;
         var previous = Number(asset.displayPercent || 0);
         if (Number.isFinite(previous)) percent = Math.max(previous, percent);
-        if (asset.uploadMethod === 'tasfa' && asset.fid === null && percent >= 100) {
-            percent = 99;
-        }
         asset.displayPercent = percent;
         asset.ui.status.textContent = percent >= 100 ? 'Upload complete, processing...' : ('Uploading [' + percent + '%]');
         asset.ui.progressInner.style.width = percent + '%';
