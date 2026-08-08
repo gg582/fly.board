@@ -1,8 +1,8 @@
-var LOGO_CACHE = 'logo-cache-v4';
-var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
-var STATIC_CACHE = 'fly-static-v4';
-var CDN_CACHE = 'fly-cdn-v2';
-var PRECACHE = 'fly-precache-v2';
+var LOGO_CACHE = 'logo-cache-v5';
+var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v2';
+var STATIC_CACHE = 'fly-static-v5';
+var CDN_CACHE = 'fly-cdn-v3';
+var PRECACHE = 'fly-precache-v3';
 /* Navigation documents are dynamic and may be personalized.  Do not retain
    them in the service worker: a cached document can show the previous route
    while the browser URL has already changed (and can also outlive a login).
