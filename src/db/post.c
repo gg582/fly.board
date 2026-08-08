@@ -49,10 +49,12 @@ bool db_post_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_ha
 }
 
 cJSON *db_post_get_by_slug(cwist_db *db, const char *slug) {
-    const char *sql = "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.slug=? LIMIT 1";
+    if (!slug || !slug[0]) return NULL;
+    const char *sql = "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.slug=? OR p.id=? LIMIT 1";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_text(stmt, 1, slug, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, atoi(slug));
     return db_sqlite3_row_to_json(stmt);
 }
 

@@ -52,13 +52,13 @@ void engine_routes_register(cwist_app *app) {
     cwist_app_post(app, "/board/perms/revoke", handler_board_perms_revoke_post);
 
     cwist_app_get(app, "/search", handler_post_list);
-    cwist_app_get(app, "/board/:slug", handler_post_list);
-    cwist_app_get(app, "/post/:slug", handler_post_get);
     cwist_app_get(app, "/post/new", handler_post_new_get);
     cwist_app_post(app, "/post/new", handler_post_new_post);
+    cwist_app_get(app, "/post/delete/:id", handler_post_delete);
     cwist_app_get(app, "/post/:id/edit", handler_post_edit_get);
     cwist_app_post(app, "/post/:id/edit", handler_post_edit_post);
-    cwist_app_get(app, "/post/delete/:id", handler_post_delete);
+    cwist_app_get(app, "/post/:slug", handler_post_get);
+    cwist_app_get(app, "/board/:slug", handler_post_list);
 
     cwist_app_get(app, "/files", handler_file_repo);
     cwist_app_get(app, "/file/preview/:id", handler_file_preview);
