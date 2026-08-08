@@ -270,7 +270,9 @@ static void replace_csp(cwist_http_response *res) {
             *cur = (*cur)->next;
             cwist_sstring_destroy(to_remove->key);
             cwist_sstring_destroy(to_remove->value);
-            cwist_free(to_remove);
+            if (!to_remove->arena_owned) {
+                cwist_free(to_remove);
+            }
         } else {
             cur = &(*cur)->next;
         }
@@ -516,7 +518,9 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
                     *h = (*h)->next;
                     cwist_sstring_destroy(r->key);
                     cwist_sstring_destroy(r->value);
-                    cwist_free(r);
+                    if (!r->arena_owned) {
+                        cwist_free(r);
+                    }
                 } else {
                     h = &(*h)->next;
                 }
