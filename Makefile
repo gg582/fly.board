@@ -72,9 +72,9 @@ LDFLAGS := -L$(CWIST_PREFIX)/lib \
            -Wl,--wrap=cwist_https_send_response
 
 
-CWIST_LIB := $(CWIST_PREFIX)/lib/libcwist.a
+CWIST_LIB := $(CWIST_ROOT)/libcwist.a
 ifeq ($(wildcard $(CWIST_LIB)),)
-  CWIST_LIB := $(CWIST_ROOT)/libcwist.a
+  CWIST_LIB := $(CWIST_PREFIX)/lib/libcwist.a
 endif
 
 LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++ -lz -lzstd -lbrotlienc -lbrotlidec -lm \
