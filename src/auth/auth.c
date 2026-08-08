@@ -704,12 +704,16 @@ bool auth_admin_load(const char *path) {
     }
     if (fgets(g_admin_id, sizeof(g_admin_id), f)) {
         size_t len = strlen(g_admin_id);
-        if (len > 0 && g_admin_id[len - 1] == '\n') g_admin_id[len - 1] = '\0';
+        while (len > 0 && (g_admin_id[len - 1] == '\r' || g_admin_id[len - 1] == '\n')) {
+            g_admin_id[--len] = '\0';
+        }
     }
     char plain_pw[128] = {0};
     if (fgets(plain_pw, sizeof(plain_pw), f)) {
         size_t len = strlen(plain_pw);
-        if (len > 0 && plain_pw[len - 1] == '\n') plain_pw[len - 1] = '\0';
+        while (len > 0 && (plain_pw[len - 1] == '\r' || plain_pw[len - 1] == '\n')) {
+            plain_pw[--len] = '\0';
+        }
     }
     fclose(f);
     char combined[512];
