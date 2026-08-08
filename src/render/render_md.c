@@ -285,6 +285,27 @@ static char *protect_math(const char *md, math_registry_t *blocks, math_registry
             }
         }
 
+        /* Fenced TikZ block: ```tikz ... ``` */
+        if (is_line_start(md, i) && (strncmp(md + i, "```tikz", 7) == 0 || strncmp(md + i, "~~~tikz", 7) == 0)) {
+            size_t line_end = i;
+            while (line_end < len && md[line_end] != '\n') line_end++;
+            if (line_end < len) line_end++;
+            const char *closing = strstr(md + line_end, "\n```");
+            if (!closing) closing = strstr(md + line_end, "\n~~~");
+            if (closing) {
+                size_t code_start = line_end;
+                size_t code_len = (size_t)(closing - (md + line_end));
+                math_registry_add(blocks, md + code_start, code_len);
+                char placeholder[64];
+                snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
+                cwist_sstring_append(out, placeholder);
+                i = (size_t)(closing - md) + 4;
+                while (i < len && (md[i] == '`' || md[i] == '~' || md[i] == '\r')) i++;
+                if (i < len && md[i] == '\n') i++;
+                continue;
+            }
+        }
+
         /* TikZ environment: \begin{tikzpicture}...\end{tikzpicture} */
         if (i + 17 <= len && strncmp(md + i, "\\begin{tikzpicture}", 18) == 0) {
             const char *end_tag = strstr(md + i + 18, "\\end{tikzpicture}");
