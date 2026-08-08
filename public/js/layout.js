@@ -95,7 +95,7 @@
         for(var i=0;i<t.rules.length;i++){var r=t.rules[i];css+=r.sel+'{';for(var d in r.decls)css+=d+':'+r.decls[d]+';';css+='}';}
         return css;
     }
-    function applyTheme(t){var s=document.getElementById('dyn-theme');if(s)s.textContent=buildCss(t);}
+    function applyTheme(t){var s=document.getElementById('dyn-theme');if(!s)return;var css=buildCss(t);if(s.textContent===css)return;s.textContent=css;}
     function findTheme(arr,name){for(var i=0;i<arr.length;i++)if(arr[i].name===name)return arr[i];return arr[0];}
     function setHlCss(name,gen){
         if(gen!==undefined&&gen!==themeGen)return;
@@ -139,13 +139,28 @@
         }catch(e){}
         return null;
     }
+    // Temporarily suppress CSS transitions to prevent visible light→dark flicker
+    // when the server-rendered theme base differs from the JS-resolved theme.
+    function suppressTransition(){
+        var id='_no-transition';
+        if(document.getElementById(id))return;
+        var s=document.createElement('style');
+        s.id=id;s.textContent='*,*::before,*::after{transition:none!important;}';
+        document.head.appendChild(s);
+        requestAnimationFrame(function(){requestAnimationFrame(function(){var e=document.getElementById(id);if(e)e.remove();});});
+    }
+    function modeBase(m){return(m==='light'||m==='sepia')?'light':'dark';}
     var d=document.documentElement;
     var themes=loadThemes();
     var c=document.cookie.match(/theme=(\w+)/);
     var mode=c?c[1]:(d.classList.contains('dark')?'dark':'light');
     if(!/^(light|dark|ocean|forest|sepia)$/.test(mode))mode='light';
+    var serverBase=d.getAttribute('data-server-theme');
     function applyCached(){
         if(!themes)return;
+        // If server-rendered theme base matches JS mode base, applyTheme will
+        // detect identical CSS and skip; otherwise suppress transition first.
+        if(serverBase&&modeBase(mode)!==serverBase)suppressTransition();
         applyTheme(findTheme(themes,mode));
         syncHlTheme();
     }
@@ -159,6 +174,7 @@
             if(themeGen!==0)return;
             saveThemes(arr);
             themes=arr;
+            if(serverBase&&modeBase(mode)!==serverBase)suppressTransition();
             applyTheme(findTheme(arr,mode));
             syncHlTheme();
         }).catch(function(){/* network error: use cached or skip */});
