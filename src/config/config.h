@@ -27,6 +27,7 @@ typedef struct {
     int max_total_parallel_uploads;
     int max_upload_parallel_chunks;
     int max_concurrent_downloads;
+    char use_special_modes[128];
 } blog_config_t;
 
 extern blog_config_t g_config;

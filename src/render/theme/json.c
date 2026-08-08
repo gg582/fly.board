@@ -4,7 +4,12 @@
 #include <string.h>
 
 char *theme_build_json(bool dark_mode) {
-    cJSON *theme = build_theme_object(dark_mode ? "dark" : "light", dark_mode ? &dark : &light);
+    char l_theme[64], d_theme[64];
+    get_special_themes(l_theme, d_theme);
+    const char *resolved_name = dark_mode ? d_theme : l_theme;
+    theme_color_t *t = theme_by_name(resolved_name);
+
+    cJSON *theme = build_theme_object(dark_mode ? "dark" : "light", t);
     char *out = cJSON_PrintUnformatted(theme);
     cJSON_Delete(theme);
     return out;
@@ -12,8 +17,8 @@ char *theme_build_json(bool dark_mode) {
 
 char *theme_build_all_json(void) {
     cJSON *arr = cJSON_CreateArray();
-    cJSON_AddItemToArray(arr, build_theme_object("light", &light));
-    cJSON_AddItemToArray(arr, build_theme_object("dark", &dark));
+    cJSON_AddItemToArray(arr, build_theme_object("light", theme_by_name("light")));
+    cJSON_AddItemToArray(arr, build_theme_object("dark", theme_by_name("dark")));
     cJSON_AddItemToArray(arr, build_theme_object("ocean", &ocean));
     cJSON_AddItemToArray(arr, build_theme_object("forest", &forest));
     cJSON_AddItemToArray(arr, build_theme_object("sepia", &sepia));
