@@ -146,9 +146,9 @@ void *ttak_worker_routine(void *arg) {
             if (tt_setjmp(self->wrapper->env, &self->wrapper->jmp_magic, &self->wrapper->jmp_tid) == 0) {
                 ttak_epoch_enter(); epoch_active = 1;
                 threaded_function_wrapper(self, task);
+                ttak_task_destroy(task, ttak_get_tick_count());
                 ttak_epoch_exit(); epoch_active = 0;
             } else if (epoch_active) { ttak_epoch_exit(); epoch_active = 0; self->exit_code = TTAK_ERR_FATAL_EXIT; }
-            ttak_task_destroy(task, ttak_get_tick_count());
         }
     }
     ttak_epoch_deregister_thread();
