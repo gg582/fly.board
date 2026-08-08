@@ -7,14 +7,13 @@
  * the framework/transport drops the Cookie header on keep-alive connections. */
 static void set_auth_cookies(cwist_http_response *res, const char *token, bool use_tls) {
     if (!token) return;
-    (void)use_tls;
-    /* Always set Secure; Path=/; SameSite=Lax for proper HTTPS / proxy session retention */
+    const char *secure_attr = use_tls ? "; Secure" : "";
     char cookie[2048];
-    snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax; Secure",
-             SESSION_COOKIE_NAME, token, AUTH_SESSION_LIFETIME);
+    snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax%s",
+             SESSION_COOKIE_NAME, token, AUTH_SESSION_LIFETIME, secure_attr);
     cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
-    snprintf(cookie, sizeof(cookie), "jwt_access=%s; Path=/; Max-Age=%d; SameSite=Lax; Secure",
-             token, AUTH_SESSION_LIFETIME);
+    snprintf(cookie, sizeof(cookie), "jwt_access=%s; Path=/; Max-Age=%d; SameSite=Lax%s",
+             token, AUTH_SESSION_LIFETIME, secure_attr);
     cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
 }
 
