@@ -676,8 +676,9 @@ bool auth_is_logged_in(cwist_http_request *req, int *out_user_id, char *out_role
 bool auth_require_login(cwist_http_request *req, cwist_http_response *res, int *out_user_id, char *out_role, size_t role_len) {
     if (!res) return false;
     if (!auth_is_logged_in(req, out_user_id, out_role, role_len)) {
-        res->status_code = CWIST_HTTP_UNAUTHORIZED;
-        cwist_sstring_assign(res->body, "Unauthorized. Please <a href='/login'>login</a>.");
+        res->status_code = (cwist_http_status_t)302;
+        cwist_http_header_add(&res->headers, "Location", "/login");
+        cwist_sstring_assign(res->body, "Redirecting to /login...");
         return false;
     }
     return true;
