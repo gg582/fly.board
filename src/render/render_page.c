@@ -218,6 +218,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
     cwist_html_element_t *html = cwist_html_element_create("html");
     cwist_html_element_add_attr(html, "lang", "ko");
+    cwist_html_element_add_attr(html, "data-server-theme", dark ? "dark" : "light");
     if (is_mobile) cwist_html_element_add_class(html, "mobile");
 
     cwist_html_element_t *head = cwist_html_element_create("head");
@@ -284,6 +285,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(head, inline_head_cdn);
 
     cwist_html_element_t *body = cwist_html_element_create("body");
+    cwist_html_element_add_attr(body, "data-server-theme", dark ? "dark" : "light");
     if (dark) cwist_html_element_add_class(body, "dark");
     if (is_mobile) cwist_html_element_add_class(body, "mobile");
 
