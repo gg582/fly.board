@@ -3285,6 +3285,22 @@
         if (node.nodeType !== Node.ELEMENT_NODE) return '';
         var tag = node.tagName.toLowerCase();
         if (tag === 'br') return '\n';
+        if (node.classList && node.classList.contains('katex-html')) return '';
+        if (node.classList && node.classList.contains('katex-mathml')) {
+            var annotation = node.querySelector('annotation[encoding="application/x-tex"]');
+            if (annotation) {
+                var tex = annotation.textContent;
+                var isBlock = !!(node.closest && node.closest('.math-block'));
+                return isBlock ? '$$' + tex + '$$' : '$' + tex + '$';
+            }
+        }
+        if (node.classList && (node.classList.contains('math-block') || node.classList.contains('math-inline'))) {
+            var mathAnnotation = node.querySelector('annotation[encoding="application/x-tex"]');
+            if (mathAnnotation) {
+                var rawTex = mathAnnotation.textContent;
+                return node.classList.contains('math-block') ? '$$' + rawTex + '$$' : '$' + rawTex + '$';
+            }
+        }
         var inner = '';
         Array.prototype.forEach.call(node.childNodes, function(child) {
             inner += elementToMarkdown(child);
