@@ -6,10 +6,9 @@
 void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    auth_is_logged_in(req, &uid, role, sizeof(role));
-    if (uid <= 0) {
-        send_json_response(res, session_error_json("login required"), CWIST_HTTP_UNAUTHORIZED);
-        return;
+    // Use unified auth check: redirect to /login if not authenticated
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) {
+        return; // auth_require_login already set redirect
     }
     cwist_query_map *kv = cwist_query_map_create();
     cwist_query_map_parse(kv, req->body->data);

@@ -61,6 +61,18 @@ static void append_escaped_math(cwist_sstring *out, const char *text) {
     }
 }
 
+/* TikZ is rendered by TikZJax in the browser.  It must not be inserted into
+ * the Markdown input directly: MD_FLAG_NOHTML would escape the wrapper and
+ * leave the diagram as text.  Keep the source in a registry, emit a harmless
+ * placeholder for md4c, then restore an escaped wrapper in the HTML output. */
+static void add_tikz_placeholder(cwist_sstring *out, math_registry_t *tikz,
+                                 const char *code, size_t len) {
+    math_registry_add(tikz, code, len);
+    char placeholder[64];
+    snprintf(placeholder, sizeof(placeholder), "@@TIKZ_BLOCK_%d@@", tikz->count - 1);
+    cwist_sstring_append(out, placeholder);
+}
+
 static bool is_line_start(const char *s, size_t pos) {
     return pos == 0 || s[pos - 1] == '\n';
 }
@@ -186,7 +198,9 @@ static bool is_code_fence_line(const char *s, size_t pos, size_t len, int *out_l
     return false;
 }
 
-static char *protect_math(const char *md, math_registry_t *blocks, math_registry_t *inlines, math_registry_t *media) {
+static char *protect_math(const char *md, math_registry_t *blocks,
+                          math_registry_t *inlines, math_registry_t *media,
+                          math_registry_t *tikz) {
     size_t len = strlen(md);
     cwist_sstring *out = cwist_sstring_create();
     size_t i = 0;
@@ -194,6 +208,34 @@ static char *protect_math(const char *md, math_registry_t *blocks, math_registry
     int current_fence_len = 0;
 
     while (i < len) {
+        /* Handle TikZ before generic fence tracking.  Otherwise this opening
+         * line would put us in a code block and the specialized branch below
+         * would never be reached. */
+        if (is_line_start(md, i) &&
+            (strncmp(md + i, "```tikz", 7) == 0 || strncmp(md + i, "~~~tikz", 7) == 0)) {
+            char fence_char = md[i];
+            size_t line_end = i;
+            while (line_end < len && md[line_end] != '\n') line_end++;
+            if (line_end < len) line_end++;
+            const char *closing = NULL;
+            for (size_t j = line_end; j + 3 <= len; j++) {
+                if (md[j] == '\n' && md[j + 1] == fence_char &&
+                    md[j + 2] == fence_char && md[j + 3] == fence_char) {
+                    closing = md + j;
+                    break;
+                }
+            }
+            if (closing) {
+                size_t code_len = (size_t)(closing - (md + line_end));
+                add_tikz_placeholder(out, tikz, md + line_end, code_len);
+                i = (size_t)(closing - md) + 4;
+                while (i < len && md[i] == fence_char) i++;
+                while (i < len && (md[i] == '\r' || md[i] == ' ' || md[i] == '\t')) i++;
+                if (i < len && md[i] == '\n') i++;
+                continue;
+            }
+        }
+
         /* Track fenced code blocks with proper backtick/tilde counts */
         int fence_len = 0;
         if (is_line_start(md, i) && is_code_fence_line(md, i, len, &fence_len)) {
@@ -285,36 +327,12 @@ static char *protect_math(const char *md, math_registry_t *blocks, math_registry
             }
         }
 
-        /* Fenced TikZ block: ```tikz ... ``` */
-        if (is_line_start(md, i) && (strncmp(md + i, "```tikz", 7) == 0 || strncmp(md + i, "~~~tikz", 7) == 0)) {
-            size_t line_end = i;
-            while (line_end < len && md[line_end] != '\n') line_end++;
-            if (line_end < len) line_end++;
-            const char *closing = strstr(md + line_end, "\n```");
-            if (!closing) closing = strstr(md + line_end, "\n~~~");
-            if (closing) {
-                size_t code_start = line_end;
-                size_t code_len = (size_t)(closing - (md + line_end));
-                math_registry_add(blocks, md + code_start, code_len);
-                char placeholder[64];
-                snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
-                cwist_sstring_append(out, placeholder);
-                i = (size_t)(closing - md) + 4;
-                while (i < len && (md[i] == '`' || md[i] == '~' || md[i] == '\r')) i++;
-                if (i < len && md[i] == '\n') i++;
-                continue;
-            }
-        }
-
         /* TikZ environment: \begin{tikzpicture}...\end{tikzpicture} */
         if (i + 17 <= len && strncmp(md + i, "\\begin{tikzpicture}", 18) == 0) {
             const char *end_tag = strstr(md + i + 18, "\\end{tikzpicture}");
             if (end_tag) {
                 size_t total_len = (size_t)(end_tag + 17 - (md + i));
-                math_registry_add(blocks, md + i, total_len);
-                char placeholder[64];
-                snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
-                cwist_sstring_append(out, placeholder);
+                add_tikz_placeholder(out, tikz, md + i, total_len);
                 i += total_len;
                 continue;
             }
@@ -463,6 +481,69 @@ static void restore_media(cwist_sstring *html, const math_registry_t *media) {
                 i = j + 2;
                 continue;
             }
+        }
+        cwist_sstring_append_len(out, data + i, 1);
+        i++;
+    }
+
+    cwist_sstring_assign(html, out->data);
+    cwist_sstring_destroy(out);
+}
+
+static bool parse_tikz_placeholder(const char *data, size_t len, size_t pos,
+                                   size_t *after, int *index) {
+    static const char prefix[] = "@@TIKZ_BLOCK_";
+    const size_t prefix_len = sizeof(prefix) - 1;
+    if (pos + prefix_len > len || strncmp(data + pos, prefix, prefix_len) != 0) return false;
+
+    size_t j = pos + prefix_len;
+    int idx = 0;
+    bool has_digit = false;
+    while (j < len && data[j] >= '0' && data[j] <= '9') {
+        has_digit = true;
+        idx = idx * 10 + (data[j] - '0');
+        j++;
+    }
+    if (!has_digit || j + 2 > len || strncmp(data + j, "@@", 2) != 0) return false;
+    *after = j + 2;
+    *index = idx;
+    return true;
+}
+
+static void append_tikz_block(cwist_sstring *out, const char *code) {
+    bool has_packages = strstr(code, "\\usetikzlibrary") != NULL ||
+                        strstr(code, "\\usepackage") != NULL;
+    cwist_sstring_append(out, "<div class=\"tikz-block\"");
+    if (has_packages) cwist_sstring_append(out, " data-has-packages=\"true\"");
+    cwist_sstring_append(out, ">\n");
+    append_escaped_math(out, code);
+    cwist_sstring_append(out, "\n</div>");
+}
+
+/* Replace paragraph-wrapped placeholders with a block-level TikZ container.
+ * The source is HTML-escaped so untrusted post content cannot break out before
+ * TikZJax reads it through textContent. */
+static void restore_tikz(cwist_sstring *html, const math_registry_t *tikz) {
+    if (!tikz || tikz->count == 0) return;
+    const char *data = html->data;
+    size_t len = strlen(data);
+    cwist_sstring *out = cwist_sstring_create();
+    if (!out) return;
+
+    size_t i = 0;
+    while (i < len) {
+        size_t placeholder_start = i;
+        size_t after = 0;
+        int index = -1;
+        bool paragraph = i + 3 <= len && strncmp(data + i, "<p>", 3) == 0;
+        if (paragraph) placeholder_start += 3;
+        if (parse_tikz_placeholder(data, len, placeholder_start, &after, &index) &&
+            (!paragraph || (after + 4 <= len && strncmp(data + after, "</p>", 4) == 0))) {
+            if (index >= 0 && index < tikz->count) {
+                append_tikz_block(out, tikz->expressions[index]);
+            }
+            i = paragraph ? after + 4 : after;
+            continue;
         }
         cwist_sstring_append_len(out, data + i, 1);
         i++;
@@ -718,11 +799,12 @@ static void inject_img_attrs(cwist_sstring *html) {
 }
 
 cwist_sstring *render_markdown_to_html(const char *md) {
-    math_registry_t blocks = {0}, inlines = {0}, media = {0};
+    math_registry_t blocks = {0}, inlines = {0}, media = {0}, tikz = {0};
     math_registry_init(&blocks);
     math_registry_init(&inlines);
     math_registry_init(&media);
-    char *protected = protect_math(md, &blocks, &inlines, &media);
+    math_registry_init(&tikz);
+    char *protected = protect_math(md, &blocks, &inlines, &media, &tikz);
 
     cwist_sstring *html = cwist_sstring_create();
     if (!html) {
@@ -730,6 +812,7 @@ cwist_sstring *render_markdown_to_html(const char *md) {
         math_registry_free(&blocks);
         math_registry_free(&inlines);
         math_registry_free(&media);
+        math_registry_free(&tikz);
         return NULL;
     }
     cwist_sstring_assign(html, "");
@@ -741,13 +824,16 @@ cwist_sstring *render_markdown_to_html(const char *md) {
         math_registry_free(&blocks);
         math_registry_free(&inlines);
         math_registry_free(&media);
+        math_registry_free(&tikz);
         return NULL;
     }
     restore_math(html, &blocks, &inlines);
     restore_media(html, &media);
+    restore_tikz(html, &tikz);
     math_registry_free(&blocks);
     math_registry_free(&inlines);
     math_registry_free(&media);
+    math_registry_free(&tikz);
     rewrite_x_equation(html);
     inject_img_attrs(html);
     rewrite_tasfa_bootstrap(html);

@@ -73,6 +73,18 @@ int main(void) {
           "```python\nvalue = $x$\n```\n",
           "value = $x$", "class=\"math-inline\"");
 
+    check("fenced TikZ becomes a renderable block",
+          "```tikz\n\\draw (0,0) -- (1,1);\n```\n",
+          "<div class=\"tikz-block\">", "language-tikz");
+
+    check("TikZ source is HTML escaped",
+          "```tikz\n\\node {<unsafe>};\n```\n",
+          "&lt;unsafe&gt;", NULL);
+
+    check("TikZ environments become renderable blocks",
+          "\\begin{tikzpicture}\n\\draw (0,0) circle (1);\n\\end{tikzpicture}\n",
+          "<div class=\"tikz-block\">", "class=\"math-block\"");
+
     if (failures == 0) printf("ALL TESTS PASSED\n");
     return failures ? 1 : 0;
 }
