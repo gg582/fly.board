@@ -24,7 +24,6 @@ Benchmarks run against `https://127.0.0.x:8888/` via `run_all_bench.sh`.
 | Name | Default | Unit | Description |
 |------|---------|------|-------------|
 | `CWIST_WORKER_THREADS` | `cpu_cores * 4`, clamped `[16, 128]` | threads | Number of HTTP worker threads spawned by CWIST. Each request handler runs on one of these threads. |
-| `FLYBOARD_CORK_THRESHOLD` | `1460` | bytes | Responses whose header + body total is **≤** this value skip `TCP_CORK`. Larger responses keep CORK to coalesce header+body (and TLS records). Set to `0` to always CORK, or a larger value (e.g. `4096`) if most of your pages are small. |
 | `FLYBOARD_ADVERTISE_H3` | `true` | bool | Whether `Alt-Svc` is advertised when HTTP/3 is enabled. |
 | `FLYBOARD_ALT_SVC_MAX_AGE` | `300` | seconds | `ma` parameter for the `Alt-Svc` header. |
 | `FLYBOARD_CACHE_MAX_MB` | *(unlimited)* | MiB | Soft cap for the in-memory page cache. |
@@ -95,7 +94,6 @@ Controls font families, letter spacing, and weights. See `fonts.settings` for th
 FLYBOARD_INLINE_SHELL=0
 FLYBOARD_INLINE_CDN=0
 FLYBOARD_INLINE_IMAGES=0
-FLYBOARD_CORK_THRESHOLD=1460
 ```
 
 ### High-RTT / satellite / mobile edge
@@ -105,7 +103,6 @@ FLYBOARD_CORK_THRESHOLD=1460
 FLYBOARD_INLINE_SHELL=1
 FLYBOARD_INLINE_CDN=0
 FLYBOARD_INLINE_IMAGES=0
-FLYBOARD_CORK_THRESHOLD=4096
 ```
 
 ### Air-gapped / offline
@@ -115,7 +112,6 @@ FLYBOARD_CORK_THRESHOLD=4096
 FLYBOARD_INLINE_SHELL=1
 FLYBOARD_INLINE_CDN=1
 FLYBOARD_INLINE_IMAGES=1
-FLYBOARD_CORK_THRESHOLD=1460
 ```
 
 ## Benchmark results
@@ -126,7 +122,6 @@ Run locally with the settings below and the scripts in the repository root.
 export FLYBOARD_INLINE_SHELL=1
 export FLYBOARD_INLINE_CDN=0
 export FLYBOARD_INLINE_IMAGES=0
-export FLYBOARD_CORK_THRESHOLD=1460
 bash run_all_bench.sh
 ```
 
