@@ -993,6 +993,24 @@
         schedulePreview();
     }
 
+    function insertTemplate(template, marker) {
+        if (!ta) return;
+        var start = ta.selectionStart;
+        var end = ta.selectionEnd;
+        var selected = ta.value.slice(start, end);
+        var replacement = selected || template;
+        ta.value = ta.value.slice(0, start) + replacement + ta.value.slice(end);
+        var markerAt = selected ? -1 : replacement.indexOf(marker);
+        if (markerAt >= 0) {
+            ta.selectionStart = start + markerAt;
+            ta.selectionEnd = ta.selectionStart + marker.length;
+        } else {
+            ta.selectionStart = ta.selectionEnd = start + replacement.length;
+        }
+        ta.focus();
+        schedulePreview();
+    }
+
     function toggleWrap(wrap, placeholder) {
         if (!ta) return;
         var start = ta.selectionStart;
@@ -1187,7 +1205,7 @@
 
     function runPreviewPostProcessing(root) {
         var needsHl = !!root.querySelector('pre code[class*="language-"]');
-        var needsMath = !!root.querySelector('.math-block, .math-inline');
+        var needsMath = !!root.querySelector('.math-block, .math-inline, .tikz-block, code.language-tikz, script[type="text/tikz"], div.tikz');
 
         if (needsHl) ensureHighlightCss();
 
@@ -1243,7 +1261,7 @@
         var md = ta.value;
         if (!md.trim()) {
             preview.innerHTML = "<p style='color:var(--muted)'>Nothing to preview yet.</p>";
-            preview.setAttribute('contenteditable', 'true');
+            preview.setAttribute('contenteditable', 'false');
             updateMetrics();
             if (syncStatus) syncStatus.textContent = 'Preview cleared';
             return;
@@ -1259,7 +1277,7 @@
             return r.text();
         }).then(function(html) {
             preview.innerHTML = html;
-            preview.setAttribute('contenteditable', 'true');
+            preview.setAttribute('contenteditable', 'false');
             if (typeof window.initMarkdownAffordances === 'function') {
                 window.initMarkdownAffordances(preview);
             }
@@ -1269,7 +1287,7 @@
         }).catch(function(e) {
             if (e && e.name === 'AbortError') return;
             preview.innerHTML = "<p style='color:var(--muted)'>Preview unavailable.</p>";
-            preview.setAttribute('contenteditable', 'true');
+            preview.setAttribute('contenteditable', 'false');
             if (syncStatus) syncStatus.textContent = 'Preview error';
         });
     }
@@ -3378,7 +3396,10 @@
         if (refresh) schedulePreview();
     }
 
-    if (preview) {
+    /* A rendered DOM cannot be converted back to Markdown without losing
+     * source syntax (especially KaTeX/TikZ). Preview is deliberately
+     * read-only; the Write tab remains the single Markdown source of truth. */
+    if (preview && preview.getAttribute('data-preview-editing') === 'true') {
         preview.setAttribute('contenteditable', 'true');
         preview.addEventListener('input', function() {
             clearTimeout(previewSyncTimer);
@@ -3443,11 +3464,15 @@
 
     Array.prototype.forEach.call(toolbarButtons, function(button) {
         button.addEventListener('click', function() {
+            if (isPreviewPaneActive()) switchTab('write');
             var wrap = button.getAttribute('data-md-wrap');
             var prefix = button.getAttribute('data-md-prefix');
             var block = button.getAttribute('data-md-block');
+            var template = button.getAttribute('data-md-template');
             var placeholder = button.getAttribute('data-md-placeholder') || '';
-            if (wrap) {
+            if (template) {
+                insertTemplate(template, placeholder);
+            } else if (wrap) {
                 toggleWrap(wrap, placeholder);
             } else if (prefix) {
                 prependToSelection(prefix, placeholder);

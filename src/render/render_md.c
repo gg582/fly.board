@@ -328,10 +328,15 @@ static char *protect_math(const char *md, math_registry_t *blocks,
         }
 
         /* TikZ environment: \begin{tikzpicture}...\end{tikzpicture} */
-        if (i + 17 <= len && strncmp(md + i, "\\begin{tikzpicture}", 18) == 0) {
-            const char *end_tag = strstr(md + i + 18, "\\end{tikzpicture}");
+        static const char tikz_begin[] = "\\begin{tikzpicture}";
+        static const char tikz_end[] = "\\end{tikzpicture}";
+        const size_t tikz_begin_len = sizeof(tikz_begin) - 1;
+        const size_t tikz_end_len = sizeof(tikz_end) - 1;
+        if (i + tikz_begin_len <= len &&
+            strncmp(md + i, tikz_begin, tikz_begin_len) == 0) {
+            const char *end_tag = strstr(md + i + tikz_begin_len, tikz_end);
             if (end_tag) {
-                size_t total_len = (size_t)(end_tag + 17 - (md + i));
+                size_t total_len = (size_t)(end_tag + tikz_end_len - (md + i));
                 add_tikz_placeholder(out, tikz, md + i, total_len);
                 i += total_len;
                 continue;

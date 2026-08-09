@@ -1181,6 +1181,9 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     cwist_sstring_append(b, "<button type='button' class='btn btn-outline editor-tool' data-md-prefix='- ' data-md-placeholder='list item'>List</button>");
     cwist_sstring_append(b, "<button type='button' class='btn btn-outline editor-tool' data-md-prefix='> ' data-md-placeholder='quote'>Quote</button>");
     cwist_sstring_append(b, "<button type='button' class='btn btn-outline editor-tool' data-md-block='```\\n\\n```'>Code Block</button>");
+    cwist_sstring_append(b, "<button type='button' class='btn btn-outline editor-tool' data-md-template='$expression$' data-md-placeholder='expression'>LaTeX</button>");
+    cwist_sstring_append(b, "<button type='button' class='btn btn-outline editor-tool' data-md-template='$$\\nexpression\\n$$\\n' data-md-placeholder='expression'>Display Math</button>");
+    cwist_sstring_append(b, "<button type='button' class='btn btn-outline editor-tool' data-md-template='\\begin{tikzpicture}\\n  \\draw (0,0) -- (2,1);\\n\\end{tikzpicture}\\n' data-md-placeholder='\\draw (0,0) -- (2,1);'>TikZ</button>");
     cwist_sstring_append(b, "</div>");
     cwist_sstring_append(b, "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:12px'>");
     cwist_sstring_append(b, "<button type='button' class='btn' data-editor-tab='write'>Write</button>");
@@ -1200,12 +1203,12 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     }
     cwist_sstring_append(b, "</textarea></div>");
     cwist_sstring_append(b, "<div data-editor-pane='preview' style='display:none;background:var(--bg)'>");
-    cwist_sstring_append(b, "<div class='preview-edit-hint' style='font-size:12px;color:var(--muted);padding:12px 16px 0;border-bottom:1px dashed var(--border);margin-bottom:-1px'>Live Preview (Directly editable)</div>");
+    cwist_sstring_append(b, "<div class='preview-edit-hint' style='font-size:12px;color:var(--muted);padding:12px 16px 0;border-bottom:1px dashed var(--border);margin-bottom:-1px'>Live Preview — edit Markdown in Write; Preview never rewrites your source.</div>");
     cwist_sstring_append(b, "<div id='md-preview-wrapper' style='padding:24px 32px;min-height:500px;height:60vh;overflow:auto;background:var(--bg)'>");
     cwist_sstring_append(b, "<article class='velog-preview-article' style='max-width:768px;margin:0 auto'>");
     cwist_sstring_append(b, "<h1 id='velog-preview-title' style='margin-bottom:12px;font-size:2.25rem;font-weight:800;letter-spacing:-0.03em;line-height:1.2;color:var(--fg)'>(Title)</h1>");
     cwist_sstring_append(b, "<p id='velog-preview-summary' style='color:var(--muted);font-size:1.1rem;margin-bottom:24px;line-height:1.5'></p>");
-    cwist_sstring_append(b, "<div id='md-preview' contenteditable='true' class='markdown-body' style='outline:none;min-height:300px'>");
+    cwist_sstring_append(b, "<div id='md-preview' contenteditable='false' class='markdown-body' style='outline:none;min-height:300px'>");
     cwist_sstring_append(b, "<p style='color:var(--muted)'>Preview will appear here...</p>");
     cwist_sstring_append(b, "</div></article></div></div></div>");
 

@@ -85,6 +85,10 @@ int main(void) {
           "\\begin{tikzpicture}\n\\draw (0,0) circle (1);\n\\end{tikzpicture}\n",
           "<div class=\"tikz-block\">", "class=\"math-block\"");
 
+    check("single-line TikZ environment becomes a renderable block",
+          "\\begin{tikzpicture}[scale=1.5] \\draw[->] (0,0) -- (2,4); \\end{tikzpicture}",
+          "<div class=\"tikz-block\">", "class=\"math-block\"");
+
     if (failures == 0) printf("ALL TESTS PASSED\n");
     return failures ? 1 : 0;
 }
