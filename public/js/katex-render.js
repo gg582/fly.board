@@ -50,6 +50,31 @@
         return trimmed;
     }
 
+    function themeTikZDiagram(wrapper) {
+        if (!wrapper) return;
+        var black = /^(#000(?:000)?|black|rgb\(0\s*,\s*0\s*,\s*0\s*\))$/i;
+        var applyTheme = function() {
+            wrapper.querySelectorAll('svg [fill], svg [stroke]').forEach(function(node) {
+                ['fill', 'stroke'].forEach(function(attribute) {
+                    var value = node.getAttribute(attribute);
+                    if (value && black.test(value.trim())) {
+                        node.setAttribute(attribute, 'var(--tikz-ink)');
+                    }
+                });
+                var style = node.getAttribute('style');
+                if (style) {
+                    node.setAttribute('style', style
+                        .replace(/(fill|stroke)\s*:\s*(#000(?:000)?|black|rgb\(0\s*,\s*0\s*,\s*0\s*\))/gi,
+                            '$1:var(--tikz-ink)'));
+                }
+            });
+        };
+
+        applyTheme();
+        /* TikZJax can append the SVG after its compiler callback returns. */
+        new MutationObserver(applyTheme).observe(wrapper, {childList: true, subtree: true});
+    }
+
     function renderBlogMath(elem){
         if (!elem) return;
         if (typeof katex !== 'undefined') {
@@ -86,7 +111,11 @@
 
                     var targetNode = (pre && pre.tagName.toLowerCase() === 'pre') ? pre : el;
                     if (targetNode.parentNode) {
-                        targetNode.parentNode.replaceChild(script, targetNode);
+                        var wrapper = document.createElement('div');
+                        wrapper.className = 'tikz-render';
+                        targetNode.parentNode.replaceChild(wrapper, targetNode);
+                        wrapper.appendChild(script);
+                        themeTikZDiagram(wrapper);
                     }
                 });
                 processTikZJax();
