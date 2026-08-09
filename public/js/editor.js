@@ -1173,10 +1173,10 @@
         }
         loadCss('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css');
         if (typeof katex !== 'undefined') {
-            loadScript('/assets/js/katex-render.js', cb);
+            loadScript('/assets/js/katex-render.js?v=3', cb);
         } else {
             loadScript('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js', function() {
-                loadScript('/assets/js/katex-render.js', cb);
+                loadScript('/assets/js/katex-render.js?v=3', cb);
             });
         }
     }
