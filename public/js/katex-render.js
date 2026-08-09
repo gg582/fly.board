@@ -1,26 +1,45 @@
 (function(){
     function loadTikZJax(hasExtraPackages, cb) {
-        if (window.tikzjax) {
+        if (window.__flyboardTikzJaxProcess) {
             if (cb) cb();
             return;
         }
         if (document.getElementById('tikzjax-script')) {
             if (cb) {
                 var el = document.getElementById('tikzjax-script');
-                el.addEventListener('load', cb);
+                if (el.dataset.loaded === '1') cb();
+                else el.addEventListener('load', cb);
             }
             return;
         }
         var css = document.createElement('link');
         css.rel = 'stylesheet';
-        css.href = 'https://cdn.jsdelivr.net/npm/tikzjax@1.0.5/dist/tikzjax.css';
+        /* TikZJax was unpublished from npm, so the old jsDelivr URL returns
+         * 404 and leaves every diagram as its source text.  Use TikZJax's
+         * official, versioned distribution instead. */
+        css.href = 'https://tikzjax.com/v1/fonts.css';
         document.head.appendChild(css);
 
         var script = document.createElement('script');
         script.id = 'tikzjax-script';
-        script.src = 'https://cdn.jsdelivr.net/npm/tikzjax@1.0.5/tikzjax.js';
-        if (cb) script.onload = cb;
+        script.src = 'https://tikzjax.com/v1/tikzjax.js';
+        script.onload = function() {
+            /* The official runtime exposes no public process() function. It
+             * installs its compiler as window.onload, which never fires when
+             * the runtime is loaded later from Preview. Preserve that function
+             * and invoke it after inserting TikZ source nodes below. */
+            if (typeof window.onload === 'function') {
+                window.__flyboardTikzJaxProcess = window.onload;
+            }
+            script.dataset.loaded = '1';
+            if (cb) cb();
+        };
         document.head.appendChild(script);
+    }
+
+    function processTikZJax() {
+        if (typeof window.__flyboardTikzJaxProcess !== 'function') return;
+        try { window.__flyboardTikzJaxProcess.call(window); } catch (e) {}
     }
 
     function prepareTikZCode(code) {
@@ -70,9 +89,7 @@
                         targetNode.parentNode.replaceChild(script, targetNode);
                     }
                 });
-                if (window.tikzjax && typeof window.tikzjax.process === 'function') {
-                    window.tikzjax.process();
-                }
+                processTikZJax();
             });
         }
     }
@@ -83,5 +100,3 @@
     }
     window.__renderBlogMath = renderBlogMath;
 })();
-
-

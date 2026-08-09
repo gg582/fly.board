@@ -455,31 +455,12 @@ self.addEventListener('fetch', function(event) {
        because the ReadableStream is always fed from byte 0. Firefox in
        particular treats a Content-Length/range mismatch as a partial
        transfer error (NS_ERROR_PARTIAL_TRANSFER). */
-    /* Navigation requests are always fetched from the network.  HTML is
-     * dynamic (route, session, theme and permissions), so serving it from a
-     * service-worker cache can render '/' after navigating to '/post/:slug'. */
-    if (event.request.mode === 'navigate' && event.request.method === 'GET') {
-        var clientAuth = clientAuthTokens[event.clientId];
-        var navigationRequest = event.request;
-        /* A normal navigation carries cookies itself. If the transport loses
-           that header, use only the memory-only token explicitly provided by
-           this exact client. Do not share identity by IP, UA, cache, or any
-           persistent browser storage. */
-        if (clientAuth && Date.now() - clientAuth.receivedAt < 60 * 60 * 1000) {
-            var navigationHeaders = new Headers(event.request.headers);
-            navigationHeaders.set('Authorization', 'Bearer ' + clientAuth.token);
-            navigationRequest = new Request(event.request.url, {
-                method: 'GET',
-                headers: navigationHeaders,
-                credentials: 'same-origin',
-                cache: 'no-store'
-            });
-        }
-        event.respondWith(
-            fetchWithRetry(navigationRequest, { maxRetries: 3, baseDelay: 150, firefoxFallback: true })
-        );
-        return;
-    }
+    /* Do not rebuild document-navigation requests in the service worker.
+     * Reconstructing a navigation as a generic Request loses browser-managed
+     * navigation state on some engines, including the session-cookie context.
+     * Let the browser perform page navigations itself; fetch/XHR requests
+     * still receive the in-memory bearer fallback from jwt.js. */
+    if (event.request.mode === 'navigate') return;
 
     /* Cache CDN fonts, styles and scripts aggressively. High-RTT links suffer
      * most on these cross-origin resources because they are fetched on every
