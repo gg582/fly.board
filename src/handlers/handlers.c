@@ -285,10 +285,10 @@ static void replace_csp(cwist_http_response *res) {
     }
     char csp[1024];
     snprintf(csp, sizeof(csp),
-        "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.plyr.io data: blob:; "
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.plyr.io data: blob:; "
-        "style-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.plyr.io data: blob:; "
-        "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:; "
+        "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.plyr.io https://tikzjax.com data: blob:; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.plyr.io https://tikzjax.com data: blob:; "
+        "style-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.plyr.io https://tikzjax.com data: blob:; "
+        "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://tikzjax.com data:; "
         "img-src 'self' blob: data: https:; "
         "media-src 'self' blob: data: https:; "
         "connect-src 'self' https:; "
