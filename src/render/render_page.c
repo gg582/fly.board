@@ -723,7 +723,10 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                         cwist_sstring_append(body_cdn,
                             "<script src=\"https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js\"></script>");
                     }
-                    cwist_sstring_append(body_cdn, "<script src=\"/assets/js/katex-render.js\"></script>");
+                    /* TikZJax's runtime URL changed; version this local loader
+                     * so service-worker/static caches cannot retain the old
+                     * renderer that pointed at the unpublished npm package. */
+                    cwist_sstring_append(body_cdn, "<script src=\"/assets/js/katex-render.js?v=3\"></script>");
                 }
 
                 cwist_sstring *doc2 = cwist_sstring_create();
