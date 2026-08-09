@@ -2236,6 +2236,13 @@ void rule_media(cJSON *rules) {
     add_decl(mq_post_summary, "font-size", "1.05rem");
     cJSON_AddItemToArray(rules, mq_post_summary);
 
+    /* The broad mobile post-title rule above is for the home feed. On a
+     * sub-board it must not override the compact board list hierarchy: a
+     * featured post remains larger than a normal board post. */
+    cJSON *mq_board_title = create_mobile_rule(".board-typography-list .post-row-title");
+    add_decl(mq_board_title, "font-size", "clamp(1.15rem, 5.2vw, 1.35rem)");
+    cJSON_AddItemToArray(rules, mq_board_title);
+
     cJSON *mq_board_featured_title = create_mobile_rule(".board-typography-list .post-row.featured .post-row-title");
     add_decl(mq_board_featured_title, "font-size", "clamp(1.3rem, 6.2vw, 1.6rem)");
     cJSON_AddItemToArray(rules, mq_board_featured_title);
