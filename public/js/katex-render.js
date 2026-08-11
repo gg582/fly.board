@@ -1,17 +1,23 @@
 (function(){
-    function loadTikZJax(hasExtraPackages, cb) {
-        if (window.__flyboardTikzJaxProcess) {
-            if (cb) cb();
-            return;
-        }
-        if (document.getElementById('tikzjax-script')) {
-            if (cb) {
-                var el = document.getElementById('tikzjax-script');
-                if (el.dataset.loaded === '1') cb();
-                else el.addEventListener('load', cb);
+    /* TikZJax exposes its compiler as window.onload.  Posts and the editor
+     * load this file after DOMContentLoaded, so relying on the normal onload
+     * event leaves newly inserted diagrams unprocessed.  Keep one shared
+     * promise and explicitly invoke the compiler once the runtime is ready. */
+    function loadTikZJax() {
+        if (window.__flyboardTikzJaxReady) return window.__flyboardTikzJaxReady;
+
+        window.__flyboardTikzJaxReady = new Promise(function(resolve, reject) {
+            var existing = document.getElementById('tikzjax-script');
+            if (existing) {
+                if (existing.dataset.loaded === '1') {
+                    resolve();
+                } else {
+                    existing.addEventListener('load', function(){ resolve(); }, {once: true});
+                    existing.addEventListener('error', function(){ reject(new Error('TikZJax failed to load')); }, {once: true});
+                }
+                return;
             }
-            return;
-        }
+
         var css = document.createElement('link');
         css.rel = 'stylesheet';
         /* TikZJax was unpublished from npm, so the old jsDelivr URL returns
@@ -32,14 +38,41 @@
                 window.__flyboardTikzJaxProcess = window.onload;
             }
             script.dataset.loaded = '1';
-            if (cb) cb();
+            resolve();
         };
+        script.onerror = function() { reject(new Error('TikZJax failed to load')); };
         document.head.appendChild(script);
+        });
+
+        /* A failed network request must not poison every later render. */
+        window.__flyboardTikzJaxReady.catch(function(){
+            window.__flyboardTikzJaxReady = null;
+        });
+        return window.__flyboardTikzJaxReady;
     }
 
     function processTikZJax() {
         if (typeof window.__flyboardTikzJaxProcess !== 'function') return;
-        try { window.__flyboardTikzJaxProcess.call(window); } catch (e) {}
+        try { window.__flyboardTikzJaxProcess.call(window); } catch (e) {
+            document.querySelectorAll('.tikz-render[data-tikz-state="pending"]').forEach(function(el){
+                markTikZFailure(el, e);
+            });
+        }
+    }
+
+    function markTikZFailure(wrapper, error) {
+        if (!wrapper || wrapper.querySelector('svg')) return;
+        wrapper.dataset.tikzState = 'error';
+        wrapper.setAttribute('role', 'img');
+        wrapper.setAttribute('aria-label', 'TikZ diagram could not be rendered');
+        var message = wrapper.querySelector('.tikz-error');
+        if (!message) {
+            message = document.createElement('div');
+            message.className = 'tikz-error';
+            message.textContent = 'Unable to render TikZ diagram.';
+            wrapper.insertBefore(message, wrapper.firstChild);
+        }
+        if (window.console && console.warn) console.warn('TikZJax render failed', error || 'unknown error');
     }
 
     function prepareTikZCode(code) {
@@ -72,31 +105,29 @@
 
         applyTheme();
         /* TikZJax can append the SVG after its compiler callback returns. */
-        new MutationObserver(applyTheme).observe(wrapper, {childList: true, subtree: true});
+        new MutationObserver(function() {
+            applyTheme();
+            if (wrapper.querySelector('svg')) wrapper.dataset.tikzState = 'rendered';
+        }).observe(wrapper, {childList: true, subtree: true});
     }
 
     function renderBlogMath(elem){
         if (!elem) return;
         if (typeof katex !== 'undefined') {
             elem.querySelectorAll('.math-block').forEach(function(el){
-                try { katex.render(el.textContent, el, {throwOnError: false, displayMode: true}); } catch(e) {}
+                if (!el.hasAttribute('data-raw-math')) el.setAttribute('data-raw-math', el.textContent || '');
+                try { katex.render(el.getAttribute('data-raw-math') || '', el, {throwOnError: false, displayMode: true}); } catch(e) {}
             });
             elem.querySelectorAll('.math-inline').forEach(function(el){
-                try { katex.render(el.textContent, el, {throwOnError: false, displayMode: false}); } catch(e) {}
+                if (!el.hasAttribute('data-raw-math')) el.setAttribute('data-raw-math', el.textContent || '');
+                try { katex.render(el.getAttribute('data-raw-math') || '', el, {throwOnError: false, displayMode: false}); } catch(e) {}
             });
         }
         var tikzElements = elem.querySelectorAll('.tikz-block, code.language-tikz, script[type="text/tikz"], div.tikz');
         if (tikzElements.length > 0) {
-            var needsExtra = false;
-            tikzElements.forEach(function(el){
-                var content = el.textContent || '';
-                if (content.includes('\\usetikzlibrary') || content.includes('\\usepackage') || el.getAttribute('data-has-packages') === 'true') {
-                    needsExtra = true;
-                }
-            });
-
-            loadTikZJax(needsExtra, function(){
+            loadTikZJax().then(function(){
                 tikzElements.forEach(function(el){
+                    if (el.dataset.tikzProcessed === '1') return;
                     var code = prepareTikZCode(el.textContent);
                     var dataPackages = el.getAttribute('data-has-packages') === 'true';
                     var pre = (el.tagName.toLowerCase() === 'code') ? el.parentElement : null;
@@ -113,12 +144,42 @@
                     if (targetNode.parentNode) {
                         var wrapper = document.createElement('div');
                         wrapper.className = 'tikz-render';
+                        wrapper.dataset.tikzState = 'pending';
+                        el.dataset.tikzProcessed = '1';
                         targetNode.parentNode.replaceChild(wrapper, targetNode);
                         wrapper.appendChild(script);
                         themeTikZDiagram(wrapper);
                     }
                 });
                 processTikZJax();
+                /* Compilation is asynchronous; give the runtime a bounded
+                 * failure path instead of silently leaving an empty block. */
+                setTimeout(function(){
+                    document.querySelectorAll('.tikz-render[data-tikz-state="pending"]').forEach(function(el){
+                        if (!el.querySelector('svg')) markTikZFailure(el, 'timeout');
+                    });
+                }, 15000);
+            }).catch(function(error){
+                tikzElements.forEach(function(el){
+                    var wrapper = el.closest ? el.closest('.tikz-render') : null;
+                    if (wrapper) {
+                        markTikZFailure(wrapper, error);
+                    } else if (el.parentNode) {
+                        /* Keep a visible diagnostic when the runtime itself
+                         * cannot be downloaded (CSP/offline/blocked CDN). */
+                        var fallback = document.createElement('div');
+                        fallback.className = 'tikz-render';
+                        fallback.dataset.tikzState = 'error';
+                        fallback.setAttribute('role', 'img');
+                        fallback.setAttribute('aria-label', 'TikZ diagram could not be rendered');
+                        var message = document.createElement('div');
+                        message.className = 'tikz-error';
+                        message.textContent = 'Unable to render TikZ diagram.';
+                        fallback.appendChild(message);
+                        fallback.appendChild(el.cloneNode(true));
+                        el.parentNode.replaceChild(fallback, el);
+                    }
+                });
             });
         }
     }

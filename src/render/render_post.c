@@ -799,7 +799,7 @@ static cwist_sstring *render_post_build_toc(cwist_sstring *md_html) {
     cwist_sstring_destroy(out);
 
     cwist_sstring *block = cwist_sstring_create();
-    cwist_sstring_append(block, "<details class='post-toc' open><summary>목차</summary><ul class='post-toc-list'>");
+    cwist_sstring_append(block, "<details class='post-toc' open><summary>Table of contents</summary><ul class='post-toc-list'>");
     cwist_sstring_append_sstring(block, items);
     cwist_sstring_append(block, "</ul></details>");
     cwist_sstring_destroy(items);

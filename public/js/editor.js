@@ -1173,10 +1173,10 @@
         }
         loadCss('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css');
         if (typeof katex !== 'undefined') {
-            loadScript('/assets/js/katex-render.js?v=4', cb);
+            loadScript('/assets/js/katex-render.js?v=5', cb);
         } else {
             loadScript('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js', function() {
-                loadScript('/assets/js/katex-render.js?v=4', cb);
+                loadScript('/assets/js/katex-render.js?v=5', cb);
             });
         }
     }
@@ -3311,6 +3311,10 @@
             }
         }
         if (node.classList && (node.classList.contains('math-block') || node.classList.contains('math-inline'))) {
+            var storedMath = node.getAttribute('data-raw-math');
+            if (storedMath !== null) {
+                return node.classList.contains('math-block') ? '$$' + storedMath + '$$' : '$' + storedMath + '$';
+            }
             var mathAnnotation = node.querySelector('annotation[encoding="application/x-tex"]');
             if (mathAnnotation) {
                 var rawTex = mathAnnotation.textContent;
@@ -3321,6 +3325,14 @@
             var tikzScript = node.querySelector('script[type="text/tikz"]');
             var rawTikz = tikzScript ? tikzScript.textContent : node.getAttribute('data-raw-tikz') || '';
             if (rawTikz) return '```tikz\n' + rawTikz + '\n```';
+        }
+        if (node.classList && node.classList.contains('tikz-render')) {
+            var renderedTikzScript = node.querySelector('script[type="text/tikz"]');
+            var renderedTikz = renderedTikzScript ? renderedTikzScript.textContent : '';
+            if (renderedTikz) return '```tikz\n' + renderedTikz + '\n```';
+        }
+        if (tag === 'script' && node.getAttribute('type') === 'text/tikz') {
+            return '```tikz\n' + node.textContent + '\n```';
         }
         var inner = '';
         Array.prototype.forEach.call(node.childNodes, function(child) {
