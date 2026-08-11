@@ -7,12 +7,12 @@
 
 cwist_sstring *render_notifications_page(cJSON *notifs, bool dark, const char *user_role, const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
-    cwist_sstring_assign(b, "<div class='hero'><h1>알림</h1></div>");
+    cwist_sstring_assign(b, "<div class='hero'><h1>Notifications</h1></div>");
     cwist_sstring_append(b, "<div class='card notif-card'>");
 
     int n = notifs ? cJSON_GetArraySize(notifs) : 0;
     if (n == 0) {
-        cwist_sstring_append(b, "<p style='color:var(--muted)'>알림이 없습니다.</p>");
+        cwist_sstring_append(b, "<p style='color:var(--muted)'>No notifications.</p>");
     }
     for (int i = 0; i < n; i++) {
         cJSON *it = cJSON_GetArrayItem(notifs, i);
@@ -36,7 +36,7 @@ cwist_sstring *render_notifications_page(cJSON *notifs, bool dark, const char *u
             cwist_sstring_append(b, "'>");
         }
         cwist_sstring_append_escaped(b, actor_s);
-        cwist_sstring_append(b, strcmp(kind_s, "reply") == 0 ? " 님이 답글을 남겼습니다" : " 님이 댓글을 남겼습니다");
+        cwist_sstring_append(b, strcmp(kind_s, "reply") == 0 ? " replied to your comment" : " commented on your post");
         if (slug_s[0]) cwist_sstring_append(b, "</a>");
         if (unread) cwist_sstring_append(b, "</strong>");
         cwist_sstring_append(b, "</div>");
@@ -54,7 +54,7 @@ cwist_sstring *render_notifications_page(cJSON *notifs, bool dark, const char *u
     }
 
     cwist_sstring_append(b, "</div>");
-    cwist_sstring *page = render_page("알림", b->data, dark, user_role, profile_pic, is_mobile);
+    cwist_sstring *page = render_page("Notifications", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;
 }
