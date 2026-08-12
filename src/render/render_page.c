@@ -768,6 +768,21 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             }
         }
 
+        /* cwist_sstring can retain an uninitialised prefix after the series of
+         * document rewrites above.  A browser then receives binary bytes before
+         * the HTML document despite a plain Content-Type.  The doctype is the
+         * canonical start of every page produced here, so discard any prefix
+         * before returning or caching the document. */
+        const char *doctype = strstr(doc->data, "<!doctype html>");
+        if (doctype && doctype != doc->data) {
+            cwist_sstring *clean = cwist_sstring_create();
+            if (clean) {
+                cwist_sstring_assign(clean, (char *)doctype);
+                cwist_sstring_destroy(doc);
+                doc = clean;
+            }
+        }
+
         cwist_sstring_destroy(out);
         return doc;
     }

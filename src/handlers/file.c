@@ -203,7 +203,9 @@ static bool ensure_compressed_cache(const char *src_path, const char *encoding, 
 bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res,
                                const char *path, const char *mime,
                                const char *cache_control, bool *not_modified) {
-    const char *accept_encoding = cwist_http_header_get(req->headers, "Accept-Encoding");
+    /* Match the application-wide compatibility mode: serve static text
+     * assets uncompressed until the transport compression mismatch is fixed. */
+    const char *accept_encoding = NULL;
     const char *encoding = NULL;
     char compressed_path_buf[PATH_MAX];
 
