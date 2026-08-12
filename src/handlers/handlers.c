@@ -209,7 +209,7 @@ void send_html_res(cwist_http_response *res, cwist_sstring *html) {
     cwist_http_header_add(&res->headers, "Cache-Control", "private, max-age=0, must-revalidate");
     cwist_http_header_add(&res->headers, "Vary", "Cookie");
     if (html) {
-        cwist_sstring_assign(res->body, html->data);
+        cwist_sstring_assign_len(res->body, html->data, strlen(html->data));
         cwist_sstring_destroy(html);
     } else {
         res->status_code = CWIST_HTTP_INTERNAL_ERROR;
@@ -348,6 +348,35 @@ static bool env_flag_enabled(const char *name, bool def) {
 
 static _Atomic int g_active_requests = 0;
 static _Atomic time_t g_last_trim_time = 0;
+
+/* Some CWIST response paths can leave transient binary bytes before the HTML
+ * doctype.  Normalize at the final middleware boundary, after the handler has
+ * built its response and immediately before the transport serializes it. */
+static void strip_html_binary_prefix(cwist_http_response *res) {
+    if (!res || !res->body || !res->body->data) return;
+    const char *doctype = strstr(res->body->data, "<!doctype html>");
+    if (!doctype || doctype == res->body->data) return;
+
+    size_t len = strlen(doctype);
+    memmove(res->body->data, doctype, len + 1);
+    res->body->size = len;
+
+    cwist_http_header_node **node = &res->headers;
+    while (*node) {
+        if (strcmp((*node)->key->data, "Content-Length") == 0) {
+            cwist_http_header_node *old = *node;
+            *node = old->next;
+            cwist_sstring_destroy(old->key);
+            cwist_sstring_destroy(old->value);
+            if (!old->arena_owned) cwist_free(old);
+        } else {
+            node = &(*node)->next;
+        }
+    }
+    char length[32];
+    snprintf(length, sizeof(length), "%zu", len);
+    cwist_http_header_add(&res->headers, "Content-Length", length);
+}
 
 /* Decrement the active-request counter and, if this was the last request,
    release free heap memory with malloc_trim at most once every 5 seconds.
@@ -488,6 +517,8 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
     CWIST_LOG_DEBUG("%s %s", m ? m : "?", p ? p : "?");
 
     next(req, res);
+
+    strip_html_binary_prefix(res);
 
     /* Post-processing: ensure HEAD responses never carry a body. Keep the
        Content-Length header so the client knows the GET representation size. */
