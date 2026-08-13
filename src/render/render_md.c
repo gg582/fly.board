@@ -219,8 +219,8 @@ static char *protect_math(const char *md, math_registry_t *blocks,
             if (line_end < len) line_end++;
             const char *closing = NULL;
             for (size_t j = line_end; j + 3 <= len; j++) {
-                if (md[j] == '\n' && md[j + 1] == fence_char &&
-                    md[j + 2] == fence_char && md[j + 3] == fence_char) {
+                if ((j == 0 || md[j - 1] == '\n') && md[j] == fence_char &&
+                    md[j + 1] == fence_char && md[j + 2] == fence_char) {
                     closing = md + j;
                     break;
                 }
@@ -228,7 +228,7 @@ static char *protect_math(const char *md, math_registry_t *blocks,
             if (closing) {
                 size_t code_len = (size_t)(closing - (md + line_end));
                 add_tikz_placeholder(out, tikz, md + line_end, code_len);
-                i = (size_t)(closing - md) + 4;
+                i = (size_t)(closing - md) + 3;
                 while (i < len && md[i] == fence_char) i++;
                 while (i < len && (md[i] == '\r' || md[i] == ' ' || md[i] == '\t')) i++;
                 if (i < len && md[i] == '\n') i++;
@@ -364,21 +364,7 @@ static char *protect_math(const char *md, math_registry_t *blocks,
         /* Protect dollar-delimited math before md4c sees it.  This handles
          * display math ($$...$$), inline math ($...$), escaped dollars, and
          * multiline display expressions consistently. */
-        // Equality line handling
-        if (is_line_start(md, i) && md[i] == '=') {
-            size_t line_end = i;
-            while (line_end < len && md[line_end] != '\n') line_end++;
-            bool all_eq = true;
-            for (size_t k = i; k < line_end; k++) {
-                if (md[k] != '=') { all_eq = false; break; }
-            }
-            if (all_eq && line_end - i >= 3) {
-                cwist_sstring_append(out, "$=$");
-                i = line_end;
-                if (i < len && md[i] == '\n') i++;
-                continue;
-            }
-        }
+
         if (md[i] == '$' && !is_escaped(md, i)) {
             size_t delimiter_len = (i + 1 < len && md[i + 1] == '$') ? 2 : 1;
             size_t expr_start = i + delimiter_len;

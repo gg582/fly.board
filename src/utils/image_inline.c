@@ -2,8 +2,11 @@
 #include "image_inline.h"
 #include "config/config.h"
 #include "stb_image.h"
+#ifdef HAVE_WEBP
 #include <webp/encode.h>
 #include <webp/decode.h>
+#endif
+
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -110,7 +113,8 @@ static unsigned char *load_image_any(const char *path, int *w, int *h, int *chan
     unsigned char *data = stbi_load(path, w, h, channels, 0);
     if (data) return data;
 
-    /* Fall back to libwebp for .webp inputs. */
+    /* Fall back to libwebp for .webp inputs if available. */
+#ifdef HAVE_WEBP
     size_t len = 0;
     unsigned char *file_data = read_file(path, &len);
     if (!file_data) return NULL;
@@ -127,9 +131,17 @@ static unsigned char *load_image_any(const char *path, int *w, int *h, int *chan
     *h = height;
     *channels = 4;
     return rgba;
+#else
+    (void)path;
+    return NULL;
+#endif
 }
 
 static char *encode_image_to_webp_data_url(const char *path, size_t max_bytes) {
+#ifndef HAVE_WEBP
+    (void)path; (void)max_bytes;
+    return NULL;
+#else
     /* Reject obviously oversized inputs before touching a WebP encoder. */
     struct stat st;
     if (stat(path, &st) == 0 && (size_t)st.st_size > max_bytes) return NULL;
@@ -174,6 +186,7 @@ static char *encode_image_to_webp_data_url(const char *path, size_t max_bytes) {
     strcpy(url + prefix_len, b64);
     free(b64);
     return url;
+#endif
 }
 
 static void build_one(const char *filename, char **out_url, bool allow_inline, size_t max_bytes) {
