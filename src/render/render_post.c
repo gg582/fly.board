@@ -768,7 +768,7 @@ static cwist_sstring *render_post_build_toc(cwist_sstring *md_html) {
         /* copy the rest of the opening tag */
         cwist_sstring_append_len(out, p + i + 3, (j + 1) - (i + 3));
 
-        /* TOC entry: inner text with nested tags stripped */
+        /* TOC entry: inner text with nested tags stripped (ignoring block containers like tikz-block) */
         cwist_sstring_append(items, level == 3 ? "<li class='post-toc-sub'><a href=\"#toc-" : "<li><a href=\"#toc-");
         char numbuf[16];
         snprintf(numbuf, sizeof(numbuf), "%d", count);
@@ -776,10 +776,19 @@ static cwist_sstring *render_post_build_toc(cwist_sstring *md_html) {
         cwist_sstring_append(items, "\">");
         size_t text_end = (size_t)(close - p);
         int in_tag = 0;
+        int in_ignored_block = 0;
         for (size_t k = j + 1; k < text_end; k++) {
-            if (p[k] == '<') { in_tag = 1; continue; }
+            if (p[k] == '<') {
+                if (k + 16 <= text_end && strncmp(p + k, "<div class=\"tikz", 16) == 0) {
+                    in_ignored_block = 1;
+                } else if (k + 6 <= text_end && strncmp(p + k, "</div>", 6) == 0) {
+                    in_ignored_block = 0;
+                }
+                in_tag = 1;
+                continue;
+            }
             if (p[k] == '>') { in_tag = 0; continue; }
-            if (in_tag) continue;
+            if (in_tag || in_ignored_block) continue;
             cwist_sstring_append_len(items, p + k, 1);
         }
         cwist_sstring_append(items, "</a></li>");
