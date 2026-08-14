@@ -881,7 +881,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring_append(b, "</p>");
 
     /* Vote buttons */
-    cwist_sstring_append(b, "<div style='margin:16px 0;display:flex;gap:10px;align-items:center'>");
+    cwist_sstring_append(b, "<div id='post-actions' style='margin:16px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap'>");
     cwist_sstring_append(b, "<button id='vote-up' class='btn btn-outline vote-btn' style='padding:6px 12px;font-size:13px");
     if (user_vote == 1) cwist_sstring_append(b, ";border-color:var(--accent);color:var(--accent)");
     cwist_sstring_append(b, "'>&#9650; ");
@@ -894,7 +894,9 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     char vdown[32]; snprintf(vdown, sizeof(vdown), "%d", vote_down);
     cwist_sstring_append(b, vdown);
     cwist_sstring_append(b, "</button>");
+    cwist_sstring_append(b, "<button id='post-translate' type='button' class='btn btn-outline' style='padding:6px 10px;font-size:13px;display:inline-flex;align-items:center' aria-controls='post-translation' aria-pressed='false' aria-label='Translate' title='Translate'><svg aria-hidden='true' width='18' height='18' viewBox='0 0 24 24' fill='currentColor'><path d='M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.96-4.17 3.71-6.53H17V4h-7V2H8v2H1v2h11.17c-.69 1.93-1.75 3.75-3.16 5.35-.91-1.01-1.66-2.12-2.27-3.35H4.74c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4.04 19l5.09-5.09 3.17 3.17.57-2.01zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.63 7 1.62-4.33L19.12 17h-3.25z'/></svg></button>");
     cwist_sstring_append(b, "<span id='vote-msg' style='color:var(--muted);font-size:13px'></span>");
+    cwist_sstring_append(b, "<span id='translation-msg' role='status' aria-live='polite' style='color:var(--muted);font-size:13px'></span>");
     cwist_sstring_append(b, "</div>");
     cwist_sstring_append(b, "<script>");
     cwist_sstring_append(b, "(function(){");
@@ -933,6 +935,8 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         cwist_sstring_append(b, "<div class='markdown-body'>");
     }
     cwist_sstring_append(b, "</div>");
+    cwist_sstring_append(b, "<section id='post-translation' class='card' hidden aria-live='polite' style='margin-top:20px'></section>");
+    cwist_sstring_append(b, "<script src='/assets/js/post-translate.js?v=1' defer></script>");
 
     /* Files */
     if (files && cJSON_GetArraySize(files) > 0) {
