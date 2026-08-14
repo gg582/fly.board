@@ -168,6 +168,7 @@ def main():
         "https://fonts.googleapis.com/css2"
         "?family=Space+Grotesk:wght@400;500;700"
         "&family=Inter:wght@400;500;600;700"
+        "&family=Outfit:wght@400;500;600;700;800"
         "&family=Source+Serif+4:ital,wght@0,400;0,600;1,400"
         "&display=swap"
     )

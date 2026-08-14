@@ -445,7 +445,12 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         }
     }
 
-    cwist_sstring_append(b, "<div style='margin-bottom:18px;text-align:center'><a href='/post/new' class='btn'>New Post</a></div>");
+    cwist_sstring_append(b, "<div style='margin-bottom:18px;text-align:center'><a href='/post/new");
+    if (board_slug && board_slug[0]) {
+        cwist_sstring_append(b, "?board=");
+        cwist_sstring_append_escaped(b, board_slug);
+    }
+    cwist_sstring_append(b, "' class='btn'>New Post</a></div>");
 
     /* Search */
     const char *search_label = "Global search";
@@ -512,9 +517,11 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     cwist_sstring_append(b, "<option value='body'");
     if (search_type && strcmp(search_type, "body") == 0) cwist_sstring_append(b, " selected");
     cwist_sstring_append(b, ">Post Body</option>");
-    cwist_sstring_append(b, "<option value='board'");
-    if (search_type && strcmp(search_type, "board") == 0) cwist_sstring_append(b, " selected");
-    cwist_sstring_append(b, ">Board Name</option>");
+    if (!board_slug || !board_slug[0]) {
+        cwist_sstring_append(b, "<option value='board'");
+        if (search_type && strcmp(search_type, "board") == 0) cwist_sstring_append(b, " selected");
+        cwist_sstring_append(b, ">Board Name</option>");
+    }
     cwist_sstring_append(b, "</select></div>");
     cwist_sstring_append(b, "</form>");
 
@@ -1085,7 +1092,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     return page;
 }
 
-cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool dark, const char *user_role, const char *error, const char *profile_pic, bool is_mobile) {
+cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int initial_board_id, bool dark, const char *user_role, const char *error, const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
     cwist_sstring_assign(b, "<div class='card' style='margin:24px 0;'>");
     if (error && error[0]) {
@@ -1114,7 +1121,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, bool
     }
     cwist_sstring_append(b, "' required>");
 
-    int post_board_id = post ? json_int(post, "board_id", 0) : 0;
+    int post_board_id = post ? json_int(post, "board_id", 0) : initial_board_id;
     const char *selected_label = "Select a board";
     if (boards && post_board_id > 0) {
         int n = cJSON_GetArraySize(boards);
