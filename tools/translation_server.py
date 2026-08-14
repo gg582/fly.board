@@ -12,6 +12,7 @@ import sentencepiece as spm
 from huggingface_hub import snapshot_download
 
 MODEL_ID = os.environ.get("FLYBOARD_TRANSLATION_MODEL", "mijuanlo/nllb-200-distilled-600M-ct2-int8")
+MODEL_REVISION = os.environ.get("FLYBOARD_TRANSLATION_MODEL_REVISION", "16bc5ff0482f9f1c0d35bdef950721ce58640789")
 MODEL_ROOT = os.environ.get("FLYBOARD_TRANSLATION_MODEL_DIR", "/var/lib/flyboard-translation")
 HOST = os.environ.get("FLYBOARD_TRANSLATION_HOST", "127.0.0.1")
 PORT = int(os.environ.get("FLYBOARD_TRANSLATION_PORT", "8765"))
@@ -23,7 +24,7 @@ LANGUAGES = {
 
 class Engine:
     def __init__(self):
-        model_path = snapshot_download(repo_id=MODEL_ID, cache_dir=MODEL_ROOT)
+        model_path = snapshot_download(repo_id=MODEL_ID, revision=MODEL_REVISION, cache_dir=MODEL_ROOT)
         self.tokenizer = spm.SentencePieceProcessor(model_file=os.path.join(model_path, "sentencepiece.bpe.model"))
         self.translator = ctranslate2.Translator(
             model_path, device="cpu", compute_type="int8", inter_threads=1, intra_threads=4

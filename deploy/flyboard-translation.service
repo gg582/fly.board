@@ -11,6 +11,7 @@ WorkingDirectory=/root/fly.board
 Environment=HF_HUB_DISABLE_TELEMETRY=1
 Environment=HF_HUB_ETAG_TIMEOUT=30
 Environment=HF_HUB_DOWNLOAD_TIMEOUT=120
+Environment=FLYBOARD_TRANSLATION_MODEL_REVISION=16bc5ff0482f9f1c0d35bdef950721ce58640789
 ExecStart=/root/fly.board/.translation-venv/bin/python /root/fly.board/tools/translation_server.py
 Restart=on-failure
 RestartSec=5
