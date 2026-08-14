@@ -115,7 +115,7 @@
     }
 
     function startWorker() {
-        worker = new Worker('/assets/js/post-translate-worker.js?v=2', {type: 'module'});
+        worker = new Worker('/assets/js/post-translate-worker.js?v=3', {type: 'module'});
         worker.addEventListener('message', function(event) {
             var message = event.data || {};
             if (message.type === 'languages') {
@@ -134,6 +134,7 @@
                 setState('rendered');
                 status.textContent = '';
             } else if (message.type === 'error') {
+                console.error('Post translation failed:', message.message);
                 setState('error');
                 status.textContent = 'Translation could not be loaded. Check your connection and try again.';
             }
