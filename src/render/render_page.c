@@ -726,7 +726,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     /* TikZJax's runtime URL changed; version this local loader
                      * so service-worker/static caches cannot retain the old
                      * renderer that pointed at the unpublished npm package. */
-                    cwist_sstring_append(body_cdn, "<script src=\"/assets/js/katex-render.js?v=7\"></script>");
+                    cwist_sstring_append(body_cdn, "<script src=\"/assets/js/katex-render.js?v=8\"></script>");
                 }
 
                 cwist_sstring *doc2 = cwist_sstring_create();
