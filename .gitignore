@@ -16,6 +16,7 @@ blog2.md
 index.html
 post17
 tools/__pycache__/
+.translation-venv/
 tests/test_mp_dash
 tests/test_mp_file
 tests/test_mp_raw

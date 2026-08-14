@@ -1,6 +1,91 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 #include "cwist/board_tree.h"
+#include <curl/curl.h>
+
+#define TRANSLATION_MAX_REQUEST (100U * 1024U)
+#define TRANSLATION_MAX_RESPONSE (256U * 1024U)
+
+typedef struct {
+    cwist_sstring *body;
+    bool overflow;
+} translation_response_buffer;
+
+static size_t translation_write_callback(void *data, size_t size, size_t count, void *userdata) {
+    translation_response_buffer *buffer = userdata;
+    size_t bytes = size * count;
+    if (buffer->body->size + bytes > TRANSLATION_MAX_RESPONSE) {
+        buffer->overflow = true;
+        return 0;
+    }
+    cwist_sstring_append_len(buffer->body, data, bytes);
+    return bytes;
+}
+
+static void translation_json_error(cwist_http_response *res, int status, const char *message) {
+    cJSON *object = cJSON_CreateObject();
+    cJSON_AddBoolToObject(object, "ok", false);
+    cJSON_AddStringToObject(object, "error", message);
+    char *json = cJSON_PrintUnformatted(object);
+    cJSON_Delete(object);
+    res->status_code = status;
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-store");
+    cwist_sstring_assign(res->body, json ? json : "{\"ok\":false}");
+    free(json);
+}
+
+void handler_api_translate(cwist_http_request *req, cwist_http_response *res) {
+    if (!req->body || !req->body->data || req->body->size < 2 || req->body->size > TRANSLATION_MAX_REQUEST) {
+        translation_json_error(res, CWIST_HTTP_BAD_REQUEST, "invalid translation request");
+        return;
+    }
+
+    cJSON *input = cJSON_ParseWithLength(req->body->data, req->body->size);
+    cJSON *source = input ? cJSON_GetObjectItemCaseSensitive(input, "source") : NULL;
+    cJSON *target = input ? cJSON_GetObjectItemCaseSensitive(input, "target") : NULL;
+    cJSON *chunks = input ? cJSON_GetObjectItemCaseSensitive(input, "chunks") : NULL;
+    if (!cJSON_IsString(source) || !cJSON_IsString(target) || !cJSON_IsArray(chunks) ||
+        cJSON_GetArraySize(chunks) < 1 || cJSON_GetArraySize(chunks) > 64) {
+        cJSON_Delete(input);
+        translation_json_error(res, CWIST_HTTP_BAD_REQUEST, "invalid translation payload");
+        return;
+    }
+    cJSON_Delete(input);
+
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        translation_json_error(res, CWIST_HTTP_SERVICE_UNAVAILABLE, "translation service unavailable");
+        return;
+    }
+    translation_response_buffer buffer = {cwist_sstring_create(), false};
+    struct curl_slist *headers = curl_slist_append(NULL, "Content-Type: application/json");
+    curl_easy_setopt(curl, CURLOPT_URL, "http://127.0.0.1:8765/translate");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, req->body->data);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)req->body->size);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 1000L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 60000L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, translation_write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
+    CURLcode result = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    if (result != CURLE_OK || buffer.overflow || status < 200 || status >= 300) {
+        CWIST_LOG_WARN("Translation service request failed: curl=%d status=%ld", (int)result, status);
+        cwist_sstring_destroy(buffer.body);
+        translation_json_error(res, CWIST_HTTP_SERVICE_UNAVAILABLE, "translation service unavailable");
+        return;
+    }
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-store");
+    cwist_sstring_assign(res->body, buffer.body->data);
+    cwist_sstring_destroy(buffer.body);
+}
 
 void handler_api_preview(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring *html = render_markdown_to_html(req->body->data);

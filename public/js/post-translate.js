@@ -6,13 +6,12 @@
     var source = document.querySelector('article .markdown-body');
     var output = document.getElementById('post-translation');
     var status = document.getElementById('translation-msg');
-    if (!button || !targetSelect || !source || !output || !window.Worker) return;
+    if (!button || !targetSelect || !source || !output || !window.fetch) return;
 
     var state = 'idle';
     var renderedTarget = '';
     var requestId = 0;
     var activeRequestId = 0;
-    var worker = null;
     var displayNames = typeof Intl !== 'undefined' && Intl.DisplayNames
         ? new Intl.DisplayNames(['en'], {type: 'language'}) : null;
 
@@ -93,39 +92,12 @@
         var note = document.createElement('p');
         note.style.color = 'var(--muted)';
         note.style.fontSize = '13px';
-        note.textContent = 'Translated locally in your browser with Transformers.js.';
+        note.textContent = 'Machine-translated by the site translation service.';
         output.appendChild(note);
         output.hidden = false;
     }
 
-    function startWorker() {
-        worker = new Worker('/assets/js/post-translate-worker.js?v=4', {type: 'module'});
-        worker.addEventListener('message', function(event) {
-            var message = event.data || {};
-            if (message.requestId !== activeRequestId) return;
-            if (message.type === 'progress') {
-                status.textContent = message.text;
-            } else if (message.type === 'model-ready') {
-                setState('translating');
-            } else if (message.type === 'done') {
-                renderTranslation(message.parts || [], message.target);
-                renderedTarget = message.target;
-                setTranslateButtonVisible(true);
-                setState('rendered');
-                status.textContent = '';
-            } else if (message.type === 'error') {
-                console.error('Post translation failed:', message.message);
-                setState('error');
-                status.textContent = 'Translation could not be loaded. Check your connection and try again.';
-            }
-        });
-        worker.addEventListener('error', function() {
-            setState('error');
-            status.textContent = 'Translation worker could not be started.';
-        });
-    }
-
-    button.addEventListener('click', function() {
+    button.addEventListener('click', async function() {
         if (state === 'loading' || state === 'translating') return;
         var target = targetSelect.value;
         if (state === 'rendered' && renderedTarget === target) {
@@ -150,15 +122,34 @@
         }
 
         activeRequestId = ++requestId;
-        setState('loading');
-        status.textContent = 'Loading translation model…';
-        worker.postMessage({
-            type: 'translate',
-            requestId: activeRequestId,
-            sourceLanguage: sourceLanguage,
-            target: target,
-            chunks: splitText(text)
-        });
+        setState('translating');
+        status.textContent = 'Translating…';
+        var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        var timeout = controller ? setTimeout(function() { controller.abort(); }, 60000) : null;
+        try {
+            var response = await fetch('/api/translate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                signal: controller ? controller.signal : undefined,
+                body: JSON.stringify({source: sourceLanguage, target: target, chunks: splitText(text)})
+            });
+            var result = await response.json();
+            if (!response.ok || !result.ok || !Array.isArray(result.parts)) {
+                throw new Error(result.error || 'Translation request failed (' + response.status + ')');
+            }
+            if (activeRequestId !== requestId) return;
+            renderTranslation(result.parts, target);
+            renderedTarget = target;
+            setTranslateButtonVisible(true);
+            setState('rendered');
+            status.textContent = '';
+        } catch (error) {
+            console.error('Post translation failed:', error);
+            setState('error');
+            status.textContent = 'Translation is temporarily unavailable. Please try again.';
+        } finally {
+            if (timeout) clearTimeout(timeout);
+        }
     });
 
     targetSelect.addEventListener('change', function() {
@@ -173,5 +164,4 @@
     var initialText = getTranslatableText();
     if (initialText) targetSelect.value = detectSourceLanguage(initialText) === 'kor_Hang' ? 'eng_Latn' : 'kor_Hang';
     setState('idle');
-    startWorker();
 })();
