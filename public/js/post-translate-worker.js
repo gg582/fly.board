@@ -31,7 +31,7 @@ function getTranslator(requestId) {
             return getTransformers();
         }).then(function(module) {
             return module.pipeline('translation', NLLB_MODEL, {
-                dtype: 'q4f16',
+                dtype: 'q4',
                 progress_callback: function(progress) {
                     if (progress.status === 'progress' && progress.progress != null) {
                         var text = progress.progress >= 100
@@ -66,7 +66,7 @@ self.onmessage = function(event) {
         });
     }).then(function(results) {
         var parts = results.map(function(result) {
-            return result[0].translation_text;
+            return result.translation_text;
         });
         postMessage({type: 'done', requestId: message.requestId, target: message.target, parts: parts});
     }).catch(function(error) {
