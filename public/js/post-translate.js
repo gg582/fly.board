@@ -2,16 +2,32 @@
     'use strict';
 
     var button = document.getElementById('post-translate');
+    var targetSelect = document.getElementById('post-translate-target');
     var source = document.querySelector('article .markdown-body');
     var output = document.getElementById('post-translation');
     var status = document.getElementById('translation-msg');
-    if (!button || !source || !output) return;
+    if (!button || !targetSelect || !source || !output) return;
 
     var TRANSLATORS_JS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js';
     var MODEL_KO_EN = 'Xenova/opus-mt-ko-en';
     var MODEL_EN_KO = 'Xenova/opus-mt-en-ko';
     var translatorCache = {};
-    var translated = false;
+    var state = 'idle';
+    var renderedTarget = '';
+
+    function setState(next) {
+        state = next;
+        var busy = next === 'loading' || next === 'translating';
+        button.disabled = busy;
+        targetSelect.disabled = busy;
+        button.dataset.translationState = next;
+    }
+
+    function setTranslateButtonVisible(visible) {
+        button.setAttribute('aria-pressed', String(visible));
+        button.setAttribute('aria-label', visible ? 'Hide translation' : 'Translate');
+        button.title = visible ? 'Hide translation' : 'Translate';
+    }
 
     function getTranslatableText() {
         var clone = source.cloneNode(true);
@@ -25,6 +41,10 @@
         var korean = (text.match(/[\uac00-\ud7a3]/g) || []).length;
         var latin = (text.match(/[A-Za-z]/g) || []).length;
         return korean > latin * 0.15;
+    }
+
+    function targetName(target) {
+        return target === 'ko' ? 'Korean' : 'English';
     }
 
     function splitText(text) {
@@ -50,6 +70,9 @@
         if (!translatorCache[model]) {
             status.textContent = 'Loading translation model…';
             translatorCache[model] = import(TRANSLATORS_JS_URL).then(function(module) {
+                /* Persist downloaded model files in the browser Cache API so
+                 * later page loads reuse them instead of downloading again. */
+                module.env.useBrowserCache = true;
                 return module.pipeline('translation', model, {
                     dtype: 'q4f16',
                     progress_callback: function(progress) {
@@ -82,11 +105,12 @@
     }
 
     button.addEventListener('click', async function() {
-        if (translated) {
+        if (state === 'loading' || state === 'translating') return;
+
+        var target = targetSelect.value;
+        if (state === 'rendered' && renderedTarget === target) {
             output.hidden = !output.hidden;
-            button.setAttribute('aria-pressed', String(!output.hidden));
-            button.setAttribute('aria-label', output.hidden ? 'Translate' : 'Hide translation');
-            button.title = output.hidden ? 'Translate' : 'Hide translation';
+            setTranslateButtonVisible(!output.hidden);
             status.textContent = '';
             return;
         }
@@ -98,31 +122,49 @@
         }
 
         var koreanSource = hasMostlyKorean(text);
-        var model = koreanSource ? MODEL_KO_EN : MODEL_EN_KO;
-        var targetName = koreanSource ? 'English' : 'Korean';
+        if ((koreanSource && target === 'ko') || (!koreanSource && target === 'en')) {
+            output.hidden = true;
+            setTranslateButtonVisible(false);
+            setState('idle');
+            status.textContent = 'The post already appears to be in ' + targetName(target) + '.';
+            return;
+        }
+        var model = target === 'en' ? MODEL_KO_EN : MODEL_EN_KO;
         var chunks = splitText(text);
-        button.disabled = true;
+        setState('loading');
 
         try {
             var translate = await getTranslator(model);
+            setState('translating');
             var results = [];
             for (var i = 0; i < chunks.length; i++) {
                 status.textContent = 'Translating… ' + (i + 1) + '/' + chunks.length;
                 var result = await translate(chunks[i]);
                 results.push(result[0].translation_text);
             }
-            renderTranslation(results, targetName);
-            translated = true;
-            button.setAttribute('aria-label', 'Hide translation');
-            button.title = 'Hide translation';
-            button.setAttribute('aria-pressed', 'true');
+            renderTranslation(results, targetName(target));
+            renderedTarget = target;
+            setTranslateButtonVisible(true);
+            setState('rendered');
             status.textContent = '';
         } catch (error) {
             console.error('Post translation failed', error);
             delete translatorCache[model];
+            setState('error');
             status.textContent = 'Translation could not be loaded. Check your connection and try again.';
-        } finally {
-            button.disabled = false;
         }
     });
+
+    targetSelect.addEventListener('change', function() {
+        if (state !== 'rendered' || targetSelect.value === renderedTarget) return;
+        output.hidden = true;
+        renderedTarget = '';
+        setTranslateButtonVisible(false);
+        setState('idle');
+        status.textContent = '';
+    });
+
+    var initialText = getTranslatableText();
+    if (initialText) targetSelect.value = hasMostlyKorean(initialText) ? 'en' : 'ko';
+    setState('idle');
 })();
