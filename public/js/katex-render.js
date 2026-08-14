@@ -60,6 +60,69 @@
         }
     }
 
+    var TIKZ_RETRY_DELAY_MS = 6000;
+    var TIKZ_MAX_RETRIES = 3;
+
+    function hasTikZOutput(wrapper) {
+        return !!(wrapper && wrapper.querySelector('svg'));
+    }
+
+    /* TikZJax is the preferred renderer: it keeps the diagram source in the
+     * browser.  Some browsers, extensions, and slow WebAssembly starts do
+     * fail to complete it though.  After retrying TikZJax, ask the public
+     * latexonline.cc compiler for a one-page PDF.  An <object> avoids CORS
+     * requirements and lets the browser render the returned PDF directly. */
+    function publicTikZDocument(code) {
+        if (code.includes('\\begin{document}')) return code;
+        /* Libraries and packages are preamble commands. Pull line-oriented
+         * declarations out before opening the document so diagrams authored
+         * with \usetikzlibrary continue to work in the public fallback. */
+        var preamble = [];
+        code = code.replace(/^\s*(\\(?:usepackage(?:\[[^\]]*\])?\{[^}]+\}|usetikzlibrary\{[^}]+\}))\s*$/gm,
+            function(_, declaration) {
+                preamble.push(declaration);
+                return '';
+            });
+        return '\\documentclass[tikz,border=2pt]{standalone}\n' +
+               '\\usepackage{tikz}\n' + preamble.join('\n') + '\n\\begin{document}\n' + code +
+               '\n\\end{document}';
+    }
+
+    function renderWithPublicTikZProvider(wrapper, error) {
+        if (!wrapper || hasTikZOutput(wrapper) || wrapper.dataset.tikzProviderRequested === '1') return;
+        var script = wrapper.querySelector('script[type="text/tikz"]');
+        var rawElement = script || wrapper.querySelector('.tikz-block, code.language-tikz, div.tikz');
+        var source = rawElement && (rawElement.getAttribute('data-raw-tikz') || rawElement.textContent);
+        if (!source || source.length > 12000) {
+            markTikZFailure(wrapper, error || 'TikZ source is unavailable or too large for the public fallback');
+            return;
+        }
+
+        wrapper.dataset.tikzProviderRequested = '1';
+        wrapper.dataset.tikzState = 'public-pending';
+        var notice = document.createElement('div');
+        notice.className = 'tikz-status';
+        notice.textContent = 'Retrying with public TikZ renderer…';
+        wrapper.insertBefore(notice, wrapper.firstChild);
+
+        var object = document.createElement('object');
+        object.className = 'tikz-public-render';
+        object.type = 'application/pdf';
+        object.setAttribute('aria-label', 'TikZ diagram rendered by public LaTeX service');
+        object.data = 'https://latexonline.cc/compile?command=pdflatex&text=' +
+            encodeURIComponent(publicTikZDocument(prepareTikZCode(source)));
+        object.onload = function() {
+            notice.remove();
+            wrapper.dataset.tikzState = 'public-rendered';
+        };
+        object.onerror = function() {
+            object.remove();
+            notice.remove();
+            markTikZFailure(wrapper, error || 'public TikZ provider failed');
+        };
+        wrapper.appendChild(object);
+    }
+
     function markTikZFailure(wrapper, error) {
         if (!wrapper || wrapper.querySelector('svg')) return;
         wrapper.dataset.tikzState = 'error';
@@ -73,6 +136,31 @@
             wrapper.insertBefore(message, wrapper.firstChild);
         }
         if (window.console && console.warn) console.warn('TikZJax render failed', error || 'unknown error');
+    }
+
+    function retryTikZRender(wrapper, attempt) {
+        if (!wrapper || hasTikZOutput(wrapper) || wrapper.dataset.tikzProviderRequested === '1') return;
+        if (attempt >= TIKZ_MAX_RETRIES) {
+            renderWithPublicTikZProvider(wrapper, 'TikZJax timed out after retries');
+            return;
+        }
+        setTimeout(function() {
+            if (!wrapper || hasTikZOutput(wrapper) || wrapper.dataset.tikzProviderRequested === '1') return;
+            var script = wrapper.querySelector('script[type="text/tikz"]');
+            if (script) {
+                /* TikZJax marks source nodes as processed. Reinsert a fresh
+                 * node so its onload compiler sees this retry as new input. */
+                var fresh = document.createElement('script');
+                fresh.type = 'text/tikz';
+                fresh.textContent = script.textContent;
+                Array.prototype.slice.call(script.attributes).forEach(function(attr) {
+                    fresh.setAttribute(attr.name, attr.value);
+                });
+                script.parentNode.replaceChild(fresh, script);
+            }
+            processTikZJax();
+            retryTikZRender(wrapper, attempt + 1);
+        }, TIKZ_RETRY_DELAY_MS);
     }
 
     function prepareTikZCode(code) {
@@ -110,6 +198,10 @@
         var observer = new MutationObserver(function() {
             applyTheme();
             if (wrapper.querySelector('svg')) {
+                var publicRender = wrapper.querySelector('.tikz-public-render');
+                if (publicRender) publicRender.remove();
+                var status = wrapper.querySelector('.tikz-status');
+                if (status) status.remove();
                 wrapper.dataset.tikzState = 'rendered';
                 observer.disconnect();
             }
@@ -158,21 +250,17 @@
                     }
                 });
                 processTikZJax();
-                /* Compilation is asynchronous and each diagram costs one
-                 * LaTeX run, so a flat timeout false-fails documents with
-                 * many diagrams. Scale the budget with the diagram count and
-                 * keep a hard ceiling. */
-                var timeoutMs = Math.min(60000, 15000 + tikzElements.length * 5000);
-                setTimeout(function(){
-                    document.querySelectorAll('.tikz-render[data-tikz-state="pending"]').forEach(function(el){
-                        if (!el.querySelector('svg')) markTikZFailure(el, 'timeout');
-                    });
-                }, timeoutMs);
+                /* Retry each diagram independently. A large post therefore
+                 * does not make already-finished diagrams wait for one flat,
+                 * document-wide timeout. */
+                document.querySelectorAll('.tikz-render[data-tikz-state="pending"]').forEach(function(el){
+                    retryTikZRender(el, 0);
+                });
             }).catch(function(error){
                 tikzElements.forEach(function(el){
                     var wrapper = el.closest ? el.closest('.tikz-render') : null;
                     if (wrapper) {
-                        markTikZFailure(wrapper, error);
+                        renderWithPublicTikZProvider(wrapper, error);
                     } else if (el.parentNode) {
                         /* Keep a visible diagnostic when the runtime itself
                          * cannot be downloaded (CSP/offline/blocked CDN). */
@@ -187,6 +275,7 @@
                         fallback.appendChild(message);
                         fallback.appendChild(el.cloneNode(true));
                         el.parentNode.replaceChild(fallback, el);
+                        renderWithPublicTikZProvider(fallback, error);
                     }
                 });
             });

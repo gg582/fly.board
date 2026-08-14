@@ -41,6 +41,10 @@ int main(void) {
           "intro text\n```tikz\n\\draw (0,0);\n```\n",
           "<p>intro text</p>\n<div class=\"tikz-block\">", NULL);
 
+    check("TikZ-heavy math post keeps every fenced diagram as a render target",
+          "# lattice\n\n$$\\frac{3n^2-n}{2}$$\n\n```tikz\n\\begin{tikzpicture}[scale=.7]\n\\def\\h{0.8660254}\n\\foreach \\j in {0,...,4} { \\foreach \\i in {0,...,4} { \\fill (\\i,\\j) circle (1pt); } }\n\\end{tikzpicture}\n```\n\n$$\\Delta^2P_q(n)=q$$\n\n```tikz\n\\draw[thick] (0,0) -- (4,0) -- (2,3) -- cycle;\n\\node[above] at (2,3) {$n=4$};\n```\n\nend\n",
+          "<div class=\"tikz-block\">", "<pre><code class=\"language-tikz\">");
+
     check("tikz environment glued to a following line stays a block",
           "\\begin{tikzpicture} \\draw (0,0); \\end{tikzpicture}\nglued line\n",
           "</div>\n<p>glued line</p>", NULL);

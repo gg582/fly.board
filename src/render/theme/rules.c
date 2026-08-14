@@ -1749,6 +1749,19 @@ void rule_markdown(cJSON *rules) {
     add_decl(tikz_svg, "height", "auto");
     cJSON_AddItemToArray(rules, tikz_svg);
 
+    cJSON *tikz_public = create_rule(".tikz-public-render");
+    add_decl(tikz_public, "display", "block");
+    add_decl(tikz_public, "width", "100%");
+    add_decl(tikz_public, "min-height", "180px");
+    add_decl(tikz_public, "border", "0");
+    cJSON_AddItemToArray(rules, tikz_public);
+
+    cJSON *tikz_status = create_rule(".tikz-status");
+    add_decl(tikz_status, "color", "var(--muted)");
+    add_decl(tikz_status, "font-size", "0.9rem");
+    add_decl(tikz_status, "padding", "8px 0");
+    cJSON_AddItemToArray(rules, tikz_status);
+
     cJSON *md_h1 = create_rule(".markdown-body h1");
     add_decl(md_h1, "font-size", "2.25rem");
     add_decl(md_h1, "font-weight", g_font_settings.font_weight_md_h1[0] ? g_font_settings.font_weight_md_h1 : "800");
