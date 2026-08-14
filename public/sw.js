@@ -2,7 +2,7 @@ var LOGO_CACHE = 'logo-cache-v5';
 var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v2';
 var STATIC_CACHE = 'fly-static-v7';
 var CDN_CACHE = 'fly-cdn-v3';
-var PRECACHE = 'fly-precache-v3';
+var PRECACHE = 'fly-precache-v4';
 /* Navigation documents are dynamic and may be personalized.  Do not retain
    them in the service worker: a cached document can show the previous route
    while the browser URL has already changed (and can also outlive a login).
@@ -25,7 +25,7 @@ var PRECACHE_URLS = [
     '/assets/js/layout.js',
     '/assets/js/katex-render.js',
     '/assets/js/tasfa-download.js',
-    '/assets/css/google-fonts.css',
+    '/assets/css/google-fonts.css?v=2',
     '/assets/css/pretendard.css',
     '/assets/css/d2coding.css',
     '/themes.json'

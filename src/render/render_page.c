@@ -556,7 +556,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                  * loaded separately so it does not bloat the first payload.
                  * The small local fallbacks are inlined when shell inlining is
                  * enabled and they fit under the per-asset budget. */
-                cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/google-fonts.css\">");
+                cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/google-fonts.css?v=2\">");
                 if (inline_shell_enabled() && inline_asset_fits(a->font_css_small)) {
                     cwist_sstring_append(head_shell, "<style>");
                     cwist_sstring_append(head_shell, a->font_css_small);

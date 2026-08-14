@@ -300,7 +300,16 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *boards = db_board_list(req->db);
-    cwist_sstring *page = render_post_editor(boards, NULL, NULL, is_dark(req), role, NULL, pp, is_mobile_request(req));
+    int initial_board_id = 0;
+    const char *board_slug = cwist_query_map_get(req->query_params, "board");
+    if (board_slug && board_slug[0]) {
+        cJSON *board = db_board_get_by_slug(req->db, board_slug);
+        if (board) {
+            initial_board_id = json_int(board, "id", 0);
+            cJSON_Delete(board);
+        }
+    }
+    cwist_sstring *page = render_post_editor(boards, NULL, NULL, initial_board_id, is_dark(req), role, NULL, pp, is_mobile_request(req));
     if (boards) cJSON_Delete(boards);
     send_html_res(res, page);
     free(pp);
@@ -373,7 +382,8 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         CWIST_LOG_WARN("Post creation failed: missing title or content uid=%d", uid);
         cJSON *boards = db_board_list(req->db);
         char *pp = get_profile_pic(req->db, uid, role);
-        cwist_sstring *page = render_post_editor(boards, NULL, NULL, is_dark(req), role, "Title and content required", pp, is_mobile_request(req));
+        int initial_board_id = board_id_str ? atoi(board_id_str) : 0;
+        cwist_sstring *page = render_post_editor(boards, NULL, NULL, initial_board_id, is_dark(req), role, "Title and content required", pp, is_mobile_request(req));
         if (boards) cJSON_Delete(boards);
         send_html_res(res, page);
         free(pp);
@@ -388,7 +398,8 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         CWIST_LOG_WARN("Post creation failed: input too long uid=%d", uid);
         cJSON *boards = db_board_list(req->db);
         char *pp = get_profile_pic(req->db, uid, role);
-        cwist_sstring *page = render_post_editor(boards, NULL, NULL, is_dark(req), role, "Title, summary, or content is too long", pp, is_mobile_request(req));
+        int initial_board_id = board_id_str ? atoi(board_id_str) : 0;
+        cwist_sstring *page = render_post_editor(boards, NULL, NULL, initial_board_id, is_dark(req), role, "Title, summary, or content is too long", pp, is_mobile_request(req));
         if (boards) cJSON_Delete(boards);
         send_html_res(res, page);
         free(pp);
@@ -477,7 +488,7 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res) {
     char *pp = get_profile_pic(req->db, uid, role);
     int post_id_val = json_int(post, "id", 0);
     cJSON *files = db_file_list_by_post(req->db, post_id_val);
-    cwist_sstring *page = render_post_editor(boards, post, files, is_dark(req), role, NULL, pp, is_mobile_request(req));
+    cwist_sstring *page = render_post_editor(boards, post, files, 0, is_dark(req), role, NULL, pp, is_mobile_request(req));
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
     if (boards) cJSON_Delete(boards);
