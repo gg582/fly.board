@@ -29,6 +29,15 @@
         return getCookie('jwt_access');
     }
 
+    function isSameOrigin(input) {
+        try {
+            var url = input instanceof Request ? input.url : String(input);
+            return new URL(url, window.location.href).origin === window.location.origin;
+        } catch (e) {
+            return false;
+        }
+    }
+
     /* A document navigation cannot be decorated by this fetch wrapper. Keep
      * the access token only in the controlling service worker's memory so it
      * can add the same bearer credential for navigations from this tab when a
@@ -99,14 +108,16 @@
     window.fetch = function (input, init) {
         init = init || {};
         var token = currentJwt();
-        if (token) {
+        if (token && isSameOrigin(input)) {
             if (input instanceof Request) {
-                /* Request.headers is immutable in some browsers; build a new
-                 * Headers object from it and override via init. */
+                /* Rebuild an existing Request after adding the header. Some
+                 * engines ignore init.headers when input is already a Request. */
                 var headers = new Headers(input.headers);
                 if (!headers.has('Authorization')) {
                     headers.set('Authorization', 'Bearer ' + token);
                     init.headers = headers;
+                    input = new Request(input, init);
+                    init = undefined;
                 }
             } else {
                 init.headers = addAuthHeader(init.headers, token);
@@ -120,9 +131,10 @@
     var origSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
     var origSend = XMLHttpRequest.prototype.send;
 
-    XMLHttpRequest.prototype.open = function () {
+    XMLHttpRequest.prototype.open = function (method, url) {
         this.__jwt_sent__ = false;
-        this.__jwt_headers__ = this.__jwt_headers__ || {};
+        this.__jwt_headers__ = {};
+        this.__jwt_same_origin__ = isSameOrigin(url);
         return origOpen.apply(this, arguments);
     };
 
@@ -134,7 +146,7 @@
 
     XMLHttpRequest.prototype.send = function (body) {
         var token = currentJwt();
-        if (token && !this.__jwt_sent__ &&
+        if (token && this.__jwt_same_origin__ && !this.__jwt_sent__ &&
             (!this.__jwt_headers__ || !this.__jwt_headers__['authorization'])) {
             origSetRequestHeader.call(this, 'Authorization', 'Bearer ' + token);
             this.__jwt_sent__ = true;
