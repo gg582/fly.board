@@ -531,6 +531,22 @@ void rule_components(cJSON *rules) {
     add_decl(btn2h, "border-color", "var(--accent2)");
     cJSON_AddItemToArray(rules, btn2h);
 
+    cJSON *translate_target = create_rule(".post-translate-target");
+    add_decl(translate_target, "background", "var(--panel)");
+    add_decl(translate_target, "color", "var(--accent)");
+    add_decl(translate_target, "accent-color", "var(--accent)");
+    cJSON_AddItemToArray(rules, translate_target);
+
+    cJSON *translate_target_option = create_rule(".post-translate-target option");
+    add_decl(translate_target_option, "background", "var(--panel)");
+    add_decl(translate_target_option, "color", "var(--fg)");
+    cJSON_AddItemToArray(rules, translate_target_option);
+
+    cJSON *translate_target_selected = create_rule(".post-translate-target option:checked");
+    add_decl(translate_target_selected, "background", "var(--accent)");
+    add_decl(translate_target_selected, "color", "var(--panel)");
+    cJSON_AddItemToArray(rules, translate_target_selected);
+
     cJSON *input = create_rule("input, textarea, select");
     add_decl(input, "width", "100%");
     add_decl(input, "padding", "12px 14px");
