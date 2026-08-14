@@ -92,6 +92,13 @@
             .replace(/'/g, '&#39;');
     }
 
+    /* A standalone run of equals signs is usually Markdown's setext-heading
+     * marker pasted into a LaTeX or TikZ block. Keep the mathematical equals
+     * sign while removing the accidental repetition before previewing. */
+    function normalizeStandaloneEquals(source) {
+        return String(source || '').replace(/^[ \t]*={2,}[ \t]*$/gm, '=');
+    }
+
     function escapeRegExp(value) {
         return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
@@ -749,12 +756,12 @@
          * headings, rules or table syntax in the live preview. */
         normalized = normalized.replace(/^ {0,3}(`{3,}|~{3,})[ \t]*tikz[^\n]*\n([\s\S]*?)^ {0,3}\1[ \t]*$/gmi, function(_, fence, code) {
             var token = '@@TIKZBLOCK' + tikzBlocks.length + '@@';
-            tikzBlocks.push(escapeHtml(code.replace(/\n$/, '')));
+            tikzBlocks.push(escapeHtml(normalizeStandaloneEquals(code.replace(/\n$/, ''))));
             return token;
         });
         normalized = normalized.replace(/\\begin\{(tikzpicture|tikzcd)\}([\s\S]*?)\\end\{\1\}/g, function(_, env, body) {
             var token = '@@TIKZBLOCK' + tikzBlocks.length + '@@';
-            tikzBlocks.push(escapeHtml('\\begin{' + env + '}' + body + '\\end{' + env + '}'));
+            tikzBlocks.push(escapeHtml(normalizeStandaloneEquals('\\begin{' + env + '}' + body + '\\end{' + env + '}')));
             return token;
         });
         normalized = normalized.replace(/```([\w-]*)\n([\s\S]*?)```/g, function(_, lang, code) {
@@ -775,19 +782,19 @@
         normalized = protectDollarMath(normalized, mathBlocks, mathInlines);
         normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, function(_, expr) {
             var token = '@@MATHBLOCK' + mathBlocks.length + '@@';
-            mathBlocks.push(escapeHtml(expr));
+            mathBlocks.push(escapeHtml(normalizeStandaloneEquals(expr)));
             return token;
         });
         normalized = normalized.replace(/^\[\s*\n([\s\S]*?)^\][ \t]*$/gm, function(match, expr) {
             if (!/[\\^_{}=+*]/.test(expr)) return match;
             var token = '@@MATHBLOCK' + mathBlocks.length + '@@';
-            mathBlocks.push(escapeHtml(expr.replace(/^\s+|\s+$/g, '')));
+            mathBlocks.push(escapeHtml(normalizeStandaloneEquals(expr.replace(/^\s+|\s+$/g, ''))));
             return token;
         });
         /* Protect inline math */
         normalized = normalized.replace(/\\\((.*?)\\\)/g, function(_, expr) {
             var token = '@@MATHINLINE' + mathInlines.length + '@@';
-            mathInlines.push(escapeHtml(expr));
+            mathInlines.push(escapeHtml(normalizeStandaloneEquals(expr)));
             return token;
         });
 
@@ -995,10 +1002,10 @@
             var token;
             if (width === 2) {
                 token = '@@MATHBLOCK' + blocks.length + '@@';
-                blocks.push(escapeHtml(text.slice(start, close)));
+                blocks.push(escapeHtml(normalizeStandaloneEquals(text.slice(start, close))));
             } else {
                 token = '@@MATHINLINE' + inlines.length + '@@';
-                inlines.push(escapeHtml(text.slice(start, close)));
+                inlines.push(escapeHtml(normalizeStandaloneEquals(text.slice(start, close))));
             }
             result += token;
             i = close + width;
@@ -1197,10 +1204,10 @@
         }
         loadCss('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css');
         if (typeof katex !== 'undefined') {
-            loadScript('/assets/js/katex-render.js?v=6', cb);
+            loadScript('/assets/js/katex-render.js?v=7', cb);
         } else {
             loadScript('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js', function() {
-                loadScript('/assets/js/katex-render.js?v=6', cb);
+                loadScript('/assets/js/katex-render.js?v=7', cb);
             });
         }
     }
