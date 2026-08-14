@@ -69,6 +69,10 @@ int main(void) {
           "$$\nS\n=\n1\n+\n2\n$$\n",
           "<span class=\"math-block\">S\n=\n1\n+\n2</span>", "<h");
 
+    check("bare single-line LaTex expression becomes display math",
+          "i_{\\max}(j)=\\left\\lfloorX_{q,n}(hj)-\\frac j2\\right\\rfloor\n",
+          "<span class=\"math-block\">i_{\\max}(j)=\\left\\lfloorX_{q,n}(hj)-\\frac j2\\right\\rfloor</span>", NULL);
+
     check("math normalizes embedded repeated equals and mixed minus signs",
           "$$P_q(n)======R_q(n)−------E_q(n)$$\n",
           "<span class=\"math-block\">P_q(n)=R_q(n)-E_q(n)</span>", "======");
