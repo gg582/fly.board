@@ -17,7 +17,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
-#include <arpa/inet.h>
 
 static const char *CLIENT_NONCE = "fly.board";
 
@@ -37,164 +36,6 @@ static char g_jwt_secret[256] = {0};
 #define AUTH_FAIL_ROLE_NOT_ADMIN        "AUTH_FAIL_ROLE_NOT_ADMIN"
 #define AUTH_FAIL_USER_LOOKUP           "AUTH_FAIL_USER_LOOKUP"
 #define AUTH_FAIL_UNKNOWN               "AUTH_FAIL_UNKNOWN"
-
-/* In-memory session hint cache.
- * When a valid JWT is verified we remember (IP + User-Agent) -> identity.
- * If a later request from the same IP+UA arrives without a Cookie header
- * (e.g. keep-alive/header reuse bug), we can fall back to the remembered
- * identity instead of treating the user as logged out. This is intentionally
- * a heuristic: it only covers missing-cookie cases, never invalid tokens,
- * and entries expire quickly.
- *
- * Implementation uses chained hash buckets instead of a flat array so that
- * lookups/updates are O(1) average and do not scan thousands of entries under
- * a single global lock. This prevents the cache from becoming a CPU and
- * contention hot-spot when the server has been running for a long time and
- * many distinct clients have been seen. */
-#include <pthread.h>
-
-#define AUTH_HINT_CACHE_BUCKETS 1024
-#define AUTH_HINT_MAX_ENTRIES   8192
-#define AUTH_HINT_TTL_SECONDS   3600
-
-typedef struct auth_hint_entry {
-    uint64_t key_hash;
-    int user_id;
-    char role[32];
-    time_t last_seen;
-    struct auth_hint_entry *next;
-} auth_hint_entry_t;
-
-static auth_hint_entry_t *g_auth_hint_buckets[AUTH_HINT_CACHE_BUCKETS];
-static size_t g_auth_hint_count = 0;
-static pthread_mutex_t g_auth_hint_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-static uint64_t auth_hint_hash(const char *ip, const char *ua) {
-    if (!ip) ip = "";
-    if (!ua) ua = "";
-    /* FNV-1a 64-bit */
-    uint64_t h = 0xcbf29ce484222325ULL;
-    for (const char *p = ip; *p; ++p) {
-        h ^= (uint64_t)(unsigned char)*p;
-        h *= 0x100000001b3ULL;
-    }
-    h ^= 0x3a; /* separator */
-    h *= 0x100000001b3ULL;
-    for (const char *p = ua; *p; ++p) {
-        h ^= (uint64_t)(unsigned char)*p;
-        h *= 0x100000001b3ULL;
-    }
-    return h;
-}
-
-static inline size_t auth_hint_bucket_index(uint64_t h) {
-    return (size_t)(h & (AUTH_HINT_CACHE_BUCKETS - 1));
-}
-
-/* Copy the client IP and User-Agent into caller-owned buffers so the hash
- * key remains valid regardless of how cwist_get_client_ip_from_fd() manages
- * its return value. This eliminates any chance of hashing a dangling pointer
- * if the sstring is destroyed before the key is used. */
-static void auth_hint_get_client_info(cwist_http_request *req,
-                                      char *ip_buf, size_t ip_len,
-                                      const char **out_ua) {
-    ip_buf[0] = '\0';
-    *out_ua = "";
-    if (req->client_fd >= 0) {
-        cwist_sstring *ip_ss = cwist_get_client_ip_from_fd(req->client_fd);
-        if (ip_ss && ip_ss->data) {
-            snprintf(ip_buf, ip_len, "%s", ip_ss->data);
-        }
-        if (ip_ss) cwist_sstring_destroy(ip_ss);
-    }
-    *out_ua = cwist_http_header_get(req->headers, "User-Agent");
-    if (!*out_ua) *out_ua = "";
-}
-
-/* Evict one arbitrary entry to keep the cache bounded. Called while the lock
- * is held. This is intentionally simple (drop the head of a non-empty bucket)
- * because the hint cache is a best-effort heuristic; exact LRU is not required. */
-static void auth_hint_evict_one_locked(void) {
-    for (size_t i = 0; i < AUTH_HINT_CACHE_BUCKETS; ++i) {
-        auth_hint_entry_t *e = g_auth_hint_buckets[i];
-        if (e) {
-            g_auth_hint_buckets[i] = e->next;
-            free(e);
-            g_auth_hint_count--;
-            return;
-        }
-    }
-}
-
-static void auth_hint_update(cwist_http_request *req, int user_id, const char *role) {
-    char ip[INET6_ADDRSTRLEN];
-    const char *ua;
-    auth_hint_get_client_info(req, ip, sizeof(ip), &ua);
-    uint64_t h = auth_hint_hash(ip, ua);
-
-    pthread_mutex_lock(&g_auth_hint_mutex);
-    time_t now = time(NULL);
-    size_t idx = auth_hint_bucket_index(h);
-    auth_hint_entry_t *e = g_auth_hint_buckets[idx];
-    while (e) {
-        if (e->key_hash == h) {
-            e->user_id = user_id;
-            snprintf(e->role, sizeof(e->role), "%s", role ? role : "");
-            e->last_seen = now;
-            pthread_mutex_unlock(&g_auth_hint_mutex);
-            return;
-        }
-        e = e->next;
-    }
-
-    if (g_auth_hint_count >= AUTH_HINT_MAX_ENTRIES) {
-        auth_hint_evict_one_locked();
-    }
-
-    e = (auth_hint_entry_t *)calloc(1, sizeof(*e));
-    if (!e) {
-        pthread_mutex_unlock(&g_auth_hint_mutex);
-        return;
-    }
-    e->key_hash = h;
-    e->user_id = user_id;
-    snprintf(e->role, sizeof(e->role), "%s", role ? role : "");
-    e->last_seen = now;
-    e->next = g_auth_hint_buckets[idx];
-    g_auth_hint_buckets[idx] = e;
-    g_auth_hint_count++;
-    pthread_mutex_unlock(&g_auth_hint_mutex);
-}
-
-static void auth_hint_remove(cwist_http_request *req) {
-    char ip[INET6_ADDRSTRLEN];
-    const char *ua;
-    auth_hint_get_client_info(req, ip, sizeof(ip), &ua);
-    uint64_t h = auth_hint_hash(ip, ua);
-
-    pthread_mutex_lock(&g_auth_hint_mutex);
-    size_t idx = auth_hint_bucket_index(h);
-    auth_hint_entry_t **pp = &g_auth_hint_buckets[idx];
-    while (*pp) {
-        auth_hint_entry_t *e = *pp;
-        if (e->key_hash == h) {
-            *pp = e->next;
-            free(e);
-            g_auth_hint_count--;
-            break;
-        }
-        pp = &e->next;
-    }
-    pthread_mutex_unlock(&g_auth_hint_mutex);
-}
-
-void auth_session_hint_update(cwist_http_request *req, int user_id, const char *role) {
-    auth_hint_update(req, user_id, role);
-}
-
-void auth_session_hint_remove(cwist_http_request *req) {
-    auth_hint_remove(req);
-}
 
 bool auth_jwt_init(const char *secret_path) {
     const char *path = secret_path ? secret_path : "data/.jwt_secret";
@@ -517,6 +358,51 @@ static bool auth_cookie_iter_next(const char **cursor, auth_cookie_iter_t *out) 
     return true;
 }
 
+/* Every transport reaches authentication through this verifier. HTTP/2 and
+ * HTTP/3 are only framing layers: a valid credential must be accepted the
+ * same way whether it arrived in the HttpOnly session cookie or in the
+ * same-origin Bearer fallback used by the service worker. */
+static bool auth_verify_token(const char *token, const char *secret,
+                              int *out_user_id, char *out_role, size_t role_len,
+                              const char **reason) {
+    if (!token || !token[0]) {
+        if (reason) *reason = AUTH_FAIL_EMPTY_SESSION_COOKIE;
+        return false;
+    }
+    if (strlen(token) >= 1024) {
+        if (reason) *reason = AUTH_FAIL_TOKEN_TOO_LONG;
+        return false;
+    }
+
+    cwist_jwt_claims *claims = cwist_jwt_verify(token, secret);
+    if (!claims) {
+        if (reason) *reason = AUTH_FAIL_JWT_VERIFY_NULL;
+        return false;
+    }
+    const char *sub = cwist_jwt_claims_get(claims, "sub");
+    const char *username = cwist_jwt_claims_get(claims, "username");
+    const char *role = cwist_jwt_claims_get(claims, "role");
+    bool ok = false;
+    if (!sub) {
+        if (reason) *reason = AUTH_FAIL_MISSING_SUB;
+    } else {
+        int uid = atoi(sub);
+        if (uid <= 0) {
+            if (reason) *reason = AUTH_FAIL_BAD_SUB;
+        } else if (!username) {
+            if (reason) *reason = AUTH_FAIL_MISSING_USERNAME;
+        } else if (!role) {
+            if (reason) *reason = AUTH_FAIL_MISSING_ROLE;
+        } else {
+            *out_user_id = uid;
+            snprintf(out_role, role_len, "%s", role);
+            ok = true;
+        }
+    }
+    cwist_jwt_claims_destroy(claims);
+    return ok;
+}
+
 bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
     if (!req || !out_user_id || !out_role || role_len == 0) return false;
 
@@ -530,33 +416,14 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
         return false;
     }
 
-    /* Authorization: Bearer <token> fallback. Some clients (e.g. the post
-     * editor after transient cookie loss) send the JWT explicitly so the
-     * request can still be authenticated even when the Cookie header is
-     * dropped by the framework/transport layer. */
+    /* The browser sends the HttpOnly session cookie by default. The explicit
+     * Bearer credential is a same-origin fallback for a request whose Cookie
+     * header was lost during a connection transition. */
     const char *auth_header = cwist_http_header_get(req->headers, "Authorization");
     if (auth_header && strncasecmp(auth_header, "Bearer ", 7) == 0) {
         const char *bearer_token = auth_header + 7;
         while (*bearer_token == ' ' || *bearer_token == '\t') bearer_token++;
-        if (bearer_token[0]) {
-            cwist_jwt_claims *claims = cwist_jwt_verify(bearer_token, secret);
-            if (claims) {
-                const char *sub = cwist_jwt_claims_get(claims, "sub");
-                const char *username = cwist_jwt_claims_get(claims, "username");
-                const char *role = cwist_jwt_claims_get(claims, "role");
-                if (sub && username && role) {
-                    int uid = atoi(sub);
-                    if (uid > 0) {
-                        *out_user_id = uid;
-                        snprintf(out_role, role_len, "%s", role);
-                        auth_hint_update(req, uid, role);
-                        cwist_jwt_claims_destroy(claims);
-                        return true;
-                    }
-                }
-                cwist_jwt_claims_destroy(claims);
-            }
-        }
+        if (auth_verify_token(bearer_token, secret, out_user_id, out_role, role_len, NULL)) return true;
     }
 
     const char *cookie_name = SESSION_COOKIE_NAME;
@@ -567,7 +434,6 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
     bool session_cookie_found = false;
     size_t session_token_len = 0;
     const char *reason = NULL;
-    int parsed_uid = 0;
 
     for (cwist_http_header_node *h = req->headers; h; h = h->next) {
         if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
@@ -584,8 +450,7 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
         const char *cursor = h->value->data;
         while (auth_cookie_iter_next(&cursor, &cookie)) {
             bool is_session = (cookie.name_len == cookie_name_len && strncmp(cookie.name, cookie_name, cookie_name_len) == 0);
-            bool is_jwt_access = (cookie.name_len == 10 && strncmp(cookie.name, "jwt_access", 10) == 0);
-            if (!is_session && !is_jwt_access) {
+            if (!is_session) {
                 continue;
             }
             session_cookie_found = true;
@@ -593,53 +458,16 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
             if (!reason) session_token_len = len;
             token_attempts++;
 
-            if (len == 0) {
-                if (!reason) reason = AUTH_FAIL_EMPTY_SESSION_COOKIE;
-                continue;
-            }
-            if (len >= 1024) {
-                if (!reason) reason = AUTH_FAIL_TOKEN_TOO_LONG;
-                continue;
-            }
-
             cwist_sstring *token = cwist_sstring_create();
             if (!token) continue;
             cwist_sstring_assign_len(token, cookie.value, len);
-
-            cwist_jwt_claims *claims = cwist_jwt_verify(token->data, secret);
-            if (!claims) {
-                if (!reason) reason = AUTH_FAIL_JWT_VERIFY_NULL;
+            const char *token_reason = NULL;
+            if (auth_verify_token(token->data, secret, out_user_id, out_role, role_len, &token_reason)) {
+                valid_claims++;
                 cwist_sstring_destroy(token);
-                continue;
+                return true;
             }
-
-            valid_claims++;
-            const char *sub = cwist_jwt_claims_get(claims, "sub");
-            const char *username = cwist_jwt_claims_get(claims, "username");
-            const char *role = cwist_jwt_claims_get(claims, "role");
-
-            if (!sub) {
-                if (!reason) reason = AUTH_FAIL_MISSING_SUB;
-            } else {
-                int uid = atoi(sub);
-                if (!reason) parsed_uid = uid;
-                if (uid <= 0) {
-                    if (!reason) reason = AUTH_FAIL_BAD_SUB;
-                } else if (!username) {
-                    if (!reason) reason = AUTH_FAIL_MISSING_USERNAME;
-                } else if (!role) {
-                    if (!reason) reason = AUTH_FAIL_MISSING_ROLE;
-                } else {
-                    *out_user_id = uid;
-                    snprintf(out_role, role_len, "%s", role);
-                    auth_hint_update(req, *out_user_id, out_role);
-                    cwist_jwt_claims_destroy(claims);
-                    cwist_sstring_destroy(token);
-                    return true;
-                }
-            }
-
-            cwist_jwt_claims_destroy(claims);
+            if (!reason) reason = token_reason;
             cwist_sstring_destroy(token);
         }
     }
@@ -656,7 +484,7 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
 
     CWIST_LOG_WARN("auth verify failed: reason=%s method=%s path=%s "
                     "cookie_headers=%d session_found=%d token_len=%zu "
-                    "token_attempts=%d valid_claims=%d parsed_uid=%d now=%ld",
+                    "token_attempts=%d valid_claims=%d now=%ld",
                     reason,
                     cwist_http_method_to_string(req->method),
                     (req->path && req->path->data) ? req->path->data : "?",
@@ -665,7 +493,6 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
                     session_token_len,
                     token_attempts,
                     valid_claims,
-                    parsed_uid,
                     (long)time(NULL));
     return false;
 }

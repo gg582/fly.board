@@ -136,12 +136,67 @@ static size_t find_math_delimiter(const char *s, size_t len, size_t start,
         if (s[i] == '$' && !is_escaped(s, i)) {
             if (delimiter_len == 2) {
                 if (i + 1 < len && s[i + 1] == '$') return i;
-            } else if (i + 1 >= len || s[i + 1] != '$') {
+            } else if ((i + 1 >= len || s[i + 1] != '$') &&
+                       (i + 1 >= len || !((s[i + 1] >= '0' && s[i + 1] <= '9') ||
+                                           (s[i + 1] >= 'A' && s[i + 1] <= 'Z') ||
+                                           (s[i + 1] >= 'a' && s[i + 1] <= 'z') ||
+                                           s[i + 1] == '_'))) {
                 return i;
             }
         }
     }
     return SIZE_MAX;
+}
+
+static size_t find_latex_delimiter(const char *s, size_t len, size_t start,
+                                   char closing) {
+    for (size_t i = start; i + 1 < len; i++) {
+        if (s[i] == '\\' && s[i + 1] == closing && !is_escaped(s, i)) return i;
+    }
+    return SIZE_MAX;
+}
+
+/* Recognize an indented fenced TikZ block while retaining the opening fence
+ * length. A four-backtick block may legally contain three backticks, and the
+ * previous parser prematurely terminated it. */
+static bool tikz_fence_open(const char *s, size_t pos, size_t len,
+                            char *out_char, size_t *out_fence_len,
+                            size_t *out_content_start) {
+    if (!is_line_start(s, pos)) return false;
+    size_t p = pos, indent = 0;
+    while (p < len && s[p] == ' ' && indent < 4) { p++; indent++; }
+    if (indent > 3 || p >= len || (s[p] != '`' && s[p] != '~')) return false;
+    char fence = s[p];
+    size_t run = 0;
+    while (p + run < len && s[p + run] == fence) run++;
+    if (run < 3) return false;
+    size_t info = p + run;
+    while (info < len && (s[info] == ' ' || s[info] == '\t')) info++;
+    if (info + 4 > len || strncasecmp(s + info, "tikz", 4) != 0) return false;
+    info += 4;
+    if (info < len && s[info] != ' ' && s[info] != '\t' && s[info] != '\r' && s[info] != '\n') return false;
+    while (info < len && s[info] != '\n') info++;
+    if (info < len) info++;
+    *out_char = fence;
+    *out_fence_len = run;
+    *out_content_start = info;
+    return true;
+}
+
+static bool tikz_fence_close(const char *s, size_t pos, size_t len,
+                             char fence, size_t min_fence_len, size_t *out_after) {
+    if (!is_line_start(s, pos)) return false;
+    size_t p = pos, indent = 0;
+    while (p < len && s[p] == ' ' && indent < 4) { p++; indent++; }
+    if (indent > 3 || p >= len || s[p] != fence) return false;
+    size_t run = 0;
+    while (p + run < len && s[p + run] == fence) run++;
+    if (run < min_fence_len) return false;
+    p += run;
+    while (p < len && (s[p] == ' ' || s[p] == '\t' || s[p] == '\r')) p++;
+    if (p < len && s[p] != '\n') return false;
+    *out_after = p < len ? p + 1 : p;
+    return true;
 }
 
 /* Case-insensitive search for a "</tag" style needle, used to find the end of
@@ -250,17 +305,16 @@ static char *protect_math(const char *md, math_registry_t *blocks,
         /* Handle TikZ before generic fence tracking.  Otherwise this opening
          * line would put us in a code block and the specialized branch below
          * would never be reached. */
-        if (is_line_start(md, i) &&
-            (strncmp(md + i, "```tikz", 7) == 0 || strncmp(md + i, "~~~tikz", 7) == 0)) {
-            char fence_char = md[i];
-            size_t line_end = i;
-            while (line_end < len && md[line_end] != '\n') line_end++;
-            if (line_end < len) line_end++;
+        char fence_char = 0;
+        size_t opening_fence_len = 0, line_end = 0;
+        if (tikz_fence_open(md, i, len, &fence_char, &opening_fence_len, &line_end)) {
             const char *closing = NULL;
-            for (size_t j = line_end; j + 3 <= len; j++) {
-                if ((j == 0 || md[j - 1] == '\n') && md[j] == fence_char &&
-                    md[j + 1] == fence_char && md[j + 2] == fence_char) {
+            size_t after_closing = 0;
+            for (size_t j = line_end; j < len; j++) {
+                size_t candidate_after = 0;
+                if (tikz_fence_close(md, j, len, fence_char, opening_fence_len, &candidate_after)) {
                     closing = md + j;
+                    after_closing = candidate_after;
                     break;
                 }
             }
@@ -268,10 +322,7 @@ static char *protect_math(const char *md, math_registry_t *blocks,
                 size_t code_len = (size_t)(closing - (md + line_end));
                 begin_block_placeholder(out);
                 add_tikz_placeholder(out, tikz, md + line_end, code_len);
-                /* Consume the closing fence line entirely. */
-                i = (size_t)(closing - md);
-                while (i < len && md[i] != '\n') i++;
-                if (i < len) i++;
+                i = after_closing;
                 end_block_placeholder(out, md, len, i);
                 continue;
             }
@@ -410,9 +461,8 @@ static char *protect_math(const char *md, math_registry_t *blocks,
          * MD_FLAG_LATEXMATHSPANS is enabled; we only protect the LaTeX-style
          * delimiters that md4c does not understand. */
         if (i + 1 < len && md[i] == '\\' && md[i + 1] == '[') {
-            size_t j = i + 2;
-            while (j + 1 < len && !(md[j] == '\\' && md[j + 1] == ']')) j++;
-            if (j + 1 < len) {
+            size_t j = find_latex_delimiter(md, len, i + 2, ']');
+            if (j != SIZE_MAX) {
                 size_t expr_len = j - (i + 2);
                 size_t after = 0;
                 if (is_block_position(md, len, i, j + 2, &after)) {
@@ -469,9 +519,8 @@ static char *protect_math(const char *md, math_registry_t *blocks,
 
         /* Inline math: \(...\) */
         if (i + 1 < len && md[i] == '\\' && md[i + 1] == '(') {
-            size_t j = i + 2;
-            while (j + 1 < len && !(md[j] == '\\' && md[j + 1] == ')')) j++;
-            if (j + 1 < len) {
+            size_t j = find_latex_delimiter(md, len, i + 2, ')');
+            if (j != SIZE_MAX) {
                 size_t expr_len = j - (i + 2);
                 if (expr_len > 0) {
                     math_registry_add(inlines, md + i + 2, expr_len);

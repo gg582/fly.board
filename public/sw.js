@@ -1,6 +1,6 @@
 var LOGO_CACHE = 'logo-cache-v5';
 var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v2';
-var STATIC_CACHE = 'fly-static-v6';
+var STATIC_CACHE = 'fly-static-v7';
 var CDN_CACHE = 'fly-cdn-v3';
 var PRECACHE = 'fly-precache-v3';
 /* Navigation documents are dynamic and may be personalized.  Do not retain
@@ -16,6 +16,7 @@ var tasfaSessions = {};
 /* Client-scoped, memory-only access tokens supplied by jwt.js. They are never
    written to Cache Storage and vanish when this worker is stopped. */
 var clientAuthTokens = {};
+var AUTH_TOKEN_MAX_AGE = 12 * 60 * 60 * 1000;
 
 /* Assets to prefetch on SW install so repeat navigations never hit the network
    for the shell JS/CSS, fonts, and the theme config. */
@@ -58,6 +59,17 @@ function lookupTasfaSession(rawUrl) {
         if (tasfaSessions[keys[i]]) return tasfaSessions[keys[i]];
     }
     return null;
+}
+
+function requestWithClientAuth(request, clientId) {
+    var entry = clientId && clientAuthTokens[clientId];
+    if (!entry || !entry.token || Date.now() - entry.receivedAt > AUTH_TOKEN_MAX_AGE ||
+        request.headers.get('Authorization')) {
+        return request;
+    }
+    var headers = new Headers(request.headers);
+    headers.set('Authorization', 'Bearer ' + entry.token);
+    return new Request(request, { headers: headers });
 }
 
 function waitForSession(rawUrl, timeoutMs) {
@@ -455,12 +467,18 @@ self.addEventListener('fetch', function(event) {
        because the ReadableStream is always fed from byte 0. Firefox in
        particular treats a Content-Length/range mismatch as a partial
        transfer error (NS_ERROR_PARTIAL_TRANSFER). */
-    /* Do not rebuild document-navigation requests in the service worker.
-     * Reconstructing a navigation as a generic Request loses browser-managed
-     * navigation state on some engines, including the session-cookie context.
-     * Let the browser perform page navigations itself; fetch/XHR requests
-     * still receive the in-memory bearer fallback from jwt.js. */
-    if (event.request.mode === 'navigate') return;
+    /* Page navigations cannot pass through jwt.js's fetch wrapper. Preserve
+     * the browser-created navigation Request and add the same in-memory,
+     * client-scoped Bearer fallback used by fetch/XHR. This is essential when
+     * an HTTP/2 or HTTP/3 connection transition loses Cookie on the request. */
+    if (event.request.mode === 'navigate') {
+        var navigationClientId = event.clientId || event.resultingClientId;
+        var navigationRequest = requestWithClientAuth(event.request, navigationClientId);
+        if (navigationRequest !== event.request) {
+            event.respondWith(fetch(navigationRequest));
+        }
+        return;
+    }
 
     /* Cache CDN fonts, styles and scripts aggressively. High-RTT links suffer
      * most on these cross-origin resources because they are fetched on every

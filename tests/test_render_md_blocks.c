@@ -45,6 +45,10 @@ int main(void) {
           "# lattice\n\n$$\\frac{3n^2-n}{2}$$\n\n```tikz\n\\begin{tikzpicture}[scale=.7]\n\\def\\h{0.8660254}\n\\foreach \\j in {0,...,4} { \\foreach \\i in {0,...,4} { \\fill (\\i,\\j) circle (1pt); } }\n\\end{tikzpicture}\n```\n\n$$\\Delta^2P_q(n)=q$$\n\n```tikz\n\\draw[thick] (0,0) -- (4,0) -- (2,3) -- cycle;\n\\node[above] at (2,3) {$n=4$};\n```\n\nend\n",
           "<div class=\"tikz-block\">", "<pre><code class=\"language-tikz\">");
 
+    check("indented, four-backtick TikZ fence keeps inner backticks as source",
+          "   ````tikz\n\\node {```};\n````\nafter\n",
+          "<div class=\"tikz-block\">\n\\node {```};", "<pre><code class=\"language-tikz\">");
+
     check("tikz environment glued to a following line stays a block",
           "\\begin{tikzpicture} \\draw (0,0); \\end{tikzpicture}\nglued line\n",
           "</div>\n<p>glued line</p>", NULL);
@@ -81,9 +85,17 @@ int main(void) {
           "costs \\$5 and \\$10\n",
           "costs $5 and $10", "math-inline");
 
+    check("currency-like dollars are not paired as inline math",
+          "cost is $5 and $10 today\n",
+          "cost is $5 and $10 today", "math-inline");
+
     check("\\[...\\] on its own lines becomes a block paragraph",
           "text\n\\[\ny\n\\]\nnext\n",
           "<p><span class=\"math-block\">y</span></p>\n<p>next</p>", NULL);
+
+    check("escaped LaTex closing delimiter remains inside inline math",
+          "\\(a\\\\)b\\)\n",
+          "<span class=\"math-inline\">a\\\\)b</span>", NULL);
 
     if (failures == 0) printf("ALL TESTS PASSED\n");
     return failures ? 1 : 0;

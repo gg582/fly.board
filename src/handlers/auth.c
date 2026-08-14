@@ -70,7 +70,6 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         }
         set_auth_cookies(res, token, g_config.use_tls);
         cwist_free(token);
-        auth_session_hint_update(req, 1, "admin");
         cwist_query_map_destroy(kv);
         redirect(res, "/");
         return;
@@ -125,15 +124,14 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     CWIST_LOG_INFO("User login success: username='%s'", username);
     set_auth_cookies(res, token, g_config.use_tls);
     cwist_free(token);
-    auth_session_hint_update(req, user_id, role->valuestring);
     cJSON_Delete(user);
     cwist_query_map_destroy(kv);
     redirect(res, "/");
 }
 
 void handler_logout(cwist_http_request *req, cwist_http_response *res) {
+    (void)req;
     clear_auth_cookies(res, g_config.use_tls);
-    auth_session_hint_remove(req);
     redirect(res, "/");
 }
 
