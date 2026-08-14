@@ -66,6 +66,11 @@ static char *translate_text_via_api(CURL *curl, const char *text, const char *so
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_slist_free_all(headers);
 
+    if (result != CURLE_OK || buffer.overflow || status < 200 || status >= 300 || buffer.body->size == 0) {
+        CWIST_LOG_WARN("Google translate API error: curl_res=%d status=%ld size=%zu overflow=%d",
+                       (int)result, status, buffer.body->size, (int)buffer.overflow);
+    }
+
     char *translated = NULL;
     if (result == CURLE_OK && !buffer.overflow && status >= 200 && status < 300 && buffer.body->size > 0) {
         cJSON *root = cJSON_ParseWithLength(buffer.body->data, buffer.body->size);
