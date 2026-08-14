@@ -6,14 +6,15 @@
     var source = document.querySelector('article .markdown-body');
     var output = document.getElementById('post-translation');
     var status = document.getElementById('translation-msg');
-    if (!button || !targetSelect || !source || !output) return;
+    if (!button || !targetSelect || !source || !output || !window.Worker) return;
 
-    var TRANSLATORS_JS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js';
-    var MODEL_KO_EN = 'Xenova/opus-mt-ko-en';
-    var MODEL_EN_KO = 'Xenova/opus-mt-en-ko';
-    var translatorCache = {};
     var state = 'idle';
     var renderedTarget = '';
+    var requestId = 0;
+    var activeRequestId = 0;
+    var worker = null;
+    var displayNames = typeof Intl !== 'undefined' && Intl.DisplayNames
+        ? new Intl.DisplayNames(['en'], {type: 'language'}) : null;
 
     function setState(next) {
         state = next;
@@ -37,14 +38,43 @@
         return (clone.innerText || clone.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
     }
 
-    function hasMostlyKorean(text) {
-        var korean = (text.match(/[\uac00-\ud7a3]/g) || []).length;
-        var latin = (text.match(/[A-Za-z]/g) || []).length;
-        return korean > latin * 0.15;
+    function detectSourceLanguage(text) {
+        if (/[\uac00-\ud7a3]/.test(text)) return 'kor_Hang';
+        if (/[\u3040-\u30ff]/.test(text)) return 'jpn_Jpan';
+        if (/[\u4e00-\u9fff]/.test(text)) return 'zho_Hans';
+        if (/[\u0400-\u04ff]/.test(text)) return 'rus_Cyrl';
+        if (/[\u0600-\u06ff]/.test(text)) return 'arb_Arab';
+        if (/[\u0900-\u097f]/.test(text)) return 'hin_Deva';
+        return 'eng_Latn';
     }
 
-    function targetName(target) {
-        return target === 'ko' ? 'Korean' : 'English';
+    function languageLabel(code) {
+        var language = code.slice(0, 3);
+        var name = language;
+        if (displayNames) {
+            try {
+                name = displayNames.of(language) || language;
+            } catch (error) {
+                name = language;
+            }
+        }
+        return name + ' — ' + code;
+    }
+
+    function populateTargetLanguages(codes) {
+        if (!Array.isArray(codes) || codes.length === 0) return;
+        var selected = targetSelect.value;
+        var options = codes.slice().sort(function(a, b) {
+            return languageLabel(a).localeCompare(languageLabel(b));
+        });
+        targetSelect.textContent = '';
+        options.forEach(function(code) {
+            var option = document.createElement('option');
+            option.value = code;
+            option.textContent = languageLabel(code);
+            targetSelect.appendChild(option);
+        });
+        if (options.indexOf(selected) >= 0) targetSelect.value = selected;
     }
 
     function splitText(text) {
@@ -66,30 +96,10 @@
         return chunks;
     }
 
-    async function getTranslator(model) {
-        if (!translatorCache[model]) {
-            status.textContent = 'Loading translation model…';
-            translatorCache[model] = import(TRANSLATORS_JS_URL).then(function(module) {
-                /* Persist downloaded model files in the browser Cache API so
-                 * later page loads reuse them instead of downloading again. */
-                module.env.useBrowserCache = true;
-                return module.pipeline('translation', model, {
-                    dtype: 'q4f16',
-                    progress_callback: function(progress) {
-                        if (progress.status === 'progress' && progress.progress != null) {
-                            status.textContent = 'Downloading translation model… ' + Math.round(progress.progress) + '%';
-                        }
-                    }
-                });
-            });
-        }
-        return translatorCache[model];
-    }
-
-    function renderTranslation(parts, targetName) {
+    function renderTranslation(parts, target) {
         output.textContent = '';
         var heading = document.createElement('h2');
-        heading.textContent = 'Machine translation (' + targetName + ')';
+        heading.textContent = 'Machine translation (' + languageLabel(target) + ')';
         output.appendChild(heading);
         parts.forEach(function(part) {
             var paragraph = document.createElement('p');
@@ -104,9 +114,39 @@
         output.hidden = false;
     }
 
-    button.addEventListener('click', async function() {
-        if (state === 'loading' || state === 'translating') return;
+    function startWorker() {
+        worker = new Worker('/assets/js/post-translate-worker.js?v=1');
+        worker.addEventListener('message', function(event) {
+            var message = event.data || {};
+            if (message.type === 'languages') {
+                populateTargetLanguages(message.codes || []);
+                return;
+            }
+            if (message.requestId !== activeRequestId) return;
+            if (message.type === 'progress') {
+                status.textContent = message.text;
+            } else if (message.type === 'model-ready') {
+                setState('translating');
+            } else if (message.type === 'done') {
+                renderTranslation(message.parts || [], message.target);
+                renderedTarget = message.target;
+                setTranslateButtonVisible(true);
+                setState('rendered');
+                status.textContent = '';
+            } else if (message.type === 'error') {
+                setState('error');
+                status.textContent = 'Translation could not be loaded. Check your connection and try again.';
+            }
+        });
+        worker.addEventListener('error', function() {
+            setState('error');
+            status.textContent = 'Translation worker could not be started.';
+        });
+        worker.postMessage({type: 'languages'});
+    }
 
+    button.addEventListener('click', function() {
+        if (state === 'loading' || state === 'translating') return;
         var target = targetSelect.value;
         if (state === 'rendered' && renderedTarget === target) {
             output.hidden = !output.hidden;
@@ -120,39 +160,25 @@
             status.textContent = 'There is no text to translate.';
             return;
         }
-
-        var koreanSource = hasMostlyKorean(text);
-        if ((koreanSource && target === 'ko') || (!koreanSource && target === 'en')) {
+        var sourceLanguage = detectSourceLanguage(text);
+        if (sourceLanguage === target) {
             output.hidden = true;
             setTranslateButtonVisible(false);
             setState('idle');
-            status.textContent = 'The post already appears to be in ' + targetName(target) + '.';
+            status.textContent = 'The post already appears to be in the selected language.';
             return;
         }
-        var model = target === 'en' ? MODEL_KO_EN : MODEL_EN_KO;
-        var chunks = splitText(text);
-        setState('loading');
 
-        try {
-            var translate = await getTranslator(model);
-            setState('translating');
-            var results = [];
-            for (var i = 0; i < chunks.length; i++) {
-                status.textContent = 'Translating… ' + (i + 1) + '/' + chunks.length;
-                var result = await translate(chunks[i]);
-                results.push(result[0].translation_text);
-            }
-            renderTranslation(results, targetName(target));
-            renderedTarget = target;
-            setTranslateButtonVisible(true);
-            setState('rendered');
-            status.textContent = '';
-        } catch (error) {
-            console.error('Post translation failed', error);
-            delete translatorCache[model];
-            setState('error');
-            status.textContent = 'Translation could not be loaded. Check your connection and try again.';
-        }
+        activeRequestId = ++requestId;
+        setState('loading');
+        status.textContent = 'Loading translation model…';
+        worker.postMessage({
+            type: 'translate',
+            requestId: activeRequestId,
+            sourceLanguage: sourceLanguage,
+            target: target,
+            chunks: splitText(text)
+        });
     });
 
     targetSelect.addEventListener('change', function() {
@@ -165,6 +191,7 @@
     });
 
     var initialText = getTranslatableText();
-    if (initialText) targetSelect.value = hasMostlyKorean(initialText) ? 'en' : 'ko';
+    if (initialText) targetSelect.value = detectSourceLanguage(initialText) === 'kor_Hang' ? 'eng_Latn' : 'kor_Hang';
     setState('idle');
+    startWorker();
 })();
