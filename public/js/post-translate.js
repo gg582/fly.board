@@ -115,7 +115,7 @@
     }
 
     function startWorker() {
-        worker = new Worker('/assets/js/post-translate-worker.js?v=1');
+        worker = new Worker('/assets/js/post-translate-worker.js?v=2', {type: 'module'});
         worker.addEventListener('message', function(event) {
             var message = event.data || {};
             if (message.type === 'languages') {
