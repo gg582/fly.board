@@ -61,22 +61,6 @@
         return name + ' — ' + code;
     }
 
-    function populateTargetLanguages(codes) {
-        if (!Array.isArray(codes) || codes.length === 0) return;
-        var selected = targetSelect.value;
-        var options = codes.slice().sort(function(a, b) {
-            return languageLabel(a).localeCompare(languageLabel(b));
-        });
-        targetSelect.textContent = '';
-        options.forEach(function(code) {
-            var option = document.createElement('option');
-            option.value = code;
-            option.textContent = languageLabel(code);
-            targetSelect.appendChild(option);
-        });
-        if (options.indexOf(selected) >= 0) targetSelect.value = selected;
-    }
-
     function splitText(text) {
         var paragraphs = text.split(/\n{2,}/);
         var chunks = [];
@@ -115,13 +99,9 @@
     }
 
     function startWorker() {
-        worker = new Worker('/assets/js/post-translate-worker.js?v=3', {type: 'module'});
+        worker = new Worker('/assets/js/post-translate-worker.js?v=4', {type: 'module'});
         worker.addEventListener('message', function(event) {
             var message = event.data || {};
-            if (message.type === 'languages') {
-                populateTargetLanguages(message.codes || []);
-                return;
-            }
             if (message.requestId !== activeRequestId) return;
             if (message.type === 'progress') {
                 status.textContent = message.text;
@@ -143,7 +123,6 @@
             setState('error');
             status.textContent = 'Translation worker could not be started.';
         });
-        worker.postMessage({type: 'languages'});
     }
 
     button.addEventListener('click', function() {
