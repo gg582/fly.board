@@ -1,6 +1,6 @@
 var LOGO_CACHE = 'logo-cache-v5';
 var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v2';
-var STATIC_CACHE = 'fly-static-v5';
+var STATIC_CACHE = 'fly-static-v6';
 var CDN_CACHE = 'fly-cdn-v3';
 var PRECACHE = 'fly-precache-v3';
 /* Navigation documents are dynamic and may be personalized.  Do not retain
