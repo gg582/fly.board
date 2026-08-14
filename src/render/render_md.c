@@ -77,6 +77,45 @@ static bool is_line_start(const char *s, size_t pos) {
     return pos == 0 || s[pos - 1] == '\n';
 }
 
+/* A block-level placeholder must land in its own paragraph. If one is glued
+ * to a neighboring text line, the restored block element (a TikZ <div> or a
+ * display-math span) ends up inside that <p>, producing invalid HTML and
+ * swallowing the surrounding text. Pad the protected stream with a blank
+ * line before the placeholder. Call only in a block position, where the
+ * output currently ends at a line boundary. */
+static void begin_block_placeholder(cwist_sstring *out) {
+    if (!out->data) return; /* nothing emitted yet: placeholder starts the document */
+    size_t n = strlen(out->data);
+    if (n == 0) return;
+    if (out->data[n - 1] != '\n') return;
+    if (n >= 2 && out->data[n - 2] == '\n') return;
+    cwist_sstring_append(out, "\n");
+}
+
+/* After a block placeholder the line must end; when the next source line
+ * holds text directly (no blank line in between), add one more newline so
+ * that text starts a fresh paragraph. `next` is the first unconsumed source
+ * index. */
+static void end_block_placeholder(cwist_sstring *out, const char *md, size_t len, size_t next) {
+    cwist_sstring_append(out, "\n");
+    if (next < len && md[next] != '\n') cwist_sstring_append(out, "\n");
+}
+
+/* True when a match starting at `start` begins at a line start and its end
+ * `end` is followed by nothing but whitespace up to the line end, i.e. the
+ * match occupies whole lines and behaves as a block rather than inline text
+ * (a $$...$$ share a line with prose, or a tikzpicture inside a table row,
+ * must stay inline). On success `after_line` receives the index just past
+ * the terminating newline. */
+static bool is_block_position(const char *md, size_t len, size_t start, size_t end, size_t *after_line) {
+    if (!is_line_start(md, start)) return false;
+    size_t p = end;
+    while (p < len && (md[p] == ' ' || md[p] == '\t' || md[p] == '\r')) p++;
+    if (p < len && md[p] != '\n') return false;
+    *after_line = p < len ? p + 1 : p;
+    return true;
+}
+
 /* A dollar preceded by an odd number of backslashes is escaped.  md4c's
  * LaTeX span parser is intentionally conservative, but that also means that
  * otherwise valid expressions can be left as plain text.  We protect dollar
@@ -227,11 +266,13 @@ static char *protect_math(const char *md, math_registry_t *blocks,
             }
             if (closing) {
                 size_t code_len = (size_t)(closing - (md + line_end));
+                begin_block_placeholder(out);
                 add_tikz_placeholder(out, tikz, md + line_end, code_len);
-                i = (size_t)(closing - md) + 3;
-                while (i < len && md[i] == fence_char) i++;
-                while (i < len && (md[i] == '\r' || md[i] == ' ' || md[i] == '\t')) i++;
-                if (i < len && md[i] == '\n') i++;
+                /* Consume the closing fence line entirely. */
+                i = (size_t)(closing - md);
+                while (i < len && md[i] != '\n') i++;
+                if (i < len) i++;
+                end_block_placeholder(out, md, len, i);
                 continue;
             }
         }
@@ -274,16 +315,27 @@ static char *protect_math(const char *md, math_registry_t *blocks,
         }
 
         /* Skip inline code spans (backticks), masking any $ inside so inline
-         * code like `$var` is not turned into math. */
+         * code like `$var` is not turned into math. The closing run must be
+         * exactly as long as the opening run, so `` ` `` style spans with a
+         * lone backtick inside are handled as well. */
         if (md[i] == '`') {
-            size_t j = i + 1;
-            while (j < len && md[j] != '`') j++;
-            if (j < len) {
-                for (size_t k = i; k <= j; k++) {
+            size_t run = 1;
+            while (i + run < len && md[i + run] == '`') run++;
+            size_t j = i + run;
+            size_t close_end = SIZE_MAX;
+            while (j < len) {
+                if (md[j] != '`') { j++; continue; }
+                size_t crun = 0;
+                while (j + crun < len && md[j + crun] == '`') crun++;
+                if (crun == run) { close_end = j + crun; break; }
+                j += crun;
+            }
+            if (close_end != SIZE_MAX) {
+                for (size_t k = i; k < close_end; k++) {
                     if (md[k] == '$') cwist_sstring_append(out, "@@MATHDOLLAR@@");
                     else cwist_sstring_append_len(out, md + k, 1);
                 }
-                i = j + 1;
+                i = close_end;
                 continue;
             }
         }
@@ -337,8 +389,18 @@ static char *protect_math(const char *md, math_registry_t *blocks,
             const char *end_tag = strstr(md + i + tikz_begin_len, tikz_end);
             if (end_tag) {
                 size_t total_len = (size_t)(end_tag + tikz_end_len - (md + i));
-                add_tikz_placeholder(out, tikz, md + i, total_len);
-                i += total_len;
+                size_t after = 0;
+                if (is_block_position(md, len, i, i + total_len, &after)) {
+                    begin_block_placeholder(out);
+                    add_tikz_placeholder(out, tikz, md + i, total_len);
+                    end_block_placeholder(out, md, len, after);
+                    i = after;
+                } else {
+                    /* Inline context (e.g. a table cell): keep the
+                     * placeholder on the current line. */
+                    add_tikz_placeholder(out, tikz, md + i, total_len);
+                    i += total_len;
+                }
                 continue;
             }
         }
@@ -352,11 +414,22 @@ static char *protect_math(const char *md, math_registry_t *blocks,
             while (j + 1 < len && !(md[j] == '\\' && md[j + 1] == ']')) j++;
             if (j + 1 < len) {
                 size_t expr_len = j - (i + 2);
-                math_registry_add(blocks, md + i + 2, expr_len);
-                char placeholder[64];
-                snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
-                cwist_sstring_append(out, placeholder);
-                i = j + 2;
+                size_t after = 0;
+                if (is_block_position(md, len, i, j + 2, &after)) {
+                    begin_block_placeholder(out);
+                    math_registry_add(blocks, md + i + 2, expr_len);
+                    char placeholder[64];
+                    snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
+                    cwist_sstring_append(out, placeholder);
+                    end_block_placeholder(out, md, len, after);
+                    i = after;
+                } else {
+                    math_registry_add(blocks, md + i + 2, expr_len);
+                    char placeholder[64];
+                    snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
+                    cwist_sstring_append(out, placeholder);
+                    i = j + 2;
+                }
                 continue;
             }
         }
@@ -372,6 +445,10 @@ static char *protect_math(const char *md, math_registry_t *blocks,
                                                delimiter_len, delimiter_len == 2);
             if (close != SIZE_MAX && close > expr_start) {
                 math_registry_t *registry = delimiter_len == 2 ? blocks : inlines;
+                size_t after = 0;
+                bool block_position = delimiter_len == 2 &&
+                    is_block_position(md, len, i, close + delimiter_len, &after);
+                if (block_position) begin_block_placeholder(out);
                 math_registry_add(registry, md + expr_start, close - expr_start);
                 char placeholder[64];
                 if (delimiter_len == 2) {
@@ -380,7 +457,12 @@ static char *protect_math(const char *md, math_registry_t *blocks,
                     snprintf(placeholder, sizeof(placeholder), "@@MATH_INLINE_%d@@", registry->count - 1);
                 }
                 cwist_sstring_append(out, placeholder);
-                i = close + delimiter_len;
+                if (block_position) {
+                    end_block_placeholder(out, md, len, after);
+                    i = after;
+                } else {
+                    i = close + delimiter_len;
+                }
                 continue;
             }
         }

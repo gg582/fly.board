@@ -104,11 +104,17 @@
         };
 
         applyTheme();
-        /* TikZJax can append the SVG after its compiler callback returns. */
-        new MutationObserver(function() {
+        /* TikZJax can append the SVG after its compiler callback returns.
+         * Disconnect once the diagram is in place; a live observer per
+         * diagram would keep firing on every unrelated DOM change. */
+        var observer = new MutationObserver(function() {
             applyTheme();
-            if (wrapper.querySelector('svg')) wrapper.dataset.tikzState = 'rendered';
-        }).observe(wrapper, {childList: true, subtree: true});
+            if (wrapper.querySelector('svg')) {
+                wrapper.dataset.tikzState = 'rendered';
+                observer.disconnect();
+            }
+        });
+        observer.observe(wrapper, {childList: true, subtree: true});
     }
 
     function renderBlogMath(elem){
@@ -152,13 +158,16 @@
                     }
                 });
                 processTikZJax();
-                /* Compilation is asynchronous; give the runtime a bounded
-                 * failure path instead of silently leaving an empty block. */
+                /* Compilation is asynchronous and each diagram costs one
+                 * LaTeX run, so a flat timeout false-fails documents with
+                 * many diagrams. Scale the budget with the diagram count and
+                 * keep a hard ceiling. */
+                var timeoutMs = Math.min(60000, 15000 + tikzElements.length * 5000);
                 setTimeout(function(){
                     document.querySelectorAll('.tikz-render[data-tikz-state="pending"]').forEach(function(el){
                         if (!el.querySelector('svg')) markTikZFailure(el, 'timeout');
                     });
-                }, 15000);
+                }, timeoutMs);
             }).catch(function(error){
                 tikzElements.forEach(function(el){
                     var wrapper = el.closest ? el.closest('.tikz-render') : null;
