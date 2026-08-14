@@ -155,8 +155,24 @@ $(TARGET): $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A) $(LIBTTAK_A)
 setup:
 	mkdir data
 
+# Markdown renderer regression tests. These link only the renderer, its image
+# helpers and md4c, so they build without the full server.
+RENDER_TEST_SRCS := src/render/render_md.c src/utils/image_size.c src/utils/stb_image_impl.c
+RENDER_TESTS := tests/test_render_md_video tests/test_render_md_blocks
+
+tests/test_render_%: tests/test_render_%.c $(RENDER_TEST_SRCS) $(MD4C_OBJS)
+	$(CC) $(CFLAGS) -Ithird_party/stb -o $@ $^ -L$(CWIST_PREFIX)/lib $(CWIST_LIB) $(LIBTTAK_A) -lcjson -lpthread -lm
+
+# tests/render_file.c is a manual harness: render any markdown file to HTML.
+tests/render_file: tests/render_file.c $(RENDER_TEST_SRCS) $(MD4C_OBJS)
+	$(CC) $(CFLAGS) -Ithird_party/stb -o $@ $^ -L$(CWIST_PREFIX)/lib $(CWIST_LIB) $(LIBTTAK_A) -lcjson -lpthread -lm
+
+.PHONY: check-render
+check-render: $(RENDER_TESTS)
+	@for t in $(RENDER_TESTS); do $$t || exit 1; done
+
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(OBJS) $(TARGET) $(RENDER_TESTS) tests/render_file
 
 distclean: clean
 	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true
