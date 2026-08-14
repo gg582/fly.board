@@ -232,6 +232,37 @@ static bool looks_like_latex(const char *s, size_t len) {
     return false;
 }
 
+/* Authors often paste a complete LaTeX expression on its own line without
+ * wrapping it in $...$. Treat only unmistakably mathematical lines as
+ * display math: requiring a command plus a script, relation, or delimiter
+ * avoids converting ordinary prose that happens to contain a backslash. */
+static bool looks_like_bare_latex_expression(const char *s, size_t len) {
+    bool has_command = false;
+    bool has_math_syntax = false;
+
+    while (len > 0 && (*s == ' ' || *s == '\t' || *s == '\r')) {
+        s++;
+        len--;
+    }
+    while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\r')) len--;
+    if (len == 0) return false;
+
+    for (size_t i = 0; i < len; i++) {
+        /* Preserve Markdown table cells and explicitly delimited math for
+         * their dedicated parsers below. */
+        if (s[i] == '|' || s[i] == '$') return false;
+        if (s[i] == '\\' && i + 1 < len &&
+            ((s[i + 1] >= 'A' && s[i + 1] <= 'Z') || (s[i + 1] >= 'a' && s[i + 1] <= 'z'))) {
+            has_command = true;
+        }
+        if (s[i] == '=' || s[i] == '^' || s[i] == '_' || s[i] == '{' || s[i] == '}' ||
+            s[i] == '&' || s[i] == '+' || s[i] == '*') {
+            has_math_syntax = true;
+        }
+    }
+    return has_command && has_math_syntax;
+}
+
 static bool find_bare_bracket_math(const char *s, size_t len, size_t start,
                                    size_t *out_close, size_t *out_after) {
     for (size_t p = start; p < len; p++) {
@@ -556,6 +587,25 @@ static char *protect_math(const char *md, math_registry_t *blocks,
                     add_tikz_placeholder(out, tikz, md + i, total_len);
                     i += total_len;
                 }
+                continue;
+            }
+        }
+
+        /* A complete, delimiter-free LaTeX expression on its own line is a
+         * common paste format. Run this after TikZ recognition, otherwise a
+         * \begin{tikzpicture} line would be mistaken for display math. */
+        if (is_line_start(md, i)) {
+            size_t line_end = i;
+            while (line_end < len && md[line_end] != '\n') line_end++;
+            if (looks_like_bare_latex_expression(md + i, line_end - i)) {
+                begin_block_placeholder(out);
+                math_registry_add(blocks, md + i, line_end - i);
+                char placeholder[64];
+                snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
+                cwist_sstring_append(out, placeholder);
+                size_t after = line_end < len ? line_end + 1 : line_end;
+                end_block_placeholder(out, md, len, after);
+                i = after;
                 continue;
             }
         }
