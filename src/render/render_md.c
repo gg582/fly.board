@@ -15,20 +15,53 @@ typedef struct {
     int capacity;
 } math_registry_t;
 
-/* Some editors turn a standalone equals sign into a Markdown-looking
- * underline by repeating it.  Inside protected LaTeX and TikZ source that
- * repetition is never meaningful, and makes the compiler reject otherwise
- * valid expressions. */
-static bool is_repeated_equals_line(const char *line, size_t len) {
-    size_t equals = 0;
-    for (size_t i = 0; i < len; i++) {
-        if (line[i] == '=') {
-            equals++;
-        } else if (line[i] != ' ' && line[i] != '\t' && line[i] != '\r') {
-            return false;
+/* Pasted LaTeX occasionally contains a dragged-out equals or minus sign,
+ * including mixed Unicode minus (U+2212) and ASCII hyphens.  Consecutive
+ * copies have no mathematical meaning here and can make KaTeX reject the
+ * expression, so retain one canonical ASCII operator. */
+static size_t normalize_operator_runs(const char *expr, size_t len, char *copy) {
+    static const char unicode_minus[] = "\xE2\x88\x92";
+    size_t read = 0;
+    size_t written = 0;
+
+    while (read < len) {
+        if (expr[read] == '=') {
+            size_t end = read + 1;
+            while (end < len && expr[end] == '=') end++;
+            copy[written++] = '=';
+            read = end;
+            continue;
         }
+
+        if (expr[read] == '-' ||
+            (read + 3 <= len && memcmp(expr + read, unicode_minus, 3) == 0)) {
+            size_t end = read;
+            size_t operators = 0;
+            while (end < len) {
+                if (expr[end] == '-') {
+                    end++;
+                    operators++;
+                } else if (end + 3 <= len && memcmp(expr + end, unicode_minus, 3) == 0) {
+                    end += 3;
+                    operators++;
+                } else {
+                    break;
+                }
+            }
+            if (operators >= 2) {
+                copy[written++] = '-';
+            } else {
+                memcpy(copy + written, expr + read, end - read);
+                written += end - read;
+            }
+            read = end;
+            continue;
+        }
+
+        copy[written++] = expr[read++];
     }
-    return equals >= 2;
+
+    return written;
 }
 
 static void math_registry_init(math_registry_t *reg) {
@@ -53,20 +86,7 @@ static void math_registry_add(math_registry_t *reg, const char *expr, size_t len
         reg->expressions = (char **)realloc(reg->expressions, sizeof(char *) * reg->capacity);
     }
     char *copy = (char *)malloc(len + 1);
-    size_t written = 0;
-    for (size_t start = 0; start < len;) {
-        size_t end = start;
-        while (end < len && expr[end] != '\n') end++;
-        if (is_repeated_equals_line(expr + start, end - start)) {
-            copy[written++] = '=';
-        } else {
-            size_t line_len = end - start;
-            memcpy(copy + written, expr + start, line_len);
-            written += line_len;
-        }
-        if (end < len) copy[written++] = '\n';
-        start = end + 1;
-    }
+    size_t written = normalize_operator_runs(expr, len, copy);
     copy[written] = '\0';
     reg->expressions[reg->count++] = copy;
 }

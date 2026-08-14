@@ -1,8 +1,10 @@
 (function(){
-    /* Normalize setext-style runs accidentally pasted into protected LaTeX
-     * and TikZ source. This also repairs already-rendered post markup. */
-    function normalizeStandaloneEquals(source) {
-        return String(source || '').replace(/^[ \t]*={2,}[ \t]*$/gm, '=');
+    /* Collapse dragged-out operators in protected LaTeX and TikZ source.
+     * Unicode minus and ASCII hyphens can be mixed by pasted text. */
+    function normalizeOperatorRuns(source) {
+        return String(source || '')
+            .replace(/={2,}/g, '=')
+            .replace(/[\u2212-]{2,}/g, '-');
     }
 
     /* TikZJax exposes its compiler as window.onload.  Posts and the editor
@@ -170,7 +172,7 @@
     }
 
     function prepareTikZCode(code) {
-        var trimmed = normalizeStandaloneEquals(code).trim();
+        var trimmed = normalizeOperatorRuns(code).trim();
         if (!trimmed.includes('\\begin{document}') && !trimmed.includes('\\begin{tikzpicture}')) {
             return '\\begin{tikzpicture}\n' + trimmed + '\n\\end{tikzpicture}';
         }
@@ -219,11 +221,11 @@
         if (!elem) return;
         if (typeof katex !== 'undefined') {
             elem.querySelectorAll('.math-block').forEach(function(el){
-                if (!el.hasAttribute('data-raw-math')) el.setAttribute('data-raw-math', normalizeStandaloneEquals(el.textContent));
+                if (!el.hasAttribute('data-raw-math')) el.setAttribute('data-raw-math', normalizeOperatorRuns(el.textContent));
                 try { katex.render(el.getAttribute('data-raw-math') || '', el, {throwOnError: false, displayMode: true}); } catch(e) {}
             });
             elem.querySelectorAll('.math-inline').forEach(function(el){
-                if (!el.hasAttribute('data-raw-math')) el.setAttribute('data-raw-math', normalizeStandaloneEquals(el.textContent));
+                if (!el.hasAttribute('data-raw-math')) el.setAttribute('data-raw-math', normalizeOperatorRuns(el.textContent));
                 try { katex.render(el.getAttribute('data-raw-math') || '', el, {throwOnError: false, displayMode: false}); } catch(e) {}
             });
         }

@@ -69,6 +69,10 @@ int main(void) {
           "$$\nS\n=\n1\n+\n2\n$$\n",
           "<span class=\"math-block\">S\n=\n1\n+\n2</span>", "<h");
 
+    check("math normalizes embedded repeated equals and mixed minus signs",
+          "$$P_q(n)======R_q(n)−------E_q(n)$$\n",
+          "<span class=\"math-block\">P_q(n)=R_q(n)-E_q(n)</span>", "======");
+
     check("inline math containing a pipe works inside a table cell",
           "| a | b |\n| - | - |\n| $|x|$ | 1 |\n",
           "<td><span class=\"math-inline\">|x|</span></td>", NULL);
