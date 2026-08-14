@@ -944,7 +944,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     }
     cwist_sstring_append(b, "</div>");
     cwist_sstring_append(b, "<section id='post-translation' class='card' hidden aria-live='polite' style='margin-top:20px'></section>");
-    cwist_sstring_append(b, "<script src='/assets/js/post-translate.js?v=6' defer></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/post-translate.js?v=7' defer></script>");
 
     /* Files */
     if (files && cJSON_GetArraySize(files) > 0) {
