@@ -97,6 +97,18 @@ int main(void) {
           "\\(a\\\\)b\\)\n",
           "<span class=\"math-inline\">a\\\\)b</span>", NULL);
 
+    check("bare bracket LaTex block keeps long separators and line breaks",
+          "before\n[\n\\begin{aligned}\na &= b \\\\\n====================\nc &= d\n\\end{aligned}\n]\nafter\n",
+          "<span class=\"math-block\">\\begin{aligned}\na &amp;= b \\\\\n====================", "<h2>");
+
+    check("ordinary bracketed Markdown is not treated as LaTex",
+          "[plain text]\n[another line]\n",
+          "<p>[plain text]", "math-block");
+
+    check("tikzcd environment keeps separators and special characters intact",
+          "\\begin{tikzcd}\nA \\arrow[r, \"f\"] & B \\\\\n====================\nC \\arrow[u, \"g\"] & D\n\\end{tikzcd}\n",
+          "<div class=\"tikz-block\">", "<h2>");
+
     if (failures == 0) printf("ALL TESTS PASSED\n");
     return failures ? 1 : 0;
 }

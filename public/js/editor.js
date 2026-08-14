@@ -675,6 +675,7 @@
         var trimmed = line.trim();
         return !trimmed ||
             /^#{1,6}\s+/.test(trimmed) ||
+            /^@@(?:MATHBLOCK|TIKZBLOCK)\d+@@$/.test(trimmed) ||
             /^(```|~~~)/.test(trimmed) ||
             /^>\s?/.test(trimmed) ||
             /^(-|\*|\+)\s+/.test(trimmed) ||
@@ -738,10 +739,24 @@
         }
 
         var codeBlocks = [];
+        var tikzBlocks = [];
         var inlineCodes = [];
         var mathBlocks = [];
         var mathInlines = [];
         var normalized = md.replace(/\r\n/g, '\n');
+        /* Keep TikZ source intact before generic fence/line processing. This
+         * prevents `=`, `---`, line breaks and arrows from becoming Markdown
+         * headings, rules or table syntax in the live preview. */
+        normalized = normalized.replace(/^ {0,3}(`{3,}|~{3,})[ \t]*tikz[^\n]*\n([\s\S]*?)^ {0,3}\1[ \t]*$/gmi, function(_, fence, code) {
+            var token = '@@TIKZBLOCK' + tikzBlocks.length + '@@';
+            tikzBlocks.push(escapeHtml(code.replace(/\n$/, '')));
+            return token;
+        });
+        normalized = normalized.replace(/\\begin\{(tikzpicture|tikzcd)\}([\s\S]*?)\\end\{\1\}/g, function(_, env, body) {
+            var token = '@@TIKZBLOCK' + tikzBlocks.length + '@@';
+            tikzBlocks.push(escapeHtml('\\begin{' + env + '}' + body + '\\end{' + env + '}'));
+            return token;
+        });
         normalized = normalized.replace(/```([\w-]*)\n([\s\S]*?)```/g, function(_, lang, code) {
             var token = '@@CODEBLOCK' + codeBlocks.length + '@@';
             var cls = lang ? " class='language-" + escapeHtml(lang) + "'" : '';
@@ -761,6 +776,12 @@
         normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, function(_, expr) {
             var token = '@@MATHBLOCK' + mathBlocks.length + '@@';
             mathBlocks.push(escapeHtml(expr));
+            return token;
+        });
+        normalized = normalized.replace(/^\[\s*\n([\s\S]*?)^\][ \t]*$/gm, function(match, expr) {
+            if (!/[\\^_{}=+*]/.test(expr)) return match;
+            var token = '@@MATHBLOCK' + mathBlocks.length + '@@';
+            mathBlocks.push(escapeHtml(expr.replace(/^\s+|\s+$/g, '')));
             return token;
         });
         /* Protect inline math */
@@ -783,7 +804,7 @@
                 continue;
             }
 
-            if (/^@@CODEBLOCK\d+@@$/.test(trimmed)) {
+            if (/^@@(?:CODEBLOCK|TIKZBLOCK|MATHBLOCK)\d+@@$/.test(trimmed)) {
                 html.push(trimmed);
                 i += 1;
                 continue;
@@ -906,7 +927,7 @@
 
             var paragraph = [applyInline(trimmed)];
             i += 1;
-            while (i < lines.length && !lineStartsBlock(lines[i]) && !/^@@CODEBLOCK\d+@@$/.test(lines[i].trim())) {
+            while (i < lines.length && !lineStartsBlock(lines[i]) && !/^@@(?:CODEBLOCK|TIKZBLOCK)\d+@@$/.test(lines[i].trim())) {
                 paragraph.push(applyInline(lines[i].trim()));
                 i += 1;
             }
@@ -916,6 +937,9 @@
         var rendered = html.join('');
         rendered = rendered.replace(/@@CODEBLOCK(\d+)@@/g, function(_, idx) {
             return codeBlocks[Number(idx)] || '';
+        });
+        rendered = rendered.replace(/@@TIKZBLOCK(\d+)@@/g, function(_, idx) {
+            return '<div class="tikz-block">' + (tikzBlocks[Number(idx)] || '') + '</div>';
         });
         rendered = rendered.replace(/@@INLINECODE(\d+)@@/g, function(_, idx) {
             return inlineCodes[Number(idx)] || '';
