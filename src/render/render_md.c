@@ -156,6 +156,47 @@ static size_t find_latex_delimiter(const char *s, size_t len, size_t start,
     return SIZE_MAX;
 }
 
+/* Accept a display expression wrapped in bare square-bracket lines as a
+ * convenient dollar-free form:
+ *
+ *   [
+ *   \frac{a}{b}
+ *   ]
+ *
+ * Restrict it to whole lines and require TeX-like punctuation in the body so
+ * ordinary Markdown reference-style text is not mistaken for mathematics. */
+static bool is_bare_bracket_line(const char *s, size_t len, size_t pos, char bracket,
+                                 size_t *out_after) {
+    if (!is_line_start(s, pos) || pos >= len || s[pos] != bracket) return false;
+    size_t p = pos + 1;
+    while (p < len && (s[p] == ' ' || s[p] == '\t' || s[p] == '\r')) p++;
+    if (p < len && s[p] != '\n') return false;
+    *out_after = p < len ? p + 1 : p;
+    return true;
+}
+
+static bool looks_like_latex(const char *s, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        if (s[i] == '\\' || s[i] == '^' || s[i] == '_' || s[i] == '{' ||
+            s[i] == '}' || s[i] == '=' || s[i] == '+' || s[i] == '*') return true;
+    }
+    return false;
+}
+
+static bool find_bare_bracket_math(const char *s, size_t len, size_t start,
+                                   size_t *out_close, size_t *out_after) {
+    for (size_t p = start; p < len; p++) {
+        size_t after = 0;
+        if (is_bare_bracket_line(s, len, p, ']', &after)) {
+            if (!looks_like_latex(s + start, p - start)) return false;
+            *out_close = p;
+            *out_after = after;
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Recognize an indented fenced TikZ block while retaining the opening fence
  * length. A four-backtick block may legally contain three backticks, and the
  * previous parser prematurely terminated it. */
@@ -430,13 +471,27 @@ static char *protect_math(const char *md, math_registry_t *blocks,
             }
         }
 
-        /* TikZ environment: \begin{tikzpicture}...\end{tikzpicture} */
-        static const char tikz_begin[] = "\\begin{tikzpicture}";
-        static const char tikz_end[] = "\\end{tikzpicture}";
-        const size_t tikz_begin_len = sizeof(tikz_begin) - 1;
-        const size_t tikz_end_len = sizeof(tikz_end) - 1;
-        if (i + tikz_begin_len <= len &&
-            strncmp(md + i, tikz_begin, tikz_begin_len) == 0) {
+        /* TikZ environments. tikzcd uses the same browser renderer but had
+         * previously fallen through to Markdown, where its line breaks and
+         * special characters could be reinterpreted. */
+        static const char tikzpicture_begin[] = "\\begin{tikzpicture}";
+        static const char tikzpicture_end[] = "\\end{tikzpicture}";
+        static const char tikzcd_begin[] = "\\begin{tikzcd}";
+        static const char tikzcd_end[] = "\\end{tikzcd}";
+        const char *tikz_begin = NULL;
+        const char *tikz_end = NULL;
+        if (i + sizeof(tikzpicture_begin) - 1 <= len &&
+            strncmp(md + i, tikzpicture_begin, sizeof(tikzpicture_begin) - 1) == 0) {
+            tikz_begin = tikzpicture_begin;
+            tikz_end = tikzpicture_end;
+        } else if (i + sizeof(tikzcd_begin) - 1 <= len &&
+                   strncmp(md + i, tikzcd_begin, sizeof(tikzcd_begin) - 1) == 0) {
+            tikz_begin = tikzcd_begin;
+            tikz_end = tikzcd_end;
+        }
+        if (tikz_begin) {
+            size_t tikz_begin_len = strlen(tikz_begin);
+            size_t tikz_end_len = strlen(tikz_end);
             const char *end_tag = strstr(md + i + tikz_begin_len, tikz_end);
             if (end_tag) {
                 size_t total_len = (size_t)(end_tag + tikz_end_len - (md + i));
@@ -452,6 +507,24 @@ static char *protect_math(const char *md, math_registry_t *blocks,
                     add_tikz_placeholder(out, tikz, md + i, total_len);
                     i += total_len;
                 }
+                continue;
+            }
+        }
+
+        /* Dollar-free display math. A bare [ ... ] pair is recognized only
+         * when each delimiter owns its line, preserving normal Markdown links
+         * and letting long divider-like lines remain LaTeX source. */
+        size_t bracket_content = 0;
+        if (is_bare_bracket_line(md, len, i, '[', &bracket_content)) {
+            size_t close = 0, after = 0;
+            if (find_bare_bracket_math(md, len, bracket_content, &close, &after)) {
+                begin_block_placeholder(out);
+                math_registry_add(blocks, md + bracket_content, close - bracket_content);
+                char placeholder[64];
+                snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
+                cwist_sstring_append(out, placeholder);
+                end_block_placeholder(out, md, len, after);
+                i = after;
                 continue;
             }
         }
