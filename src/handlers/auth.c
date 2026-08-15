@@ -18,11 +18,11 @@ static void set_auth_cookies(cwist_http_response *res, const char *token, bool u
 }
 
 static void clear_auth_cookies(cwist_http_response *res, bool use_tls) {
-    (void)use_tls;
+    const char *secure_attr = use_tls ? "; Secure" : "";
     char cookie[256];
-    snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure", SESSION_COOKIE_NAME);
+    snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, secure_attr);
     cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
-    snprintf(cookie, sizeof(cookie), "jwt_access=; Path=/; Max-Age=0; SameSite=Lax; Secure");
+    snprintf(cookie, sizeof(cookie), "jwt_access=; Path=/; Max-Age=0; SameSite=Lax%s", secure_attr);
     cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
 }
 

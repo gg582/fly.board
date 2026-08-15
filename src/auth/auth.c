@@ -8,7 +8,7 @@
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
 #include <openssl/opensslv.h>
-#if OPENSSL_VERSION_MAJOR >= 3
+#if !defined(OPENSSL_IS_BORINGSSL) && defined(OPENSSL_VERSION_MAJOR) && (OPENSSL_VERSION_MAJOR >= 3)
 #include <openssl/core_names.h>
 #include <openssl/params.h>
 #endif
@@ -137,7 +137,7 @@ static bool pbkdf2_hash(const char *password, char *out_hash, size_t out_len) {
     return true;
 }
 
-#if OPENSSL_VERSION_MAJOR >= 3
+#if !defined(OPENSSL_IS_BORINGSSL) && defined(OPENSSL_VERSION_MAJOR) && (OPENSSL_VERSION_MAJOR >= 3)
 static bool argon2id_hash(const char *password, char *out_hash, size_t out_len) {
     unsigned char salt[32];
     if (RAND_bytes(salt, sizeof(salt)) != 1) return false;
@@ -552,11 +552,7 @@ bool auth_admin_load(const char *path) {
 bool auth_admin_check(const char *username, const char *password) {
     if (!username || !password || !g_admin_id[0] || !g_admin_pw[0]) return false;
     if (strcmp(username, g_admin_id) != 0) return false;
-    char combined[512];
-    snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, password);
-    char hashed[129];
-    if (!sha512_string_hex(combined, hashed, sizeof(hashed))) return false;
-    return strcmp(hashed, g_admin_pw) == 0;
+    return strcmp(password, g_admin_pw) == 0;
 }
 
 bool auth_require_admin(cwist_http_request *req, cwist_http_response *res) {
