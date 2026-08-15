@@ -243,16 +243,19 @@ bool auth_hash_password(const char *password, char *out_hash, size_t out_len) {
 }
 
 bool auth_verify_password(const char *password, const char *hash) {
+    if (!password || !hash) return false;
     char combined[512];
     snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, password);
     char prehash[129];
     if (!sha512_string_hex(combined, prehash, sizeof(prehash))) return false;
 
     if (strncmp(hash, "$argon2id$", 10) == 0) {
-        return argon2id_verify(prehash, hash);
+        if (argon2id_verify(prehash, hash)) return true;
+        return argon2id_verify(password, hash);
     }
     /* Legacy PBKDF2-HMAC-SHA256 hash (colon-separated) */
-    return legacy_verify_password(prehash, hash);
+    if (legacy_verify_password(prehash, hash)) return true;
+    return legacy_verify_password(password, hash);
 }
 
 /* Append a string to an sstring with minimal JSON string escaping.
@@ -552,7 +555,16 @@ bool auth_admin_load(const char *path) {
 bool auth_admin_check(const char *username, const char *password) {
     if (!username || !password || !g_admin_id[0] || !g_admin_pw[0]) return false;
     if (strcmp(username, g_admin_id) != 0) return false;
-    return strcmp(password, g_admin_pw) == 0;
+    /* 1. Direct match with client pre-hashed password */
+    if (strcmp(password, g_admin_pw) == 0) return true;
+    /* 2. Hash plaintext and compare */
+    char combined[512];
+    snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, password);
+    char hashed[129];
+    if (sha512_string_hex(combined, hashed, sizeof(hashed)) && strcmp(hashed, g_admin_pw) == 0) {
+        return true;
+    }
+    return false;
 }
 
 bool auth_require_admin(cwist_http_request *req, cwist_http_response *res) {
