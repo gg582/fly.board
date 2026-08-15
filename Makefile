@@ -21,11 +21,8 @@ ifeq ($(wildcard $(CWIST_ROOT)/libcwist.a),)
     CWIST_INCLUDES = -I$(CWIST_PREFIX)/include \
                      -I$(CWIST_PREFIX)/include/cwist \
                      -I$(CWIST_PREFIX)/include/cwist/vendor \
-                     -I$(CWIST_PREFIX)/include/cwist/vendor/openssl \
                      -I$(CWIST_PREFIX)/include/cwist/vendor/cjson \
-                     -I$(CWIST_PREFIX)/include/cwist/vendor/ttak \
-                     -I$(CWIST_PREFIX)/include/cwist/vendor/lsquic \
-                     -I$(CWIST_PREFIX)/include/cwist/vendor/uriparser
+                     -I$(CWIST_PREFIX)/include/cwist/vendor/lsquic
 else
     CWIST_LIB = $(CWIST_ROOT)/libcwist.a
     CWIST_DEPS = $(CWIST_ROOT)/lib/cnats/build/lib/libnats_static.a \
@@ -184,7 +181,7 @@ $(MD4C_LIB): $(MD4C_OBJS)
 	ar rcs $@ $(MD4C_OBJS)
 
 src/crypto/fly_crypto.o: src/crypto/fly_crypto.c
-	$(CC) $(CFLAGS) -D__has_include\(x\)=0 -c $< -o $@
+	$(CC) $(CFLAGS) -DFLY_NO_PQC -c $< -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
