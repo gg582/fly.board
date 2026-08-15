@@ -2,6 +2,26 @@
 #include "handlers_internal.h"
 #include <ctype.h>
 
+static bool req_is_tls(cwist_http_request *req) {
+    if (!req) return g_config.use_tls;
+    const char *proto = cwist_http_header_get(req->headers, "X-Forwarded-Proto");
+    if (proto) {
+        if (strcasecmp(proto, "https") == 0) return true;
+        if (strcasecmp(proto, "http") == 0) return false;
+    }
+    const char *origin = cwist_http_header_get(req->headers, "Origin");
+    if (origin) {
+        if (strncasecmp(origin, "https://", 8) == 0) return true;
+        if (strncasecmp(origin, "http://", 7) == 0) return false;
+    }
+    const char *referer = cwist_http_header_get(req->headers, "Referer");
+    if (referer) {
+        if (strncasecmp(referer, "https://", 8) == 0) return true;
+        if (strncasecmp(referer, "http://", 7) == 0) return false;
+    }
+    return g_config.use_tls;
+}
+
 /* Set both the HttpOnly session cookie and a JS-readable access cookie.
  * The access cookie lets the frontend attach an Authorization header when
  * the framework/transport drops the Cookie header on keep-alive connections. */
@@ -68,7 +88,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
             cwist_query_map_destroy(kv);
             return;
         }
-        set_auth_cookies(res, token, g_config.use_tls);
+        set_auth_cookies(res, token, req_is_tls(req));
         cwist_free(token);
         cwist_query_map_destroy(kv);
         redirect(res, "/");
@@ -122,7 +142,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     CWIST_LOG_INFO("User login success: username='%s'", username);
-    set_auth_cookies(res, token, g_config.use_tls);
+    set_auth_cookies(res, token, req_is_tls(req));
     cwist_free(token);
     cJSON_Delete(user);
     cwist_query_map_destroy(kv);
@@ -130,8 +150,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
 }
 
 void handler_logout(cwist_http_request *req, cwist_http_response *res) {
-    (void)req;
-    clear_auth_cookies(res, g_config.use_tls);
+    clear_auth_cookies(res, req_is_tls(req));
     redirect(res, "/");
 }
 
