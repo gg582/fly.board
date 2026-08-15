@@ -1,14 +1,14 @@
 #define _POSIX_C_SOURCE 200809L
 #include "auth.h"
-#include <cwist/core/mem/alloc.h>
-#include <cwist/core/log.h>
 #include <cwist/core/sstring/sstring.h>
 #include <cwist/security/jwt/jwt.h>
-#include <openssl/rand.h>
+#include <cwist/core/log.h>
+#include <cwist/core/mem/alloc.h>
 #include <openssl/evp.h>
-#include <openssl/kdf.h>
-#include <openssl/opensslv.h>
+#include <openssl/rand.h>
+#include <openssl/hmac.h>
 #if !defined(OPENSSL_IS_BORINGSSL) && defined(OPENSSL_VERSION_MAJOR) && (OPENSSL_VERSION_MAJOR >= 3)
+#include <openssl/kdf.h>
 #include <openssl/core_names.h>
 #include <openssl/params.h>
 #endif
@@ -17,67 +17,33 @@
 #include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <sys/stat.h>
 
-static const char *CLIENT_NONCE = "fly.board";
+#define CLIENT_NONCE "fly.board"
+#define PBKDF2_ITERATIONS 100000
 
-static char g_jwt_secret[256] = {0};
+static char g_jwt_secret[65] = {0};
+static char g_admin_id[64] = {0};
+static char g_admin_pw[129] = {0};
+static char g_admin_plain_pw[128] = {0};
 
-/* Precise 401 reason codes for auth failure instrumentation.
- * These strings are intentionally stable; do not localize or change. */
-#define AUTH_FAIL_NO_COOKIE_HEADER      "AUTH_FAIL_NO_COOKIE_HEADER"
-#define AUTH_FAIL_SESSION_COOKIE_MISSING "AUTH_FAIL_SESSION_COOKIE_MISSING"
-#define AUTH_FAIL_EMPTY_SESSION_COOKIE  "AUTH_FAIL_EMPTY_SESSION_COOKIE"
-#define AUTH_FAIL_TOKEN_TOO_LONG        "AUTH_FAIL_TOKEN_TOO_LONG"
-#define AUTH_FAIL_JWT_VERIFY_NULL       "AUTH_FAIL_JWT_VERIFY_NULL"
-#define AUTH_FAIL_MISSING_SUB           "AUTH_FAIL_MISSING_SUB"
-#define AUTH_FAIL_BAD_SUB               "AUTH_FAIL_BAD_SUB"
-#define AUTH_FAIL_MISSING_USERNAME      "AUTH_FAIL_MISSING_USERNAME"
-#define AUTH_FAIL_MISSING_ROLE          "AUTH_FAIL_MISSING_ROLE"
-#define AUTH_FAIL_ROLE_NOT_ADMIN        "AUTH_FAIL_ROLE_NOT_ADMIN"
-#define AUTH_FAIL_USER_LOOKUP           "AUTH_FAIL_USER_LOOKUP"
-#define AUTH_FAIL_UNKNOWN               "AUTH_FAIL_UNKNOWN"
-
-bool auth_jwt_init(const char *secret_path) {
-    const char *path = secret_path ? secret_path : "data/.jwt_secret";
-    FILE *f = fopen(path, "r");
-    if (f) {
-        if (fgets(g_jwt_secret, sizeof(g_jwt_secret), f)) {
-            size_t len = strlen(g_jwt_secret);
-            while (len > 0 && (g_jwt_secret[len - 1] == '\n' || g_jwt_secret[len - 1] == '\r')) {
-                g_jwt_secret[len - 1] = '\0';
-                len--;
-            }
-        }
-        fclose(f);
-        if (g_jwt_secret[0]) return true;
-    }
-
-    unsigned char rand_bytes[32];
-    if (RAND_bytes(rand_bytes, sizeof(rand_bytes)) != 1) {
-        CWIST_LOG_ERROR("Failed to generate JWT secret");
-        return false;
-    }
-    for (int i = 0; i < 32; i++) snprintf(g_jwt_secret + i * 2, 3, "%02x", rand_bytes[i]);
-    g_jwt_secret[64] = '\0';
-
-    f = fopen(path, "w");
-    if (!f) {
-        CWIST_LOG_ERROR("Failed to write JWT secret file: %s", path);
-        return false;
-    }
-    fprintf(f, "%s\n", g_jwt_secret);
-    fclose(f);
-    chmod(path, 0600);
-    CWIST_LOG_INFO("Generated new JWT secret: %s", path);
-    return true;
+/* --------------------------------------------------------------------------
+ * Constant-Time String Comparison
+ * -------------------------------------------------------------------------- */
+static bool auth_constant_time_streq(const char *a, const char *b) {
+    if (!a || !b) return false;
+    size_t len_a = strlen(a);
+    size_t len_b = strlen(b);
+    if (len_a != len_b) return false;
+    return CRYPTO_memcmp(a, b, len_a) == 0;
 }
 
-const char *auth_jwt_secret(void) {
-    return g_jwt_secret[0] ? g_jwt_secret : NULL;
-}
-
-static bool sha512_string_hex(const char *input, char *out, size_t out_len) {
+/* --------------------------------------------------------------------------
+ * SHA-512 Helper
+ * -------------------------------------------------------------------------- */
+static bool sha512_hex(const char *input, char *out, size_t out_len) {
+    if (!input || !out || out_len < 129) return false;
     EVP_MD_CTX *ctx = EVP_MD_CTX_new();
     if (!ctx) return false;
     unsigned char hash[64];
@@ -89,79 +55,77 @@ static bool sha512_string_hex(const char *input, char *out, size_t out_len) {
         return false;
     }
     EVP_MD_CTX_free(ctx);
-    if (out_len < 129) return false;
     for (int i = 0; i < 64; i++) snprintf(out + i * 2, 3, "%02x", hash[i]);
     out[128] = '\0';
     return true;
 }
 
-static bool auth_constant_time_streq(const char *a, const char *b) {
-    if (!a || !b) return false;
-    size_t len_a = strlen(a);
-    size_t len_b = strlen(b);
-    if (len_a != len_b) return false;
-    return CRYPTO_memcmp(a, b, len_a) == 0;
+/* --------------------------------------------------------------------------
+ * Password Hashing (Argon2id / PBKDF2 Compatibility)
+ * -------------------------------------------------------------------------- */
+static bool pbkdf2_raw(const char *password, const unsigned char *salt, size_t salt_len,
+                       int iterations, unsigned char *out_key, size_t key_len) {
+    return PKCS5_PBKDF2_HMAC(password, (int)strlen(password),
+                             salt, (int)salt_len,
+                             iterations, EVP_sha256(),
+                             (int)key_len, out_key) == 1;
 }
 
-/* Legacy PBKDF2-HMAC-SHA256 verifier for backward compatibility */
-static bool legacy_verify_password(const char *prehash, const char *hash) {
+static bool pbkdf2_hash_create(const char *password, char *out_hash, size_t out_len) {
+    unsigned char salt[16];
+    if (RAND_bytes(salt, sizeof(salt)) != 1) return false;
+    unsigned char key[32];
+    if (!pbkdf2_raw(password, salt, sizeof(salt), PBKDF2_ITERATIONS, key, sizeof(key))) return false;
+
+    char salt_hex[33], key_hex[65];
+    for (int i = 0; i < 16; i++) snprintf(salt_hex + i * 2, 3, "%02x", salt[i]);
+    for (int i = 0; i < 32; i++) snprintf(key_hex + i * 2, 3, "%02x", key[i]);
+    snprintf(out_hash, out_len, "%s:%d:%s", salt_hex, PBKDF2_ITERATIONS, key_hex);
+    return true;
+}
+
+static bool pbkdf2_hash_verify(const char *password, const char *hash) {
     char buf[256];
     snprintf(buf, sizeof(buf), "%s", hash);
-    char *salt_hex = strtok(buf, ":");
-    char *iter_str = strtok(NULL, ":");
-    char *key_hex  = strtok(NULL, ":");
-    if (!salt_hex || !iter_str || !key_hex) return false;
-    int iterations = atoi(iter_str);
-    if (iterations <= 0) return false;
+    char *colon1 = strchr(buf, ':');
+    if (!colon1) return false;
+    *colon1 = '\0';
+    char *colon2 = strchr(colon1 + 1, ':');
+    if (!colon2) return false;
+    *colon2 = '\0';
+
+    const char *salt_hex = buf;
+    int iterations = atoi(colon1 + 1);
+    const char *key_hex = colon2 + 1;
+    if (strlen(salt_hex) != 32 || iterations <= 0 || strlen(key_hex) != 64) return false;
+
     unsigned char salt[16];
     for (int i = 0; i < 16; i++) {
-        unsigned int v;
-        sscanf(salt_hex + i*2, "%2x", &v);
-        salt[i] = (unsigned char)v;
+        unsigned int byte;
+        if (sscanf(salt_hex + i * 2, "%02x", &byte) != 1) return false;
+        salt[i] = (unsigned char)byte;
     }
     unsigned char key[32];
-    if (!PKCS5_PBKDF2_HMAC(prehash, (int)strlen(prehash), salt, sizeof(salt), iterations, EVP_sha256(), sizeof(key), key))
-        return false;
+    if (!pbkdf2_raw(password, salt, sizeof(salt), iterations, key, sizeof(key))) return false;
+
     char derived[65];
-    for (int i = 0; i < 32; i++) snprintf(derived + i*2, 3, "%02x", key[i]);
+    for (int i = 0; i < 32; i++) snprintf(derived + i * 2, 3, "%02x", key[i]);
     derived[64] = '\0';
     return auth_constant_time_streq(derived, key_hex);
 }
 
-/* PBKDF2-HMAC-SHA256 hash for OpenSSL < 3 or fallback */
-static bool pbkdf2_hash(const char *password, char *out_hash, size_t out_len) {
-    unsigned char salt[16];
-    if (RAND_bytes(salt, sizeof(salt)) != 1) return false;
-    int iterations = 100000;
-    unsigned char key[32];
-    if (!PKCS5_PBKDF2_HMAC(password, (int)strlen(password), salt, sizeof(salt), iterations, EVP_sha256(), sizeof(key), key))
-        return false;
-    char salt_hex[33];
-    for (int i = 0; i < 16; i++) snprintf(salt_hex + i*2, 3, "%02x", salt[i]);
-    salt_hex[32] = '\0';
-    char key_hex[65];
-    for (int i = 0; i < 32; i++) snprintf(key_hex + i*2, 3, "%02x", key[i]);
-    key_hex[64] = '\0';
-    snprintf(out_hash, out_len, "%s:%d:%s", salt_hex, iterations, key_hex);
-    return true;
-}
-
 #if !defined(OPENSSL_IS_BORINGSSL) && defined(OPENSSL_VERSION_MAJOR) && (OPENSSL_VERSION_MAJOR >= 3)
-static bool argon2id_hash(const char *password, char *out_hash, size_t out_len) {
+static bool argon2id_hash_create(const char *password, char *out_hash, size_t out_len) {
     unsigned char salt[32];
     if (RAND_bytes(salt, sizeof(salt)) != 1) return false;
-
     EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2ID", NULL);
-    if (!kdf) return pbkdf2_hash(password, out_hash, out_len);
+    if (!kdf) return pbkdf2_hash_create(password, out_hash, out_len);
     EVP_KDF_CTX *kctx = EVP_KDF_CTX_new(kdf);
     EVP_KDF_free(kdf);
-    if (!kctx) return pbkdf2_hash(password, out_hash, out_len);
+    if (!kctx) return pbkdf2_hash_create(password, out_hash, out_len);
 
-    int lanes = 4;
+    int lanes = 4, iter = 3, version = 19;
     size_t memcost = 65536;
-    int iter = 3;
-    int version = 19;
-
     OSSL_PARAM params[] = {
         OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD, (void *)password, strlen(password)),
         OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT, salt, sizeof(salt)),
@@ -171,39 +135,31 @@ static bool argon2id_hash(const char *password, char *out_hash, size_t out_len) 
         OSSL_PARAM_construct_int(OSSL_KDF_PARAM_ARGON2_VERSION, &version),
         OSSL_PARAM_construct_end()
     };
-
     unsigned char key[64];
     if (EVP_KDF_derive(kctx, key, sizeof(key), params) != 1) {
         EVP_KDF_CTX_free(kctx);
-        return pbkdf2_hash(password, out_hash, out_len);
+        return pbkdf2_hash_create(password, out_hash, out_len);
     }
     EVP_KDF_CTX_free(kctx);
 
-    char salt_hex[65];
-    for (int i = 0; i < 32; i++) snprintf(salt_hex + i*2, 3, "%02x", salt[i]);
-    salt_hex[64] = '\0';
-    char key_hex[129];
-    for (int i = 0; i < 64; i++) snprintf(key_hex + i*2, 3, "%02x", key[i]);
-    key_hex[128] = '\0';
-
+    char salt_hex[65], key_hex[129];
+    for (int i = 0; i < 32; i++) snprintf(salt_hex + i * 2, 3, "%02x", salt[i]);
+    for (int i = 0; i < 64; i++) snprintf(key_hex + i * 2, 3, "%02x", key[i]);
     snprintf(out_hash, out_len, "$argon2id$v=%d$m=%zu,t=%d,p=%d$%s$%s",
              version, memcost, iter, lanes, salt_hex, key_hex);
     return true;
 }
 
-static bool argon2id_verify(const char *password, const char *hash) {
+static bool argon2id_hash_verify(const char *password, const char *hash) {
     int version, iter, lanes;
     unsigned int memcost_u;
-    size_t memcost;
-    char salt_hex[65] = {0};
-    char key_hex[129] = {0};
+    char salt_hex[65] = {0}, key_hex[129] = {0};
     if (sscanf(hash, "$argon2id$v=%u$m=%u,t=%u,p=%u$%64[^$]$%128s",
                &version, &memcost_u, &iter, &lanes, salt_hex, key_hex) != 6)
         return false;
-    memcost = memcost_u;
-
+    size_t memcost = memcost_u;
     unsigned char salt[32];
-    for (int i = 0; i < 32; i++) sscanf(salt_hex + i*2, "%2hhx", &salt[i]);
+    for (int i = 0; i < 32; i++) sscanf(salt_hex + i * 2, "%2hhx", &salt[i]);
 
     EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2ID", NULL);
     if (!kdf) return false;
@@ -220,7 +176,6 @@ static bool argon2id_verify(const char *password, const char *hash) {
         OSSL_PARAM_construct_int(OSSL_KDF_PARAM_ARGON2_VERSION, &version),
         OSSL_PARAM_construct_end()
     };
-
     unsigned char key[64];
     if (EVP_KDF_derive(kctx, key, sizeof(key), params) != 1) {
         EVP_KDF_CTX_free(kctx);
@@ -229,15 +184,15 @@ static bool argon2id_verify(const char *password, const char *hash) {
     EVP_KDF_CTX_free(kctx);
 
     char derived_hex[129];
-    for (int i = 0; i < 64; i++) snprintf(derived_hex + i*2, 3, "%02x", key[i]);
+    for (int i = 0; i < 64; i++) snprintf(derived_hex + i * 2, 3, "%02x", key[i]);
     derived_hex[128] = '\0';
     return auth_constant_time_streq(derived_hex, key_hex);
 }
 #else
-static bool argon2id_hash(const char *password, char *out_hash, size_t out_len) {
-    return pbkdf2_hash(password, out_hash, out_len);
+static bool argon2id_hash_create(const char *password, char *out_hash, size_t out_len) {
+    return pbkdf2_hash_create(password, out_hash, out_len);
 }
-static bool argon2id_verify(const char *password, const char *hash) {
+static bool argon2id_hash_verify(const char *password, const char *hash) {
     (void)password; (void)hash;
     return false;
 }
@@ -247,47 +202,141 @@ bool auth_hash_password(const char *password, char *out_hash, size_t out_len) {
     char combined[512];
     snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, password);
     char prehash[129];
-    if (!sha512_string_hex(combined, prehash, sizeof(prehash))) return false;
-    return argon2id_hash(prehash, out_hash, out_len);
+    if (!sha512_hex(combined, prehash, sizeof(prehash))) return false;
+    return argon2id_hash_create(prehash, out_hash, out_len);
+}
+
+static bool verify_raw_hash_candidate(const char *candidate, const char *hash) {
+    if (strncmp(hash, "$argon2id$", 10) == 0) {
+        return argon2id_hash_verify(candidate, hash);
+    }
+    return pbkdf2_hash_verify(candidate, hash);
 }
 
 bool auth_verify_password(const char *password, const char *hash) {
     if (!password || !hash) return false;
+
+    /* Candidate 1: 1st tier client prehash (SHA-512("fly.board" + password)) */
     char combined[512];
     snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, password);
     char prehash[129];
-    if (!sha512_string_hex(combined, prehash, sizeof(prehash))) return false;
+    if (sha512_hex(combined, prehash, sizeof(prehash))) {
+        if (verify_raw_hash_candidate(prehash, hash)) return true;
 
-    char combined2[512];
-    snprintf(combined2, sizeof(combined2), "%s%s", CLIENT_NONCE, prehash);
-    char pre_prehash[129];
-    bool has_pre_prehash = sha512_string_hex(combined2, pre_prehash, sizeof(pre_prehash));
-
-    if (strncmp(hash, "$argon2id$", 10) == 0) {
-        if (argon2id_verify(prehash, hash)) return true;
-        if (argon2id_verify(password, hash)) return true;
-        if (has_pre_prehash && argon2id_verify(pre_prehash, hash)) return true;
-        return false;
+        /* Candidate 2: 2nd tier hash (SHA-512("fly.board" + prehash)) */
+        char combined2[512];
+        snprintf(combined2, sizeof(combined2), "%s%s", CLIENT_NONCE, prehash);
+        char pre_prehash[129];
+        if (sha512_hex(combined2, pre_prehash, sizeof(pre_prehash))) {
+            if (verify_raw_hash_candidate(pre_prehash, hash)) return true;
+        }
     }
-    /* Legacy PBKDF2-HMAC-SHA256 hash (colon-separated) */
-    if (legacy_verify_password(prehash, hash)) return true;
-    if (legacy_verify_password(password, hash)) return true;
-    if (has_pre_prehash && legacy_verify_password(pre_prehash, hash)) return true;
+
+    /* Candidate 3: Direct raw password string (when client sent prehash or plain) */
+    if (verify_raw_hash_candidate(password, hash)) return true;
+
     return false;
 }
 
-/* Append a string to an sstring with minimal JSON string escaping.
- * Escapes backslash, double quote, and ASCII control characters so that
- * usernames/roles containing JSON metacharacters do not corrupt the JWT
- * payload and cause cwist_jwt_sign() to fail. */
+/* --------------------------------------------------------------------------
+ * Admin Authentication
+ * -------------------------------------------------------------------------- */
+bool auth_admin_load(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        f = fopen(path, "w");
+        if (f) {
+            fprintf(f, "admin\nfly.board\n");
+            fclose(f);
+        }
+        strcpy(g_admin_id, "admin");
+        strcpy(g_admin_plain_pw, "fly.board");
+        char combined[512];
+        snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, "fly.board");
+        sha512_hex(combined, g_admin_pw, sizeof(g_admin_pw));
+        return true;
+    }
+    if (fgets(g_admin_id, sizeof(g_admin_id), f)) {
+        size_t len = strlen(g_admin_id);
+        while (len > 0 && (g_admin_id[len - 1] == '\r' || g_admin_id[len - 1] == '\n')) {
+            g_admin_id[--len] = '\0';
+        }
+    }
+    char plain_pw[128] = {0};
+    if (fgets(plain_pw, sizeof(plain_pw), f)) {
+        size_t len = strlen(plain_pw);
+        while (len > 0 && (plain_pw[len - 1] == '\r' || plain_pw[len - 1] == '\n')) {
+            plain_pw[--len] = '\0';
+        }
+    }
+    fclose(f);
+    snprintf(g_admin_plain_pw, sizeof(g_admin_plain_pw), "%s", plain_pw);
+    char combined[512];
+    snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, plain_pw);
+    sha512_hex(combined, g_admin_pw, sizeof(g_admin_pw));
+    return g_admin_id[0] && (g_admin_pw[0] || g_admin_plain_pw[0]);
+}
+
+bool auth_admin_check(const char *username, const char *password) {
+    if (!username || !password || !g_admin_id[0]) return false;
+    if (!auth_constant_time_streq(username, g_admin_id)) return false;
+
+    /* 1. Client SHA-512 prehash matches stored admin hash */
+    if (g_admin_pw[0] && auth_constant_time_streq(password, g_admin_pw)) return true;
+
+    /* 2. Plain password matches stored plain admin password */
+    if (g_admin_plain_pw[0] && auth_constant_time_streq(password, g_admin_plain_pw)) return true;
+
+    /* 3. Plain password hashed matches stored admin hash */
+    char combined[512];
+    snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, password);
+    char hashed[129];
+    if (sha512_hex(combined, hashed, sizeof(hashed))) {
+        if (g_admin_pw[0] && auth_constant_time_streq(hashed, g_admin_pw)) return true;
+    }
+    return false;
+}
+
+/* --------------------------------------------------------------------------
+ * JWT Lifecycle & Header/Cookie Verification
+ * -------------------------------------------------------------------------- */
+bool auth_jwt_init(const char *secret_path) {
+    const char *path = secret_path ? secret_path : "data/.jwt_secret";
+    FILE *f = fopen(path, "r");
+    if (f) {
+        if (fgets(g_jwt_secret, sizeof(g_jwt_secret), f)) {
+            size_t len = strlen(g_jwt_secret);
+            while (len > 0 && (g_jwt_secret[len - 1] == '\n' || g_jwt_secret[len - 1] == '\r')) {
+                g_jwt_secret[--len] = '\0';
+            }
+        }
+        fclose(f);
+        if (g_jwt_secret[0]) return true;
+    }
+
+    unsigned char rand_bytes[32];
+    if (RAND_bytes(rand_bytes, sizeof(rand_bytes)) != 1) return false;
+    for (int i = 0; i < 32; i++) snprintf(g_jwt_secret + i * 2, 3, "%02x", rand_bytes[i]);
+    g_jwt_secret[64] = '\0';
+
+    f = fopen(path, "w");
+    if (!f) return false;
+    fprintf(f, "%s\n", g_jwt_secret);
+    fclose(f);
+    chmod(path, 0600);
+    return true;
+}
+
+const char *auth_jwt_secret(void) {
+    return g_jwt_secret[0] ? g_jwt_secret : NULL;
+}
+
 static void append_json_escaped(cwist_sstring *ss, const char *s) {
     if (!s) return;
     for (const char *p = s; *p; ++p) {
-        if (*p == '"') {
-            cwist_sstring_append(ss, "\\\"");
-        } else if (*p == '\\') {
-            cwist_sstring_append(ss, "\\\\");
-        } else if ((unsigned char)*p < 0x20) {
+        if (*p == '"') cwist_sstring_append(ss, "\\\"");
+        else if (*p == '\\') cwist_sstring_append(ss, "\\\\");
+        else if ((unsigned char)*p < 0x20) {
             char buf[7];
             snprintf(buf, sizeof(buf), "\\u%04x", (unsigned char)*p);
             cwist_sstring_append(ss, buf);
@@ -305,16 +354,12 @@ char *auth_jwt_issue(int user_id, const char *username, const char *role) {
     cwist_sstring *payload = cwist_sstring_create();
     if (!payload) return NULL;
 
-    char sub[32];
-    snprintf(sub, sizeof(sub), "%d", user_id);
-
-    /* Backdate the issue/not-before boundary and extend exp by a small grace
-     * window so high-RTT clients and queued workers do not fail at the exact
-     * session boundary. Cookie Max-Age remains AUTH_SESSION_LIFETIME. */
     time_t now = time(NULL);
     time_t issued_at = now - AUTH_TIME_LEEWAY_SECONDS;
     time_t exp = now + AUTH_SESSION_LIFETIME + AUTH_TIME_LEEWAY_SECONDS;
-    char iat_str[32], nbf_str[32], exp_str[32];
+
+    char sub[32], iat_str[32], nbf_str[32], exp_str[32];
+    snprintf(sub, sizeof(sub), "%d", user_id);
     snprintf(iat_str, sizeof(iat_str), "%ld", (long)issued_at);
     snprintf(nbf_str, sizeof(nbf_str), "%ld", (long)issued_at);
     snprintf(exp_str, sizeof(exp_str), "%ld", (long)exp);
@@ -338,7 +383,28 @@ char *auth_jwt_issue(int user_id, const char *username, const char *role) {
     return token;
 }
 
-/* Cookie name/value pair produced by auth_cookie_iter_next(). */
+static bool auth_verify_token(const char *token, const char *secret,
+                              int *out_user_id, char *out_role, size_t role_len) {
+    if (!token || !token[0] || strlen(token) >= 1024) return false;
+
+    cwist_jwt_claims *claims = cwist_jwt_verify(token, secret);
+    if (!claims) return false;
+
+    const char *sub = cwist_jwt_claims_get(claims, "sub");
+    const char *role = cwist_jwt_claims_get(claims, "role");
+    bool ok = false;
+    if (sub && role) {
+        int uid = atoi(sub);
+        if (uid > 0) {
+            *out_user_id = uid;
+            snprintf(out_role, role_len, "%s", role);
+            ok = true;
+        }
+    }
+    cwist_jwt_claims_destroy(claims);
+    return ok;
+}
+
 typedef struct {
     const char *name;
     size_t name_len;
@@ -346,9 +412,6 @@ typedef struct {
     size_t value_len;
 } auth_cookie_iter_t;
 
-/* Iterate over cookies in a Cookie header value.
- * Sets *cursor to the position after the consumed cookie and fills *out.
- * Returns false when no more cookies remain. */
 static bool auth_cookie_iter_next(const char **cursor, auth_cookie_iter_t *out) {
     if (!cursor || !out) return false;
     const char *p = *cursor;
@@ -358,7 +421,6 @@ static bool auth_cookie_iter_next(const char **cursor, auth_cookie_iter_t *out) 
     out->name = p;
     while (*p && *p != '=' && *p != ';') p++;
     out->name_len = (size_t)(p - out->name);
-
     out->value = NULL;
     out->value_len = 0;
 
@@ -377,80 +439,49 @@ static bool auth_cookie_iter_next(const char **cursor, auth_cookie_iter_t *out) 
             out->value_len -= 2;
         }
     }
-
     if (*p == ';') p++;
     *cursor = p;
     return true;
-}
-
-/* Every transport reaches authentication through this verifier. HTTP/2 and
- * HTTP/3 are only framing layers: a valid credential must be accepted the
- * same way whether it arrived in the HttpOnly session cookie or in the
- * same-origin Bearer fallback used by the service worker. */
-static bool auth_verify_token(const char *token, const char *secret,
-                              int *out_user_id, char *out_role, size_t role_len,
-                              const char **reason) {
-    if (!token || !token[0]) {
-        if (reason) *reason = AUTH_FAIL_EMPTY_SESSION_COOKIE;
-        return false;
-    }
-    if (strlen(token) >= 1024) {
-        if (reason) *reason = AUTH_FAIL_TOKEN_TOO_LONG;
-        return false;
-    }
-
-    cwist_jwt_claims *claims = cwist_jwt_verify(token, secret);
-    if (!claims) {
-        if (reason) *reason = AUTH_FAIL_JWT_VERIFY_NULL;
-        return false;
-    }
-    const char *sub = cwist_jwt_claims_get(claims, "sub");
-    const char *username = cwist_jwt_claims_get(claims, "username");
-    const char *role = cwist_jwt_claims_get(claims, "role");
-    bool ok = false;
-    if (!sub) {
-        if (reason) *reason = AUTH_FAIL_MISSING_SUB;
-    } else {
-        int uid = atoi(sub);
-        if (uid <= 0) {
-            if (reason) *reason = AUTH_FAIL_BAD_SUB;
-        } else if (!username) {
-            if (reason) *reason = AUTH_FAIL_MISSING_USERNAME;
-        } else if (!role) {
-            if (reason) *reason = AUTH_FAIL_MISSING_ROLE;
-        } else {
-            *out_user_id = uid;
-            snprintf(out_role, role_len, "%s", role);
-            ok = true;
-        }
-    }
-    cwist_jwt_claims_destroy(claims);
-    return ok;
 }
 
 bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
     if (!req || !out_user_id || !out_role || role_len == 0) return false;
 
     const char *secret = auth_jwt_secret();
-    if (!secret) {
-        CWIST_LOG_ERROR("auth verify failed: reason=%s method=%s path=%s detail=%s",
-                        AUTH_FAIL_UNKNOWN,
-                        cwist_http_method_to_string(req->method),
-                        (req->path && req->path->data) ? req->path->data : "?",
-                        "no_jwt_secret");
-        return false;
+    if (!secret) return false;
+
+    /* 1. Cookie-based verification (HttpOnly session cookie or JS access cookie) */
+    const char *session_name = SESSION_COOKIE_NAME;
+    size_t session_name_len = strlen(session_name);
+
+    for (cwist_http_header_node *h = req->headers; h; h = h->next) {
+        if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
+        if (strcasecmp(h->key->data, "Cookie") != 0) continue;
+
+        auth_cookie_iter_t cookie;
+        const char *cursor = h->value->data;
+        while (auth_cookie_iter_next(&cursor, &cookie)) {
+            bool is_session = (cookie.name_len == session_name_len && strncmp(cookie.name, session_name, session_name_len) == 0) ||
+                              (cookie.name_len == 10 && strncmp(cookie.name, "jwt_access", 10) == 0);
+            if (!is_session || cookie.value_len == 0) continue;
+
+            cwist_sstring *token = cwist_sstring_create();
+            if (!token) continue;
+            cwist_sstring_assign_len(token, cookie.value, cookie.value_len);
+            bool ok = auth_verify_token(token->data, secret, out_user_id, out_role, role_len);
+            cwist_sstring_destroy(token);
+            if (ok) return true;
+        }
     }
 
-    /* 1. Verify explicit Bearer credential if attached by client-side fetch/worker */
-    int bearer_uid = 0;
-    char bearer_role[32] = {0};
-    bool bearer_ok = false;
+    /* 2. Authorization: Bearer Header (for API requests / explicit clients) */
     const char *auth_header = cwist_http_header_get(req->headers, "Authorization");
     if (auth_header && strncasecmp(auth_header, "Bearer ", 7) == 0) {
         const char *bearer_token = auth_header + 7;
         while (*bearer_token == ' ' || *bearer_token == '\t') bearer_token++;
         size_t b_len = strlen(bearer_token);
-        while (b_len > 0 && (bearer_token[b_len - 1] == ' ' || bearer_token[b_len - 1] == '\t' || bearer_token[b_len - 1] == '\r' || bearer_token[b_len - 1] == '\n')) {
+        while (b_len > 0 && (bearer_token[b_len - 1] == ' ' || bearer_token[b_len - 1] == '\t' ||
+                             bearer_token[b_len - 1] == '\r' || bearer_token[b_len - 1] == '\n')) {
             b_len--;
         }
         if (b_len >= 2 && bearer_token[0] == '"' && bearer_token[b_len - 1] == '"') {
@@ -460,112 +491,35 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
         cwist_sstring *clean_bearer = cwist_sstring_create();
         if (clean_bearer) {
             cwist_sstring_assign_len(clean_bearer, bearer_token, b_len);
-            bearer_ok = auth_verify_token(clean_bearer->data, secret, &bearer_uid, bearer_role, sizeof(bearer_role), NULL);
+            bool ok = auth_verify_token(clean_bearer->data, secret, out_user_id, out_role, role_len);
             cwist_sstring_destroy(clean_bearer);
+            if (ok) return true;
         }
     }
 
-    /* 2. Verify HttpOnly session cookie credential */
-    int cookie_uid = 0;
-    char cookie_role[32] = {0};
-    bool cookie_ok = false;
-    const char *cookie_name = SESSION_COOKIE_NAME;
-    size_t cookie_name_len = strlen(cookie_name);
-    int cookie_headers = 0;
-    int token_attempts = 0;
-    int valid_claims = 0;
-    bool session_cookie_found = false;
-    size_t session_token_len = 0;
-    const char *reason = NULL;
-
-    for (cwist_http_header_node *h = req->headers; h; h = h->next) {
-        if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
-        if (strcasecmp(h->key->data, "Cookie") != 0) continue;
-        cookie_headers++;
-
-        auth_cookie_iter_t cookie;
-        const char *cursor = h->value->data;
-        while (auth_cookie_iter_next(&cursor, &cookie)) {
-            bool is_session = (cookie.name_len == cookie_name_len && strncmp(cookie.name, cookie_name, cookie_name_len) == 0) ||
-                              (cookie.name_len == 10 && strncmp(cookie.name, "jwt_access", 10) == 0);
-            if (!is_session) continue;
-            session_cookie_found = true;
-            size_t len = cookie.value_len;
-            if (!reason) session_token_len = len;
-            token_attempts++;
-
-            cwist_sstring *token = cwist_sstring_create();
-            if (!token) continue;
-            cwist_sstring_assign_len(token, cookie.value, len);
-            const char *token_reason = NULL;
-            if (auth_verify_token(token->data, secret, &cookie_uid, cookie_role, sizeof(cookie_role), &token_reason)) {
-                valid_claims++;
-                cookie_ok = true;
-                cwist_sstring_destroy(token);
-                break;
-            }
-            if (!reason) reason = token_reason;
-            cwist_sstring_destroy(token);
-        }
-        if (cookie_ok) break;
-    }
-
-    /* 3. Cross-validate mutual consistency when both credentials are provided */
-    if (bearer_ok && cookie_ok) {
-        if (bearer_uid == cookie_uid && auth_constant_time_streq(bearer_role, cookie_role)) {
-            *out_user_id = bearer_uid;
-            snprintf(out_role, role_len, "%s", bearer_role);
-            return true;
-        }
-        /* Mismatch: High-RTT transition or multi-tab collision. Use explicit Bearer header */
-        CWIST_LOG_WARN("auth mutual consistency mismatch: bearer_uid=%d bearer_role=%s cookie_uid=%d cookie_role=%s path=%s",
-                       bearer_uid, bearer_role, cookie_uid, cookie_role,
-                       (req->path && req->path->data) ? req->path->data : "?");
-        *out_user_id = bearer_uid;
-        snprintf(out_role, role_len, "%s", bearer_role);
-        return true;
-    }
-
-    /* 4. Single valid credential fallback */
-    if (bearer_ok) {
-        *out_user_id = bearer_uid;
-        snprintf(out_role, role_len, "%s", bearer_role);
-        return true;
-    }
-
-    if (cookie_ok) {
-        *out_user_id = cookie_uid;
-        snprintf(out_role, role_len, "%s", cookie_role);
-        return true;
-    }
-
-    if (!reason) {
-        if (cookie_headers == 0 && !auth_header) {
-            reason = AUTH_FAIL_NO_COOKIE_HEADER;
-        } else if (!session_cookie_found && !auth_header) {
-            reason = AUTH_FAIL_SESSION_COOKIE_MISSING;
-        } else {
-            reason = AUTH_FAIL_UNKNOWN;
-        }
-    }
-
-    CWIST_LOG_WARN("auth verify failed: reason=%s method=%s path=%s "
-                    "cookie_headers=%d session_found=%d token_len=%zu "
-                    "token_attempts=%d valid_claims=%d now=%ld",
-                    reason,
-                    cwist_http_method_to_string(req->method),
-                    (req->path && req->path->data) ? req->path->data : "?",
-                    cookie_headers,
-                    session_cookie_found ? 1 : 0,
-                    session_token_len,
-                    token_attempts,
-                    valid_claims,
-                    (long)time(NULL));
     return false;
 }
 
 bool auth_is_logged_in(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
     return auth_jwt_verify_from_request(req, out_user_id, out_role, role_len);
+}
+
+bool auth_has_session_cookie(cwist_http_request *req) {
+    if (!req) return false;
+    const char *session_name = SESSION_COOKIE_NAME;
+    size_t session_name_len = strlen(session_name);
+    for (cwist_http_header_node *h = req->headers; h; h = h->next) {
+        if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
+        if (strcasecmp(h->key->data, "Cookie") != 0) continue;
+        auth_cookie_iter_t cookie;
+        const char *cursor = h->value->data;
+        while (auth_cookie_iter_next(&cursor, &cookie)) {
+            bool is_session = (cookie.name_len == session_name_len && strncmp(cookie.name, session_name, session_name_len) == 0) ||
+                              (cookie.name_len == 10 && strncmp(cookie.name, "jwt_access", 10) == 0);
+            if (is_session && cookie.value_len > 0) return true;
+        }
+    }
+    return false;
 }
 
 bool auth_require_login(cwist_http_request *req, cwist_http_response *res, int *out_user_id, char *out_role, size_t role_len) {
@@ -579,106 +533,15 @@ bool auth_require_login(cwist_http_request *req, cwist_http_response *res, int *
     return true;
 }
 
-static char g_admin_id[64] = {0};
-static char g_admin_pw[129] = {0};
-static char g_admin_plain_pw[128] = {0};
-
-bool auth_admin_load(const char *path) {
-    FILE *f = fopen(path, "r");
-    if (!f) {
-        f = fopen(path, "w");
-        if (f) {
-            fprintf(f, "admin\nfly.board\n");
-            fclose(f);
-        }
-        strcpy(g_admin_id, "admin");
-        strcpy(g_admin_plain_pw, "fly.board");
-        char combined[512];
-        snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, "fly.board");
-        sha512_string_hex(combined, g_admin_pw, sizeof(g_admin_pw));
-        return true;
-    }
-    if (fgets(g_admin_id, sizeof(g_admin_id), f)) {
-        size_t len = strlen(g_admin_id);
-        while (len > 0 && (g_admin_id[len - 1] == '\r' || g_admin_id[len - 1] == '\n')) {
-            g_admin_id[--len] = '\0';
-        }
-    }
-    char plain_pw[128] = {0};
-    if (fgets(plain_pw, sizeof(plain_pw), f)) {
-        size_t len = strlen(plain_pw);
-        while (len > 0 && (plain_pw[len - 1] == '\r' || plain_pw[len - 1] == '\n')) {
-            plain_pw[--len] = '\0';
-        }
-    }
-    fclose(f);
-    snprintf(g_admin_plain_pw, sizeof(g_admin_plain_pw), "%s", plain_pw);
-    char combined[512];
-    snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, plain_pw);
-    sha512_string_hex(combined, g_admin_pw, sizeof(g_admin_pw));
-    return g_admin_id[0] && g_admin_pw[0];
-}
-
-bool auth_admin_check(const char *username, const char *password) {
-    if (!username || !password || !g_admin_id[0] || !g_admin_pw[0]) return false;
-    if (!auth_constant_time_streq(username, g_admin_id)) return false;
-
-    /* 1. Direct match with client pre-hashed password (SHA-512("fly.board" + plain)) */
-    if (auth_constant_time_streq(password, g_admin_pw)) return true;
-
-    /* 2. Direct match with plaintext */
-    if (g_admin_plain_pw[0] && auth_constant_time_streq(password, g_admin_plain_pw)) return true;
-
-    /* 3. Hash plaintext and compare with g_admin_pw */
-    char combined[512];
-    snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, password);
-    char hashed[129];
-    if (sha512_string_hex(combined, hashed, sizeof(hashed))) {
-        if (auth_constant_time_streq(hashed, g_admin_pw)) return true;
-    }
-    return false;
-}
-
 bool auth_require_admin(cwist_http_request *req, cwist_http_response *res) {
     if (!res) return false;
     int uid = 0;
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return false;
     if (strcmp(role, "admin") != 0) {
-        CWIST_LOG_ERROR("auth admin failed: reason=%s method=%s path=%s parsed_uid=%d parsed_role=%s now=%ld",
-                        AUTH_FAIL_ROLE_NOT_ADMIN,
-                        cwist_http_method_to_string(req->method),
-                        (req->path && req->path->data) ? req->path->data : "?",
-                        uid,
-                        role[0] ? role : "(none)",
-                        (long)time(NULL));
-        res->status_code = CWIST_HTTP_FORBIDDEN;
-        cwist_sstring_assign(res->body, "Forbidden. Admin only.");
+        res->status_code = (cwist_http_status_t)403;
+        cwist_sstring_assign(res->body, "Forbidden: Admin access required");
         return false;
     }
     return true;
-}
-
-/* Returns true if the request carries at least one Cookie header that
- * contains the session cookie name. This is used by handlers that allow
- * anonymous fallback (e.g. post creation) to distinguish "anonymous by
- * choice" from "logged-in session unexpectedly missing/invalid". */
-bool auth_has_session_cookie(cwist_http_request *req) {
-    if (!req) return false;
-    const char *cookie_name = SESSION_COOKIE_NAME;
-    size_t cookie_name_len = strlen(cookie_name);
-    for (cwist_http_header_node *h = req->headers; h; h = h->next) {
-        if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
-        if (strcasecmp(h->key->data, "Cookie") != 0) continue;
-
-        auth_cookie_iter_t cookie;
-        const char *cursor = h->value->data;
-        while (auth_cookie_iter_next(&cursor, &cookie)) {
-            if (cookie.name_len == cookie_name_len &&
-                strncmp(cookie.name, cookie_name, cookie_name_len) == 0) {
-                return true;
-            }
-        }
-    }
-    return false;
 }
