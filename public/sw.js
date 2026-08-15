@@ -415,9 +415,13 @@ self.addEventListener('fetch', function(event) {
         // Don't intercept cross-origin requests (multi-port)
         if (new URL(url).origin !== self.location.origin) return;
 
-        // Bypass SW interception for direct chunk transfers, handshakes, uploads,
-        // and requests with query credentials to prevent Firefox connection pooling/partial-transfer bugs.
-        if (url.includes('/chunk/') ||
+        // Bypass SW interception for auth routes, chunk transfers, handshakes, uploads,
+        // and requests with query credentials.
+        if (url.includes('/login') ||
+            url.includes('/register') ||
+            url.includes('/logout') ||
+            url.includes('/account/') ||
+            url.includes('/chunk/') ||
             url.includes('/handshake') ||
             url.includes('/file/upload') ||
             url.includes('tasfa_fallback=1') ||
@@ -461,22 +465,9 @@ self.addEventListener('fetch', function(event) {
         return;
     }
 
-    /* Progressive TASFA video stream: the client feeds chunks through
-       postMessage and the media element reads from this URL.
-       This stream is strictly sequential; do not advertise byte ranges,
-       because the ReadableStream is always fed from byte 0. Firefox in
-       particular treats a Content-Length/range mismatch as a partial
-       transfer error (NS_ERROR_PARTIAL_TRANSFER). */
-    /* Page navigations cannot pass through jwt.js's fetch wrapper. Preserve
-     * the browser-created navigation Request and add the same in-memory,
-     * client-scoped Bearer fallback used by fetch/XHR. This is essential when
-     * an HTTP/2 or HTTP/3 connection transition loses Cookie on the request. */
+    /* Standard page navigations must rely on native browser cookie handling
+     * to avoid race conditions with token postMessage during redirects. */
     if (event.request.mode === 'navigate') {
-        var navigationClientId = event.clientId || event.resultingClientId;
-        var navigationRequest = requestWithClientAuth(event.request, navigationClientId);
-        if (navigationRequest !== event.request) {
-            event.respondWith(fetch(navigationRequest));
-        }
         return;
     }
 
