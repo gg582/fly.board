@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 #include "fly_crypto.h"
-#if defined __has_include
+#if !defined(FLY_NO_PQC) && defined __has_include
 #  if __has_include (<cwist/security/pqc/pqc_sig.h>)
 #    define HAVE_PQC 1
 #    include <cwist/security/pqc/pqc_sig.h>

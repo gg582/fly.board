@@ -46,6 +46,7 @@
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <limits.h>
+#include <time.h>
 
 #define BLOG_CERT "server.crt"
 #define BLOG_KEY  "server.key"
