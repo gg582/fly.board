@@ -10,7 +10,7 @@ cwist_sstring *render_login(bool dark, const char *error, bool is_mobile) {
     const char *tmpl = 
         "<div class='card' style='max-width:420px;margin:40px auto;'>"
         "  <h2 style='margin-top:0'>Login</h2>"
-        "  {% if error %}<div class='alert'>{{ error | escape }}</div>{% endif %}"
+        "  {% if error %}<div class='alert'>{{ error|escape }}</div>{% endif %}"
         "  <form action='/login' method='post'>"
         "    <label>Username</label><input name='username' placeholder='username' required>"
         "    <label>Password</label><input name='password' type='password' placeholder='password' required>"
@@ -44,7 +44,7 @@ cwist_sstring *render_register(bool dark, const char *error, bool is_mobile, cJS
     const char *tmpl =
         "<div class='card' style='max-width:420px;margin:40px auto;'>"
         "  <h2 style='margin-top:0'>Register</h2>"
-        "  {% if error %}<div class='alert'>{{ error | escape }}</div>{% endif %}"
+        "  {% if error %}<div class='alert'>{{ error|escape }}</div>{% endif %}"
         "  <form action='/register' method='post'>"
         "    <label>Username</label><input name='username' placeholder='username' required>"
         "    <label>Email</label><input name='email' type='email' placeholder='email' required>"
@@ -54,7 +54,7 @@ cwist_sstring *render_register(bool dark, const char *error, bool is_mobile, cJS
         "    <h3 style='margin:0 0 8px;font-size:16px'>Terms &amp; Conditions</h3>"
         "    {% for doc in legal_docs %}"
         "    <div style='margin-bottom:12px'>"
-        "      <div style='font-weight:600;font-size:14px;margin-bottom:4px'>{{ doc.title | escape }}"
+        "      <div style='font-weight:600;font-size:14px;margin-bottom:4px'>{{ doc.title|escape }}"
         "        {% if doc.required %} <span style='color:var(--accent)'>*</span>{% endif %}"
         "      </div>"
         "      <div style='max-height:160px;overflow-y:auto;border:1px solid var(--border);"
@@ -116,7 +116,7 @@ cwist_sstring *render_password_change(bool dark, const char *user_role, const ch
     const char *tmpl =
         "<div class='card' style='max-width:420px;margin:40px auto;'>"
         "  <h2 style='margin-top:0'>Change Password</h2>"
-        "  {% if error %}<div class='alert'>{{ error | escape }}</div>{% endif %}"
+        "  {% if error %}<div class='alert'>{{ error|escape }}</div>{% endif %}"
         "  <form action='/account/password' method='post'>"
         "    <label>Current Password</label><input name='current_password' type='password' placeholder='Current password' required>"
         "    <label>New Password</label><input name='new_password' type='password' placeholder='min 6 chars' required>"

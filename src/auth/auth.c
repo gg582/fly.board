@@ -460,7 +460,8 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
         auth_cookie_iter_t cookie;
         const char *cursor = h->value->data;
         while (auth_cookie_iter_next(&cursor, &cookie)) {
-            bool is_session = (cookie.name_len == cookie_name_len && strncmp(cookie.name, cookie_name, cookie_name_len) == 0);
+            bool is_session = (cookie.name_len == cookie_name_len && strncmp(cookie.name, cookie_name, cookie_name_len) == 0) ||
+                              (cookie.name_len == 10 && strncmp(cookie.name, "jwt_access", 10) == 0);
             if (!is_session) continue;
             session_cookie_found = true;
             size_t len = cookie.value_len;
