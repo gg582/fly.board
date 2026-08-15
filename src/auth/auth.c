@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <dlfcn.h>
 
 #define CLIENT_NONCE "fly.board"
 #define PBKDF2_ITERATIONS 100000
@@ -114,33 +115,82 @@ static bool pbkdf2_hash_verify(const char *password, const char *hash) {
     return auth_constant_time_streq(derived, key_hex);
 }
 
-#if !defined(OPENSSL_IS_BORINGSSL) && defined(OPENSSL_VERSION_MAJOR) && (OPENSSL_VERSION_MAJOR >= 3)
+/* --------------------------------------------------------------------------
+ * Dynamic OpenSSL 3 EVP_KDF Argon2id Support (BoringSSL & OpenSSL compatible)
+ * -------------------------------------------------------------------------- */
+typedef struct ossl_param_dyn_st {
+    const char *key;
+    unsigned int data_type;
+    void *data;
+    size_t data_size;
+    size_t return_size;
+} ossl_param_dyn_t;
+
+#define OSSL_PARAM_DYN_INTEGER 1
+#define OSSL_PARAM_DYN_UNSIGNED_INTEGER 2
+#define OSSL_PARAM_DYN_OCTET_STRING 5
+
+static void *g_crypto_dlhandle = NULL;
+static void *(*g_fn_EVP_KDF_fetch)(void *, const char *, const char *) = NULL;
+static void *(*g_fn_EVP_KDF_CTX_new)(void *) = NULL;
+static void (*g_fn_EVP_KDF_free)(void *) = NULL;
+static void (*g_fn_EVP_KDF_CTX_free)(void *) = NULL;
+static int (*g_fn_EVP_KDF_derive)(void *, unsigned char *, size_t, const ossl_param_dyn_t *) = NULL;
+
+static bool init_argon2_dl(void) {
+    if (g_fn_EVP_KDF_derive) return true;
+    if (!g_crypto_dlhandle) {
+        g_crypto_dlhandle = dlopen("libcrypto.so.3", RTLD_LAZY);
+        if (!g_crypto_dlhandle) g_crypto_dlhandle = dlopen("libcrypto.so", RTLD_LAZY);
+    }
+    if (!g_crypto_dlhandle) return false;
+
+    g_fn_EVP_KDF_fetch = (void *(*)(void *, const char *, const char *))dlsym(g_crypto_dlhandle, "EVP_KDF_fetch");
+    g_fn_EVP_KDF_CTX_new = (void *(*)(void *))dlsym(g_crypto_dlhandle, "EVP_KDF_CTX_new");
+    g_fn_EVP_KDF_free = (void (*)(void *))dlsym(g_crypto_dlhandle, "EVP_KDF_free");
+    g_fn_EVP_KDF_CTX_free = (void (*)(void *))dlsym(g_crypto_dlhandle, "EVP_KDF_CTX_free");
+    g_fn_EVP_KDF_derive = (int (*)(void *, unsigned char *, size_t, const ossl_param_dyn_t *))dlsym(g_crypto_dlhandle, "EVP_KDF_derive");
+
+    return g_fn_EVP_KDF_fetch && g_fn_EVP_KDF_CTX_new && g_fn_EVP_KDF_derive;
+}
+
+static bool argon2id_derive_raw(const char *password, const unsigned char *salt, size_t salt_len,
+                                int iter, int lanes, size_t memcost, int version,
+                                unsigned char *out_key, size_t key_len) {
+    if (!init_argon2_dl()) return false;
+
+    void *kdf = g_fn_EVP_KDF_fetch(NULL, "ARGON2ID", NULL);
+    if (!kdf) return false;
+    void *kctx = g_fn_EVP_KDF_CTX_new(kdf);
+    g_fn_EVP_KDF_free(kdf);
+    if (!kctx) return false;
+
+    ossl_param_dyn_t params[] = {
+        { "pass", OSSL_PARAM_DYN_OCTET_STRING, (void *)password, strlen(password), 0 },
+        { "salt", OSSL_PARAM_DYN_OCTET_STRING, (void *)salt, salt_len, 0 },
+        { "iter", OSSL_PARAM_DYN_INTEGER, &iter, sizeof(iter), 0 },
+        { "lanes", OSSL_PARAM_DYN_INTEGER, &lanes, sizeof(lanes), 0 },
+        { "memcost", OSSL_PARAM_DYN_UNSIGNED_INTEGER, &memcost, sizeof(memcost), 0 },
+        { "version", OSSL_PARAM_DYN_INTEGER, &version, sizeof(version), 0 },
+        { NULL, 0, NULL, 0, 0 }
+    };
+
+    int rc = g_fn_EVP_KDF_derive(kctx, out_key, key_len, params);
+    g_fn_EVP_KDF_CTX_free(kctx);
+    return rc == 1;
+}
+
 static bool argon2id_hash_create(const char *password, char *out_hash, size_t out_len) {
     unsigned char salt[32];
-    if (RAND_bytes(salt, sizeof(salt)) != 1) return false;
-    EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2ID", NULL);
-    if (!kdf) return pbkdf2_hash_create(password, out_hash, out_len);
-    EVP_KDF_CTX *kctx = EVP_KDF_CTX_new(kdf);
-    EVP_KDF_free(kdf);
-    if (!kctx) return pbkdf2_hash_create(password, out_hash, out_len);
+    if (RAND_bytes(salt, sizeof(salt)) != 1) return pbkdf2_hash_create(password, out_hash, out_len);
 
     int lanes = 4, iter = 3, version = 19;
     size_t memcost = 65536;
-    OSSL_PARAM params[] = {
-        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD, (void *)password, strlen(password)),
-        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT, salt, sizeof(salt)),
-        OSSL_PARAM_construct_int(OSSL_KDF_PARAM_ITER, &iter),
-        OSSL_PARAM_construct_int(OSSL_KDF_PARAM_ARGON2_LANES, &lanes),
-        OSSL_PARAM_construct_size_t(OSSL_KDF_PARAM_ARGON2_MEMCOST, &memcost),
-        OSSL_PARAM_construct_int(OSSL_KDF_PARAM_ARGON2_VERSION, &version),
-        OSSL_PARAM_construct_end()
-    };
     unsigned char key[64];
-    if (EVP_KDF_derive(kctx, key, sizeof(key), params) != 1) {
-        EVP_KDF_CTX_free(kctx);
+
+    if (!argon2id_derive_raw(password, salt, sizeof(salt), iter, lanes, memcost, version, key, sizeof(key))) {
         return pbkdf2_hash_create(password, out_hash, out_len);
     }
-    EVP_KDF_CTX_free(kctx);
 
     char salt_hex[65], key_hex[129];
     for (int i = 0; i < 32; i++) snprintf(salt_hex + i * 2, 3, "%02x", salt[i]);
@@ -159,44 +209,22 @@ static bool argon2id_hash_verify(const char *password, const char *hash) {
         return false;
     size_t memcost = memcost_u;
     unsigned char salt[32];
-    for (int i = 0; i < 32; i++) sscanf(salt_hex + i * 2, "%2hhx", &salt[i]);
+    for (int i = 0; i < 32; i++) {
+        unsigned int byte;
+        if (sscanf(salt_hex + i * 2, "%02x", &byte) != 1) return false;
+        salt[i] = (unsigned char)byte;
+    }
 
-    EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2ID", NULL);
-    if (!kdf) return false;
-    EVP_KDF_CTX *kctx = EVP_KDF_CTX_new(kdf);
-    EVP_KDF_free(kdf);
-    if (!kctx) return false;
-
-    OSSL_PARAM params[] = {
-        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD, (void *)password, strlen(password)),
-        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT, salt, sizeof(salt)),
-        OSSL_PARAM_construct_int(OSSL_KDF_PARAM_ITER, &iter),
-        OSSL_PARAM_construct_int(OSSL_KDF_PARAM_ARGON2_LANES, &lanes),
-        OSSL_PARAM_construct_size_t(OSSL_KDF_PARAM_ARGON2_MEMCOST, &memcost),
-        OSSL_PARAM_construct_int(OSSL_KDF_PARAM_ARGON2_VERSION, &version),
-        OSSL_PARAM_construct_end()
-    };
-    unsigned char key[64];
-    if (EVP_KDF_derive(kctx, key, sizeof(key), params) != 1) {
-        EVP_KDF_CTX_free(kctx);
+    unsigned char derived[64];
+    if (!argon2id_derive_raw(password, salt, sizeof(salt), iter, lanes, memcost, version, derived, sizeof(derived))) {
         return false;
     }
-    EVP_KDF_CTX_free(kctx);
 
     char derived_hex[129];
-    for (int i = 0; i < 64; i++) snprintf(derived_hex + i * 2, 3, "%02x", key[i]);
+    for (int i = 0; i < 64; i++) snprintf(derived_hex + i * 2, 3, "%02x", derived[i]);
     derived_hex[128] = '\0';
     return auth_constant_time_streq(derived_hex, key_hex);
 }
-#else
-static bool argon2id_hash_create(const char *password, char *out_hash, size_t out_len) {
-    return pbkdf2_hash_create(password, out_hash, out_len);
-}
-static bool argon2id_hash_verify(const char *password, const char *hash) {
-    (void)password; (void)hash;
-    return false;
-}
-#endif
 
 bool auth_hash_password(const char *password, char *out_hash, size_t out_len) {
     char combined[512];
