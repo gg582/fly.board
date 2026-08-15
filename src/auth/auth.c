@@ -12,6 +12,7 @@
 #include <openssl/core_names.h>
 #include <openssl/params.h>
 #endif
+#include <openssl/crypto.h>
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
@@ -94,6 +95,14 @@ static bool sha512_string_hex(const char *input, char *out, size_t out_len) {
     return true;
 }
 
+static bool auth_constant_time_streq(const char *a, const char *b) {
+    if (!a || !b) return false;
+    size_t len_a = strlen(a);
+    size_t len_b = strlen(b);
+    if (len_a != len_b) return false;
+    return CRYPTO_memcmp(a, b, len_a) == 0;
+}
+
 /* Legacy PBKDF2-HMAC-SHA256 verifier for backward compatibility */
 static bool legacy_verify_password(const char *prehash, const char *hash) {
     char buf[256];
@@ -116,7 +125,7 @@ static bool legacy_verify_password(const char *prehash, const char *hash) {
     char derived[65];
     for (int i = 0; i < 32; i++) snprintf(derived + i*2, 3, "%02x", key[i]);
     derived[64] = '\0';
-    return strcmp(derived, key_hex) == 0;
+    return auth_constant_time_streq(derived, key_hex);
 }
 
 /* PBKDF2-HMAC-SHA256 hash for OpenSSL < 3 or fallback */
@@ -222,7 +231,7 @@ static bool argon2id_verify(const char *password, const char *hash) {
     char derived_hex[129];
     for (int i = 0; i < 64; i++) snprintf(derived_hex + i*2, 3, "%02x", key[i]);
     derived_hex[128] = '\0';
-    return strcmp(derived_hex, key_hex) == 0;
+    return auth_constant_time_streq(derived_hex, key_hex);
 }
 #else
 static bool argon2id_hash(const char *password, char *out_hash, size_t out_len) {
@@ -419,16 +428,21 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
         return false;
     }
 
-    /* The browser sends the HttpOnly session cookie by default. The explicit
-     * Bearer credential is a same-origin fallback for a request whose Cookie
-     * header was lost during a connection transition. */
+    /* 1. Verify explicit Bearer credential if attached by client-side fetch/worker */
+    int bearer_uid = 0;
+    char bearer_role[32] = {0};
+    bool bearer_ok = false;
     const char *auth_header = cwist_http_header_get(req->headers, "Authorization");
     if (auth_header && strncasecmp(auth_header, "Bearer ", 7) == 0) {
         const char *bearer_token = auth_header + 7;
         while (*bearer_token == ' ' || *bearer_token == '\t') bearer_token++;
-        if (auth_verify_token(bearer_token, secret, out_user_id, out_role, role_len, NULL)) return true;
+        bearer_ok = auth_verify_token(bearer_token, secret, &bearer_uid, bearer_role, sizeof(bearer_role), NULL);
     }
 
+    /* 2. Verify HttpOnly session cookie credential */
+    int cookie_uid = 0;
+    char cookie_role[32] = {0};
+    bool cookie_ok = false;
     const char *cookie_name = SESSION_COOKIE_NAME;
     size_t cookie_name_len = strlen(cookie_name);
     int cookie_headers = 0;
@@ -443,19 +457,11 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
         if (strcasecmp(h->key->data, "Cookie") != 0) continue;
         cookie_headers++;
 
-        /* Scan every occurrence of the session cookie in this header value.
-         * Browsers may send duplicate session cookies (e.g. a stale domain-scoped
-         * cookie left over from a previous deployment plus the current one).
-         * We parse the header explicitly instead of using strstr() so another
-         * cookie whose name or value contains SESSION_COOKIE_NAME cannot be
-         * mistaken for the session cookie. */
         auth_cookie_iter_t cookie;
         const char *cursor = h->value->data;
         while (auth_cookie_iter_next(&cursor, &cookie)) {
             bool is_session = (cookie.name_len == cookie_name_len && strncmp(cookie.name, cookie_name, cookie_name_len) == 0);
-            if (!is_session) {
-                continue;
-            }
+            if (!is_session) continue;
             session_cookie_found = true;
             size_t len = cookie.value_len;
             if (!reason) session_token_len = len;
@@ -465,20 +471,51 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
             if (!token) continue;
             cwist_sstring_assign_len(token, cookie.value, len);
             const char *token_reason = NULL;
-            if (auth_verify_token(token->data, secret, out_user_id, out_role, role_len, &token_reason)) {
+            if (auth_verify_token(token->data, secret, &cookie_uid, cookie_role, sizeof(cookie_role), &token_reason)) {
                 valid_claims++;
+                cookie_ok = true;
                 cwist_sstring_destroy(token);
-                return true;
+                break;
             }
             if (!reason) reason = token_reason;
             cwist_sstring_destroy(token);
         }
+        if (cookie_ok) break;
+    }
+
+    /* 3. Cross-validate mutual consistency when both credentials are provided */
+    if (bearer_ok && cookie_ok) {
+        if (bearer_uid == cookie_uid && auth_constant_time_streq(bearer_role, cookie_role)) {
+            *out_user_id = bearer_uid;
+            snprintf(out_role, role_len, "%s", bearer_role);
+            return true;
+        }
+        /* Mismatch: High-RTT transition or multi-tab collision. Use explicit Bearer header */
+        CWIST_LOG_WARN("auth mutual consistency mismatch: bearer_uid=%d bearer_role=%s cookie_uid=%d cookie_role=%s path=%s",
+                       bearer_uid, bearer_role, cookie_uid, cookie_role,
+                       (req->path && req->path->data) ? req->path->data : "?");
+        *out_user_id = bearer_uid;
+        snprintf(out_role, role_len, "%s", bearer_role);
+        return true;
+    }
+
+    /* 4. Single valid credential fallback */
+    if (bearer_ok) {
+        *out_user_id = bearer_uid;
+        snprintf(out_role, role_len, "%s", bearer_role);
+        return true;
+    }
+
+    if (cookie_ok) {
+        *out_user_id = cookie_uid;
+        snprintf(out_role, role_len, "%s", cookie_role);
+        return true;
     }
 
     if (!reason) {
-        if (cookie_headers == 0) {
+        if (cookie_headers == 0 && !auth_header) {
             reason = AUTH_FAIL_NO_COOKIE_HEADER;
-        } else if (!session_cookie_found) {
+        } else if (!session_cookie_found && !auth_header) {
             reason = AUTH_FAIL_SESSION_COOKIE_MISSING;
         } else {
             reason = AUTH_FAIL_UNKNOWN;
@@ -554,14 +591,15 @@ bool auth_admin_load(const char *path) {
 
 bool auth_admin_check(const char *username, const char *password) {
     if (!username || !password || !g_admin_id[0] || !g_admin_pw[0]) return false;
-    if (strcmp(username, g_admin_id) != 0) return false;
+    if (!auth_constant_time_streq(username, g_admin_id)) return false;
     /* 1. Direct match with client pre-hashed password */
-    if (strcmp(password, g_admin_pw) == 0) return true;
+    if (auth_constant_time_streq(password, g_admin_pw)) return true;
     /* 2. Hash plaintext and compare */
     char combined[512];
     snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, password);
     char hashed[129];
-    if (sha512_string_hex(combined, hashed, sizeof(hashed)) && strcmp(hashed, g_admin_pw) == 0) {
+    if (sha512_string_hex(combined, hashed, sizeof(hashed)) &&
+        auth_constant_time_streq(hashed, g_admin_pw)) {
         return true;
     }
     return false;
