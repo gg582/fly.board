@@ -372,6 +372,10 @@ static bool auth_cookie_iter_next(const char **cursor, auth_cookie_iter_t *out) 
                 out->value[out->value_len - 1] == '\t')) {
             out->value_len--;
         }
+        if (out->value_len >= 2 && out->value[0] == '"' && out->value[out->value_len - 1] == '"') {
+            out->value++;
+            out->value_len -= 2;
+        }
     }
 
     if (*p == ';') p++;
@@ -445,7 +449,20 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
     if (auth_header && strncasecmp(auth_header, "Bearer ", 7) == 0) {
         const char *bearer_token = auth_header + 7;
         while (*bearer_token == ' ' || *bearer_token == '\t') bearer_token++;
-        bearer_ok = auth_verify_token(bearer_token, secret, &bearer_uid, bearer_role, sizeof(bearer_role), NULL);
+        size_t b_len = strlen(bearer_token);
+        while (b_len > 0 && (bearer_token[b_len - 1] == ' ' || bearer_token[b_len - 1] == '\t' || bearer_token[b_len - 1] == '\r' || bearer_token[b_len - 1] == '\n')) {
+            b_len--;
+        }
+        if (b_len >= 2 && bearer_token[0] == '"' && bearer_token[b_len - 1] == '"') {
+            bearer_token++;
+            b_len -= 2;
+        }
+        cwist_sstring *clean_bearer = cwist_sstring_create();
+        if (clean_bearer) {
+            cwist_sstring_assign_len(clean_bearer, bearer_token, b_len);
+            bearer_ok = auth_verify_token(clean_bearer->data, secret, &bearer_uid, bearer_role, sizeof(bearer_role), NULL);
+            cwist_sstring_destroy(clean_bearer);
+        }
     }
 
     /* 2. Verify HttpOnly session cookie credential */
