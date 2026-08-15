@@ -1,19 +1,123 @@
+# Compiler and Flags
 CC ?= gcc
 
+# Detect OS
+UNAME_S := $(shell uname -s)
+
+# CWIST Paths (Source root or Installed prefix)
+CWIST_ROOT ?= /home/yjlee/cwist
 CWIST_PREFIX ?= /usr/local
 
+ifeq ($(wildcard $(CWIST_ROOT)/libcwist.a),)
+    CWIST_LIB = $(CWIST_PREFIX)/lib/libcwist.a
+    CWIST_DEPS_DIR = $(CWIST_PREFIX)/lib/cwist
+    CWIST_DEPS = $(CWIST_DEPS_DIR)/libnats_static.a \
+                 $(CWIST_DEPS_DIR)/libttak.a \
+                 $(CWIST_DEPS_DIR)/libcjson.a \
+                 $(CWIST_DEPS_DIR)/liburiparser.a \
+                 $(CWIST_DEPS_DIR)/liblsquic.a \
+                 $(CWIST_DEPS_DIR)/libssl.a \
+                 $(CWIST_DEPS_DIR)/libcrypto.a
+    CWIST_INCLUDES = -I$(CWIST_PREFIX)/include \
+                     -I$(CWIST_PREFIX)/include/cwist \
+                     -I$(CWIST_PREFIX)/include/cwist/vendor \
+                     -I$(CWIST_PREFIX)/include/cwist/vendor/openssl \
+                     -I$(CWIST_PREFIX)/include/cwist/vendor/cjson \
+                     -I$(CWIST_PREFIX)/include/cwist/vendor/ttak \
+                     -I$(CWIST_PREFIX)/include/cwist/vendor/lsquic \
+                     -I$(CWIST_PREFIX)/include/cwist/vendor/uriparser
+else
+    CWIST_LIB = $(CWIST_ROOT)/libcwist.a
+    CWIST_DEPS = $(CWIST_ROOT)/lib/cnats/build/lib/libnats_static.a \
+                 $(CWIST_ROOT)/lib/libttak/lib/libttak.a \
+                 $(CWIST_ROOT)/lib/cjson/libcjson.a \
+                 $(CWIST_ROOT)/lib/uriparser/build/liburiparser.a \
+                 $(CWIST_ROOT)/lib/lsquic/build/src/liblsquic/liblsquic.a \
+                 $(CWIST_ROOT)/lib/boringssl/build/libssl.a \
+                 $(CWIST_ROOT)/lib/boringssl/build/libcrypto.a
+    CWIST_INCLUDES = -I$(CWIST_ROOT)/include \
+                     -I$(CWIST_ROOT)/lib \
+                     -I$(CWIST_ROOT)/lib/boringssl/include \
+                     -I$(CWIST_ROOT)/lib/cjson \
+                     -I$(CWIST_ROOT)/lib/libttak/include \
+                     -I$(CWIST_ROOT)/lib/uriparser/include \
+                     -I$(CWIST_ROOT)/lib/cnats/src \
+                     -I$(CWIST_ROOT)/lib/lsquic/include \
+                     -I$(CWIST_ROOT)/lib/sqlite3 \
+                     -I$(CWIST_ROOT)/lib/multipart-parser-c
+endif
+
+# Third Party Dependencies
 MD4C_DIR := third_party/md4c
 MD4C_LIB := $(MD4C_DIR)/build/libmd4c_example.a
 MD4C_OBJS := $(MD4C_DIR)/build/md4c.o $(MD4C_DIR)/build/md4c-html.o $(MD4C_DIR)/build/entity.o
 
 MULTIPART_DIR := third_party/multipart-parser-c
-LIBTTAK_DIR := third_party/libttak
-LIBTTAK_A := $(LIBTTAK_DIR)/lib/libttak.a
-
 LIBMAGIC_DIR := third_party/file
 LIBMAGIC_A := $(LIBMAGIC_DIR)/src/.libs/libmagic.a
 
-CWIST_ROOT ?= /home/yjlee/cwist
+# Pkg-config flags and libraries
+CURL_CFLAGS := $(shell pkg-config --cflags libcurl 2>/dev/null)
+NGHTTP2_CFLAGS := $(shell pkg-config --cflags libnghttp2 2>/dev/null)
+BROTLI_CFLAGS := $(shell pkg-config --cflags libbrotlienc libbrotlicommon libbrotlidec 2>/dev/null)
+WEBP_CFLAGS := $(shell pkg-config --cflags libwebp libwebpmux 2>/dev/null)
+
+CURL_LIBS := $(shell pkg-config --libs libcurl 2>/dev/null || echo -lcurl)
+NGHTTP2_LIBS := $(shell pkg-config --libs libnghttp2 2>/dev/null)
+BROTLI_LIBS := $(shell pkg-config --libs libbrotlienc libbrotlicommon libbrotlidec 2>/dev/null || echo -lbrotlienc -lbrotlicommon -lbrotlidec)
+WEBP_LIBS := $(shell pkg-config --libs libwebp libwebpmux 2>/dev/null)
+ZSTD_LIBS := $(shell pkg-config --libs libzstd 2>/dev/null)
+ifeq ($(strip $(ZSTD_LIBS)),)
+ZSTD_LIBS = -lzstd
+endif
+
+# Common flags & defines matching cwist buildchain
+COMMON_DEFINES = -D_GNU_SOURCE -D_XOPEN_SOURCE=700 -D_REENTRANT -DSQLITE_ENABLE_DESERIALIZE
+COMMON_WARNINGS = -Wall -Wextra -pthread -fPIC
+OPT_FLAGS = -O2 -march=native -mtune=native -fno-plt -fomit-frame-pointer
+
+CFLAGS := $(OPT_FLAGS) $(COMMON_WARNINGS) $(COMMON_DEFINES) \
+          -Iinclude \
+          -Isrc \
+          $(CWIST_INCLUDES) \
+          -I$(MD4C_DIR)/src \
+          -I$(MULTIPART_DIR) \
+          -Ithird_party/stb \
+          -Ithird_party/file/src \
+          $(CURL_CFLAGS) $(NGHTTP2_CFLAGS) $(BROTLI_CFLAGS) $(WEBP_CFLAGS)
+
+ifeq ($(UNAME_S),Linux)
+    CFLAGS += -DCWIST_OS_LINUX
+endif
+ifeq ($(UNAME_S),Darwin)
+    CFLAGS += -DCWIST_OS_BSD -D_DARWIN_C_SOURCE
+endif
+ifeq ($(UNAME_S),FreeBSD)
+    CFLAGS += -DCWIST_OS_BSD -D_DEFAULT_SOURCE
+endif
+
+EXTRA_CFLAGS ?=
+CFLAGS += $(EXTRA_CFLAGS)
+
+ifeq ($(DEBUG),1)
+CFLAGS += -DDEBUG=1 -g
+endif
+
+LDFLAGS := -L$(CWIST_PREFIX)/lib \
+           -Wl,-rpath,$(CWIST_PREFIX)/lib \
+           -Wl,--wrap=cwist_http_send_response \
+           -Wl,--wrap=cwist_https_send_response
+
+LIBS := $(CWIST_LIB) \
+        $(CWIST_DEPS) \
+        $(MD4C_LIB) \
+        $(LIBMAGIC_A) \
+        $(CURL_LIBS) \
+        $(NGHTTP2_LIBS) \
+        $(BROTLI_LIBS) \
+        $(WEBP_LIBS) \
+        $(ZSTD_LIBS) \
+        -pthread -ldl -lm -lstdc++ -lz
 
 SRCS := src/main.c \
         src/db/db.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/notification.c src/db/vote.c src/db/tag.c src/db/sql_escape.c src/db/orm.c \
@@ -40,84 +144,20 @@ SRCS := src/main.c \
         src/engine/db.c \
         src/engine/settings.c \
         src/engine/routes.c \
-        src/engine/warmup.c \
-        $(MULTIPART_DIR)/multipart_parser.c
+        src/engine/warmup.c
+
 OBJS := $(SRCS:.c=.o)
-
-CFLAGS := -Wall -Wextra -O2 \
-		  -march=native \
-		  -mtune=native \
-		  -fno-plt \
-		  -fomit-frame-pointer \
-          -Iinclude \
-          -Isrc \
-          -I$(CWIST_ROOT)/include \
-          -I$(CWIST_PREFIX)/include \
-          -I$(MD4C_DIR)/src \
-          -I$(MULTIPART_DIR) \
-          -I$(LIBTTAK_DIR)/include \
-          -Ithird_party/stb \
-          -Ithird_party/file/src
-
-EXTRA_CFLAGS ?=
-CFLAGS += $(EXTRA_CFLAGS)
-
-ifeq ($(DEBUG),1)
-CFLAGS += -DDEBUG=1
-endif
-
-LDFLAGS := -L$(CWIST_PREFIX)/lib \
-           -Wl,-rpath,$(CWIST_PREFIX)/lib \
-           -Wl,--wrap=cwist_http_send_response \
-           -Wl,--wrap=cwist_https_send_response
-
-
-CWIST_LIB := $(CWIST_ROOT)/libcwist.a
-ifeq ($(wildcard $(CWIST_LIB)),)
-  CWIST_LIB := $(CWIST_PREFIX)/lib/libcwist.a
-endif
-
-LIBS := -lcwist -lssl -lcrypto -lpthread -ldl -lstdc++ -lz -lzstd -lbrotlienc -lbrotlidec -lm \
-        $(shell pkg-config --libs libwebp libwebpmux 2>/dev/null) \
-        $(shell pkg-config --libs libcurl 2>/dev/null || echo -lcurl)
-HAS_NGHTTP2 := $(shell pkg-config --exists libnghttp2 2>/dev/null && echo 1 || echo 0)
-HAS_NGTCP2 := $(shell pkg-config --exists libngtcp2 2>/dev/null && echo 1 || echo 0)
-HAS_NGHTTP3 := $(shell pkg-config --exists libnghttp3 2>/dev/null && echo 1 || echo 0)
-HAS_NGTCP2_CRYPTO_QUICTLS := $(shell pkg-config --exists libngtcp2_crypto_quictls 2>/dev/null && echo 1 || echo 0)
-HAS_NGTCP2_CRYPTO_OSSL := $(shell pkg-config --exists libngtcp2_crypto_ossl 2>/dev/null && echo 1 || echo 0)
-HAS_NGTCP2_CRYPTO_GNUTLS := $(shell pkg-config --exists libngtcp2_crypto_gnutls 2>/dev/null && echo 1 || echo 0)
-
-ifeq ($(HAS_NGHTTP2),1)
-LIBS += -lnghttp2
-endif
-ifeq ($(HAS_NGTCP2),1)
-LIBS += -lngtcp2
-ifeq ($(HAS_NGTCP2_CRYPTO_QUICTLS),1)
-LIBS += -lngtcp2_crypto_quictls
-else ifeq ($(HAS_NGTCP2_CRYPTO_OSSL),1)
-LIBS += -lngtcp2_crypto_ossl
-else ifeq ($(HAS_NGTCP2_CRYPTO_GNUTLS),1)
-LIBS += -lngtcp2_crypto_gnutls -lgnutls
-endif
-endif
-ifeq ($(HAS_NGHTTP3),1)
-LIBS += -lnghttp3
-endif
 
 TARGET := fly_board
 
-.PHONY: all clean distclean deps prepare_assets
+.PHONY: all clean distclean deps prepare_assets check-render
 
 all: deps $(TARGET)
 
-deps: $(MD4C_LIB) $(LIBMAGIC_A) $(LIBTTAK_A) prepare_assets
+deps: $(MD4C_LIB) $(LIBMAGIC_A) prepare_assets
 
 prepare_assets: tools/prepare_assets.py
 	python3 tools/prepare_assets.py
-
-$(LIBTTAK_A): src/utils/libttak_worker.c
-	cp src/utils/libttak_worker.c $(LIBTTAK_DIR)/src/thread/worker.c
-	$(MAKE) -C $(LIBTTAK_DIR)
 
 $(LIBMAGIC_A):
 	cd $(LIBMAGIC_DIR) && if [ ! -f configure ]; then autoreconf -fi; fi
@@ -149,25 +189,22 @@ src/crypto/fly_crypto.o: src/crypto/fly_crypto.c
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TARGET): $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A) $(LIBTTAK_A)
-	$(CC) $(CFLAGS) -o $@ $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A) $(LDFLAGS) $(CWIST_LIB) $(LIBTTAK_A) $(LIBS)
+$(TARGET): $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS) $(LIBS)
 
 setup:
-	mkdir data
+	mkdir -p data
 
-# Markdown renderer regression tests. These link only the renderer, its image
-# helpers and md4c, so they build without the full server.
+# Markdown renderer regression tests.
 RENDER_TEST_SRCS := src/render/render_md.c src/utils/image_size.c src/utils/stb_image_impl.c
 RENDER_TESTS := tests/test_render_md_video tests/test_render_md_blocks
 
 tests/test_render_%: tests/test_render_%.c $(RENDER_TEST_SRCS) $(MD4C_OBJS)
-	$(CC) $(CFLAGS) -Ithird_party/stb -o $@ $^ -L$(CWIST_PREFIX)/lib $(CWIST_LIB) $(LIBTTAK_A) -lcjson -lpthread -lm
+	$(CC) $(CFLAGS) -Ithird_party/stb -o $@ $^ $(LDFLAGS) $(LIBS)
 
-# tests/render_file.c is a manual harness: render any markdown file to HTML.
 tests/render_file: tests/render_file.c $(RENDER_TEST_SRCS) $(MD4C_OBJS)
-	$(CC) $(CFLAGS) -Ithird_party/stb -o $@ $^ -L$(CWIST_PREFIX)/lib $(CWIST_LIB) $(LIBTTAK_A) -lcjson -lpthread -lm
+	$(CC) $(CFLAGS) -Ithird_party/stb -o $@ $^ $(LDFLAGS) $(LIBS)
 
-.PHONY: check-render
 check-render: $(RENDER_TESTS)
 	@for t in $(RENDER_TESTS); do $$t || exit 1; done
 
@@ -176,4 +213,4 @@ clean:
 
 distclean: clean
 	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true
-	rm -rf third_party
+	rm -rf third_party/md4c/build $(MD4C_LIB)
