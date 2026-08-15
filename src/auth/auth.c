@@ -258,13 +258,22 @@ bool auth_verify_password(const char *password, const char *hash) {
     char prehash[129];
     if (!sha512_string_hex(combined, prehash, sizeof(prehash))) return false;
 
+    char combined2[512];
+    snprintf(combined2, sizeof(combined2), "%s%s", CLIENT_NONCE, prehash);
+    char pre_prehash[129];
+    bool has_pre_prehash = sha512_string_hex(combined2, pre_prehash, sizeof(pre_prehash));
+
     if (strncmp(hash, "$argon2id$", 10) == 0) {
         if (argon2id_verify(prehash, hash)) return true;
-        return argon2id_verify(password, hash);
+        if (argon2id_verify(password, hash)) return true;
+        if (has_pre_prehash && argon2id_verify(pre_prehash, hash)) return true;
+        return false;
     }
     /* Legacy PBKDF2-HMAC-SHA256 hash (colon-separated) */
     if (legacy_verify_password(prehash, hash)) return true;
-    return legacy_verify_password(password, hash);
+    if (legacy_verify_password(password, hash)) return true;
+    if (has_pre_prehash && legacy_verify_password(pre_prehash, hash)) return true;
+    return false;
 }
 
 /* Append a string to an sstring with minimal JSON string escaping.
@@ -555,6 +564,7 @@ bool auth_require_login(cwist_http_request *req, cwist_http_response *res, int *
 
 static char g_admin_id[64] = {0};
 static char g_admin_pw[129] = {0};
+static char g_admin_plain_pw[128] = {0};
 
 bool auth_admin_load(const char *path) {
     FILE *f = fopen(path, "r");
@@ -565,6 +575,7 @@ bool auth_admin_load(const char *path) {
             fclose(f);
         }
         strcpy(g_admin_id, "admin");
+        strcpy(g_admin_plain_pw, "fly.board");
         char combined[512];
         snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, "fly.board");
         sha512_string_hex(combined, g_admin_pw, sizeof(g_admin_pw));
@@ -584,6 +595,7 @@ bool auth_admin_load(const char *path) {
         }
     }
     fclose(f);
+    snprintf(g_admin_plain_pw, sizeof(g_admin_plain_pw), "%s", plain_pw);
     char combined[512];
     snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, plain_pw);
     sha512_string_hex(combined, g_admin_pw, sizeof(g_admin_pw));
@@ -593,15 +605,19 @@ bool auth_admin_load(const char *path) {
 bool auth_admin_check(const char *username, const char *password) {
     if (!username || !password || !g_admin_id[0] || !g_admin_pw[0]) return false;
     if (!auth_constant_time_streq(username, g_admin_id)) return false;
-    /* 1. Direct match with client pre-hashed password */
+
+    /* 1. Direct match with client pre-hashed password (SHA-512("fly.board" + plain)) */
     if (auth_constant_time_streq(password, g_admin_pw)) return true;
-    /* 2. Hash plaintext and compare */
+
+    /* 2. Direct match with plaintext */
+    if (g_admin_plain_pw[0] && auth_constant_time_streq(password, g_admin_plain_pw)) return true;
+
+    /* 3. Hash plaintext and compare with g_admin_pw */
     char combined[512];
     snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, password);
     char hashed[129];
-    if (sha512_string_hex(combined, hashed, sizeof(hashed)) &&
-        auth_constant_time_streq(hashed, g_admin_pw)) {
-        return true;
+    if (sha512_string_hex(combined, hashed, sizeof(hashed))) {
+        if (auth_constant_time_streq(hashed, g_admin_pw)) return true;
     }
     return false;
 }
