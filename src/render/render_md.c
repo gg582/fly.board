@@ -43,12 +43,25 @@ static size_t normalize_operator_runs(const char *expr, size_t len, char *copy) 
                 }
             }
         } else if (expr[read] == '\n' || expr[read] == '\r') {
-            /* Check if previous non-whitespace character was not '\\' */
+            /* Convert raw newline to '\\' ONLY when the line contains data elements (e.g. numbers/ampersands)
+             * and does NOT end with '\', '{', '}', or environment opening/closing commands. */
             size_t back = read;
             while (back > 0 && (expr[back - 1] == ' ' || expr[back - 1] == '\t')) back--;
-            if (back > 0 && expr[back - 1] != '\\' && expr[back - 1] != '{' && expr[back - 1] != '\n' && expr[back - 1] != '\r') {
-                copy[written++] = '\\';
-                copy[written++] = '\\';
+            if (back > 0) {
+                char prev_ch = expr[back - 1];
+                if (prev_ch != '\\' && prev_ch != '{' && prev_ch != '}' && prev_ch != '\n' && prev_ch != '\r') {
+                    /* Ensure line isn't a LaTeX command like \begin{...} or \end{...} or \hline */
+                    size_t line_start = back;
+                    while (line_start > 0 && expr[line_start - 1] != '\n' && expr[line_start - 1] != '\r') line_start--;
+                    const char *line_buf = expr + line_start;
+                    size_t line_len = back - line_start;
+                    if (!memmem(line_buf, line_len, "\\begin", 6) &&
+                        !memmem(line_buf, line_len, "\\end", 4) &&
+                        !memmem(line_buf, line_len, "\\hline", 6)) {
+                        copy[written++] = '\\';
+                        copy[written++] = '\\';
+                    }
+                }
             }
             copy[written++] = expr[read++];
             continue;
