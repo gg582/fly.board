@@ -31,6 +31,19 @@ static bool req_is_tls(cwist_http_request *req) {
         if (strncasecmp(referer, "https://", 8) == 0) return true;
         if (strncasecmp(referer, "http://", 7) == 0) return false;
     }
+    const char *fwd = cwist_http_header_get(req->headers, "Forwarded");
+    if (fwd && (strstr(fwd, "proto=https") || strstr(fwd, "proto=\"https\""))) {
+        return true;
+    }
+    const char *cf = cwist_http_header_get(req->headers, "CF-Visitor");
+    if (cf && strstr(cf, "\"scheme\":\"https\"")) {
+        return true;
+    }
+    const char *host = cwist_http_header_get(req->headers, "Host");
+    if (host && (strstr(host, ".zip") || strstr(host, ".com") || strstr(host, ".net") || strstr(host, ".io") || strstr(host, ".org"))) {
+        /* Public domain names almost universally terminate TLS at proxy */
+        return true;
+    }
     return g_config.use_tls;
 }
 
@@ -51,31 +64,36 @@ static void set_auth_cookies(cwist_http_response *res, const char *token, bool u
 
 static void clear_auth_cookies(cwist_http_response *res, bool use_tls) {
     const char *secure_attr = use_tls ? "; Secure" : "";
-    char cookie[256];
-    snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax%s", SESSION_COOKIE_NAME, secure_attr);
+    char cookie[512];
+    snprintf(cookie, sizeof(cookie), "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax%s",
+             SESSION_COOKIE_NAME, secure_attr);
     cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
-    snprintf(cookie, sizeof(cookie), "jwt_access=; Path=/; Max-Age=0; SameSite=Lax%s", secure_attr);
+    snprintf(cookie, sizeof(cookie), "jwt_access=; Path=/; Max-Age=0; SameSite=Lax%s",
+             secure_attr);
     cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
 }
 
+/* ---- Login / Logout ---- */
 void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    const char *redirect_target = cwist_query_map_get(req->query_params, "redirect");
     if (auth_is_logged_in(req, &uid, role, sizeof(role))) {
-        redirect_referer_safe(res, redirect_target, "/");
+        if (strcmp(role, "admin") == 0) redirect(res, "/admin");
+        else redirect(res, "/");
         return;
     }
+    const char *redirect_target = cwist_query_map_get(req->query_params, "redirect");
     send_html_res(res, render_login(is_dark(req), NULL, is_mobile_request(req), redirect_target));
 }
 
 void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     bool dark = is_dark(req);
     bool mobile = is_mobile_request(req);
-
-    if (!req->body || !req->body->data || req->body->size == 0) {
-        CWIST_LOG_WARN("Login failed: empty body");
-        send_html_res(res, render_login(dark, "Invalid request", mobile, NULL));
+    int existing_uid = 0;
+    char existing_role[32] = {0};
+    if (auth_is_logged_in(req, &existing_uid, existing_role, sizeof(existing_role))) {
+        if (strcmp(existing_role, "admin") == 0) redirect(res, "/admin");
+        else redirect(res, "/");
         return;
     }
 
@@ -105,7 +123,8 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         }
         set_auth_cookies(res, token, req_is_tls(req));
         cwist_free(token);
-        redirect_referer_safe(res, redirect_target, "/");
+        page_cache_invalidate_all();
+        redirect_referer_safe(res, redirect_target, "/admin");
         cwist_query_map_destroy(kv);
         return;
     }
@@ -152,12 +171,14 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     set_auth_cookies(res, token, req_is_tls(req));
     cwist_free(token);
     cJSON_Delete(user);
+    page_cache_invalidate_all();
     redirect_referer_safe(res, redirect_target, "/");
     cwist_query_map_destroy(kv);
 }
 
 void handler_logout(cwist_http_request *req, cwist_http_response *res) {
     clear_auth_cookies(res, req_is_tls(req));
+    page_cache_invalidate_all();
     redirect(res, "/");
 }
 

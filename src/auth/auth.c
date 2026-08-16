@@ -413,7 +413,7 @@ char *auth_jwt_issue(int user_id, const char *username, const char *role) {
 
 static bool auth_verify_token(const char *token, const char *secret,
                               int *out_user_id, char *out_role, size_t role_len) {
-    if (!token || !token[0] || strlen(token) >= 1024) return false;
+    if (!token || !token[0] || strlen(token) >= 4096 || !secret) return false;
 
     cwist_jwt_claims *claims = cwist_jwt_verify(token, secret);
     if (!claims) return false;
