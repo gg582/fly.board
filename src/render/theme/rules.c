@@ -2046,6 +2046,31 @@ void rule_markdown(cJSON *rules) {
     add_decl(toc_sub, "margin-left", "16px");
     add_decl(toc_sub, "font-size", "0.9em");
     cJSON_AddItemToArray(rules, toc_sub);
+
+    cJSON *toc_l1 = create_rule(".post-toc-level-1");
+    add_decl(toc_l1, "margin-left", "0");
+    add_decl(toc_l1, "font-weight", "600");
+    cJSON_AddItemToArray(rules, toc_l1);
+
+    cJSON *toc_l2 = create_rule(".post-toc-level-2");
+    add_decl(toc_l2, "margin-left", "12px");
+    cJSON_AddItemToArray(rules, toc_l2);
+
+    cJSON *toc_l3 = create_rule(".post-toc-level-3");
+    add_decl(toc_l3, "margin-left", "24px");
+    cJSON_AddItemToArray(rules, toc_l3);
+
+    cJSON *toc_l4 = create_rule(".post-toc-level-4");
+    add_decl(toc_l4, "margin-left", "36px");
+    cJSON_AddItemToArray(rules, toc_l4);
+
+    cJSON *toc_l5 = create_rule(".post-toc-level-5");
+    add_decl(toc_l5, "margin-left", "48px");
+    cJSON_AddItemToArray(rules, toc_l5);
+
+    cJSON *toc_l6 = create_rule(".post-toc-level-6");
+    add_decl(toc_l6, "margin-left", "60px");
+    cJSON_AddItemToArray(rules, toc_l6);
 }
 
 void rule_animations(cJSON *rules) {
