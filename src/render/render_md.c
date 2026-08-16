@@ -275,15 +275,28 @@ static bool looks_like_latex(const char *s, size_t len) {
 /* Authors often paste a complete LaTeX expression on its own line or block without
  * wrapping it in $...$. Treat mathematical lines and environment blocks as display math. */
 static bool looks_like_bare_latex_expression(const char *s, size_t len) {
-    bool has_command = false;
-    bool has_math_syntax = false;
-
     while (len > 0 && (*s == ' ' || *s == '\t' || *s == '\r')) {
         s++;
         len--;
     }
     while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\r')) len--;
     if (len == 0) return false;
+
+    /* Markdown headings, quotes, tables, code fences are not standalone bare display math */
+    if (s[0] == '#' || s[0] == '>' || s[0] == '|' || s[0] == '`' || s[0] == '~') return false;
+    if (len >= 2 && (s[0] == '-' || s[0] == '*' || s[0] == '+') && (s[1] == ' ' || s[1] == '\t')) return false;
+
+    /* If it contains non-ASCII characters (e.g. Korean, CJK, Cyrillic prose), it's prose with inline math */
+    for (size_t i = 0; i < len; i++) {
+        if ((unsigned char)s[i] >= 128) return false;
+    }
+
+    /* Numbered list item like "1. text" or "3. text" */
+    size_t d = 0;
+    while (d < len && s[d] >= '0' && s[d] <= '9') d++;
+    if (d > 0 && d + 1 < len && (s[d] == '.' || s[d] == ')') && (s[d + 1] == ' ' || s[d + 1] == '\t')) {
+        return false;
+    }
 
     /* If it starts with a LaTeX math environment like \begin{array}, \begin{matrix}, etc. */
     if (len >= 12 && strncmp(s, "\\begin{", 7) == 0) {
@@ -292,6 +305,9 @@ static bool looks_like_bare_latex_expression(const char *s, size_t len) {
             return true;
         }
     }
+
+    bool has_command = false;
+    bool has_math_syntax = false;
 
     for (size_t i = 0; i < len; i++) {
         /* Preserve Markdown table cells and explicitly delimited math for
@@ -330,6 +346,185 @@ static bool find_bare_bracket_math(const char *s, size_t len, size_t start,
             *out_after = after;
             return true;
         }
+    }
+    return false;
+}
+
+static size_t skip_brace_group(const char *s, size_t len, size_t pos) {
+    if (pos >= len || s[pos] != '{') return pos;
+    int depth = 0;
+    for (size_t i = pos; i < len; i++) {
+        if (s[i] == '{' && !is_escaped(s, i)) depth++;
+        else if (s[i] == '}' && !is_escaped(s, i)) {
+            depth--;
+            if (depth == 0) return i + 1;
+        }
+    }
+    return pos;
+}
+
+static size_t skip_bracket_group(const char *s, size_t len, size_t pos) {
+    if (pos >= len || s[pos] != '[') return pos;
+    int depth = 0;
+    for (size_t i = pos; i < len; i++) {
+        if (s[i] == '[' && !is_escaped(s, i)) depth++;
+        else if (s[i] == ']' && !is_escaped(s, i)) {
+            depth--;
+            if (depth == 0) return i + 1;
+        }
+    }
+    return pos;
+}
+
+static size_t skip_sub_sup(const char *s, size_t len, size_t pos) {
+    size_t p = pos;
+    while (p < len && (s[p] == '_' || s[p] == '^')) {
+        p++;
+        if (p < len && s[p] == '{') {
+            size_t next = skip_brace_group(s, len, p);
+            if (next == p) break;
+            p = next;
+        } else if (p < len && ((s[p] >= '0' && s[p] <= '9') || (s[p] >= 'a' && s[p] <= 'z') || (s[p] >= 'A' && s[p] <= 'Z'))) {
+            p++;
+        } else if (p < len && s[p] == '\\') {
+            size_t cmd_end = p + 1;
+            while (cmd_end < len && ((s[cmd_end] >= 'a' && s[cmd_end] <= 'z') || (s[cmd_end] >= 'A' && s[cmd_end] <= 'Z'))) cmd_end++;
+            p = cmd_end;
+        } else {
+            break;
+        }
+    }
+    return p;
+}
+
+static bool is_bare_latex_math_command(const char *cmd, size_t cmd_len, int *out_arg_count, bool *out_has_optional) {
+    *out_arg_count = 0;
+    *out_has_optional = false;
+
+    static const char *const two_arg_cmds[] = {
+        "frac", "dfrac", "tfrac", "cfrac", "binom", "dbinom", "tbinom", "over"
+    };
+    for (size_t i = 0; i < sizeof(two_arg_cmds)/sizeof(two_arg_cmds[0]); i++) {
+        if (strlen(two_arg_cmds[i]) == cmd_len && strncmp(cmd, two_arg_cmds[i], cmd_len) == 0) {
+            *out_arg_count = 2;
+            return true;
+        }
+    }
+
+    if (cmd_len == 4 && strncmp(cmd, "sqrt", 4) == 0) {
+        *out_arg_count = 1;
+        *out_has_optional = true;
+        return true;
+    }
+
+    static const char *const one_arg_cmds[] = {
+        "mathbf", "mathbb", "mathcal", "mathrm", "mathit", "mathsf", "mathtt", "bm",
+        "textbf", "textit", "text", "operatorname",
+        "vec", "hat", "bar", "tilde", "dot", "ddot", "acute", "grave", "check", "breve",
+        "overline", "underline", "overbrace", "underbrace", "boxed", "color"
+    };
+    for (size_t i = 0; i < sizeof(one_arg_cmds)/sizeof(one_arg_cmds[0]); i++) {
+        if (strlen(one_arg_cmds[i]) == cmd_len && strncmp(cmd, one_arg_cmds[i], cmd_len) == 0) {
+            *out_arg_count = 1;
+            return true;
+        }
+    }
+
+    static const char *const sym_cmds[] = {
+        "sum", "prod", "coprod", "int", "iint", "iiint", "oint", "lim", "limsup", "liminf",
+        "partial", "nabla", "infty", "pm", "mp", "times", "div", "cdot", "circ", "bullet",
+        "star", "ast", "oplus", "otimes", "odot", "leq", "geq", "neq", "approx", "equiv",
+        "sim", "simeq", "ll", "gg", "subset", "supset", "subseteq", "supseteq", "in", "notin",
+        "ni", "cap", "cup", "setminus", "forall", "exists", "neg", "to", "mapsto",
+        "leftarrow", "rightarrow", "Leftarrow", "Rightarrow", "leftrightarrow", "Leftrightarrow",
+        "alpha", "beta", "gamma", "delta", "epsilon", "varepsilon", "zeta", "eta", "theta",
+        "vartheta", "iota", "kappa", "lambda", "mu", "nu", "xi", "pi", "varpi", "rho",
+        "varrho", "sigma", "varsigma", "tau", "upsilon", "phi", "varphi", "chi", "psi", "omega",
+        "Gamma", "Delta", "Theta", "Lambda", "Xi", "Pi", "Sigma", "Upsilon", "Phi", "Psi", "Omega",
+        "sin", "cos", "tan", "cot", "sec", "csc", "arcsin", "arccos", "arctan",
+        "sinh", "cosh", "tanh", "log", "ln", "exp", "det", "gcd", "deg", "dim", "ker", "max", "min"
+    };
+    for (size_t i = 0; i < sizeof(sym_cmds)/sizeof(sym_cmds[0]); i++) {
+        if (strlen(sym_cmds[i]) == cmd_len && strncmp(cmd, sym_cmds[i], cmd_len) == 0) {
+            *out_arg_count = 0;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool parse_bare_inline_math(const char *s, size_t len, size_t pos, size_t *out_end) {
+    if (pos >= len || s[pos] != '\\' || is_escaped(s, pos)) return false;
+
+    size_t cur = pos;
+    bool found_any = false;
+
+    while (cur < len) {
+        if (s[cur] != '\\' || is_escaped(s, cur)) break;
+
+        size_t cmd_start = cur + 1;
+        size_t cmd_end = cmd_start;
+        while (cmd_end < len && ((s[cmd_end] >= 'a' && s[cmd_end] <= 'z') || (s[cmd_end] >= 'A' && s[cmd_end] <= 'Z'))) {
+            cmd_end++;
+        }
+        size_t cmd_len = cmd_end - cmd_start;
+        if (cmd_len == 0) break;
+
+        int arg_count = 0;
+        bool has_optional = false;
+        if (!is_bare_latex_math_command(s + cmd_start, cmd_len, &arg_count, &has_optional)) {
+            break;
+        }
+
+        size_t p = cmd_end;
+        if (has_optional) {
+            while (p < len && (s[p] == ' ' || s[p] == '\t')) p++;
+            if (p < len && s[p] == '[') {
+                size_t next = skip_bracket_group(s, len, p);
+                if (next > p) p = next;
+            }
+        }
+
+        bool args_ok = true;
+        for (int a = 0; a < arg_count; a++) {
+            while (p < len && (s[p] == ' ' || s[p] == '\t')) p++;
+            if (p < len && s[p] == '{') {
+                size_t next = skip_brace_group(s, len, p);
+                if (next > p) {
+                    p = next;
+                } else {
+                    args_ok = false;
+                    break;
+                }
+            } else {
+                args_ok = false;
+                break;
+            }
+        }
+        if (!args_ok && arg_count > 0) break;
+
+        p = skip_sub_sup(s, len, p);
+
+        cur = p;
+        found_any = true;
+
+        size_t ws = cur;
+        while (ws < len && (s[ws] == ' ' || s[ws] == '\t')) ws++;
+        if (ws < len && (s[ws] == '+' || s[ws] == '-' || s[ws] == '*' || s[ws] == '/' || s[ws] == '=' || s[ws] == '<' || s[ws] == '>')) {
+            size_t after_op = ws + 1;
+            while (after_op < len && (s[after_op] == ' ' || s[after_op] == '\t')) after_op++;
+            if (after_op < len && s[after_op] == '\\') {
+                cur = after_op;
+                continue;
+            }
+        }
+        break;
+    }
+
+    if (found_any) {
+        *out_end = cur;
+        return true;
     }
     return false;
 }
@@ -793,6 +988,17 @@ static char *protect_math(const char *md, math_registry_t *blocks,
                     continue;
                 }
             }
+        }
+
+        /* Bare inline LaTeX command: \frac{...}{...}, \binom{...}{...}, \sqrt{...}, etc. */
+        size_t bare_end = 0;
+        if (parse_bare_inline_math(md, len, i, &bare_end) && bare_end > i) {
+            math_registry_add(inlines, md + i, bare_end - i);
+            char placeholder[64];
+            snprintf(placeholder, sizeof(placeholder), "@@MATH_INLINE_%d@@", inlines->count - 1);
+            cwist_sstring_append(out, placeholder);
+            i = bare_end;
+            continue;
         }
 
         cwist_sstring_append_len(out, md + i, 1);
