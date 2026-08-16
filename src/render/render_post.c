@@ -775,7 +775,7 @@ static cwist_sstring *render_post_build_toc(cwist_sstring *md_html) {
         /* copy the rest of the opening tag */
         cwist_sstring_append_len(out, p + i + 3, (j + 1) - (i + 3));
 
-        /* TOC entry: inner text with nested tags stripped (ignoring block containers like tikz-block) */
+        /* TOC entry: inner text with math spans and inline tags preserved, stripping block containers and link wrappers */
         char li_tag[64];
         if (level > 1) {
             snprintf(li_tag, sizeof(li_tag), "<li class='post-toc-sub post-toc-level-%d'><a href=\"#toc-", level);
@@ -788,21 +788,48 @@ static cwist_sstring *render_post_build_toc(cwist_sstring *md_html) {
         cwist_sstring_append(items, numbuf);
         cwist_sstring_append(items, "\">");
         size_t text_end = (size_t)(close - p);
-        int in_tag = 0;
-        int in_ignored_block = 0;
-        for (size_t k = j + 1; k < text_end; k++) {
+        size_t k = j + 1;
+        while (k < text_end) {
             if (p[k] == '<') {
-                if (k + 16 <= text_end && strncmp(p + k, "<div class=\"tikz", 16) == 0) {
-                    in_ignored_block = 1;
-                } else if (k + 6 <= text_end && strncmp(p + k, "</div>", 6) == 0) {
-                    in_ignored_block = 0;
+                size_t tag_end = k + 1;
+                while (tag_end < text_end && p[tag_end] != '>') tag_end++;
+                if (tag_end >= text_end) break;
+                tag_end++; /* include '>' */
+                size_t tag_len = tag_end - k;
+
+                /* Ignore tikz block containers */
+                if (tag_len >= 16 && strncmp(p + k, "<div class=\"tikz", 16) == 0) {
+                    const char *div_close = strstr(p + tag_end, "</div>");
+                    if (div_close && (size_t)(div_close - p) < text_end) {
+                        k = (size_t)(div_close - p) + 6;
+                        continue;
+                    }
                 }
-                in_tag = 1;
+
+                /* Allowed inline formatting and math tags in TOC */
+                bool is_allowed = false;
+                if ((tag_len >= 26 && strncmp(p + k, "<span class=\"math-inline\">", 26) == 0) ||
+                    (tag_len >= 25 && strncmp(p + k, "<span class=\"math-block\">", 25) == 0) ||
+                    (tag_len == 7 && strncmp(p + k, "</span>", 7) == 0) ||
+                    (tag_len >= 6 && strncmp(p + k, "<code>", 6) == 0) ||
+                    (tag_len == 7 && strncmp(p + k, "</code>", 7) == 0) ||
+                    (tag_len == 4 && (strncmp(p + k, "<em>", 4) == 0 || strncmp(p + k, "<i>", 3) == 0)) ||
+                    (tag_len == 5 && (strncmp(p + k, "</em>", 5) == 0 || strncmp(p + k, "</i>", 4) == 0)) ||
+                    (tag_len == 8 && strncmp(p + k, "<strong>", 8) == 0) ||
+                    (tag_len == 9 && strncmp(p + k, "</strong>", 9) == 0) ||
+                    (tag_len == 5 && strncmp(p + k, "<del>", 5) == 0) ||
+                    (tag_len == 6 && strncmp(p + k, "</del>", 6) == 0)) {
+                    is_allowed = true;
+                }
+
+                if (is_allowed) {
+                    cwist_sstring_append_len(items, p + k, tag_len);
+                }
+                k = tag_end;
                 continue;
             }
-            if (p[k] == '>') { in_tag = 0; continue; }
-            if (in_tag || in_ignored_block) continue;
             cwist_sstring_append_len(items, p + k, 1);
+            k++;
         }
         cwist_sstring_append(items, "</a></li>");
 

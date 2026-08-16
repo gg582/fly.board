@@ -799,6 +799,9 @@
             return token;
         });
 
+        /* Protect bare inline LaTeX math commands (e.g. \frac{...}{...}, \binom{...}{...}, \sqrt{...}) */
+        normalized = protectBareMath(normalized, mathInlines);
+
         var lines = normalized.split('\n');
         var html = [];
         var i = 0;
@@ -1010,6 +1013,129 @@
             }
             result += token;
             i = close + width;
+        }
+        return result;
+    }
+
+    function protectBareMath(text, inlines) {
+        var twoArgCmds = /^(frac|dfrac|tfrac|cfrac|binom|dbinom|tbinom|over)/;
+        var oneArgCmds = /^(sqrt|mathbf|mathbb|mathcal|mathrm|mathit|mathsf|mathtt|bm|textbf|textit|text|operatorname|vec|hat|bar|tilde|dot|ddot|acute|grave|check|breve|overline|underline|overbrace|underbrace|boxed|color)/;
+        var symCmds = /^(sum|prod|coprod|int|iint|iiint|oint|lim|limsup|liminf|partial|nabla|infty|pm|mp|times|div|cdot|circ|bullet|star|ast|oplus|otimes|odot|leq|geq|neq|approx|equiv|sim|simeq|ll|gg|subset|supset|subseteq|supseteq|in|notin|ni|cap|cup|setminus|forall|exists|neg|to|mapsto|leftarrow|rightarrow|Leftarrow|Rightarrow|leftrightarrow|Leftrightarrow|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|varpi|rho|varrho|sigma|varsigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega|sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|sinh|cosh|tanh|log|ln|exp|det|gcd|deg|dim|ker|max|min)\b/;
+
+        function skipBrace(str, pos) {
+            if (pos >= str.length || str.charAt(pos) !== '{') return pos;
+            var depth = 0;
+            for (var k = pos; k < str.length; k++) {
+                if (str.charAt(k) === '{') depth++;
+                else if (str.charAt(k) === '}') {
+                    depth--;
+                    if (depth === 0) return k + 1;
+                }
+            }
+            return pos;
+        }
+
+        function skipBracket(str, pos) {
+            if (pos >= str.length || str.charAt(pos) !== '[') return pos;
+            var depth = 0;
+            for (var k = pos; k < str.length; k++) {
+                if (str.charAt(k) === '[') depth++;
+                else if (str.charAt(k) === ']') {
+                    depth--;
+                    if (depth === 0) return k + 1;
+                }
+            }
+            return pos;
+        }
+
+        function skipSubSup(str, pos) {
+            var p = pos;
+            while (p < str.length && (str.charAt(p) === '_' || str.charAt(p) === '^')) {
+                p++;
+                if (p < str.length && str.charAt(p) === '{') {
+                    var next = skipBrace(str, p);
+                    if (next === p) break;
+                    p = next;
+                } else if (p < str.length && /[0-9a-zA-Z]/.test(str.charAt(p))) {
+                    p++;
+                } else if (p < str.length && str.charAt(p) === '\\') {
+                    var m = str.slice(p + 1).match(/^[a-zA-Z]+/);
+                    if (m) p += 1 + m[0].length;
+                    else break;
+                } else {
+                    break;
+                }
+            }
+            return p;
+        }
+
+        var result = '';
+        var i = 0;
+        while (i < text.length) {
+            if (text.charAt(i) !== '\\') {
+                result += text.charAt(i++);
+                continue;
+            }
+
+            var slashCount = 0;
+            for (var s = i - 1; s >= 0 && text.charAt(s) === '\\'; s--) slashCount++;
+            if (slashCount % 2 === 1) {
+                result += text.charAt(i++);
+                continue;
+            }
+
+            var rest = text.slice(i + 1);
+            var mTwo = rest.match(twoArgCmds);
+            var mOne = rest.match(oneArgCmds);
+            var mSym = rest.match(symCmds);
+
+            if (mTwo) {
+                var p = i + 1 + mTwo[0].length;
+                while (p < text.length && (text.charAt(p) === ' ' || text.charAt(p) === '\t')) p++;
+                var b1 = skipBrace(text, p);
+                if (b1 > p) {
+                    p = b1;
+                    while (p < text.length && (text.charAt(p) === ' ' || text.charAt(p) === '\t')) p++;
+                    var b2 = skipBrace(text, p);
+                    if (b2 > p) {
+                        p = skipSubSup(text, b2);
+                        var token = '@@MATHINLINE' + inlines.length + '@@';
+                        inlines.push(escapeHtml(normalizeOperatorRuns(text.slice(i, p))));
+                        result += token;
+                        i = p;
+                        continue;
+                    }
+                }
+            } else if (mOne) {
+                var p = i + 1 + mOne[0].length;
+                if (mOne[0] === 'sqrt') {
+                    while (p < text.length && (text.charAt(p) === ' ' || text.charAt(p) === '\t')) p++;
+                    if (p < text.length && text.charAt(p) === '[') {
+                        var bk = skipBracket(text, p);
+                        if (bk > p) p = bk;
+                    }
+                }
+                while (p < text.length && (text.charAt(p) === ' ' || text.charAt(p) === '\t')) p++;
+                var b1 = skipBrace(text, p);
+                if (b1 > p) {
+                    p = skipSubSup(text, b1);
+                    var token = '@@MATHINLINE' + inlines.length + '@@';
+                    inlines.push(escapeHtml(normalizeOperatorRuns(text.slice(i, p))));
+                    result += token;
+                    i = p;
+                    continue;
+                }
+            } else if (mSym) {
+                var p = i + 1 + mSym[0].length;
+                p = skipSubSup(text, p);
+                var token = '@@MATHINLINE' + inlines.length + '@@';
+                inlines.push(escapeHtml(normalizeOperatorRuns(text.slice(i, p))));
+                result += token;
+                i = p;
+                continue;
+            }
+
+            result += text.charAt(i++);
         }
         return result;
     }

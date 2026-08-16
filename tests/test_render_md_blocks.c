@@ -133,6 +133,18 @@ int main(void) {
           "\\binom{n}{k}\n",
           "<span class=\"math-block\">\\binom{n}{k}</span>", NULL);
 
+    check("bare inline frac formula in text becomes inline math",
+          "3. 왜 좌표 (a,b)의 값이 \\frac{n!}{a!b!}인가\n",
+          "<li>왜 좌표 (a,b)의 값이 <span class=\"math-inline\">\\frac{n!}{a!b!}</span>인가</li>", NULL);
+
+    check("bare inline frac formula inside heading becomes inline math",
+          "## 3. 왜 좌표 (a,b)의 값이 \\frac{n!}{a!b!}인가\n",
+          "<h2>3. 왜 좌표 (a,b)의 값이 <span class=\"math-inline\">\\frac{n!}{a!b!}</span>인가</h2>", NULL);
+
+    check("bare inline sqrt and binom formulas inside heading",
+          "### Formula \\sqrt{x^2+y^2} and \\binom{n}{k}\n",
+          "<h3>Formula <span class=\"math-inline\">\\sqrt{x^2+y^2}</span> and <span class=\"math-inline\">\\binom{n}{k}</span></h3>", NULL);
+
     if (failures == 0) printf("ALL TESTS PASSED\n");
     return failures ? 1 : 0;
 }
