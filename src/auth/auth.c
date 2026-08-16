@@ -487,17 +487,74 @@ static bool is_auth_cookie_name(const char *name, size_t name_len) {
            (name_len == 10 && strncmp(name, "jwt_access", 10) == 0);
 }
 
+static int hex_val(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static size_t url_decode_inplace(char *str, size_t len) {
+    size_t r = 0, w = 0;
+    while (r < len) {
+        if (str[r] == '%' && r + 2 < len) {
+            int h1 = hex_val(str[r + 1]);
+            int h2 = hex_val(str[r + 2]);
+            if (h1 >= 0 && h2 >= 0) {
+                str[w++] = (char)((h1 << 4) | h2);
+                r += 3;
+                continue;
+            }
+        } else if (str[r] == '+') {
+            str[w++] = ' ';
+            r++;
+            continue;
+        }
+        str[w++] = str[r++];
+    }
+    str[w] = '\0';
+    return w;
+}
+
 static bool auth_verify_token_len(const char *token, size_t token_len, const char *secret,
                                   int *out_user_id, char *out_role, size_t role_len) {
-    if (!token || token_len == 0 || token_len >= 1024 || !secret) return false;
-    char token_buf[1024];
+    if (!token || token_len == 0 || token_len >= 4096 || !secret) return false;
+    char token_buf[4096];
     memcpy(token_buf, token, token_len);
     token_buf[token_len] = '\0';
-    return auth_verify_token(token_buf, secret, out_user_id, out_role, role_len);
+
+    /* Strip potential surrounding quotes */
+    char *p = token_buf;
+    size_t len = token_len;
+    while (len > 0 && (*p == ' ' || *p == '\t' || *p == '"')) {
+        p++;
+        len--;
+    }
+    while (len > 0 && (p[len - 1] == ' ' || p[len - 1] == '\t' ||
+                       p[len - 1] == '\r' || p[len - 1] == '\n' || p[len - 1] == '"')) {
+        p[--len] = '\0';
+    }
+
+    if (len == 0) return false;
+
+    /* If cookie was percent-encoded (e.g. %2E instead of .), decode in-place */
+    if (strchr(p, '%')) {
+        len = url_decode_inplace(p, len);
+    }
+
+    return auth_verify_token(p, secret, out_user_id, out_role, role_len);
 }
 
 bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
-    if (!req || !out_user_id || !out_role || role_len == 0) return false;
+    if (!req) return false;
+
+    int dummy_uid = 0;
+    char dummy_role[32] = {0};
+    if (!out_user_id) out_user_id = &dummy_uid;
+    if (!out_role || role_len == 0) {
+        out_role = dummy_role;
+        role_len = sizeof(dummy_role);
+    }
 
     const char *secret = auth_jwt_secret();
     if (!secret) return false;
