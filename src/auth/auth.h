@@ -28,5 +28,6 @@ bool auth_require_admin(cwist_http_request *req, cwist_http_response *res);
 
 bool auth_admin_load(const char *path);
 bool auth_admin_check(const char *username, const char *password);
+bool auth_admin_update_password(const char *current_pw, const char *new_pw);
 
 #endif

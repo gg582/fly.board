@@ -129,7 +129,7 @@ void redirect_referer_safe(cwist_http_response *res, const char *referer, const 
     redirect(res, fallback);
 }
 
-static char *get_admin_logo(void) {
+char *get_admin_logo(void) {
     const char *logo_url = image_inline_logo();
     return strdup(logo_url ? logo_url : "/assets/img/logo.png");
 }

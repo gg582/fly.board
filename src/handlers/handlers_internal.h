@@ -31,6 +31,7 @@ bool is_dark(cwist_http_request *req);
 void redirect(cwist_http_response *res, const char *url);
 void redirect_referer_safe(cwist_http_response *res, const char *referer, const char *fallback);
 char *get_profile_pic(cwist_db *db, int uid, const char *role);
+char *get_admin_logo(void);
 void send_html_res(cwist_http_response *res, cwist_sstring *html);
 void send_cached_html_res(cwist_http_response *res, const char *html, size_t len, uint32_t ttl_remaining);
 int json_int(cJSON *obj, const char *key, int def);

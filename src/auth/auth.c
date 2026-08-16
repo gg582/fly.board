@@ -325,6 +325,18 @@ bool auth_admin_check(const char *username, const char *password) {
     return false;
 }
 
+bool auth_admin_update_password(const char *current_pw, const char *new_pw) {
+    if (!current_pw || !new_pw || strlen(new_pw) < 6) return false;
+    const char *admin_user = g_admin_id[0] ? g_admin_id : "admin";
+    if (!auth_admin_check(admin_user, current_pw)) return false;
+
+    FILE *f = fopen("admin.settings", "w");
+    if (!f) return false;
+    fprintf(f, "id=%s\npw=%s\n", admin_user, new_pw);
+    fclose(f);
+    return auth_admin_load("admin.settings");
+}
+
 /* --------------------------------------------------------------------------
  * JWT Lifecycle & Header/Cookie Verification
  * -------------------------------------------------------------------------- */

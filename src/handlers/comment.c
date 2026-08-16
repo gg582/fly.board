@@ -97,8 +97,12 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
                     snprintf(author_name_buf, sizeof(author_name_buf), "%s", uname->valuestring);
                     author_name = author_name_buf;
                 }
+                cJSON_Delete(u);
             }
-            if (u) cJSON_Delete(u);
+            if (!author_name) {
+                if (strcmp(role, "admin") == 0) author_name = "Admin";
+                else author_name = "User";
+            }
         } else {
             author_name = (author_name_input && author_name_input[0]) ? author_name_input : "Anonymous";
         }

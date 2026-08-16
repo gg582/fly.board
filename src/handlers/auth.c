@@ -513,6 +513,21 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
         return;
     }
 
+    if (strcmp(role, "admin") == 0) {
+        if (!auth_admin_update_password(current, new_pw)) {
+            CWIST_LOG_WARN("Admin password change failed: current password incorrect or write error");
+            send_html_res(res, render_password_change(dark, role, pp, "Current password is incorrect", is_mobile_request(req)));
+            free(pp);
+            cwist_query_map_destroy(kv);
+            return;
+        }
+        CWIST_LOG_INFO("Admin password changed successfully");
+        free(pp);
+        cwist_query_map_destroy(kv);
+        redirect(res, "/admin");
+        return;
+    }
+
     cJSON *user = db_user_get_by_id(req->db, uid);
     if (!user) {
         send_html_res(res, render_password_change(dark, role, pp, "User not found", is_mobile_request(req)));
