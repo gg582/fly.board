@@ -133,6 +133,10 @@ int main(void) {
           "\\binom{n}{k}\n",
           "<span class=\"math-block\">\\binom{n}{k}</span>", NULL);
 
+    check("bare multiline array environment with plain newlines converts to KaTeX row breaks",
+          "\\begin{array}{ccccc}\n1\n1 & 1\n1 & 2 & 1\n\\end{array}\n",
+          "1 \\\\\n1 &amp; 1 \\\\\n1 &amp; 2 &amp; 1", NULL);
+
     if (failures == 0) printf("ALL TESTS PASSED\n");
     return failures ? 1 : 0;
 }
