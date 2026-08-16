@@ -617,7 +617,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     cwist_sstring_append(head_cdn, hl_css);
                     cwist_sstring_append(head_cdn, "</style>");
                 } else {
-                    cwist_sstring_append(head_cdn, "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github");
+                    cwist_sstring_append(head_cdn, "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github");
                     cwist_sstring_append(head_cdn, dark ? "-dark" : "");
                     cwist_sstring_append(head_cdn, ".min.css\" id=\"hl-theme\" data-active=\"");
                     cwist_sstring_append(head_cdn, dark ? "dark" : "light");
@@ -690,27 +690,27 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     } else {
                         /* CDN fallback: core + all language extensions */
                         cwist_sstring_append(body_cdn,
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/fortran.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/prolog.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/erlang.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/elixir.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/elm.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/haskell.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/ocaml.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/scheme.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/lisp.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/clojure.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/vhdl.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/verilog.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/matlab.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/r.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/perl.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/groovy.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/nix.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/x86asm.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/llvm.min.js\"></script>"
-                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/brainfuck.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/highlight.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/fortran.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/prolog.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/erlang.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/elixir.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/elm.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/haskell.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/ocaml.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/scheme.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/lisp.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/clojure.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/vhdl.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/verilog.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/matlab.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/r.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/perl.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/groovy.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/nix.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/x86asm.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/llvm.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/brainfuck.min.js\"></script>"
                             "<script>hljs.highlightAll();</script>");
                     }
                 }

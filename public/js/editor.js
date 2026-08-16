@@ -1176,7 +1176,7 @@
     function ensureHighlightCss() {
         var link = document.getElementById('hl-theme');
         var mode = getCurrentThemeMode();
-        var href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github' +
+        var href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github' +
                    (mode === 'dark' ? '-dark' : '') + '.min.css';
         if (!link) {
             link = document.createElement('link');
@@ -1193,8 +1193,8 @@
 
     function ensureHighlightJs(cb) {
         if (typeof hljs !== 'undefined') { if (cb) cb(); return; }
-        loadScript('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js', function() {
-            loadScript('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/fortran.min.js', cb);
+        loadScript('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/highlight.min.js', function() {
+            loadScript('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/fortran.min.js', cb);
         });
     }
 
