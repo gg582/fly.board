@@ -83,7 +83,9 @@ void engine_routes_register(cwist_app *app) {
 
     cwist_app_get(app, "/notifications", handler_notifications_get);
 
+    cwist_app_get(app, "/dashboard", handler_dashboard);
     cwist_app_get(app, "/admin", handler_admin_dashboard);
+    cwist_app_get(app, "/admin/dashboard", handler_admin_dashboard);
     cwist_app_get(app, "/admin/users", handler_admin_users);
     cwist_app_post(app, "/admin/user/role", handler_admin_user_role);
     cwist_app_post(app, "/admin/files/drop", handler_admin_files_drop);

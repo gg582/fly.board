@@ -449,17 +449,25 @@ static bool auth_cookie_iter_next(const char **cursor, auth_cookie_iter_t *out) 
     out->name = p;
     while (*p && *p != '=' && *p != ';') p++;
     out->name_len = (size_t)(p - out->name);
+    while (out->name_len > 0 &&
+           (out->name[out->name_len - 1] == ' ' ||
+            out->name[out->name_len - 1] == '\t')) {
+        out->name_len--;
+    }
     out->value = NULL;
     out->value_len = 0;
 
     if (*p == '=') {
         p++;
+        while (*p == ' ' || *p == '\t') p++;
         out->value = p;
         while (*p && *p != ';') p++;
         out->value_len = (size_t)(p - out->value);
         while (out->value_len > 0 &&
                (out->value[out->value_len - 1] == ' ' ||
-                out->value[out->value_len - 1] == '\t')) {
+                out->value[out->value_len - 1] == '\t' ||
+                out->value[out->value_len - 1] == '\r' ||
+                out->value[out->value_len - 1] == '\n')) {
             out->value_len--;
         }
         if (out->value_len >= 2 && out->value[0] == '"' && out->value[out->value_len - 1] == '"') {
@@ -472,6 +480,22 @@ static bool auth_cookie_iter_next(const char **cursor, auth_cookie_iter_t *out) 
     return true;
 }
 
+static bool is_auth_cookie_name(const char *name, size_t name_len) {
+    const char *session_name = SESSION_COOKIE_NAME;
+    size_t session_name_len = strlen(session_name);
+    return (name_len == session_name_len && strncmp(name, session_name, session_name_len) == 0) ||
+           (name_len == 10 && strncmp(name, "jwt_access", 10) == 0);
+}
+
+static bool auth_verify_token_len(const char *token, size_t token_len, const char *secret,
+                                  int *out_user_id, char *out_role, size_t role_len) {
+    if (!token || token_len == 0 || token_len >= 1024 || !secret) return false;
+    char token_buf[1024];
+    memcpy(token_buf, token, token_len);
+    token_buf[token_len] = '\0';
+    return auth_verify_token(token_buf, secret, out_user_id, out_role, role_len);
+}
+
 bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
     if (!req || !out_user_id || !out_role || role_len == 0) return false;
 
@@ -479,9 +503,6 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
     if (!secret) return false;
 
     /* 1. Cookie-based verification (HttpOnly session cookie or JS access cookie) */
-    const char *session_name = SESSION_COOKIE_NAME;
-    size_t session_name_len = strlen(session_name);
-
     for (cwist_http_header_node *h = req->headers; h; h = h->next) {
         if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
         if (strcasecmp(h->key->data, "Cookie") != 0) continue;
@@ -489,39 +510,29 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
         auth_cookie_iter_t cookie;
         const char *cursor = h->value->data;
         while (auth_cookie_iter_next(&cursor, &cookie)) {
-            bool is_session = (cookie.name_len == session_name_len && strncmp(cookie.name, session_name, session_name_len) == 0) ||
-                              (cookie.name_len == 10 && strncmp(cookie.name, "jwt_access", 10) == 0);
-            if (!is_session || cookie.value_len == 0) continue;
-
-            cwist_sstring *token = cwist_sstring_create();
-            if (!token) continue;
-            cwist_sstring_assign_len(token, cookie.value, cookie.value_len);
-            bool ok = auth_verify_token(token->data, secret, out_user_id, out_role, role_len);
-            cwist_sstring_destroy(token);
-            if (ok) return true;
+            if (!is_auth_cookie_name(cookie.name, cookie.name_len) || cookie.value_len == 0) continue;
+            if (auth_verify_token_len(cookie.value, cookie.value_len, secret, out_user_id, out_role, role_len)) {
+                return true;
+            }
         }
     }
 
     /* 2. Authorization: Bearer Header (for API requests / explicit clients) */
     const char *auth_header = cwist_http_header_get(req->headers, "Authorization");
     if (auth_header && strncasecmp(auth_header, "Bearer ", 7) == 0) {
-        const char *bearer_token = auth_header + 7;
-        while (*bearer_token == ' ' || *bearer_token == '\t') bearer_token++;
-        size_t b_len = strlen(bearer_token);
-        while (b_len > 0 && (bearer_token[b_len - 1] == ' ' || bearer_token[b_len - 1] == '\t' ||
-                             bearer_token[b_len - 1] == '\r' || bearer_token[b_len - 1] == '\n')) {
+        const char *bearer = auth_header + 7;
+        while (*bearer == ' ' || *bearer == '\t') bearer++;
+        size_t b_len = strlen(bearer);
+        while (b_len > 0 && (bearer[b_len - 1] == ' ' || bearer[b_len - 1] == '\t' ||
+                             bearer[b_len - 1] == '\r' || bearer[b_len - 1] == '\n')) {
             b_len--;
         }
-        if (b_len >= 2 && bearer_token[0] == '"' && bearer_token[b_len - 1] == '"') {
-            bearer_token++;
+        if (b_len >= 2 && bearer[0] == '"' && bearer[b_len - 1] == '"') {
+            bearer++;
             b_len -= 2;
         }
-        cwist_sstring *clean_bearer = cwist_sstring_create();
-        if (clean_bearer) {
-            cwist_sstring_assign_len(clean_bearer, bearer_token, b_len);
-            bool ok = auth_verify_token(clean_bearer->data, secret, out_user_id, out_role, role_len);
-            cwist_sstring_destroy(clean_bearer);
-            if (ok) return true;
+        if (auth_verify_token_len(bearer, b_len, secret, out_user_id, out_role, role_len)) {
+            return true;
         }
     }
 
@@ -534,17 +545,36 @@ bool auth_is_logged_in(cwist_http_request *req, int *out_user_id, char *out_role
 
 bool auth_has_session_cookie(cwist_http_request *req) {
     if (!req) return false;
-    const char *session_name = SESSION_COOKIE_NAME;
-    size_t session_name_len = strlen(session_name);
     for (cwist_http_header_node *h = req->headers; h; h = h->next) {
         if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
         if (strcasecmp(h->key->data, "Cookie") != 0) continue;
         auth_cookie_iter_t cookie;
         const char *cursor = h->value->data;
         while (auth_cookie_iter_next(&cursor, &cookie)) {
-            bool is_session = (cookie.name_len == session_name_len && strncmp(cookie.name, session_name, session_name_len) == 0) ||
-                              (cookie.name_len == 10 && strncmp(cookie.name, "jwt_access", 10) == 0);
-            if (is_session && cookie.value_len > 0) return true;
+            if (is_auth_cookie_name(cookie.name, cookie.name_len) && cookie.value_len > 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool auth_get_cookie(cwist_http_request *req, const char *name, char *out, size_t out_len) {
+    if (!req || !name || !out || out_len == 0) return false;
+    size_t target_len = strlen(name);
+    for (cwist_http_header_node *h = req->headers; h; h = h->next) {
+        if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
+        if (strcasecmp(h->key->data, "Cookie") != 0) continue;
+
+        auth_cookie_iter_t cookie;
+        const char *cursor = h->value->data;
+        while (auth_cookie_iter_next(&cursor, &cookie)) {
+            if (cookie.name_len == target_len && strncmp(cookie.name, name, target_len) == 0) {
+                size_t copy_len = cookie.value_len < out_len - 1 ? cookie.value_len : out_len - 1;
+                memcpy(out, cookie.value, copy_len);
+                out[copy_len] = '\0';
+                return true;
+            }
         }
     }
     return false;
