@@ -117,6 +117,14 @@ int main(void) {
           "\\begin{tikzcd}\nA \\arrow[r, \"f\"] & B \\\\\n====================\nC \\arrow[u, \"g\"] & D\n\\end{tikzcd}\n",
           "<div class=\"tikz-block\">\n\\begin{tikzcd}\nA \\arrow[r, &quot;f&quot;] &amp; B \\\\\n=\nC", "====================");
 
+    check("bare multiline array environment becomes math block",
+          "\\begin{array}{ccc}\n1 & 2 & 3\n\\end{array}\n",
+          "<span class=\"math-block\">\\begin{array}{ccc}\n1 &amp; 2 &amp; 3\n\\end{array}</span>", NULL);
+
+    check("bare multiline array environment with single backslash line breaks becomes math block with double backslashes",
+          "\\begin{array}{ccc}\n1 & 2 & 3 \\\n4 & 5 & 6\n\\end{array}\n",
+          "1 &amp; 2 &amp; 3 \\\\\n4 &amp; 5 &amp; 6", NULL);
+
     if (failures == 0) printf("ALL TESTS PASSED\n");
     return failures ? 1 : 0;
 }

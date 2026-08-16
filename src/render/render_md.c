@@ -25,6 +25,24 @@ static size_t normalize_operator_runs(const char *expr, size_t len, char *copy) 
     size_t written = 0;
 
     while (read < len) {
+        /* Fix missing double backslash line break in LaTeX environments (e.g. \begin{array}).
+         * If a single '\' occurs at the end of a line (followed by optional spaces/tabs then '\n' or '\r'),
+         * and is NOT preceded by another '\', convert it to '\\' for valid KaTeX row breaks. */
+        if (expr[read] == '\\') {
+            bool prev_was_slash = (read > 0 && expr[read - 1] == '\\');
+            bool next_is_slash = (read + 1 < len && expr[read + 1] == '\\');
+            if (!prev_was_slash && !next_is_slash) {
+                size_t p = read + 1;
+                while (p < len && (expr[p] == ' ' || expr[p] == '\t')) p++;
+                if (p < len && (expr[p] == '\n' || expr[p] == '\r')) {
+                    copy[written++] = '\\';
+                    copy[written++] = '\\';
+                    read = p;
+                    continue;
+                }
+            }
+        }
+
         if (expr[read] == '=') {
             size_t end = read + 1;
             while (end < len && expr[end] == '=') end++;
@@ -232,10 +250,8 @@ static bool looks_like_latex(const char *s, size_t len) {
     return false;
 }
 
-/* Authors often paste a complete LaTeX expression on its own line without
- * wrapping it in $...$. Treat only unmistakably mathematical lines as
- * display math: requiring a command plus a script, relation, or delimiter
- * avoids converting ordinary prose that happens to contain a backslash. */
+/* Authors often paste a complete LaTeX expression on its own line or block without
+ * wrapping it in $...$. Treat mathematical lines and environment blocks as display math. */
 static bool looks_like_bare_latex_expression(const char *s, size_t len) {
     bool has_command = false;
     bool has_math_syntax = false;
@@ -247,6 +263,14 @@ static bool looks_like_bare_latex_expression(const char *s, size_t len) {
     while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\r')) len--;
     if (len == 0) return false;
 
+    /* If it starts with a LaTeX math environment like \begin{array}, \begin{matrix}, etc. */
+    if (len >= 12 && strncmp(s, "\\begin{", 7) == 0) {
+        if (strstr(s, "array") || strstr(s, "matrix") || strstr(s, "aligned") ||
+            strstr(s, "cases") || strstr(s, "equation") || strstr(s, "gather")) {
+            return true;
+        }
+    }
+
     for (size_t i = 0; i < len; i++) {
         /* Preserve Markdown table cells and explicitly delimited math for
          * their dedicated parsers below. */
@@ -256,7 +280,7 @@ static bool looks_like_bare_latex_expression(const char *s, size_t len) {
             has_command = true;
         }
         if (s[i] == '=' || s[i] == '^' || s[i] == '_' || s[i] == '{' || s[i] == '}' ||
-            s[i] == '&' || s[i] == '+' || s[i] == '*') {
+            s[i] == '&' || s[i] == '+' || s[i] == '*' || s[i] == '/' || s[i] == '-') {
             has_math_syntax = true;
         }
     }
@@ -588,6 +612,28 @@ static char *protect_math(const char *md, math_registry_t *blocks,
                     i += total_len;
                 }
                 continue;
+            }
+        }
+
+        /* A multiline or single-line LaTeX environment block (e.g., \begin{array} ... \end{array}) */
+        if (is_line_start(md, i) && i + 7 <= len && strncmp(md + i, "\\begin{", 7) == 0) {
+            const char *env_end = strstr(md + i, "\\end{");
+            if (env_end) {
+                const char *close_brace = strchr(env_end, '}');
+                if (close_brace) {
+                    size_t block_len = (size_t)(close_brace + 1 - (md + i));
+                    size_t after = (size_t)(close_brace + 1 - md);
+                    while (after < len && (md[after] == ' ' || md[after] == '\t' || md[after] == '\r')) after++;
+                    if (after < len && md[after] == '\n') after++;
+                    begin_block_placeholder(out);
+                    math_registry_add(blocks, md + i, block_len);
+                    char placeholder[64];
+                    snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
+                    cwist_sstring_append(out, placeholder);
+                    end_block_placeholder(out, md, len, after);
+                    i = after;
+                    continue;
+                }
             }
         }
 
