@@ -324,7 +324,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
      * silently fall back to anonymous posting. The auth layer already logged
      * the precise failure reason. */
     if (!logged_in && auth_has_session_cookie(req)) {
-        redirect(res, "/login");
+        auth_require_login(req, res, &uid, role, sizeof(role));
         return;
     }
 
@@ -641,7 +641,7 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     /* A request that carried a session cookie but failed verification is a
      * logged-in flow that lost auth, not an anonymous delete attempt. */
     if (!logged_in && auth_has_session_cookie(req)) {
-        redirect(res, "/login");
+        auth_require_login(req, res, &uid, role, sizeof(role));
         return;
     }
 

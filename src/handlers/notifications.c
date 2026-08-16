@@ -4,10 +4,7 @@
 void handler_notifications_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    if (!auth_is_logged_in(req, &uid, role, sizeof(role))) {
-        redirect(res, "/login");
-        return;
-    }
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     cJSON *notifs = db_notification_list(req->db, uid, 100);
     char *pp = get_profile_pic(req->db, uid, role);
     send_html_res(res, render_notifications_page(notifs, is_dark(req), role, pp, is_mobile_request(req)));
