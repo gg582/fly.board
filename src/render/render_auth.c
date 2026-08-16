@@ -6,12 +6,13 @@
 
 #include <cwist/core/template/template.h>
 
-cwist_sstring *render_login(bool dark, const char *error, bool is_mobile) {
+cwist_sstring *render_login(bool dark, const char *error, bool is_mobile, const char *redirect_target) {
     const char *tmpl = 
         "<div class='card' style='max-width:420px;margin:40px auto;'>"
         "  <h2 style='margin-top:0'>Login</h2>"
         "  {% if error %}<div class='alert'>{{ error|escape }}</div>{% endif %}"
         "  <form action='/login' method='post'>"
+        "    {% if redirect %}<input type='hidden' name='redirect' value='{{ redirect|escape }}'>{% endif %}"
         "    <label>Username</label><input name='username' placeholder='username' required>"
         "    <label>Password</label><input name='password' type='password' placeholder='password' required>"
         "    <button type='submit' class='btn' style='margin-top:8px;width:100%'>Login</button>"
@@ -25,6 +26,11 @@ cwist_sstring *render_login(bool dark, const char *error, bool is_mobile) {
         cJSON_AddStringToObject(ctx, "error", error);
     } else {
         cJSON_AddNullToObject(ctx, "error");
+    }
+    if (redirect_target && redirect_target[0]) {
+        cJSON_AddStringToObject(ctx, "redirect", redirect_target);
+    } else {
+        cJSON_AddNullToObject(ctx, "redirect");
     }
 
     cwist_sstring *body = cwist_template_render(tmpl, ctx);

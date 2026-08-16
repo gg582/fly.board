@@ -584,7 +584,12 @@ bool auth_require_login(cwist_http_request *req, cwist_http_response *res, int *
     if (!res) return false;
     if (!auth_is_logged_in(req, out_user_id, out_role, role_len)) {
         res->status_code = (cwist_http_status_t)302;
-        cwist_http_header_add(&res->headers, "Location", "/login");
+        char redirect_loc[512] = "/login";
+        if (req && req->path && req->path->data && req->path->size > 1 &&
+            strcmp(req->path->data, "/login") != 0 && strcmp(req->path->data, "/logout") != 0) {
+            snprintf(redirect_loc, sizeof(redirect_loc), "/login?redirect=%s", req->path->data);
+        }
+        cwist_http_header_add(&res->headers, "Location", redirect_loc);
         cwist_sstring_assign(res->body, "Redirecting to /login...");
         return false;
     }

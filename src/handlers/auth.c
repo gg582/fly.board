@@ -4,10 +4,22 @@
 
 static bool req_is_tls(cwist_http_request *req) {
     if (!req) return g_config.use_tls;
+    if (req->stream_id > 0) return true;
+
     const char *proto = cwist_http_header_get(req->headers, "X-Forwarded-Proto");
     if (proto) {
         if (strcasecmp(proto, "https") == 0) return true;
         if (strcasecmp(proto, "http") == 0) return false;
+    }
+    const char *scheme = cwist_http_header_get(req->headers, "X-Forwarded-Scheme");
+    if (scheme) {
+        if (strcasecmp(scheme, "https") == 0) return true;
+        if (strcasecmp(scheme, "http") == 0) return false;
+    }
+    const char *ssl = cwist_http_header_get(req->headers, "X-Forwarded-Ssl");
+    if (ssl) {
+        if (strcasecmp(ssl, "on") == 0 || strcmp(ssl, "1") == 0) return true;
+        if (strcasecmp(ssl, "off") == 0 || strcmp(ssl, "0") == 0) return false;
     }
     const char *origin = cwist_http_header_get(req->headers, "Origin");
     if (origin) {
@@ -49,11 +61,12 @@ static void clear_auth_cookies(cwist_http_response *res, bool use_tls) {
 void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
+    const char *redirect_target = cwist_query_map_get(req->query_params, "redirect");
     if (auth_is_logged_in(req, &uid, role, sizeof(role))) {
-        redirect(res, "/");
+        redirect_referer_safe(res, redirect_target, "/");
         return;
     }
-    send_html_res(res, render_login(is_dark(req), NULL, is_mobile_request(req)));
+    send_html_res(res, render_login(is_dark(req), NULL, is_mobile_request(req), redirect_target));
 }
 
 void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
@@ -62,7 +75,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
 
     if (!req->body || !req->body->data || req->body->size == 0) {
         CWIST_LOG_WARN("Login failed: empty body");
-        send_html_res(res, render_login(dark, "Invalid request", mobile));
+        send_html_res(res, render_login(dark, "Invalid request", mobile, NULL));
         return;
     }
 
@@ -75,7 +88,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
 
     if (!username || !password || !username[0] || !password[0]) {
         CWIST_LOG_WARN("Login failed: missing fields");
-        send_html_res(res, render_login(dark, "Missing fields", mobile));
+        send_html_res(res, render_login(dark, "Missing fields", mobile, redirect_target));
         cwist_query_map_destroy(kv);
         return;
     }
@@ -86,7 +99,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         char *token = auth_jwt_issue(1, username, "admin");
         if (!token) {
             CWIST_LOG_ERROR("Admin login failed: token issue error username='%s'", username);
-            send_html_res(res, render_login(dark, "Server error", mobile));
+            send_html_res(res, render_login(dark, "Server error", mobile, redirect_target));
             cwist_query_map_destroy(kv);
             return;
         }
@@ -100,7 +113,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     cJSON *user = db_user_get_by_username(req->db, username);
     if (!user) {
         CWIST_LOG_WARN("Login failed: invalid credentials for username='%s'", username);
-        send_html_res(res, render_login(dark, "Invalid credentials", mobile));
+        send_html_res(res, render_login(dark, "Invalid credentials", mobile, redirect_target));
         cwist_query_map_destroy(kv);
         return;
     }
@@ -110,7 +123,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         !auth_verify_password(password, hash->valuestring)) {
         CWIST_LOG_WARN("Login failed: invalid credentials or wrong password for username='%s'", username);
         cJSON_Delete(user);
-        send_html_res(res, render_login(dark, "Invalid credentials", mobile));
+        send_html_res(res, render_login(dark, "Invalid credentials", mobile, redirect_target));
         cwist_query_map_destroy(kv);
         return;
     }
@@ -121,7 +134,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     if (!uname || !uname->valuestring || !role || !role->valuestring || user_id <= 0) {
         CWIST_LOG_ERROR("Login failed: malformed user record for username='%s'", username);
         cJSON_Delete(user);
-        send_html_res(res, render_login(dark, "Server error", mobile));
+        send_html_res(res, render_login(dark, "Server error", mobile, redirect_target));
         cwist_query_map_destroy(kv);
         return;
     }
@@ -130,7 +143,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     if (!token) {
         CWIST_LOG_ERROR("User login failed: token issue error username='%s'", username);
         cJSON_Delete(user);
-        send_html_res(res, render_login(dark, "Server error", mobile));
+        send_html_res(res, render_login(dark, "Server error", mobile, redirect_target));
         cwist_query_map_destroy(kv);
         return;
     }
@@ -225,6 +238,10 @@ void handler_profile_get(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     cJSON *user = db_user_get_by_id(req->db, uid);
     if (!user) {
+        if (strcmp(role, "admin") == 0) {
+            redirect(res, "/admin");
+            return;
+        }
         redirect(res, "/login");
         return;
     }
@@ -238,6 +255,10 @@ void handler_profile_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    if (strcmp(role, "admin") == 0) {
+        redirect(res, "/admin");
+        return;
+    }
     redirect(res, "/account/settings");
 }
 
@@ -260,6 +281,10 @@ void handler_account_settings_get(cwist_http_request *req, cwist_http_response *
 
     cJSON *user = db_user_get_by_id(req->db, target_uid);
     if (!user) {
+        if (target_uid == uid && strcmp(role, "admin") == 0) {
+            redirect(res, "/admin/users");
+            return;
+        }
         if (target_uid == uid) redirect(res, "/login");
         else {
             res->status_code = CWIST_HTTP_NOT_FOUND;
