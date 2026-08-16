@@ -114,7 +114,8 @@ static void math_registry_add(math_registry_t *reg, const char *expr, size_t len
         reg->capacity = reg->capacity ? reg->capacity * 2 : 16;
         reg->expressions = (char **)realloc(reg->expressions, sizeof(char *) * reg->capacity);
     }
-    char *copy = (char *)malloc(len + 1);
+    /* Allocate enough space since normalize_operator_runs can double single backslashes */
+    char *copy = (char *)malloc(len * 2 + 2);
     size_t written = normalize_operator_runs(expr, len, copy);
     copy[written] = '\0';
     reg->expressions[reg->count++] = copy;
