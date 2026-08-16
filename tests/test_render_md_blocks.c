@@ -125,6 +125,10 @@ int main(void) {
           "\\begin{array}{ccc}\n1 & 2 & 3 \\\n4 & 5 & 6\n\\end{array}\n",
           "1 &amp; 2 &amp; 3 \\\\\n4 &amp; 5 &amp; 6", NULL);
 
+    check("bare multiline matrix environment with matching closing tag becomes math block",
+          "\\begin{matrix}\na & b \\\nc & d\n\\end{matrix}\n",
+          "<span class=\"math-block\">\\begin{matrix}\na &amp; b \\\\\nc &amp; d\n\\end{matrix}</span>", NULL);
+
     if (failures == 0) printf("ALL TESTS PASSED\n");
     return failures ? 1 : 0;
 }

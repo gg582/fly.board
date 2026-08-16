@@ -636,24 +636,35 @@ static char *protect_math(const char *md, math_registry_t *blocks,
             }
         }
 
-        /* A multiline or single-line LaTeX environment block (e.g., \begin{array} ... \end{array}) */
+        /* A multiline or single-line LaTeX environment block (e.g., \begin{array} ... \end{array}, \begin{matrix} ... \end{matrix}) */
         if (is_line_start(md, i) && i + 7 <= len && strncmp(md + i, "\\begin{", 7) == 0) {
-            const char *env_end = strstr(md + i, "\\end{");
-            if (env_end) {
-                const char *close_brace = strchr(env_end, '}');
-                if (close_brace) {
-                    size_t block_len = (size_t)(close_brace + 1 - (md + i));
-                    size_t after = (size_t)(close_brace + 1 - md);
-                    while (after < len && (md[after] == ' ' || md[after] == '\t' || md[after] == '\r')) after++;
-                    if (after < len && md[after] == '\n') after++;
-                    begin_block_placeholder(out);
-                    math_registry_add(blocks, md + i, block_len);
-                    char placeholder[64];
-                    snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
-                    cwist_sstring_append(out, placeholder);
-                    end_block_placeholder(out, md, len, after);
-                    i = after;
-                    continue;
+            const char *env_name_start = md + i + 7;
+            const char *env_name_end = strchr(env_name_start, '}');
+            if (env_name_end && (size_t)(env_name_end - env_name_start) < 64) {
+                char env_name[64];
+                size_t name_len = (size_t)(env_name_end - env_name_start);
+                memcpy(env_name, env_name_start, name_len);
+                env_name[name_len] = '\0';
+
+                /* Ignore tikzpicture and tikzcd as they are handled in their dedicated TikZ parser block above */
+                if (strcmp(env_name, "tikzpicture") != 0 && strcmp(env_name, "tikzcd") != 0) {
+                    char closing_tag[80];
+                    snprintf(closing_tag, sizeof(closing_tag), "\\end{%s}", env_name);
+                    const char *end_match = strstr(env_name_end + 1, closing_tag);
+                    if (end_match) {
+                        size_t block_len = (size_t)(end_match + strlen(closing_tag) - (md + i));
+                        size_t after = (size_t)(end_match + strlen(closing_tag) - md);
+                        while (after < len && (md[after] == ' ' || md[after] == '\t' || md[after] == '\r')) after++;
+                        if (after < len && md[after] == '\n') after++;
+                        begin_block_placeholder(out);
+                        math_registry_add(blocks, md + i, block_len);
+                        char placeholder[64];
+                        snprintf(placeholder, sizeof(placeholder), "@@MATH_BLOCK_%d@@", blocks->count - 1);
+                        cwist_sstring_append(out, placeholder);
+                        end_block_placeholder(out, md, len, after);
+                        i = after;
+                        continue;
+                    }
                 }
             }
         }
