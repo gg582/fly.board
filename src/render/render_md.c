@@ -243,9 +243,30 @@ static bool is_bare_bracket_line(const char *s, size_t len, size_t pos, char bra
 }
 
 static bool looks_like_latex(const char *s, size_t len) {
+    if (len == 0) return false;
+    /* Check for key TeX characters */
     for (size_t i = 0; i < len; i++) {
         if (s[i] == '\\' || s[i] == '^' || s[i] == '_' || s[i] == '{' ||
-            s[i] == '}' || s[i] == '=' || s[i] == '+' || s[i] == '*') return true;
+            s[i] == '}' || s[i] == '=' || s[i] == '+' || s[i] == '*' ||
+            s[i] == '&') return true;
+    }
+    /* Check for TeX math keywords */
+    if (memmem(s, len, "\\binom", 6) || memmem(s, len, "\\frac", 5) ||
+        memmem(s, len, "\\begin", 6) || memmem(s, len, "\\end", 4) ||
+        memmem(s, len, "\\matrix", 7) || memmem(s, len, "\\array", 6) ||
+        memmem(s, len, "\\left", 5) || memmem(s, len, "\\right", 6) ||
+        memmem(s, len, "\\partial", 8) || memmem(s, len, "\\sum", 4) ||
+        memmem(s, len, "\\prod", 5) || memmem(s, len, "\\int", 4) ||
+        memmem(s, len, "\\alpha", 6) || memmem(s, len, "\\beta", 5) ||
+        memmem(s, len, "\\gamma", 6) || memmem(s, len, "\\delta", 6) ||
+        memmem(s, len, "\\theta", 6) || memmem(s, len, "\\lambda", 7) ||
+        memmem(s, len, "\\mu", 3) || memmem(s, len, "\\pi", 3) ||
+        memmem(s, len, "\\sigma", 6) || memmem(s, len, "\\phi", 4) ||
+        memmem(s, len, "\\omega", 6) || memmem(s, len, "\\Delta", 6) ||
+        memmem(s, len, "\\mathbf", 7) || memmem(s, len, "\\mathbb", 7) ||
+        memmem(s, len, "\\mathcal", 8) || memmem(s, len, "\\mathrm", 7) ||
+        memmem(s, len, "\\text", 5) || memmem(s, len, "\\over", 5)) {
+        return true;
     }
     return false;
 }
