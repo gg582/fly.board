@@ -276,6 +276,8 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
                 author_pp = strdup(pic->valuestring);
             }
             cJSON_Delete(author_user);
+        } else if (author_id == 1) {
+            author_pp = get_admin_logo();
         }
     }
     const char *ephemeral_delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
