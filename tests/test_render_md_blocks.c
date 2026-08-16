@@ -129,6 +129,10 @@ int main(void) {
           "\\begin{matrix}\na & b \\\nc & d\n\\end{matrix}\n",
           "<span class=\"math-block\">\\begin{matrix}\na &amp; b \\\\\nc &amp; d\n\\end{matrix}</span>", NULL);
 
+    check("bare binom formula without dollar wrappers becomes math block",
+          "\\binom{n}{k}\n",
+          "<span class=\"math-block\">\\binom{n}{k}</span>", NULL);
+
     if (failures == 0) printf("ALL TESTS PASSED\n");
     return failures ? 1 : 0;
 }
