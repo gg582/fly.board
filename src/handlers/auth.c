@@ -70,6 +70,8 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     cwist_query_map_parse(kv, req->body->data);
     const char *username = cwist_query_map_get(kv, "username");
     const char *password = cwist_query_map_get(kv, "password");
+    const char *redirect_target = cwist_query_map_get(kv, "redirect");
+    if (!redirect_target) redirect_target = cwist_query_map_get(req->query_params, "redirect");
 
     if (!username || !password || !username[0] || !password[0]) {
         CWIST_LOG_WARN("Login failed: missing fields");
@@ -90,8 +92,8 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         }
         set_auth_cookies(res, token, req_is_tls(req));
         cwist_free(token);
+        redirect_referer_safe(res, redirect_target, "/");
         cwist_query_map_destroy(kv);
-        redirect(res, "/");
         return;
     }
 
@@ -104,17 +106,9 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     cJSON *hash = cJSON_GetObjectItem(user, "password_hash");
-    if (!hash || !hash->valuestring || !hash->valuestring[0]) {
-        CWIST_LOG_WARN("Login failed: no password hash for username='%s'", username);
-        cJSON_Delete(user);
-        send_html_res(res, render_login(dark, "Invalid credentials", mobile));
-        cwist_query_map_destroy(kv);
-        return;
-    }
-
-    bool pw_ok = auth_verify_password(password, hash->valuestring);
-    if (!pw_ok) {
-        CWIST_LOG_WARN("Login failed: wrong password for username='%s'", username);
+    if (!hash || !hash->valuestring || !hash->valuestring[0] ||
+        !auth_verify_password(password, hash->valuestring)) {
+        CWIST_LOG_WARN("Login failed: invalid credentials or wrong password for username='%s'", username);
         cJSON_Delete(user);
         send_html_res(res, render_login(dark, "Invalid credentials", mobile));
         cwist_query_map_destroy(kv);
@@ -145,8 +139,8 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     set_auth_cookies(res, token, req_is_tls(req));
     cwist_free(token);
     cJSON_Delete(user);
+    redirect_referer_safe(res, redirect_target, "/");
     cwist_query_map_destroy(kv);
-    redirect(res, "/");
 }
 
 void handler_logout(cwist_http_request *req, cwist_http_response *res) {

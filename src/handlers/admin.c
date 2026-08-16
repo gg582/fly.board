@@ -12,6 +12,17 @@ void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res) 
     free(pp);
 }
 
+void handler_dashboard(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    if (strcmp(role, "admin") == 0) {
+        handler_admin_dashboard(req, res);
+    } else {
+        redirect(res, "/profile");
+    }
+}
+
 void handler_admin_users(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
     int uid = 0; char role[32] = {0};

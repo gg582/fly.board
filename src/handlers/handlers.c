@@ -30,38 +30,9 @@
    (ocean, forest, sepia). A missing or unrecognized theme defaults to light. */
 bool is_dark(cwist_http_request *req) {
     char theme_name[64] = "light";
-    cwist_http_header_node *curr = req->headers;
-    while (curr) {
-        if (curr->key && curr->key->data && strcasecmp(curr->key->data, "Cookie") == 0) {
-            const char *cookie_val = curr->value ? curr->value->data : NULL;
-            if (cookie_val) {
-                const char *p = cookie_val;
-                while (*p) {
-                    while (*p == ' ' || *p == '\t') p++;
-                    if (strncmp(p, "theme=", 6) == 0) {
-                        p += 6;
-                        const char *end = p;
-                        while (*end && *end != ';' && *end != ' ' && *end != '\t') end++;
-                        size_t len = (size_t)(end - p);
-                        if (len > 0 && len < sizeof(theme_name)) {
-                            memcpy(theme_name, p, len);
-                            theme_name[len] = '\0';
-                        }
-                        break;
-                    }
-                    while (*p && *p != ';') p++;
-                    if (*p == ';') p++;
-                }
-            }
-        }
-        curr = curr->next;
-    }
-
+    auth_get_cookie(req, "theme", theme_name, sizeof(theme_name));
     theme_color_t *t = theme_by_name(theme_name);
-    if (t == &dark || t == &ocean || t == &forest) {
-        return true;
-    }
-    return false;
+    return (t == &dark || t == &ocean || t == &forest);
 }
 
 void redirect(cwist_http_response *res, const char *url) {
@@ -145,30 +116,23 @@ void redirect_referer_safe(cwist_http_response *res, const char *referer, const 
     redirect(res, fallback);
 }
 
+static char *get_admin_logo(void) {
+    const char *logo_url = image_inline_logo();
+    return strdup(logo_url ? logo_url : "/assets/img/logo.png");
+}
+
 char *get_profile_pic(cwist_db *db, int uid, const char *role) {
-    if (uid <= 0) {
-        render_set_nav_notifications(0);
-        if (role && strcmp(role, "admin") == 0) {
-            render_set_nav_profile("Admin", "@admin");
-            const char *logo_url = image_inline_logo();
-            if (logo_url) return strdup(logo_url);
-            return strdup("/assets/img/logo.png");
-        }
-        render_set_nav_profile(NULL, NULL);
-        return NULL;
-    }
-    cJSON *user = db_user_get_by_id(db, uid);
+    cJSON *user = (uid > 0) ? db_user_get_by_id(db, uid) : NULL;
     if (!user) {
         render_set_nav_notifications(0);
         if (role && strcmp(role, "admin") == 0) {
             render_set_nav_profile("Admin", "@admin");
-            const char *logo_url = image_inline_logo();
-            if (logo_url) return strdup(logo_url);
-            return strdup("/assets/img/logo.png");
+            return get_admin_logo();
         }
         render_set_nav_profile(NULL, NULL);
         return NULL;
     }
+
     cJSON *username = cJSON_GetObjectItem(user, "username");
     cJSON *nickname = cJSON_GetObjectItem(user, "nickname");
     const char *uname = (username && username->type == cJSON_String && username->valuestring) ? username->valuestring : "";
@@ -184,9 +148,7 @@ char *get_profile_pic(cwist_db *db, int uid, const char *role) {
     if (pp && pp->type == cJSON_String && pp->valuestring[0]) {
         res = strdup(pp->valuestring);
     } else if (role && strcmp(role, "admin") == 0) {
-        const char *logo_url = image_inline_logo();
-        if (logo_url) res = strdup(logo_url);
-        else res = strdup("/assets/img/logo.png");
+        res = get_admin_logo();
     }
     cJSON_Delete(user);
     return res;
@@ -204,10 +166,10 @@ static uint32_t fnv1a_32(const char *data, size_t len) {
 void send_html_res(cwist_http_response *res, cwist_sstring *html) {
     cwist_http_header_add(&res->headers, "Content-Type", "text/html; charset=utf-8");
     /* HTML pages are dynamic (theme, role, profile pic), so they must be
-     * revalidated.  ETag lets the browser get a cheap 304 Not Modified on
+     * revalidated. ETag lets the browser get a cheap 304 Not Modified on
      * back/forward navigations and repeat visits to the same URL. */
     cwist_http_header_add(&res->headers, "Cache-Control", "private, max-age=0, must-revalidate");
-    cwist_http_header_add(&res->headers, "Vary", "Cookie");
+    cwist_http_header_add(&res->headers, "Vary", "Cookie, Authorization");
     if (html) {
         cwist_sstring_assign_len(res->body, html->data, strlen(html->data));
         cwist_sstring_destroy(html);
@@ -224,16 +186,17 @@ void send_html_res(cwist_http_response *res, cwist_sstring *html) {
 }
 
 void send_cached_html_res(cwist_http_response *res, const char *html, size_t len, uint32_t ttl_remaining) {
+    (void)ttl_remaining;
     cwist_http_header_add(&res->headers, "Content-Type", "text/html; charset=utf-8");
-    char cc[128];
-    uint32_t max_age = ttl_remaining > 0 ? ttl_remaining : 60;
-    snprintf(cc, sizeof(cc), "public, max-age=%u, s-maxage=%u, stale-while-revalidate=300", max_age, max_age);
-    cwist_http_header_add(&res->headers, "Cache-Control", cc);
-    /* Vary on Cookie so the browser does not reuse a cached light-theme page
-       after the user toggles to dark mode (and vice versa). */
-    cwist_http_header_add(&res->headers, "Vary", "Cookie");
+    /* Use private revalidation on the client so that login/logout transitions
+       across different routes never show stale unauthenticated cached pages. */
+    cwist_http_header_add(&res->headers, "Cache-Control", "private, max-age=0, must-revalidate");
+    cwist_http_header_add(&res->headers, "Vary", "Cookie, Authorization");
     cwist_sstring_assign(res->body, "");
     cwist_sstring_append_len(res->body, html, len);
+    char etag[32];
+    snprintf(etag, sizeof(etag), "\"%08x\"", fnv1a_32(res->body->data, res->body->size));
+    cwist_http_header_add(&res->headers, "ETag", etag);
     char len_buf[32];
     snprintf(len_buf, sizeof(len_buf), "%zu", len);
     cwist_http_header_add(&res->headers, "Content-Length", len_buf);
