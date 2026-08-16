@@ -399,7 +399,7 @@
     // 9. Service Worker
     if('serviceWorker'in navigator){
         function registerSw(attempt){
-            navigator.serviceWorker.register('/sw.js').then(function(reg){
+            navigator.serviceWorker.register('/sw.js?v=8').then(function(reg){
                 if(typeof console!=='undefined'&&console.log) console.log('[SW] registered:', reg.scope);
             }).catch(function(err){
                 if(typeof console!=='undefined'&&console.warn) console.warn('[SW] registration failed (attempt '+attempt+'):', err);

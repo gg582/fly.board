@@ -1,14 +1,8 @@
-var LOGO_CACHE = 'logo-cache-v5';
+var LOGO_CACHE = 'logo-cache-v6';
 var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v2';
-var STATIC_CACHE = 'fly-static-v7';
+var STATIC_CACHE = 'fly-static-v8';
 var CDN_CACHE = 'fly-cdn-v3';
-var PRECACHE = 'fly-precache-v4';
-/* Navigation documents are dynamic and may be personalized.  Do not retain
-   them in the service worker: a cached document can show the previous route
-   while the browser URL has already changed (and can also outlive a login).
-   Bump the name so clients with the previous worker discard its old entries
-   as soon as this worker activates. */
-var NAVIGATION_CACHE = 'fly-navigation-v2';
+var PRECACHE = 'fly-precache-v5';
 var LOGO_MAX_AGE = 3600000; // 1 hour in milliseconds
 var STATIC_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days (immutable hashed assets)
 var CDN_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // 30 days (versioned CDN URLs)
@@ -163,11 +157,11 @@ self.addEventListener('install', function(e) {
 });
 
 self.addEventListener('activate', function(e) {
-    var allowedCaches = [LOGO_CACHE, TASFA_MEDIA_CACHE, STATIC_CACHE, CDN_CACHE, PRECACHE, NAVIGATION_CACHE];
+    var allowedCaches = [LOGO_CACHE, TASFA_MEDIA_CACHE, STATIC_CACHE, CDN_CACHE, PRECACHE];
     e.waitUntil(
         caches.keys().then(function(keys) {
             return Promise.all(keys.map(function(key) {
-                if (allowedCaches.indexOf(key) === -1) {
+                if (allowedCaches.indexOf(key) === -1 || key.indexOf('navigation') !== -1) {
                     return caches.delete(key);
                 }
             }));
