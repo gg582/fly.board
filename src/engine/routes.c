@@ -47,10 +47,13 @@ void engine_routes_register(cwist_app *app) {
     cwist_app_get(app, "/board/new", handler_board_new_get);
     cwist_app_post(app, "/board/new", handler_board_new_post);
     cwist_app_get(app, "/board/:id/edit", handler_board_edit_get);
+    cwist_app_get(app, "/board/edit", handler_board_list);
     cwist_app_post(app, "/board/edit", handler_board_edit_post);
     cwist_app_get(app, "/board/:id/delete", handler_board_delete);
     cwist_app_get(app, "/board/:id/perms", handler_board_perms_get);
+    cwist_app_get(app, "/board/perms", handler_board_list);
     cwist_app_post(app, "/board/perms", handler_board_perms_post);
+    cwist_app_get(app, "/board/perms/revoke", handler_board_list);
     cwist_app_post(app, "/board/perms/revoke", handler_board_perms_revoke_post);
 
     cwist_app_get(app, "/posts", handler_home);
@@ -92,7 +95,9 @@ void engine_routes_register(cwist_app *app) {
     cwist_app_get(app, "/admin", handler_admin_dashboard);
     cwist_app_get(app, "/admin/dashboard", handler_admin_dashboard);
     cwist_app_get(app, "/admin/users", handler_admin_users);
+    cwist_app_get(app, "/admin/user/role", handler_admin_users);
     cwist_app_post(app, "/admin/user/role", handler_admin_user_role);
+    cwist_app_get(app, "/admin/files/drop", handler_file_repo);
     cwist_app_post(app, "/admin/files/drop", handler_admin_files_drop);
     cwist_app_get(app, "/admin/boards", handler_admin_boards_get);
 
