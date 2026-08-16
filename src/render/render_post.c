@@ -749,7 +749,7 @@ static cwist_sstring *render_post_build_toc(cwist_sstring *md_html) {
 
     while (i + 3 < len) {
         int level = 0;
-        if (p[i] == '<' && p[i + 1] == 'h' && (p[i + 2] == '2' || p[i + 2] == '3') &&
+        if (p[i] == '<' && p[i + 1] == 'h' && (p[i + 2] >= '1' && p[i + 2] <= '6') &&
             (p[i + 3] == '>' || p[i + 3] == ' ' || p[i + 3] == '\t' || p[i + 3] == '\n')) {
             level = p[i + 2] - '0';
         }
@@ -776,7 +776,13 @@ static cwist_sstring *render_post_build_toc(cwist_sstring *md_html) {
         cwist_sstring_append_len(out, p + i + 3, (j + 1) - (i + 3));
 
         /* TOC entry: inner text with nested tags stripped (ignoring block containers like tikz-block) */
-        cwist_sstring_append(items, level == 3 ? "<li class='post-toc-sub'><a href=\"#toc-" : "<li><a href=\"#toc-");
+        char li_tag[64];
+        if (level > 1) {
+            snprintf(li_tag, sizeof(li_tag), "<li class='post-toc-sub post-toc-level-%d'><a href=\"#toc-", level);
+        } else {
+            snprintf(li_tag, sizeof(li_tag), "<li class='post-toc-level-%d'><a href=\"#toc-", level);
+        }
+        cwist_sstring_append(items, li_tag);
         char numbuf[16];
         snprintf(numbuf, sizeof(numbuf), "%d", count);
         cwist_sstring_append(items, numbuf);
