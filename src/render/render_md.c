@@ -26,9 +26,8 @@ static size_t normalize_operator_runs(const char *expr, size_t len, char *copy) 
 
     while (read < len) {
         /* Fix missing double backslash line break in LaTeX environments (e.g. \begin{array}).
-         * 1) If a single '\' occurs at line end, convert to '\\'.
-         * 2) If a raw newline '\n' or '\r' occurs inside an expression and is preceded by text without '\\',
-         *    convert it into '\\\n' so rows aren't concatenated into a single line like "1 11 121 1331". */
+         * If a single '\' occurs at line end (followed by optional spaces/tabs then '\n' or '\r'),
+         * and is NOT preceded by another '\', convert it to '\\' for valid KaTeX row breaks. */
         if (expr[read] == '\\') {
             bool prev_was_slash = (read > 0 && expr[read - 1] == '\\');
             bool next_is_slash = (read + 1 < len && expr[read + 1] == '\\');
@@ -42,29 +41,6 @@ static size_t normalize_operator_runs(const char *expr, size_t len, char *copy) 
                     continue;
                 }
             }
-        } else if (expr[read] == '\n' || expr[read] == '\r') {
-            /* Convert raw newline to '\\' ONLY when the line contains data elements (e.g. numbers/ampersands)
-             * and does NOT end with '\', '{', '}', or environment opening/closing commands. */
-            size_t back = read;
-            while (back > 0 && (expr[back - 1] == ' ' || expr[back - 1] == '\t')) back--;
-            if (back > 0) {
-                char prev_ch = expr[back - 1];
-                if (prev_ch != '\\' && prev_ch != '{' && prev_ch != '}' && prev_ch != '\n' && prev_ch != '\r') {
-                    /* Ensure line isn't a LaTeX command like \begin{...} or \end{...} or \hline */
-                    size_t line_start = back;
-                    while (line_start > 0 && expr[line_start - 1] != '\n' && expr[line_start - 1] != '\r') line_start--;
-                    const char *line_buf = expr + line_start;
-                    size_t line_len = back - line_start;
-                    if (!memmem(line_buf, line_len, "\\begin", 6) &&
-                        !memmem(line_buf, line_len, "\\end", 4) &&
-                        !memmem(line_buf, line_len, "\\hline", 6)) {
-                        copy[written++] = '\\';
-                        copy[written++] = '\\';
-                    }
-                }
-            }
-            copy[written++] = expr[read++];
-            continue;
         }
 
         if (expr[read] == '=') {
