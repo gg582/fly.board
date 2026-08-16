@@ -26,8 +26,9 @@ static size_t normalize_operator_runs(const char *expr, size_t len, char *copy) 
 
     while (read < len) {
         /* Fix missing double backslash line break in LaTeX environments (e.g. \begin{array}).
-         * If a single '\' occurs at the end of a line (followed by optional spaces/tabs then '\n' or '\r'),
-         * and is NOT preceded by another '\', convert it to '\\' for valid KaTeX row breaks. */
+         * 1) If a single '\' occurs at line end, convert to '\\'.
+         * 2) If a raw newline '\n' or '\r' occurs inside an expression and is preceded by text without '\\',
+         *    convert it into '\\\n' so rows aren't concatenated into a single line like "1 11 121 1331". */
         if (expr[read] == '\\') {
             bool prev_was_slash = (read > 0 && expr[read - 1] == '\\');
             bool next_is_slash = (read + 1 < len && expr[read + 1] == '\\');
@@ -41,6 +42,16 @@ static size_t normalize_operator_runs(const char *expr, size_t len, char *copy) 
                     continue;
                 }
             }
+        } else if (expr[read] == '\n' || expr[read] == '\r') {
+            /* Check if previous non-whitespace character was not '\\' */
+            size_t back = read;
+            while (back > 0 && (expr[back - 1] == ' ' || expr[back - 1] == '\t')) back--;
+            if (back > 0 && expr[back - 1] != '\\' && expr[back - 1] != '{' && expr[back - 1] != '\n' && expr[back - 1] != '\r') {
+                copy[written++] = '\\';
+                copy[written++] = '\\';
+            }
+            copy[written++] = expr[read++];
+            continue;
         }
 
         if (expr[read] == '=') {
