@@ -292,6 +292,16 @@ static bool looks_like_bare_latex_expression(const char *s, size_t len) {
         }
     }
 
+    /* Unmistakable bare TeX commands or standalone formulas (e.g. \binom{n}{k}, \frac{a}{b}, \sum, \int, \partial) */
+    if (memmem(s, len, "\\binom", 6) || memmem(s, len, "\\frac", 5) ||
+        memmem(s, len, "\\partial", 8) || memmem(s, len, "\\sum", 4) ||
+        memmem(s, len, "\\prod", 5) || memmem(s, len, "\\int", 4) ||
+        memmem(s, len, "\\lim", 4) || memmem(s, len, "\\sqrt", 5) ||
+        memmem(s, len, "\\mathbf", 7) || memmem(s, len, "\\mathbb", 7) ||
+        memmem(s, len, "\\mathcal", 8) || memmem(s, len, "\\over", 5)) {
+        return true;
+    }
+
     for (size_t i = 0; i < len; i++) {
         /* Preserve Markdown table cells and explicitly delimited math for
          * their dedicated parsers below. */
