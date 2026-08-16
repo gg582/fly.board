@@ -604,6 +604,8 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         multipart_free(files);
         return;
     }
+    cJSON *slug_obj = cJSON_GetObjectItem(post, "slug");
+    char *post_slug = (slug_obj && slug_obj->valuestring) ? strdup(slug_obj->valuestring) : NULL;
     cJSON_Delete(post);
 
     int board_id = board_id_str ? atoi(board_id_str) : 0;
@@ -623,13 +625,25 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
 
     attach_media_meta_to_post(req->db, media_meta, atoi(id_str), uid, role);
 
+    if (post_slug) {
+        fly_nats_publish_post(title, post_slug, summary ? summary : "");
+        page_cache_invalidate_post(post_slug);
+    }
+    if (id_str) {
+        page_cache_invalidate_post(id_str);
+    }
     page_cache_invalidate_all();
 
     reqshare_write_lock_release(wl_key);
     cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
     multipart_free(files);
     char redir_target[128];
-    snprintf(redir_target, sizeof(redir_target), "/post/%s", id_str ? id_str : "");
+    if (post_slug && post_slug[0]) {
+        snprintf(redir_target, sizeof(redir_target), "/post/%s", post_slug);
+    } else {
+        snprintf(redir_target, sizeof(redir_target), "/post/%s", id_str ? id_str : "");
+    }
+    if (post_slug) free(post_slug);
     cwist_free(id_str);
     redirect(res, redir_target);
 }

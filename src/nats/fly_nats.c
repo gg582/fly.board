@@ -12,6 +12,7 @@
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/log.h>
 #include <cjson/cJSON.h>
+#include "../utils/cache.h"
 #include <cwist/core/mem/alloc.h>
 #include <string.h>
 #include <stdio.h>
@@ -32,6 +33,10 @@ static void on_post_msg(const char *subject, const char *data, size_t len, void 
         has_sig = cJSON_IsString(sig_item) && sig_item->valuestring && sig_item->valuestring[0] != '\0';
     }
     FLY_LOG_DEBUG("[fly_nats] received post broadcast slug=%s sig=%s", slug ? slug : "(unknown)", has_sig ? "present" : "missing");
+    if (slug && slug[0]) {
+        page_cache_invalidate_post(slug);
+    }
+    page_cache_invalidate_all();
     if (obj) cJSON_Delete(obj);
 }
 
