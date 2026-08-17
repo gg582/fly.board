@@ -140,7 +140,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, body);
 
     cJSON *h1 = create_rule("h1, .hero h1");
-    add_decl(h1, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
+    add_decl(h1, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Inter', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
     add_decl(h1, "font-weight", g_font_settings.font_weight_h1[0] ? g_font_settings.font_weight_h1 : "800");
     add_decl(h1, "letter-spacing", g_font_settings.letter_spacing_h1[0] ? g_font_settings.letter_spacing_h1 : "-0.05em");
     add_decl(h1, "line-height", "1.1");
@@ -148,7 +148,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h1);
 
     cJSON *h2 = create_rule("h2, .board-line-title, .board-card h2");
-    add_decl(h2, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
+    add_decl(h2, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Inter', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
     add_decl(h2, "font-weight", g_font_settings.font_weight_h2[0] ? g_font_settings.font_weight_h2 : "750");
     add_decl(h2, "letter-spacing", g_font_settings.letter_spacing_h2[0] ? g_font_settings.letter_spacing_h2 : "-0.04em");
     add_decl(h2, "line-height", "1.15");
@@ -156,7 +156,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h2);
 
     cJSON *h3 = create_rule("h3");
-    add_decl(h3, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
+    add_decl(h3, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Inter', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
     add_decl(h3, "font-weight", g_font_settings.font_weight_h3[0] ? g_font_settings.font_weight_h3 : "700");
     add_decl(h3, "letter-spacing", g_font_settings.letter_spacing_h3[0] ? g_font_settings.letter_spacing_h3 : "-0.03em");
     add_decl(h3, "line-height", "1.2");
@@ -164,7 +164,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h3);
 
     cJSON *h4 = create_rule("h4");
-    add_decl(h4, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
+    add_decl(h4, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Inter', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
     add_decl(h4, "font-weight", g_font_settings.font_weight_h4[0] ? g_font_settings.font_weight_h4 : "600");
     add_decl(h4, "letter-spacing", g_font_settings.letter_spacing_h4[0] ? g_font_settings.letter_spacing_h4 : "-0.02em");
     add_decl(h4, "line-height", "1.25");
@@ -172,7 +172,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h4);
 
     cJSON *h5h6 = create_rule("h5, h6");
-    add_decl(h5h6, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
+    add_decl(h5h6, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Inter', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
     add_decl(h5h6, "font-weight", g_font_settings.font_weight_h5h6[0] ? g_font_settings.font_weight_h5h6 : "500");
     add_decl(h5h6, "letter-spacing", g_font_settings.letter_spacing_h5h6[0] ? g_font_settings.letter_spacing_h5h6 : "-0.01em");
     add_decl(h5h6, "line-height", "1.3");
@@ -180,7 +180,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h5h6);
 
     cJSON *topbar_title = create_rule(".topbar-title");
-    add_decl(topbar_title, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
+    add_decl(topbar_title, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Inter', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
     add_decl(topbar_title, "font-weight", g_font_settings.font_weight_topbar_title[0] ? g_font_settings.font_weight_topbar_title : "800");
     add_decl(topbar_title, "letter-spacing", g_font_settings.letter_spacing_topbar_title[0] ? g_font_settings.letter_spacing_topbar_title : "-0.04em");
     add_decl(topbar_title, "line-height", "1.2");
