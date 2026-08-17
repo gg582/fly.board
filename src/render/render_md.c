@@ -774,18 +774,14 @@ static char *protect_math(const char *md, math_registry_t *blocks,
             }
         }
 
-        /* Safe inline HTML formatting tags (<span style="...">, <font color="...">, <mark style="...">).
-         * md4c runs with MD_FLAG_NOHTML and escapes raw HTML. Protect safe inline text styling
-         * tags so custom text colors, highlights, and font styles are preserved. */
+        /* Raw <video>/<audio> tags inserted by the editor. md4c runs with
+         * MD_FLAG_NOHTML and would escape them, so swap them for placeholders
+         * here and restore a sanitized version after rendering. */
         if (md[i] == '<' && media) {
             const char *tag_name = NULL;
             size_t name_len = 0;
-            if (i + 5 <= len && strncasecmp(md + i, "<span", 5) == 0) { tag_name = "span"; name_len = 5; }
-            else if (i + 5 <= len && strncasecmp(md + i, "<font", 5) == 0) { tag_name = "font"; name_len = 5; }
-            else if (i + 5 <= len && strncasecmp(md + i, "<mark", 5) == 0) { tag_name = "mark"; name_len = 5; }
-            else if (i + 6 <= len && strncasecmp(md + i, "<video", 6) == 0) { tag_name = "video"; name_len = 6; }
+            if (i + 6 <= len && strncasecmp(md + i, "<video", 6) == 0) { tag_name = "video"; name_len = 6; }
             else if (i + 6 <= len && strncasecmp(md + i, "<audio", 6) == 0) { tag_name = "audio"; name_len = 6; }
-
             if (tag_name && (i + name_len >= len || md[i + name_len] == ' ' || md[i + name_len] == '\t' ||
                              md[i + name_len] == '\n' || md[i + name_len] == '\r' ||
                              md[i + name_len] == '>' || md[i + name_len] == '/')) {
@@ -800,61 +796,10 @@ static char *protect_math(const char *md, math_registry_t *blocks,
                         const char *close_gt = memchr(close, '>', len - (size_t)(close - md));
                         if (close_gt) block_end = (size_t)(close_gt - md) + 1;
                     }
-                    if (block_end - i <= 16384) {
+                    if (block_end - i <= 4096) {
                         cwist_sstring *sanitized = cwist_sstring_create();
                         if (sanitized) {
-                            if (strcmp(tag_name, "video") == 0 || strcmp(tag_name, "audio") == 0) {
-                                sanitize_media_tag(sanitized, md + i, tag_end + 1 - i, tag_name);
-                            } else {
-                                /* Sanitize inline styling wrapper (<span style="...">inner</span>) */
-                                cwist_sstring_append(sanitized, "<");
-                                cwist_sstring_append(sanitized, tag_name);
-                                size_t attr_pos = i + name_len;
-                                while (attr_pos < tag_end) {
-                                    while (attr_pos < tag_end && (md[attr_pos] == ' ' || md[attr_pos] == '\t' || md[attr_pos] == '\n' || md[attr_pos] == '\r')) attr_pos++;
-                                    if (attr_pos >= tag_end) break;
-                                    size_t n_start = attr_pos;
-                                    while (attr_pos < tag_end && md[attr_pos] != '=' && md[attr_pos] != ' ' && md[attr_pos] != '\t' && md[attr_pos] != '\n' && md[attr_pos] != '\r') attr_pos++;
-                                    size_t n_len = attr_pos - n_start;
-                                    if (n_len == 0) { attr_pos++; continue; }
-                                    while (attr_pos < tag_end && (md[attr_pos] == ' ' || md[attr_pos] == '\t' || md[attr_pos] == '\n' || md[attr_pos] == '\r')) attr_pos++;
-                                    const char *val = NULL; size_t val_len = 0;
-                                    if (attr_pos < tag_end && md[attr_pos] == '=') {
-                                        attr_pos++;
-                                        while (attr_pos < tag_end && (md[attr_pos] == ' ' || md[attr_pos] == '\t' || md[attr_pos] == '\n' || md[attr_pos] == '\r')) attr_pos++;
-                                        if (attr_pos < tag_end && (md[attr_pos] == '"' || md[attr_pos] == '\'')) {
-                                            char q = md[attr_pos++];
-                                            val = md + attr_pos;
-                                            while (attr_pos < tag_end && md[attr_pos] != q) attr_pos++;
-                                            val_len = (size_t)(md + attr_pos - val);
-                                            if (attr_pos < tag_end) attr_pos++;
-                                        } else {
-                                            val = md + attr_pos;
-                                            while (attr_pos < tag_end && md[attr_pos] != ' ' && md[attr_pos] != '\t' && md[attr_pos] != '\n' && md[attr_pos] != '\r') attr_pos++;
-                                            val_len = (size_t)(md + attr_pos - val);
-                                        }
-                                    }
-                                    if (media_attr_allowed(md + n_start, n_len)) {
-                                        cwist_sstring_append(sanitized, " ");
-                                        cwist_sstring_append_len(sanitized, md + n_start, n_len);
-                                        if (val) {
-                                            cwist_sstring_append(sanitized, "=\"");
-                                            for (size_t v = 0; v < val_len; v++) {
-                                                if (val[v] == '"') cwist_sstring_append(sanitized, "&quot;");
-                                                else cwist_sstring_append_len(sanitized, val + v, 1);
-                                            }
-                                            cwist_sstring_append(sanitized, "\"");
-                                        }
-                                    }
-                                }
-                                cwist_sstring_append(sanitized, ">");
-                                /* Append inner text content safely */
-                                size_t inner_start = tag_end + 1;
-                                append_escaped_math(sanitized, md + inner_start);
-                                cwist_sstring_append(sanitized, "</");
-                                cwist_sstring_append(sanitized, tag_name);
-                                cwist_sstring_append(sanitized, ">");
-                            }
+                            sanitize_media_tag(sanitized, md + i, tag_end + 1 - i, tag_name);
                             math_registry_add(media, sanitized->data, strlen(sanitized->data));
                             cwist_sstring_destroy(sanitized);
                             char placeholder[64];
