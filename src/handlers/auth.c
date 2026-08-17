@@ -6,42 +6,45 @@ static bool req_is_tls(cwist_http_request *req) {
     if (!req) return g_config.use_tls;
     if (req->stream_id > 0) return true;
 
+    /* Check standard forwarded protocol headers (case-insensitive) */
     const char *proto = cwist_http_header_get(req->headers, "X-Forwarded-Proto");
+    if (!proto) proto = cwist_http_header_get(req->headers, "x-forwarded-proto");
     if (proto) {
         if (strcasecmp(proto, "https") == 0) return true;
         if (strcasecmp(proto, "http") == 0) return false;
     }
     const char *scheme = cwist_http_header_get(req->headers, "X-Forwarded-Scheme");
+    if (!scheme) scheme = cwist_http_header_get(req->headers, "x-forwarded-scheme");
     if (scheme) {
         if (strcasecmp(scheme, "https") == 0) return true;
         if (strcasecmp(scheme, "http") == 0) return false;
     }
     const char *ssl = cwist_http_header_get(req->headers, "X-Forwarded-Ssl");
+    if (!ssl) ssl = cwist_http_header_get(req->headers, "x-forwarded-ssl");
     if (ssl) {
         if (strcasecmp(ssl, "on") == 0 || strcmp(ssl, "1") == 0) return true;
         if (strcasecmp(ssl, "off") == 0 || strcmp(ssl, "0") == 0) return false;
     }
     const char *origin = cwist_http_header_get(req->headers, "Origin");
+    if (!origin) origin = cwist_http_header_get(req->headers, "origin");
     if (origin) {
         if (strncasecmp(origin, "https://", 8) == 0) return true;
         if (strncasecmp(origin, "http://", 7) == 0) return false;
     }
     const char *referer = cwist_http_header_get(req->headers, "Referer");
+    if (!referer) referer = cwist_http_header_get(req->headers, "referer");
     if (referer) {
         if (strncasecmp(referer, "https://", 8) == 0) return true;
         if (strncasecmp(referer, "http://", 7) == 0) return false;
     }
     const char *fwd = cwist_http_header_get(req->headers, "Forwarded");
+    if (!fwd) fwd = cwist_http_header_get(req->headers, "forwarded");
     if (fwd && (strstr(fwd, "proto=https") || strstr(fwd, "proto=\"https\""))) {
         return true;
     }
     const char *cf = cwist_http_header_get(req->headers, "CF-Visitor");
+    if (!cf) cf = cwist_http_header_get(req->headers, "cf-visitor");
     if (cf && strstr(cf, "\"scheme\":\"https\"")) {
-        return true;
-    }
-    const char *host = cwist_http_header_get(req->headers, "Host");
-    if (host && (strstr(host, ".zip") || strstr(host, ".com") || strstr(host, ".net") || strstr(host, ".io") || strstr(host, ".org"))) {
-        /* Public domain names almost universally terminate TLS at proxy */
         return true;
     }
     return g_config.use_tls;
