@@ -134,6 +134,7 @@ def main():
         "highlight-sparql.js":   "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/dsconfig.min.js",
         "highlight-mermaid.js":  "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/mermaid.min.js",
         "highlight-brainfuck.js":"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/brainfuck.min.js",
+        "highlight-freedesktop.js":"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/freedesktop.min.js",
         "katex.js": "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js",
     }
 
