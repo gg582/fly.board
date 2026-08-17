@@ -48,6 +48,7 @@ typedef struct {
     char *highlight_llvm_js;
     char *highlight_sparql_js;
     char *highlight_brainfuck_js;
+    char *highlight_freedesktop_js;
     char *katex_js;
     char *katex_css;
 } inline_assets_t;
@@ -92,6 +93,7 @@ static void load_inline_assets(void) {
     g_inline_assets.highlight_llvm_js     = read_file_to_string("public/inline_assets/highlight-llvm.js");
     g_inline_assets.highlight_sparql_js   = read_file_to_string("public/inline_assets/highlight-sparql.js");
     g_inline_assets.highlight_brainfuck_js= read_file_to_string("public/inline_assets/highlight-brainfuck.js");
+    g_inline_assets.highlight_freedesktop_js = read_file_to_string("public/inline_assets/highlight-freedesktop.js");
     g_inline_assets.katex_js              = read_file_to_string("public/inline_assets/katex.js");
     g_inline_assets.katex_css             = read_file_to_string("public/inline_assets/katex.css");
 }
@@ -685,6 +687,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                         APPEND_HL_LANG(highlight_llvm_js);
                         APPEND_HL_LANG(highlight_sparql_js);
                         APPEND_HL_LANG(highlight_brainfuck_js);
+                        APPEND_HL_LANG(highlight_freedesktop_js);
 #undef APPEND_HL_LANG
                         cwist_sstring_append(body_cdn, "\nhljs.highlightAll();</script>");
                     } else {
@@ -711,6 +714,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                             "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/x86asm.min.js\"></script>"
                             "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/llvm.min.js\"></script>"
                             "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/brainfuck.min.js\"></script>"
+                            "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/languages/freedesktop.min.js\"></script>"
                             "<script>hljs.highlightAll();</script>");
                     }
                 }

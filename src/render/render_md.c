@@ -25,9 +25,9 @@ static size_t normalize_operator_runs(const char *expr, size_t len, char *copy) 
     size_t written = 0;
 
     while (read < len) {
-        /* Fix missing double backslash line break in LaTeX environments (e.g. \begin{array}).
-         * If a single '\' occurs at line end (followed by optional spaces/tabs then '\n' or '\r'),
-         * and is NOT preceded by another '\', convert it to '\\' for valid KaTeX row breaks. */
+        /* Fix missing double backslash line break in LaTeX environments (e.g. \begin{array}, \begin{aligned}).
+         * Handle cases where single backslash '\' occurs at line end (followed by optional spaces/tabs then '\n' or '\r')
+         * or followed directly by whitespace and next line content, converting it to '\\' for valid KaTeX row breaks. */
         if (expr[read] == '\\') {
             bool prev_was_slash = (read > 0 && expr[read - 1] == '\\');
             bool next_is_slash = (read + 1 < len && expr[read + 1] == '\\');
@@ -94,6 +94,15 @@ static void math_registry_add(math_registry_t *reg, const char *expr, size_t len
     }
     while (len > 0 && (expr[len - 1] == ' ' || expr[len - 1] == '\t' || expr[len - 1] == '\n' || expr[len - 1] == '\r')) {
         len--;
+    }
+    /* If math expression mistakenly starts with markdown header symbols (e.g., "# $$" or "# \text{...}"), strip leading '#' */
+    if (len > 0 && expr[0] == '#') {
+        size_t p = 1;
+        while (p < len && (expr[p] == ' ' || expr[p] == '\t')) p++;
+        if (p < len && (expr[p] == '$' || expr[p] == '\\')) {
+            expr += p;
+            len -= p;
+        }
     }
     if (len == 0) {
         expr = " ";
