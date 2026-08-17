@@ -1413,6 +1413,75 @@ static void inject_img_attrs(cwist_sstring *html) {
     cwist_sstring_destroy(out);
 }
 
+static void restore_inline_styled_spans(cwist_sstring *html) {
+    const char *data = html->data;
+    size_t len = strlen(data);
+    if (len == 0) return;
+
+    cwist_sstring *out = cwist_sstring_create();
+    size_t i = 0;
+
+    while (i < len) {
+        /* Unescape safe opening tags: &lt;span style="..."&gt;, &lt;font color="..."&gt;, &lt;mark style="..."&gt; */
+        if (i + 4 <= len && strncmp(data + i, "&lt;", 4) == 0) {
+            const char *tag_name = NULL;
+            size_t tag_name_len = 0;
+            size_t scan_pos = i + 4;
+            if (scan_pos + 4 <= len && strncasecmp(data + scan_pos, "span", 4) == 0) { tag_name = "span"; tag_name_len = 4; }
+            else if (scan_pos + 4 <= len && strncasecmp(data + scan_pos, "font", 4) == 0) { tag_name = "font"; tag_name_len = 4; }
+            else if (scan_pos + 4 <= len && strncasecmp(data + scan_pos, "mark", 4) == 0) { tag_name = "mark"; tag_name_len = 4; }
+
+            if (tag_name && (scan_pos + tag_name_len < len &&
+                             (data[scan_pos + tag_name_len] == ' ' || data[scan_pos + tag_name_len] == '\t' ||
+                              data[scan_pos + tag_name_len] == '\n' || data[scan_pos + tag_name_len] == '\r'))) {
+                const char *gt_pos = strstr(data + i, "&gt;");
+                if (gt_pos) {
+                    size_t tag_escaped_len = (size_t)(gt_pos + 4 - (data + i));
+                    /* Check if the tag contains style, color, face, or class attributes */
+                    if (strstr(data + i, "style=") || strstr(data + i, "color=") ||
+                        strstr(data + i, "face=") || strstr(data + i, "class=")) {
+                        /* Emit raw '<' */
+                        cwist_sstring_append(out, "<");
+                        /* Unescape the attribute portion between &lt; and &gt; */
+                        const char *inner = data + i + 4;
+                        size_t inner_len = (size_t)(gt_pos - inner);
+                        cwist_sstring *attr_buf = cwist_sstring_create();
+                        cwist_sstring_append_len(attr_buf, inner, inner_len);
+                        /* Unescape &quot; &amp; in attributes */
+                        char *cur = attr_buf->data;
+                        while (*cur) {
+                            if (strncmp(cur, "&quot;", 6) == 0) { cwist_sstring_append(out, "\""); cur += 6; }
+                            else if (strncmp(cur, "&amp;", 5) == 0) { cwist_sstring_append(out, "&"); cur += 5; }
+                            else if (strncmp(cur, "&#39;", 5) == 0) { cwist_sstring_append(out, "'"); cur += 5; }
+                            else { cwist_sstring_append_len(out, cur, 1); cur++; }
+                        }
+                        cwist_sstring_destroy(attr_buf);
+                        cwist_sstring_append(out, ">");
+                        i += tag_escaped_len;
+                        continue;
+                    }
+                }
+            } else if (scan_pos + 5 <= len && (strncasecmp(data + scan_pos, "/span", 5) == 0 ||
+                                               strncasecmp(data + scan_pos, "/font", 5) == 0 ||
+                                               strncasecmp(data + scan_pos, "/mark", 5) == 0)) {
+                const char *gt_pos = strstr(data + i, "&gt;");
+                if (gt_pos && gt_pos == data + i + 4 + 5) {
+                    char close_tag[16];
+                    snprintf(close_tag, sizeof(close_tag), "</%.*s>", 4, data + scan_pos + 1);
+                    cwist_sstring_append(out, close_tag);
+                    i += 4 + 5 + 4; /* &lt; /span &gt; */
+                    continue;
+                }
+            }
+        }
+        cwist_sstring_append_len(out, data + i, 1);
+        i++;
+    }
+
+    cwist_sstring_assign(html, out->data);
+    cwist_sstring_destroy(out);
+}
+
 cwist_sstring *render_markdown_to_html(const char *md) {
     math_registry_t blocks = {0}, inlines = {0}, media = {0}, tikz = {0};
     math_registry_init(&blocks);
@@ -1452,5 +1521,6 @@ cwist_sstring *render_markdown_to_html(const char *md) {
     rewrite_x_equation(html);
     inject_img_attrs(html);
     rewrite_tasfa_bootstrap(html);
+    restore_inline_styled_spans(html);
     return html;
 }
