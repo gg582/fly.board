@@ -180,7 +180,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h5h6);
 
     cJSON *topbar_title = create_rule(".topbar-title");
-    add_decl(topbar_title, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
+    add_decl(topbar_title, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
     add_decl(topbar_title, "font-weight", g_font_settings.font_weight_topbar_title[0] ? g_font_settings.font_weight_topbar_title : "800");
     add_decl(topbar_title, "letter-spacing", g_font_settings.letter_spacing_topbar_title[0] ? g_font_settings.letter_spacing_topbar_title : "-0.04em");
     add_decl(topbar_title, "line-height", "1.2");
