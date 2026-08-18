@@ -194,7 +194,7 @@ setup:
 
 # Markdown renderer regression tests.
 RENDER_TEST_SRCS := src/render/render_md.c src/utils/image_size.c src/utils/stb_image_impl.c
-RENDER_TESTS := tests/test_render_md_video tests/test_render_md_blocks
+RENDER_TESTS := tests/test_render_md_video tests/test_render_md_blocks tests/test_render_md_iframe
 
 tests/test_render_%: tests/test_render_%.c $(RENDER_TEST_SRCS) $(MD4C_OBJS)
 	$(CC) $(CFLAGS) -Ithird_party/stb -o $@ $^ $(LDFLAGS) $(LIBS)
