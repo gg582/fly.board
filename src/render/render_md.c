@@ -656,6 +656,138 @@ static void sanitize_media_tag(cwist_sstring *out, const char *snippet, size_t l
     cwist_sstring_append(out, ">");
 }
 
+/* Allowed iframe src prefixes — only YouTube embed variants are permitted.
+ * Both http and https are accepted; the scheme is normalised to https on output. */
+static bool is_youtube_embed_src(const char *src, size_t len) {
+    static const char *const prefixes[] = {
+        "https://www.youtube.com/embed/",
+        "http://www.youtube.com/embed/",
+        "https://youtube.com/embed/",
+        "http://youtube.com/embed/",
+        "https://www.youtube-nocookie.com/embed/",
+        "http://www.youtube-nocookie.com/embed/",
+    };
+    for (size_t k = 0; k < sizeof(prefixes) / sizeof(prefixes[0]); k++) {
+        size_t plen = strlen(prefixes[k]);
+        if (len >= plen && strncasecmp(src, prefixes[k], plen) == 0) return true;
+    }
+    return false;
+}
+
+static bool iframe_attr_allowed(const char *name, size_t len) {
+    /* src is handled separately (URL-validated); sandbox is injected by us.
+     * on* event handlers, allow-* tokens, and srcdoc are intentionally absent. */
+    static const char *const allowed[] = {
+        "width", "height", "title", "frameborder", "allowfullscreen",
+        "allow", "loading", "class", "id", "style", "referrerpolicy",
+    };
+    for (size_t k = 0; k < sizeof(allowed) / sizeof(allowed[0]); k++) {
+        if (strlen(allowed[k]) == len && strncasecmp(name, allowed[k], len) == 0) return true;
+    }
+    return false;
+}
+
+/* Sanitise a raw <iframe> tag so only YouTube embed URLs are accepted.
+ * Returns false and writes nothing if src is absent or not an allowed URL.
+ * On success emits a safe <iframe> with a restrictive sandbox attribute. */
+static bool sanitize_iframe_tag(cwist_sstring *out, const char *snippet, size_t len) {
+    const char *src_val = NULL;
+    size_t      src_len = 0;
+
+    cwist_sstring *attrs = cwist_sstring_create();
+    if (!attrs) return false;
+
+    size_t i = 7; /* skip "<iframe" */
+    while (i < len && snippet[i] != '>') {
+        while (i < len && (snippet[i] == ' ' || snippet[i] == '\t' ||
+               snippet[i] == '\n' || snippet[i] == '\r' || snippet[i] == '/')) i++;
+        if (i >= len || snippet[i] == '>') break;
+
+        size_t name_start = i;
+        while (i < len && snippet[i] != '=' && snippet[i] != '>' &&
+               snippet[i] != ' ' && snippet[i] != '\t' &&
+               snippet[i] != '\n' && snippet[i] != '\r' && snippet[i] != '/') i++;
+        size_t name_len = i - name_start;
+        if (name_len == 0) { i++; continue; }
+
+        while (i < len && (snippet[i] == ' ' || snippet[i] == '\t' ||
+               snippet[i] == '\n' || snippet[i] == '\r')) i++;
+
+        const char *value = NULL;
+        size_t value_len = 0;
+        if (i < len && snippet[i] == '=') {
+            i++;
+            while (i < len && (snippet[i] == ' ' || snippet[i] == '\t' ||
+                   snippet[i] == '\n' || snippet[i] == '\r')) i++;
+            if (i < len && (snippet[i] == '"' || snippet[i] == '\'')) {
+                char quote = snippet[i++];
+                value = snippet + i;
+                while (i < len && snippet[i] != quote) i++;
+                value_len = (size_t)(snippet + i - value);
+                if (i < len) i++;
+            } else {
+                value = snippet + i;
+                while (i < len && snippet[i] != '>' && snippet[i] != ' ' &&
+                       snippet[i] != '\t' && snippet[i] != '\n' && snippet[i] != '\r') i++;
+                value_len = (size_t)(snippet + i - value);
+            }
+        }
+
+        /* Handle src specially — validate URL. */
+        if (name_len == 3 && strncasecmp(snippet + name_start, "src", 3) == 0) {
+            if (value && is_youtube_embed_src(value, value_len)) {
+                src_val = value;
+                src_len = value_len;
+            }
+            continue; /* always skip — we'll emit it ourselves after validation */
+        }
+
+        /* Drop sandbox (we inject our own), on* handlers, and srcdoc. */
+        if (name_len == 7 && strncasecmp(snippet + name_start, "sandbox", 7) == 0) continue;
+        if (name_len >= 2 && strncasecmp(snippet + name_start, "on", 2) == 0) continue;
+        if (name_len == 6 && strncasecmp(snippet + name_start, "srcdoc", 6) == 0) continue;
+
+        if (!iframe_attr_allowed(snippet + name_start, name_len)) continue;
+
+        cwist_sstring_append(attrs, " ");
+        cwist_sstring_append_len(attrs, snippet + name_start, name_len);
+        if (value) {
+            cwist_sstring_append(attrs, "=\"");
+            for (size_t v = 0; v < value_len; v++) {
+                if (value[v] == '"') cwist_sstring_append(attrs, "&quot;");
+                else cwist_sstring_append_len(attrs, value + v, 1);
+            }
+            cwist_sstring_append(attrs, "\"");
+        }
+    }
+
+    if (!src_val) {
+        cwist_sstring_destroy(attrs);
+        return false;
+    }
+
+    /* Normalise src: rewrite http:// to https:// */
+    cwist_sstring_append(out, "<iframe src=\"");
+    if (src_len >= 7 && strncasecmp(src_val, "http://", 7) == 0) {
+        cwist_sstring_append(out, "https://");
+        cwist_sstring_append_len(out, src_val + 7, src_len - 7);
+    } else {
+        for (size_t v = 0; v < src_len; v++) {
+            if (src_val[v] == '"') cwist_sstring_append(out, "&quot;");
+            else cwist_sstring_append_len(out, src_val + v, 1);
+        }
+    }
+    cwist_sstring_append(out, "\"");
+
+    cwist_sstring_append(out, attrs->data);
+    cwist_sstring_destroy(attrs);
+
+    /* Force a restrictive sandbox — no forms, no top-nav, no popups. */
+    cwist_sstring_append(out, " sandbox=\"allow-scripts allow-same-origin allow-presentation\"");
+    cwist_sstring_append(out, "></iframe>");
+    return true;
+}
+
 static bool is_code_fence_line(const char *s, size_t pos, size_t len, int *out_len) {
     size_t k = pos;
     while (k < len && (s[k] == ' ' || s[k] == '\t')) k++;
@@ -808,6 +940,43 @@ static char *protect_math(const char *md, math_registry_t *blocks,
                             i = block_end;
                             continue;
                         }
+                    }
+                }
+            }
+        }
+
+        /* <iframe> tags: only YouTube embed URLs are allowed. The sanitizer
+         * validates src and injects a restrictive sandbox attribute.
+         * Non-YouTube iframes (or iframes with missing/bad src) are dropped. */
+        if (md[i] == '<' && media &&
+            i + 7 <= len && strncasecmp(md + i, "<iframe", 7) == 0 &&
+            (i + 7 >= len || md[i + 7] == ' ' || md[i + 7] == '\t' ||
+             md[i + 7] == '\n' || md[i + 7] == '\r' ||
+             md[i + 7] == '>' || md[i + 7] == '/')) {
+            size_t tag_end = i + 7;
+            while (tag_end < len && md[tag_end] != '>') tag_end++;
+            if (tag_end < len) {
+                size_t block_end = tag_end + 1;
+                const char *close = find_closing_tag(md + tag_end + 1, len - (tag_end + 1),
+                                                     "</iframe", 8);
+                if (close) {
+                    const char *close_gt = memchr(close, '>', len - (size_t)(close - md));
+                    if (close_gt) block_end = (size_t)(close_gt - md) + 1;
+                }
+                if (block_end - i <= 4096) {
+                    cwist_sstring *sanitized = cwist_sstring_create();
+                    if (sanitized) {
+                        bool ok = sanitize_iframe_tag(sanitized, md + i, tag_end + 1 - i);
+                        if (ok) {
+                            math_registry_add(media, sanitized->data, strlen(sanitized->data));
+                            char placeholder[64];
+                            snprintf(placeholder, sizeof(placeholder), "@@RAW_MEDIA_%d@@", media->count - 1);
+                            cwist_sstring_append(out, placeholder);
+                        }
+                        /* If src was rejected, emit nothing — the tag is silently dropped. */
+                        cwist_sstring_destroy(sanitized);
+                        i = block_end;
+                        continue;
                     }
                 }
             }
