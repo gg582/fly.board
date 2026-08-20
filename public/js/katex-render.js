@@ -76,9 +76,10 @@
 
     /* TikZJax is the preferred renderer: it keeps the diagram source in the
      * browser.  Some browsers, extensions, and slow WebAssembly starts do
-     * fail to complete it though.  After retrying TikZJax, ask the public
-     * latexonline.cc compiler for a one-page PDF.  An <object> avoids CORS
-     * requirements and lets the browser render the returned PDF directly. */
+     * fail to complete it though, and its minimal engine lacks popular TikZ
+     * dialect packages.  Those diagrams are handed to public compile engines
+     * (latexonline.cc, texlive.net) which return a one-page PDF.  An <object>
+     * avoids CORS requirements and lets the browser render the PDF directly. */
     function publicTikZDocument(code) {
         if (code.includes('\\begin{document}')) return code;
         /* Libraries and packages are preamble commands. Pull line-oriented
@@ -95,6 +96,22 @@
                '\n\\end{document}';
     }
 
+    /* Public compile engines, tried in order and cycled indefinitely when
+     * one flakes.  Each takes a full LaTeX document and returns a one-page
+     * PDF renderable by the browser via an <object> (no CORS needed). */
+    var TIKZ_PUBLIC_PROVIDERS = [
+        function(doc) {
+            return 'https://latexonline.cc/compile?command=pdflatex&text=' + encodeURIComponent(doc);
+        },
+        function(doc) {
+            return 'https://texlive.net/cgi-bin/latexcgi?command=pdflatex&return=pdf' +
+                '&filename[]=document.tex&filecontents[]=' + encodeURIComponent(doc);
+        },
+        function(doc) {
+            return 'https://latexonline.cc/compile?command=xelatex&text=' + encodeURIComponent(doc);
+        }
+    ];
+
     function renderWithPublicTikZProvider(wrapper, error) {
         if (!wrapper || hasTikZOutput(wrapper) || wrapper.dataset.tikzProviderRequested === '1') return;
         var script = wrapper.querySelector('script[type="text/tikz"]');
@@ -105,26 +122,33 @@
             return;
         }
 
+        var providerIndex = parseInt(wrapper.dataset.tikzProviderIndex || '0', 10) || 0;
+        var makeUrl = TIKZ_PUBLIC_PROVIDERS[providerIndex % TIKZ_PUBLIC_PROVIDERS.length];
+        wrapper.dataset.tikzProviderIndex = String(providerIndex + 1);
+
         wrapper.dataset.tikzProviderRequested = '1';
         wrapper.dataset.tikzState = 'public-pending';
-        var notice = document.createElement('div');
-        notice.className = 'tikz-status';
+        var notice = wrapper.querySelector('.tikz-status');
+        if (!notice) {
+            notice = document.createElement('div');
+            notice.className = 'tikz-status';
+            wrapper.insertBefore(notice, wrapper.firstChild);
+        }
         notice.textContent = 'Retrying with public TikZ renderer…';
-        wrapper.insertBefore(notice, wrapper.firstChild);
 
         var object = document.createElement('object');
         object.className = 'tikz-public-render';
         object.type = 'application/pdf';
         object.setAttribute('aria-label', 'TikZ diagram rendered by public LaTeX service');
-        object.data = 'https://latexonline.cc/compile?command=pdflatex&text=' +
-            encodeURIComponent(publicTikZDocument(prepareTikZCode(source)));
+        object.data = makeUrl(publicTikZDocument(prepareTikZCode(source)));
         object.onload = function() {
             notice.remove();
             wrapper.dataset.tikzState = 'public-rendered';
         };
         object.onerror = function() {
             object.remove();
-            /* The public provider flakes too; retry it instead of failing. */
+            /* One engine flaking says nothing about the others; move to the
+             * next provider and keep cycling until something renders. */
             wrapper.dataset.tikzProviderRequested = '0';
             wrapper.dataset.tikzState = 'pending';
             setTimeout(function() {
@@ -149,11 +173,20 @@
         if (window.console && console.warn) console.warn('TikZJax render failed', error || 'unknown error');
     }
 
-    /* Retry TikZJax indefinitely: slow WebAssembly starts or flaky runs
-     * eventually succeed, and each attempt is cheap.  Never give up and
-     * fall back to the public provider or an error message. */
+    /* Retry TikZJax indefinitely for plain diagrams: slow WebAssembly starts
+     * or flaky runs eventually succeed, and each attempt is cheap.  Diagrams
+     * that need packages TikZJax's minimal engine lacks (tikz-cd, pgfplots,
+     * circuitikz, ...) never succeed there, so after a few attempts hand
+     * them to the public engine chain, which cycles providers forever. */
+    var TIKZJAX_DIALECT_ATTEMPTS = 3;
+
     function retryTikZRender(wrapper, attempt) {
         if (!wrapper || hasTikZOutput(wrapper) || wrapper.dataset.tikzProviderRequested === '1') return;
+        var current = wrapper.querySelector('script[type="text/tikz"]');
+        if (current && current.getAttribute('data-has-packages') === 'true' && attempt >= TIKZJAX_DIALECT_ATTEMPTS) {
+            renderWithPublicTikZProvider(wrapper, 'TikZJax cannot compile this TikZ dialect');
+            return;
+        }
         setTimeout(function() {
             if (!wrapper || hasTikZOutput(wrapper) || wrapper.dataset.tikzProviderRequested === '1') return;
             var script = wrapper.querySelector('script[type="text/tikz"]');
@@ -173,9 +206,38 @@
         }, TIKZ_RETRY_DELAY_MS);
     }
 
+    /* Well-known TikZ dialects need their backing package in the preamble.
+     * Detect the idioms and declare the package when the author omitted it,
+     * so plain ```tikz blocks of tikzcd/pgfplots/circuitikz/chemfig/...
+     * compile without extra boilerplate. */
+    var TIKZ_DIALECT_PACKAGES = [
+        { test: /\\begin\s*\{tikzcd\}|\\arrow\s*[\[\{]/, name: 'tikz-cd', decl: '\\usepackage{tikz-cd}' },
+        { test: /\\begin\s*\{axis\}|\\addplot\b/, name: 'pgfplots', decl: '\\usepackage{pgfplots}\n\\pgfplotsset{compat=1.17}' },
+        { test: /\\begin\s*\{circuitikz\}|\\draw[^\n]*\bto\s*\[\s*(?:R|C|L|D|led|battery|voltage|current|short|open)\b/, name: 'circuitikz', decl: '\\usepackage{circuitikz}' },
+        { test: /\\chemfig\b/, name: 'chemfig', decl: '\\usepackage{chemfig}' },
+        { test: /\\tdplot/, name: 'tikz-3dplot', decl: '\\usepackage{tikz-3dplot}' },
+        { test: /\\begin\s*\{forest\}/, name: 'forest', decl: '\\usepackage{forest}' },
+        { test: /\\begin\s*\{ganttchart\}/, name: 'pgfgantt', decl: '\\usepackage{pgfgantt}' },
+        { test: /\\begin\s*\{pgflowchart|flowchart/, name: 'tikz flowchart lib', decl: '\\usetikzlibrary{shapes,arrows,positioning}' }
+    ];
+
+    function normalizeTikZDialects(code) {
+        var out = String(code || '');
+        TIKZ_DIALECT_PACKAGES.forEach(function(dialect) {
+            if (dialect.test.test(out) && !out.includes(dialect.name === 'tikz flowchart lib' ? 'shapes,arrows' : dialect.name)) {
+                out = dialect.decl + '\n' + out;
+            }
+        });
+        return out;
+    }
+
     function prepareTikZCode(code) {
-        var trimmed = normalizeOperatorRuns(code).trim();
-        if (!trimmed.includes('\\begin{document}') && !trimmed.includes('\\begin{tikzpicture}')) {
+        var trimmed = normalizeTikZDialects(normalizeOperatorRuns(code)).trim();
+        if (!trimmed.includes('\\begin{document}') && !trimmed.includes('\\begin{tikzpicture}') &&
+            !trimmed.includes('\\begin{tikzcd}') && !trimmed.includes('\\begin{circuitikz}') &&
+            !trimmed.includes('\\begin{forest}') && !trimmed.includes('\\chemfig')) {
+            /* chemfig and friends live at document level; only bare drawing
+             * commands (\draw, \node, ...) get a tikzpicture wrapper. */
             return '\\begin{tikzpicture}\n' + trimmed + '\n\\end{tikzpicture}';
         }
         return trimmed;

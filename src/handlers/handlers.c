@@ -10,6 +10,7 @@
 #include "../utils/utils.h"
 #include "../utils/image_inline.h"
 #include "../config/config.h"
+#include "../engine/pool.h"
 #include <cwist/core/sstring/sstring.h>
 #include <unistd.h>
 #include <cwist/core/mem/alloc.h>
@@ -253,7 +254,7 @@ static void replace_csp(cwist_http_response *res) {
         "frame-src 'self' https:; "
         "worker-src 'self' blob:; "
         "manifest-src 'self'; "
-        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'%s",
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'self' https://latexonline.cc https://texlive.net%s",
         g_config.use_tls ? "; upgrade-insecure-requests" : "");
     cwist_http_header_add(&res->headers, "Content-Security-Policy", csp);
 }
@@ -337,10 +338,16 @@ static void strip_html_binary_prefix(cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Content-Length", length);
 }
 
-/* Decrement the active-request counter and, if this was the last request,
-   release free heap memory with malloc_trim at most once every 5 seconds.
-   A CAS loop on g_last_trim_time guarantees only one thread performs the trim
-   even if multiple threads observe active == 0 simultaneously. */
+/* Offload malloc_trim to a worker thread so the HTTP-serving thread never
+ * stalls on the sbrk syscall.  malloc_trim can take tens of milliseconds on
+ * large heaps, long enough to cause an HTTP/1.1 keep-alive connection to time
+ * out or appear completely blocked to the client.  The 5-second cooldown and
+ * active-request guard are preserved; only the execution context changes. */
+static void trim_heap_worker(void *arg) {
+    (void)arg;
+    malloc_trim(0);
+}
+
 static void maybe_trim_heap(void) {
     int active = atomic_fetch_sub_explicit(&g_active_requests, 1, memory_order_relaxed) - 1;
     if (active != 0) return;
@@ -352,7 +359,10 @@ static void maybe_trim_heap(void) {
     if (atomic_compare_exchange_strong_explicit(
             &g_last_trim_time, &last, now,
             memory_order_relaxed, memory_order_relaxed)) {
-        malloc_trim(0);
+        /* Fire-and-forget: if the pool is exhausted we skip this trim cycle
+         * rather than blocking the response path. */
+        engine_pool_schedule(trim_heap_worker, NULL, 0x4D414C4C54524D00ULL,
+                             TTAK_TASK_DOMAIN_CPU, 0);
     }
 }
 
