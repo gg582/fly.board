@@ -69,7 +69,6 @@
     }
 
     var TIKZ_RETRY_DELAY_MS = 6000;
-    var TIKZ_MAX_RETRIES = 3;
 
     function hasTikZOutput(wrapper) {
         return !!(wrapper && wrapper.querySelector('svg'));
@@ -125,8 +124,12 @@
         };
         object.onerror = function() {
             object.remove();
-            notice.remove();
-            markTikZFailure(wrapper, error || 'public TikZ provider failed');
+            /* The public provider flakes too; retry it instead of failing. */
+            wrapper.dataset.tikzProviderRequested = '0';
+            wrapper.dataset.tikzState = 'pending';
+            setTimeout(function() {
+                renderWithPublicTikZProvider(wrapper, error);
+            }, TIKZ_RETRY_DELAY_MS);
         };
         wrapper.appendChild(object);
     }
@@ -146,12 +149,11 @@
         if (window.console && console.warn) console.warn('TikZJax render failed', error || 'unknown error');
     }
 
+    /* Retry TikZJax indefinitely: slow WebAssembly starts or flaky runs
+     * eventually succeed, and each attempt is cheap.  Never give up and
+     * fall back to the public provider or an error message. */
     function retryTikZRender(wrapper, attempt) {
         if (!wrapper || hasTikZOutput(wrapper) || wrapper.dataset.tikzProviderRequested === '1') return;
-        if (attempt >= TIKZ_MAX_RETRIES) {
-            renderWithPublicTikZProvider(wrapper, 'TikZJax timed out after retries');
-            return;
-        }
         setTimeout(function() {
             if (!wrapper || hasTikZOutput(wrapper) || wrapper.dataset.tikzProviderRequested === '1') return;
             var script = wrapper.querySelector('script[type="text/tikz"]');
@@ -210,6 +212,8 @@
                 if (publicRender) publicRender.remove();
                 var status = wrapper.querySelector('.tikz-status');
                 if (status) status.remove();
+                var errorMessage = wrapper.querySelector('.tikz-error');
+                if (errorMessage) errorMessage.remove();
                 wrapper.dataset.tikzState = 'rendered';
                 observer.disconnect();
             }
