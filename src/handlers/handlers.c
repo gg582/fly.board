@@ -343,9 +343,10 @@ static void strip_html_binary_prefix(cwist_http_response *res) {
  * large heaps, long enough to cause an HTTP/1.1 keep-alive connection to time
  * out or appear completely blocked to the client.  The 5-second cooldown and
  * active-request guard are preserved; only the execution context changes. */
-static void trim_heap_worker(void *arg) {
+static void *trim_heap_worker(void *arg) {
     (void)arg;
     malloc_trim(0);
+    return NULL;
 }
 
 static void maybe_trim_heap(void) {
@@ -362,7 +363,7 @@ static void maybe_trim_heap(void) {
         /* Fire-and-forget: if the pool is exhausted we skip this trim cycle
          * rather than blocking the response path. */
         engine_pool_schedule(trim_heap_worker, NULL, 0x4D414C4C54524D00ULL,
-                             TTAK_TASK_DOMAIN_CPU, 0);
+                             TTAK_TASK_DOMAIN_THREAD, 0);
     }
 }
 
