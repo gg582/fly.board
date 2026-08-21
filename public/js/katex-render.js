@@ -7,6 +7,16 @@
             .replace(/[\u2212-]{2,}/g, '-');
     }
 
+    /* TikZ path syntax gives meaning to operator runs that math normalizes
+     * away: '--' is the segment connector.  Collapsing hyphen runs produced
+     * '- (2,0)' and every compiler rejected the path, so TikZ source only
+     * gets the Unicode minus unified and '=' runs collapsed. */
+    function normalizeTikZOperators(source) {
+        return String(source || '')
+            .replace(/−/g, '-')
+            .replace(/={2,}/g, '=');
+    }
+
     /* TikZJax exposes its compiler as window.onload.  Posts and the editor
      * load this file after DOMContentLoaded, so relying on the normal onload
      * event leaves newly inserted diagrams unprocessed.  Keep one shared
@@ -218,13 +228,39 @@
         { test: /\\tdplot/, name: 'tikz-3dplot', decl: '\\usepackage{tikz-3dplot}' },
         { test: /\\begin\s*\{forest\}/, name: 'forest', decl: '\\usepackage{forest}' },
         { test: /\\begin\s*\{ganttchart\}/, name: 'pgfgantt', decl: '\\usepackage{pgfgantt}' },
-        { test: /\\begin\s*\{pgflowchart|flowchart/, name: 'tikz flowchart lib', decl: '\\usetikzlibrary{shapes,arrows,positioning}' }
+        { test: /\\begin\s*\{pgflowchart|flowchart/, name: 'tikz flowchart lib', decl: '\\usetikzlibrary{shapes,arrows,positioning}' },
+        { test: /\\tkz(?:DefPoint|DrawSegment|DrawLine|DrawCircle|LabelPoint|MarkAngle|FillAngle)/, name: 'tkz-euclide', decl: '\\usepackage{tkz-euclide}' },
+        { test: /\\pgfplotstable/, name: 'pgfplotstable', decl: '\\usepackage{pgfplotstable}' },
+        { test: /\\mindmap\b|\bconcept\s*(?:color|\[)/, name: 'mindmap', decl: '\\usetikzlibrary{mindmap,trees}' },
+        { test: /matrix\s+of\s+(?:math\s+)?nodes/, name: 'matrix', decl: '\\usetikzlibrary{matrix}' },
+        { test: /\\node\s*\[[^\]]*\b(?:state|accepting)\b/, name: 'automata', decl: '\\usetikzlibrary{automata,positioning}' },
+        { test: /\$\([^)]*\)\s*!|calc\b[^\n]*\$\(/, name: 'calc', decl: '\\usetikzlibrary{calc}' },
+        { test: /\\node\s*\[[^\]]*\b(?:alice|bob|businessman|criminal|devil|duck|maninblack|sailor|shield|santa)\b/, name: 'tikzpeople', decl: '\\usepackage{tikzpeople}' },
+        { test: /\\chessboard\b|\\setchessboard\b/, name: 'xskak', decl: '\\usepackage{xskak}' }
     ];
 
     function normalizeTikZDialects(code) {
         var out = String(code || '');
+        /* Collect the packages/libraries the author already declared and
+         * compare against those, not against the dialect name: a diagram
+         * that merely mentions "matrix" must not suppress the injection. */
+        var declared = {};
+        var declPattern = /\\(?:usepackage(?:\[[^\]]*\])?|usetikzlibrary)\s*\{([^}]+)\}/g;
+        var match;
+        while ((match = declPattern.exec(out)) !== null) {
+            match[1].split(',').forEach(function(token) {
+                declared[token.trim()] = true;
+            });
+        }
         TIKZ_DIALECT_PACKAGES.forEach(function(dialect) {
-            if (dialect.test.test(out) && !out.includes(dialect.name === 'tikz flowchart lib' ? 'shapes,arrows' : dialect.name)) {
+            var provides = [];
+            var declMatch;
+            declPattern.lastIndex = 0;
+            while ((declMatch = declPattern.exec(dialect.decl)) !== null) {
+                declMatch[1].split(',').forEach(function(token) { provides.push(token.trim()); });
+            }
+            var alreadyDeclared = provides.length > 0 && provides.every(function(token) { return declared[token]; });
+            if (!alreadyDeclared && dialect.test.test(out)) {
                 out = dialect.decl + '\n' + out;
             }
         });
@@ -232,7 +268,7 @@
     }
 
     function prepareTikZCode(code) {
-        var trimmed = normalizeTikZDialects(normalizeOperatorRuns(code)).trim();
+        var trimmed = normalizeTikZDialects(normalizeTikZOperators(code)).trim();
         if (!trimmed.includes('\\begin{document}') && !trimmed.includes('\\begin{tikzpicture}') &&
             !trimmed.includes('\\begin{tikzcd}') && !trimmed.includes('\\begin{circuitikz}') &&
             !trimmed.includes('\\begin{forest}') && !trimmed.includes('\\chemfig')) {
