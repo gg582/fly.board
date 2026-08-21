@@ -319,12 +319,126 @@
         observer.observe(wrapper, {childList: true, subtree: true});
     }
 
+    /* --- Overflow fitting for rendered math -------------------------------
+     * KaTeX never wraps display math by itself, so a wide formula silently
+     * overflows the column.  After rendering we measure the real width and
+     * apply two remedies, in order:
+     *   1. line-break insertion: split the TeX source at top-level binary
+     *      operators (=, +, -, ,) and render the pieces as stacked lines;
+     *   2. size adjustment: scale the font down until the block fits.
+     * A horizontal scrollbar remains as the last-resort fallback. */
+
+    /* Split points are only meaningful outside braces/ environments, so walk
+     * the source tracking brace depth and find top-level operators. */
+    function splitMathAtTopLevel(source) {
+        var depth = 0;
+        var pieces = [];
+        var last = 0;
+        for (var i = 0; i < source.length; i++) {
+            var ch = source[i];
+            if (ch === '\\') { i++; continue; } /* skip command names/escaped chars */
+            if (ch === '{') depth++;
+            else if (ch === '}') depth = Math.max(0, depth - 1);
+            else if (depth === 0 && (ch === '=' || ch === '+' || ch === ',')) {
+                pieces.push(source.slice(last, i + 1));
+                last = i + 1;
+            } else if (depth === 0 && (ch === '-' || ch === '\u2212')) {
+                /* A leading minus is a sign, not a break point. */
+                if (i > last) {
+                    pieces.push(source.slice(last, i));
+                    last = i;
+                }
+            }
+        }
+        pieces.push(source.slice(last));
+        return pieces.map(function(p){ return p.trim(); })
+                     .filter(function(p){ return p.length > 0; });
+    }
+
+    function mathAvailableWidth(el) {
+        var parent = el.parentElement;
+        if (!parent) return el.clientWidth;
+        var style = window.getComputedStyle(parent);
+        var padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+        return Math.max(0, parent.clientWidth - padding);
+    }
+
+    function mathOverflows(el) {
+        return el.scrollWidth > mathAvailableWidth(el) + 1;
+    }
+
+    function renderMathInto(el, tex) {
+        katex.render(tex, el, {throwOnError: false, displayMode: true});
+    }
+
+    function fitDisplayMath(el) {
+        if (typeof katex === 'undefined' || !el) return;
+        var raw = el.getAttribute('data-raw-math') || '';
+        el.style.fontSize = '';
+        el.style.overflowX = '';
+
+        if (!mathOverflows(el)) return;
+
+        /* 1) Try inserting line breaks at top-level operators.  Only accept
+         *    the split when every line is narrower than the unsplit block. */
+        var pieces = splitMathAtTopLevel(raw);
+        if (pieces.length > 1) {
+            var originalWidth = el.scrollWidth;
+            var lines = pieces.map(function(piece) {
+                var line = document.createElement('div');
+                line.className = 'math-block-line';
+                try { renderMathInto(line, piece); } catch (e) { line.textContent = piece; }
+                return line;
+            });
+            el.textContent = '';
+            lines.forEach(function(line){ el.appendChild(line); });
+            if (el.scrollWidth >= originalWidth) {
+                /* Splitting gained nothing (one piece still dominates); put
+                 * the original render back and fall through to scaling. */
+                try { renderMathInto(el, raw); } catch (e) { el.textContent = raw; }
+            }
+        }
+
+        if (!mathOverflows(el)) return;
+
+        /* 2) Scale down until the block fits, bounded so it stays legible. */
+        var fontSize = parseFloat(window.getComputedStyle(el).fontSize) || 16;
+        var guard = 0;
+        while (mathOverflows(el) && fontSize > 9 && guard < 24) {
+            fontSize *= 0.92;
+            el.style.fontSize = fontSize.toFixed(2) + 'px';
+            guard++;
+        }
+
+        /* 3) Last resort: keep the content reachable via horizontal scroll. */
+        if (mathOverflows(el)) el.style.overflowX = 'auto';
+    }
+
+    var fitResizeScheduled = false;
+    window.addEventListener('resize', function() {
+        if (fitResizeScheduled) return;
+        fitResizeScheduled = true;
+        setTimeout(function() {
+            fitResizeScheduled = false;
+            document.querySelectorAll('.math-block').forEach(function(el){
+                /* Restore the single-line render before re-measuring so a
+                 * wider viewport can undo an earlier split/scale. */
+                var raw = el.getAttribute('data-raw-math');
+                if (raw && typeof katex !== 'undefined') {
+                    try { renderMathInto(el, raw); } catch (e) {}
+                }
+                fitDisplayMath(el);
+            });
+        }, 150);
+    });
+
     function renderBlogMath(elem){
         if (!elem) return;
         if (typeof katex !== 'undefined') {
             elem.querySelectorAll('.math-block').forEach(function(el){
                 if (!el.hasAttribute('data-raw-math')) el.setAttribute('data-raw-math', normalizeOperatorRuns(el.textContent));
                 try { katex.render(el.getAttribute('data-raw-math') || '', el, {throwOnError: false, displayMode: true}); } catch(e) {}
+                fitDisplayMath(el);
             });
             elem.querySelectorAll('.math-inline').forEach(function(el){
                 if (!el.hasAttribute('data-raw-math')) el.setAttribute('data-raw-math', normalizeOperatorRuns(el.textContent));
