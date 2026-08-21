@@ -27,6 +27,8 @@ tests/test_update_fix
 tests/reproduce_update_bug.c
 tests/test_render_md_video
 tests/test_render_md_blocks
+tests/test_render_md_iframe
+tests/test_render_md_tikz
 tests/render_file
 third_party/md4c/
 

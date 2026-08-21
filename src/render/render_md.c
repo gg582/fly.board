@@ -18,8 +18,10 @@ typedef struct {
 /* Pasted LaTeX occasionally contains a dragged-out equals or minus sign,
  * including mixed Unicode minus (U+2212) and ASCII hyphens.  Consecutive
  * copies have no mathematical meaning here and can make KaTeX reject the
- * expression, so retain one canonical ASCII operator. */
-static size_t normalize_operator_runs(const char *expr, size_t len, char *copy) {
+ * expression, so retain one canonical ASCII operator.  TikZ is exempt from
+ * the minus collapsing: `--` is the path line-to operator, so a run of
+ * hyphens is meaningful and must be preserved verbatim. */
+static size_t normalize_operator_runs(const char *expr, size_t len, char *copy, bool tikz) {
     static const char unicode_minus[] = "\xE2\x88\x92";
     size_t read = 0;
     size_t written = 0;
@@ -66,7 +68,7 @@ static size_t normalize_operator_runs(const char *expr, size_t len, char *copy) 
                     break;
                 }
             }
-            if (operators >= 2) {
+            if (!tikz && operators >= 2) {
                 copy[written++] = '-';
             } else {
                 memcpy(copy + written, expr + read, end - read);
@@ -88,7 +90,7 @@ static void math_registry_init(math_registry_t *reg) {
     reg->capacity = 0;
 }
 
-static void math_registry_add(math_registry_t *reg, const char *expr, size_t len) {
+static void math_registry_add_ex(math_registry_t *reg, const char *expr, size_t len, bool tikz) {
     while (len > 0 && (expr[0] == ' ' || expr[0] == '\t' || expr[0] == '\n' || expr[0] == '\r')) {
         expr++; len--;
     }
@@ -114,9 +116,13 @@ static void math_registry_add(math_registry_t *reg, const char *expr, size_t len
     }
     /* Allocate enough space since normalize_operator_runs can double single backslashes */
     char *copy = (char *)malloc(len * 2 + 2);
-    size_t written = normalize_operator_runs(expr, len, copy);
+    size_t written = normalize_operator_runs(expr, len, copy, tikz);
     copy[written] = '\0';
     reg->expressions[reg->count++] = copy;
+}
+
+static void math_registry_add(math_registry_t *reg, const char *expr, size_t len) {
+    math_registry_add_ex(reg, expr, len, false);
 }
 
 static void math_registry_free(math_registry_t *reg) {
@@ -144,7 +150,7 @@ static void append_escaped_math(cwist_sstring *out, const char *text) {
  * placeholder for md4c, then restore an escaped wrapper in the HTML output. */
 static void add_tikz_placeholder(cwist_sstring *out, math_registry_t *tikz,
                                  const char *code, size_t len) {
-    math_registry_add(tikz, code, len);
+    math_registry_add_ex(tikz, code, len, true);
     char placeholder[64];
     snprintf(placeholder, sizeof(placeholder), "@@TIKZ_BLOCK_%d@@", tikz->count - 1);
     cwist_sstring_append(out, placeholder);
