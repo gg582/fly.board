@@ -2,6 +2,7 @@
 #include "handlers_internal.h"
 #include "tasfa/tasfa_internal.h"
 #include "../utils/media_preview.h"
+#include "../db/db_internal.h"
 #include <ctype.h>
 #include <strings.h>
 #include <sys/stat.h>
@@ -360,9 +361,14 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
         if (total != response_len) { cwist_free(buf); return false; }
 
         res->use_file_stream = false;
-        cwist_sstring_assign(res->body, "");
-        cwist_sstring_append_len(res->body, buf, total);
-        cwist_free(buf);
+        /* Adopt the buffer instead of append+copy+free: peak memory stays at
+         * one file-length buffer instead of two, which raises the practical
+         * size ceiling of the HTTP/1.1 TLS path. */
+        cwist_error_t adopt_err = cwist_sstring_adopt_len(res->body, buf, total);
+        if (adopt_err.errtype != CWIST_ERR_INT16 || adopt_err.error.err_i16 != 0) {
+            cwist_free(buf);
+            return false;
+        }
 
         res->status_code = is_range ? (cwist_http_status_t)206 : CWIST_HTTP_OK;
         cwist_sstring_assign(res->status_text, is_range ? "Partial Content" : "OK");
@@ -617,7 +623,7 @@ bool is_profile_pic_asset(cwist_db *db, const char *name) {
 
     sqlite3_stmt *stmt = NULL;
     const char *sql = "SELECT 1 FROM users WHERE profile_pic=? LIMIT 1";
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, profile_url, -1, SQLITE_STATIC);
     bool found = sqlite3_step(stmt) == SQLITE_ROW;
     sqlite3_finalize(stmt);

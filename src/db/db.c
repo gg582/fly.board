@@ -7,8 +7,34 @@
 #include <stdlib.h>
 #include <string.h>
 
-bool db_exec_sql(cwist_db *db, const char *sql) {
-    cwist_error_t err = cwist_db_exec(db, sql);
+static _Thread_local sqlite3 *tls_main_conn = NULL;
+
+sqlite3 *fly_db_conn(cwist_db *db) {
+    if (tls_main_conn) return tls_main_conn;
+    /* Derive the path from the app's template connection so deployments with
+     * a custom DB location keep working. */
+    const char *path = (db && db->conn) ? sqlite3_db_filename(db->conn, "main") : NULL;
+    if (!path) path = "data/blog.db";
+    sqlite3 *conn = NULL;
+    if (sqlite3_open(path, &conn) != SQLITE_OK) {
+        sqlite3_close(conn);
+        CWIST_LOG_ERROR("Failed to open per-thread database connection: %s", path);
+        /* Fall back to the shared template rather than failing the request. */
+        return db ? db->conn : NULL;
+    }
+    if (!db_configure_connection(conn)) {
+        sqlite3_close(conn);
+        return db ? db->conn : NULL;
+    }
+    tls_main_conn = conn;
+    return tls_main_conn;
+}
+
+void fly_db_conn_forget(void) {
+    tls_main_conn = NULL;
+}
+
+bool db_exec_sql(cwist_db *db, const char *sql) {    cwist_error_t err = cwist_db_exec(db, sql);
     return err.errtype == CWIST_ERR_INT16 && err.error.err_i16 == 0;
 }
 
@@ -102,32 +128,32 @@ bool db_configure_connection(sqlite3 *conn) {
 }
 
 bool db_checkpoint(cwist_db *db) {
-    if (!db || !db->conn) return false;
-    int rc = sqlite3_wal_checkpoint_v2(db->conn, NULL, SQLITE_CHECKPOINT_PASSIVE, NULL, NULL);
+    if (!db || !fly_db_conn(db)) return false;
+    int rc = sqlite3_wal_checkpoint_v2(fly_db_conn(db), NULL, SQLITE_CHECKPOINT_PASSIVE, NULL, NULL);
     if (rc != SQLITE_OK && rc != SQLITE_BUSY) {
-        CWIST_LOG_WARN("WAL checkpoint failed: %s", sqlite3_errmsg(db->conn));
+        CWIST_LOG_WARN("WAL checkpoint failed: %s", sqlite3_errmsg(fly_db_conn(db)));
         return false;
     }
     return true;
 }
 
 bool db_transaction_begin(cwist_db *db) {
-    if (!db || !db->conn) return false;
-    return sqlite3_exec(db->conn, "BEGIN IMMEDIATE", NULL, NULL, NULL) == SQLITE_OK;
+    if (!db || !fly_db_conn(db)) return false;
+    return sqlite3_exec(fly_db_conn(db), "BEGIN IMMEDIATE", NULL, NULL, NULL) == SQLITE_OK;
 }
 
 bool db_transaction_commit(cwist_db *db) {
-    if (!db || !db->conn) return false;
-    return sqlite3_exec(db->conn, "COMMIT", NULL, NULL, NULL) == SQLITE_OK;
+    if (!db || !fly_db_conn(db)) return false;
+    return sqlite3_exec(fly_db_conn(db), "COMMIT", NULL, NULL, NULL) == SQLITE_OK;
 }
 
 bool db_transaction_rollback(cwist_db *db) {
-    if (!db || !db->conn) return false;
-    return sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL) == SQLITE_OK;
+    if (!db || !fly_db_conn(db)) return false;
+    return sqlite3_exec(fly_db_conn(db), "ROLLBACK", NULL, NULL, NULL) == SQLITE_OK;
 }
 
 bool db_init(cwist_db *db) {
-    if (!db || !db->conn) return false;
+    if (!db || !fly_db_conn(db)) return false;
     return db_migrate(db);
 }
 
@@ -136,7 +162,7 @@ bool db_init(cwist_db *db) {
  * table with a nullable user_id and rewrite legacy 0 values to NULL. */
 static bool db_posts_user_id_notnull(cwist_db *db) {
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, "PRAGMA table_info(posts)", -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), "PRAGMA table_info(posts)", -1, &stmt, NULL) != SQLITE_OK) return false;
     bool notnull = false;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         const char *name = (const char *)sqlite3_column_text(stmt, 1);
@@ -193,7 +219,7 @@ static bool db_posts_relax_user_id(cwist_db *db) {
 static bool db_post_slugs_unique(cwist_db *db) {
     const char *sql = "SELECT slug, COUNT(*) FROM posts GROUP BY slug HAVING COUNT(*) > 1 LIMIT 1";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     bool unique = true;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         const char *slug = (const char *)sqlite3_column_text(stmt, 0);

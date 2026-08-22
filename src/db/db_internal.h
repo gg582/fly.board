@@ -11,6 +11,22 @@
  * so callers can abort instead of running with unsafe defaults. */
 bool db_configure_connection(sqlite3 *conn);
 
+/* Return this thread's own SQLite connection for the main database.
+ *
+ * The whole server used to share a single sqlite3* across every worker
+ * thread, which serialized ALL database work (reads included) behind the
+ * connection mutex and made BEGIN IMMEDIATE/COMMIT from one request govern
+ * statements issued by other requests.  With WAL mode, giving each thread a
+ * private connection lets readers run concurrently and confines writer
+ * contention to actual writers.  Connections are opened lazily on first use
+ * and live for the lifetime of the thread. */
+sqlite3 *fly_db_conn(cwist_db *db);
+
+/* Drop this thread's cached connection pointer without closing it.  Must be
+ * called in the child after fork(): the pointer refers to the parent's
+ * connection copy and must never be used or closed there. */
+void fly_db_conn_forget(void);
+
 /* Request a passive WAL checkpoint on the main database.  Safe to call after
  * large writes or before shutdown; failures are logged but not fatal. */
 bool db_checkpoint(cwist_db *db);

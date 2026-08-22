@@ -15,7 +15,7 @@ static sqlite3 *g_notif_aux = NULL;
 static pid_t g_notif_aux_pid = 0;
 
 static sqlite3 *notif_conn(cwist_db *db) {
-    if (db && db->conn) return db->conn;
+    if (db && fly_db_conn(db)) return fly_db_conn(db);
     pid_t pid = getpid();
     if (g_notif_aux && g_notif_aux_pid != pid) {
         sqlite3_close(g_notif_aux);

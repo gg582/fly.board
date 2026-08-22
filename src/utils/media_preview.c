@@ -13,6 +13,7 @@
 #include <limits.h>
 
 #include <pthread.h>
+#include <semaphore.h>
 #include <dirent.h>
 
 static char *escape_shell_arg(const char *src) {
@@ -43,14 +44,34 @@ static bool validate_media_path(const char *path) {
     return true;
 }
 
+/* Every ffmpeg/ffprobe spawn funnels through run_ffmpeg, but request
+ * handlers call it synchronously.  A media-heavy page viewed by two clients
+ * could otherwise fork a dozen ffmpeg processes at once and starve the whole
+ * server.  Cap concurrent conversions (default 2, FLY_MEDIA_MAX_CONCURRENT
+ * to tune); excess callers wait their turn here instead of competing for
+ * CPU/IO. */
+static sem_t g_ffmpeg_sem;
+static pthread_once_t g_ffmpeg_sem_once = PTHREAD_ONCE_INIT;
+
+static void ffmpeg_sem_init(void) {
+    int max_concurrent = 2;
+    const char *env = getenv("FLY_MEDIA_MAX_CONCURRENT");
+    if (env && atoi(env) > 0) max_concurrent = atoi(env);
+    sem_init(&g_ffmpeg_sem, 0, (unsigned)max_concurrent);
+}
+
 static bool run_ffmpeg(const char *cmd) {
+    pthread_once(&g_ffmpeg_sem_once, ffmpeg_sem_init);
     char timeout_cmd[8192];
     snprintf(timeout_cmd, sizeof(timeout_cmd), "timeout 15 %s", cmd);
+    sem_wait(&g_ffmpeg_sem);
     FILE *fp = popen(timeout_cmd, "r");
     if (!fp) {
+        sem_post(&g_ffmpeg_sem);
         return false;
     }
     int status = pclose(fp);
+    sem_post(&g_ffmpeg_sem);
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
