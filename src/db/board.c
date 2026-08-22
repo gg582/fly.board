@@ -9,7 +9,7 @@
 bool db_board_create(cwist_db *db, const char *name, const char *slug, const char *description, bool admin_only, int read_perm, int write_perm, int comment_perm) {
     const char *sql = "INSERT INTO boards (name, slug, description, admin_only, read_perm, write_perm, comment_perm) VALUES (?,?,?,?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 2, slug, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 3, description ? description : "", -1, SQLITE_STATIC);
@@ -25,7 +25,7 @@ bool db_board_create(cwist_db *db, const char *name, const char *slug, const cha
 bool db_board_delete(cwist_db *db, int id) {
     const char *sql = "DELETE FROM boards WHERE id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -35,7 +35,7 @@ bool db_board_delete(cwist_db *db, int id) {
 bool db_board_update(cwist_db *db, int id, const char *name, const char *slug, const char *description, bool admin_only, int read_perm, int write_perm, int comment_perm) {
     const char *sql = "UPDATE boards SET name=?, slug=?, description=?, admin_only=?, read_perm=?, write_perm=?, comment_perm=? WHERE id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 2, slug, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 3, description ? description : "", -1, SQLITE_STATIC);
@@ -56,7 +56,7 @@ cJSON *db_board_list(cwist_db *db) {
 cJSON *db_board_get_by_slug(cwist_db *db, const char *slug) {
     const char *sql = "SELECT * FROM boards WHERE slug=? LIMIT 1";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_text(stmt, 1, slug, -1, SQLITE_STATIC);
     return db_sqlite3_row_to_json(stmt);
 }
@@ -64,7 +64,7 @@ cJSON *db_board_get_by_slug(cwist_db *db, const char *slug) {
 cJSON *db_board_get_by_id(cwist_db *db, int id) {
     const char *sql = "SELECT * FROM boards WHERE id=? LIMIT 1";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_int(stmt, 1, id);
     return db_sqlite3_row_to_json(stmt);
 }
@@ -79,7 +79,7 @@ bool db_board_can_user_access(cwist_db *db, int board_id, int user_id, bool is_a
     if (is_admin) return true;
     const char *sql = "SELECT 1 FROM board_permissions WHERE board_id=? AND user_id=? LIMIT 1";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, board_id);
     sqlite3_bind_int(stmt, 2, user_id);
     bool ok = false;
@@ -91,7 +91,7 @@ bool db_board_can_user_access(cwist_db *db, int board_id, int user_id, bool is_a
 bool db_board_perm_grant(cwist_db *db, int board_id, int user_id) {
     const char *sql = "INSERT OR IGNORE INTO board_permissions (board_id, user_id) VALUES (?,?)";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, board_id);
     sqlite3_bind_int(stmt, 2, user_id);
     int rc = sqlite3_step(stmt);
@@ -102,7 +102,7 @@ bool db_board_perm_grant(cwist_db *db, int board_id, int user_id) {
 bool db_board_perm_revoke(cwist_db *db, int board_id, int user_id) {
     const char *sql = "DELETE FROM board_permissions WHERE board_id=? AND user_id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, board_id);
     sqlite3_bind_int(stmt, 2, user_id);
     int rc = sqlite3_step(stmt);
@@ -113,7 +113,7 @@ bool db_board_perm_revoke(cwist_db *db, int board_id, int user_id) {
 cJSON *db_board_perm_list(cwist_db *db, int board_id) {
     const char *sql = "SELECT u.id, u.username, u.email FROM board_permissions bp JOIN users u ON bp.user_id=u.id WHERE bp.board_id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_int(stmt, 1, board_id);
     return db_sqlite3_rows_to_json(stmt);
 }
@@ -121,7 +121,7 @@ cJSON *db_board_perm_list(cwist_db *db, int board_id) {
 int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, const char *slug, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category) {
     const char *sql = "INSERT INTO posts (board_id, user_id, title, slug, content, summary, pqc_signature, is_notice, is_secret, category) VALUES (?,?,?,?,?,?,?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
     /* board_id 0 means "no board"; store NULL so the foreign key to
      * boards(id) (enforced via PRAGMA foreign_keys=ON) is not violated. */
     if (board_id > 0) sqlite3_bind_int(stmt, 1, board_id);
@@ -138,11 +138,8 @@ int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, c
     sqlite3_bind_int(stmt, 8, is_notice);
     sqlite3_bind_int(stmt, 9, is_secret);
     sqlite3_bind_text(stmt, 10, category ? category : "", -1, SQLITE_STATIC);
-    sqlite3_mutex *mutex = sqlite3_db_mutex(db->conn);
-    sqlite3_mutex_enter(mutex);
     int rc = sqlite3_step(stmt);
-    sqlite3_int64 id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(db->conn) : 0;
-    sqlite3_mutex_leave(mutex);
+    sqlite3_int64 id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(fly_db_conn(db)) : 0;
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return 0;
     return (int)id;
@@ -150,13 +147,10 @@ int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, c
 
 int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const char *title, const char *slug_base, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category, char **out_slug) {
     if (out_slug) *out_slug = NULL;
-    if (!db || !db->conn || !slug_base || !slug_base[0]) return 0;
+    if (!db || !fly_db_conn(db) || !slug_base || !slug_base[0]) return 0;
 
-    sqlite3_mutex *mutex = sqlite3_db_mutex(db->conn);
-    sqlite3_mutex_enter(mutex);
 
-    if (sqlite3_exec(db->conn, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) {
-        sqlite3_mutex_leave(mutex);
+    if (sqlite3_exec(fly_db_conn(db), "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) {
         return 0;
     }
 
@@ -176,10 +170,9 @@ int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const
         ")"
         "SELECT MIN(n) FROM candidate WHERE n NOT IN (SELECT n FROM used)";
     sqlite3_stmt *next_stmt = NULL;
-    int rc = sqlite3_prepare_v2(db->conn, next_sql, -1, &next_stmt, NULL);
+    int rc = sqlite3_prepare_v2(fly_db_conn(db), next_sql, -1, &next_stmt, NULL);
     if (rc != SQLITE_OK) {
-        sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
-        sqlite3_mutex_leave(mutex);
+        sqlite3_exec(fly_db_conn(db), "ROLLBACK", NULL, NULL, NULL);
         return 0;
     }
 
@@ -187,8 +180,7 @@ int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const
     char *pattern = (char *)cwist_alloc(base_len + 7);
     if (!pattern) {
         sqlite3_finalize(next_stmt);
-        sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
-        sqlite3_mutex_leave(mutex);
+        sqlite3_exec(fly_db_conn(db), "ROLLBACK", NULL, NULL, NULL);
         return 0;
     }
     snprintf(pattern, base_len + 7, "%s[0-9]*", slug_base);
@@ -205,8 +197,7 @@ int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const
     sqlite3_finalize(next_stmt);
     cwist_free(pattern);
     if (next_suffix < 0) {
-        sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
-        sqlite3_mutex_leave(mutex);
+        sqlite3_exec(fly_db_conn(db), "ROLLBACK", NULL, NULL, NULL);
         return 0;
     }
 
@@ -214,19 +205,17 @@ int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const
     if (next_suffix > 0) snprintf(suffix, sizeof(suffix), "%d", next_suffix);
     char *final_slug = (char *)cwist_alloc(base_len + strlen(suffix) + 1);
     if (!final_slug) {
-        sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
-        sqlite3_mutex_leave(mutex);
+        sqlite3_exec(fly_db_conn(db), "ROLLBACK", NULL, NULL, NULL);
         return 0;
     }
     snprintf(final_slug, base_len + strlen(suffix) + 1, "%s%s", slug_base, suffix);
 
     const char *insert_sql = "INSERT INTO posts (board_id, user_id, title, slug, content, summary, pqc_signature, is_notice, is_secret, category) VALUES (?,?,?,?,?,?,?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
-    rc = sqlite3_prepare_v2(db->conn, insert_sql, -1, &stmt, NULL);
+    rc = sqlite3_prepare_v2(fly_db_conn(db), insert_sql, -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
         cwist_free(final_slug);
-        sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
-        sqlite3_mutex_leave(mutex);
+        sqlite3_exec(fly_db_conn(db), "ROLLBACK", NULL, NULL, NULL);
         return 0;
     }
     /* board_id 0 means "no board"; store NULL so the foreign key to
@@ -246,21 +235,20 @@ int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const
     sqlite3_bind_int(stmt, 9, is_secret);
     sqlite3_bind_text(stmt, 10, category ? category : "", -1, SQLITE_STATIC);
     rc = sqlite3_step(stmt);
-    sqlite3_int64 id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(db->conn) : 0;
+    sqlite3_int64 id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(fly_db_conn(db)) : 0;
     sqlite3_finalize(stmt);
 
     if (rc == SQLITE_DONE && id > 0) {
-        if (sqlite3_exec(db->conn, "COMMIT", NULL, NULL, NULL) == SQLITE_OK) {
+        if (sqlite3_exec(fly_db_conn(db), "COMMIT", NULL, NULL, NULL) == SQLITE_OK) {
             rc = SQLITE_DONE;
         } else {
-            sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
+            sqlite3_exec(fly_db_conn(db), "ROLLBACK", NULL, NULL, NULL);
             rc = SQLITE_ERROR;
         }
     } else {
-        sqlite3_exec(db->conn, "ROLLBACK", NULL, NULL, NULL);
+        sqlite3_exec(fly_db_conn(db), "ROLLBACK", NULL, NULL, NULL);
         rc = SQLITE_ERROR;
     }
-    sqlite3_mutex_leave(mutex);
 
     if (rc != SQLITE_DONE) {
         cwist_free(final_slug);

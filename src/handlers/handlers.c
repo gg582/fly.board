@@ -374,9 +374,17 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
      * across connection reuse. */
 
     if (g_config.use_http3 && env_flag_enabled("FLYBOARD_ADVERTISE_H3", true)) {
+        /* Do not re-advertise h2 to HTTP/1.x clients: h2 is already
+         * negotiated via ALPN on every TLS handshake, and a client that
+         * deliberately fell back to 1.1 (broken h2 path, debugging, legacy
+         * proxy) gets bounced back onto the broken path on every response
+         * when we keep advertising it.  h3 stays advertised since Alt-Svc is
+         * its only discovery mechanism and it uses a separate UDP path. */
+        bool req_is_http1x = req->stream_id == 0 && req->version && req->version->data &&
+            strncmp(req->version->data, "HTTP/1.", 7) == 0;
         char altsvc[128];
         int alt_ma = env_int_clamped("FLYBOARD_ALT_SVC_MAX_AGE", 300, 0, 86400);
-        if (g_config.use_http2) {
+        if (g_config.use_http2 && !req_is_http1x) {
             snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"; ma=%d, h2=\":%d\"; ma=%d", g_config.port, alt_ma, g_config.port, alt_ma);
         } else {
             snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"; ma=%d", g_config.port, alt_ma);

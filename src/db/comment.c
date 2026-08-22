@@ -7,8 +7,32 @@
 #include <string.h>
 
 static sqlite3 *g_comments_db = NULL;
+static char g_comments_path[512] = "data/comments.db";
+/* Request-serving threads use their own connection so comment reads/writes
+ * do not serialize behind a single shared sqlite3* (same rationale as
+ * fly_db_conn in db.c).  g_comments_db remains the startup/template
+ * connection used for schema setup. */
+static _Thread_local sqlite3 *tls_comments_db = NULL;
+
+static sqlite3 *comments_db_conn(void) {
+    if (tls_comments_db) return tls_comments_db;
+    sqlite3 *conn = NULL;
+    if (sqlite3_open(g_comments_path, &conn) != SQLITE_OK) {
+        sqlite3_close(conn);
+        return g_comments_db;
+    }
+    if (!db_configure_connection(conn)) {
+        sqlite3_close(conn);
+        return g_comments_db;
+    }
+    tls_comments_db = conn;
+    return tls_comments_db;
+}
 
 bool db_comment_init(const char *path) {
+    if (path && path[0]) {
+        snprintf(g_comments_path, sizeof(g_comments_path), "%s", path);
+    }
     if (sqlite3_open(path, &g_comments_db) != SQLITE_OK) return false;
     if (!db_configure_connection(g_comments_db)) {
         sqlite3_close(g_comments_db);
@@ -39,19 +63,23 @@ void db_comment_close(void) {
 }
 
 void db_comment_reopen(void) {
+    /* Called in the child after fork(): the TLS pointer refers to the
+     * parent's connection copy and must be forgotten, never closed. */
+    tls_comments_db = NULL;
     if (g_comments_db) {
         sqlite3_close(g_comments_db);
         g_comments_db = NULL;
     }
-    db_comment_init("data/comments.db");
+    db_comment_init(g_comments_path);
 }
 
 int db_comment_create(cwist_db *db, const char *target_type, int target_id, int user_id, const char *author_name, int parent_id, const char *content) {
     (void)db;
-    if (!g_comments_db) return -1;
+    sqlite3 *conn = comments_db_conn();
+    if (!conn) return -1;
     const char *sql = "INSERT INTO comments (target_type, target_id, user_id, author_name, parent_id, content) VALUES (?,?,?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(g_comments_db, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, target_type, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, target_id);
     sqlite3_bind_int(stmt, 3, user_id);
@@ -65,15 +93,16 @@ int db_comment_create(cwist_db *db, const char *target_type, int target_id, int 
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return -1;
-    return (int)sqlite3_last_insert_rowid(g_comments_db);
+    return (int)sqlite3_last_insert_rowid(conn);
 }
 
 bool db_comment_update(cwist_db *db, int id, int user_id, const char *content) {
     (void)db;
-    if (!g_comments_db) return false;
+    sqlite3 *conn = comments_db_conn();
+    if (!conn) return false;
     const char *sql = "UPDATE comments SET content=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND deleted=0";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(g_comments_db, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, content, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, id);
     sqlite3_bind_int(stmt, 3, user_id);
@@ -84,10 +113,11 @@ bool db_comment_update(cwist_db *db, int id, int user_id, const char *content) {
 
 bool db_comment_delete(cwist_db *db, int id, int user_id) {
     (void)db;
-    if (!g_comments_db) return false;
+    sqlite3 *conn = comments_db_conn();
+    if (!conn) return false;
     const char *sql = "UPDATE comments SET deleted=1, content='', updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND deleted=0";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(g_comments_db, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
     sqlite3_bind_int(stmt, 2, user_id);
     int rc = sqlite3_step(stmt);
@@ -97,30 +127,33 @@ bool db_comment_delete(cwist_db *db, int id, int user_id) {
 
 cJSON *db_comment_get_by_id(cwist_db *db, int id) {
     (void)db;
-    if (!g_comments_db) return NULL;
+    sqlite3 *conn = comments_db_conn();
+    if (!conn) return NULL;
     const char *sql = "SELECT * FROM comments WHERE id=? LIMIT 1";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(g_comments_db, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_int(stmt, 1, id);
     return db_sqlite3_row_to_json(stmt);
 }
 
 cJSON *db_comment_list_by_target(cwist_db *db, const char *target_type, int target_id) {
     (void)db;
-    if (!g_comments_db) return NULL;
+    sqlite3 *conn = comments_db_conn();
+    if (!conn) return NULL;
     const char *sql = "SELECT id, target_type, target_id, user_id, author_name, parent_id, content, created_at, updated_at, deleted FROM comments WHERE target_type=? AND target_id=? ORDER BY created_at ASC";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(g_comments_db, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_text(stmt, 1, target_type, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, target_id);
     return db_sqlite3_rows_to_json(stmt);
 }
 
 bool db_comment_delete_by_target(const char *target_type, int target_id) {
-    if (!g_comments_db) return false;
+    sqlite3 *conn = comments_db_conn();
+    if (!conn) return false;
     const char *sql = "DELETE FROM comments WHERE target_type=? AND target_id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(g_comments_db, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, target_type, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, target_id);
     int rc = sqlite3_step(stmt);

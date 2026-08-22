@@ -16,6 +16,9 @@
 static cwist_app *g_app = NULL;
 
 static void reopen_databases_after_fork(void) {
+    /* The child's inherited per-thread connection pointers refer to the
+     * parent's copies; forget them so they are re-opened lazily on demand. */
+    fly_db_conn_forget();
     cwist_db *db = g_app ? cwist_app_get_db(g_app) : NULL;
     if (db && db->conn) {
         const char *path = sqlite3_db_filename(db->conn, "main");

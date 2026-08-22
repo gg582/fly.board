@@ -10,7 +10,7 @@
 bool db_post_update(cwist_db *db, int id, int board_id, const char *title, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category) {
     const char *sql = "UPDATE posts SET board_id=?, title=?, content=?, summary=?, pqc_signature=?, is_notice=?, is_secret=?, category=?, updated_at=CURRENT_TIMESTAMP WHERE id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     /* board_id 0 means "no board"; store NULL so the foreign key to
      * boards(id) (enforced via PRAGMA foreign_keys=ON) is not violated. */
     if (board_id > 0) sqlite3_bind_int(stmt, 1, board_id);
@@ -31,7 +31,7 @@ bool db_post_update(cwist_db *db, int id, int board_id, const char *title, const
 bool db_post_delete(cwist_db *db, int id) {
     const char *sql = "DELETE FROM posts WHERE id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -41,7 +41,7 @@ bool db_post_delete(cwist_db *db, int id) {
 bool db_post_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_hash) {
     const char *sql = "UPDATE posts SET delete_pin_hash=? WHERE id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, delete_pin_hash ? delete_pin_hash : "", -1, SQLITE_STATIC);
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
@@ -61,7 +61,7 @@ cJSON *db_post_get_by_slug(cwist_db *db, const char *slug) {
     if (!slug || !slug[0]) return NULL;
     const char *sql = "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.slug=? OR p.id=? LIMIT 1";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_text(stmt, 1, slug, -1, SQLITE_STATIC);
     sqlite3_bind_int(stmt, 2, extract_post_id_from_slug(slug));
     return db_sqlite3_row_to_json(stmt);
@@ -70,7 +70,7 @@ cJSON *db_post_get_by_slug(cwist_db *db, const char *slug) {
 cJSON *db_post_get_by_id(cwist_db *db, int id) {
     const char *sql = "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.id=? LIMIT 1";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_int(stmt, 1, id);
     return db_sqlite3_row_to_json(stmt);
 }
@@ -80,7 +80,7 @@ cJSON *db_post_list(cwist_db *db, int board_id, int limit, int offset) {
         ? "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE p.board_id=? ORDER BY p.created_at DESC LIMIT ? OFFSET ?"
         : "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id ORDER BY p.created_at DESC LIMIT ? OFFSET ?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     int idx = 1;
     if (board_id > 0) sqlite3_bind_int(stmt, idx++, board_id);
     sqlite3_bind_int(stmt, idx++, limit);
@@ -95,7 +95,7 @@ cJSON *db_post_recent(cwist_db *db, int limit) {
 cJSON *db_post_recent_by_board(cwist_db *db, int board_id, int limit) {
     const char *sql = "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE p.board_id=? ORDER BY p.created_at DESC LIMIT ?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_int(stmt, 1, board_id);
     sqlite3_bind_int(stmt, 2, limit);
     return db_sqlite3_rows_to_json(stmt);
@@ -104,7 +104,7 @@ cJSON *db_post_recent_by_board(cwist_db *db, int board_id, int limit) {
 int db_post_count(cwist_db *db, int board_id) {
     const char *sql = (board_id > 0) ? "SELECT COUNT(*) FROM posts WHERE board_id=?" : "SELECT COUNT(*) FROM posts";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
     if (board_id > 0) sqlite3_bind_int(stmt, 1, board_id);
     int count = 0;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -117,7 +117,7 @@ int db_post_count(cwist_db *db, int board_id) {
 bool db_post_increment_view(cwist_db *db, int id) {
     const char *sql = "UPDATE posts SET view_count = view_count + 1 WHERE id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -164,7 +164,7 @@ cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, const
     strcat(sql, " ORDER BY p.is_notice DESC, p.created_at DESC LIMIT ? OFFSET ?");
 
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) {
         return NULL;
     }
     int idx = 1;
@@ -225,7 +225,7 @@ int db_post_count_search(cwist_db *db, int board_id, const char *search, const c
     }
 
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) {
         return 0;
     }
     int idx = 1;

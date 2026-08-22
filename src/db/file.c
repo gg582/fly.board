@@ -23,7 +23,7 @@ static void bind_post_id(sqlite3_stmt *stmt, int idx, int post_id) {
 bool db_file_create_volume(cwist_db *db, int post_id, int user_id, const char *filename, const char *mime_type, const char *file_path, size_t len) {
     const char *sql = "INSERT INTO files (post_id, user_id, filename, mime_type, file_path, size) VALUES (?,?,?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     bind_post_id(stmt, 1, post_id);
     sqlite3_bind_int(stmt, 2, user_id);
     sqlite3_bind_text(stmt, 3, filename, -1, SQLITE_STATIC);
@@ -38,7 +38,7 @@ bool db_file_create_volume(cwist_db *db, int post_id, int user_id, const char *f
 int db_file_create_volume_get_id(cwist_db *db, int post_id, int user_id, const char *filename, const char *mime_type, const char *file_path, size_t len) {
     const char *sql = "INSERT INTO files (post_id, user_id, filename, mime_type, file_path, size) VALUES (?,?,?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
     bind_post_id(stmt, 1, post_id);
     sqlite3_bind_int(stmt, 2, user_id);
     sqlite3_bind_text(stmt, 3, filename, -1, SQLITE_STATIC);
@@ -48,7 +48,7 @@ int db_file_create_volume_get_id(cwist_db *db, int post_id, int user_id, const c
     int rc = sqlite3_step(stmt);
     int id = 0;
     if (rc == SQLITE_DONE) {
-        id = (int)sqlite3_last_insert_rowid(db->conn);
+        id = (int)sqlite3_last_insert_rowid(fly_db_conn(db));
     } else if (rc == SQLITE_CONSTRAINT) {
         id = -1;
     }
@@ -59,7 +59,7 @@ int db_file_create_volume_get_id(cwist_db *db, int post_id, int user_id, const c
 static bool filename_exists_for_post(cwist_db *db, int post_id, const char *filename) {
     const char *sql = "SELECT 1 FROM files WHERE ((?1 IS NULL AND post_id IS NULL) OR post_id=?1) AND filename=?2 LIMIT 1";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     if (post_id > 0) sqlite3_bind_int(stmt, 1, post_id);
     else sqlite3_bind_null(stmt, 1);
     sqlite3_bind_text(stmt, 2, filename, -1, SQLITE_STATIC);
@@ -101,7 +101,7 @@ char *db_file_unique_filename(cwist_db *db, int post_id, const char *filename) {
 cJSON *db_file_get(cwist_db *db, int id) {
     const char *sql = "SELECT * FROM files WHERE id=? LIMIT 1";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_int(stmt, 1, id);
     return db_sqlite3_row_to_json(stmt);
 }
@@ -113,7 +113,7 @@ cJSON *db_file_list_all(cwist_db *db) {
         "WHERE file_path IS NOT NULL AND file_path != '' AND file_path NOT LIKE '%/.thumbs/%' AND file_path NOT LIKE '%/.previews/%' "
         "ORDER BY id ASC";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     return db_sqlite3_rows_to_json(stmt);
 }
 
@@ -125,7 +125,7 @@ cJSON *db_file_list_by_post(cwist_db *db, int post_id) {
         "WHERE a.post_id = ? AND b.id IS NULL AND (a.file_path IS NULL OR a.file_path NOT LIKE '%/.thumbs/%') "
         "ORDER BY a.id DESC";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_int(stmt, 1, post_id);
     return db_sqlite3_rows_to_json(stmt);
 }
@@ -138,7 +138,7 @@ cJSON *db_file_list_by_user(cwist_db *db, int user_id, int limit) {
         "ORDER BY id DESC "
         "LIMIT ?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_int(stmt, 1, user_id);
     sqlite3_bind_int(stmt, 2, limit > 0 ? limit : 200);
     return db_sqlite3_rows_to_json(stmt);
@@ -147,7 +147,7 @@ cJSON *db_file_list_by_user(cwist_db *db, int user_id, int limit) {
 bool db_file_delete(cwist_db *db, int id) {
     const char *sql = "DELETE FROM files WHERE id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -157,7 +157,7 @@ bool db_file_delete(cwist_db *db, int id) {
 int db_file_drop_all(cwist_db *db) {
     const char *sql_select = "SELECT file_path FROM files";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql_select, -1, &stmt, NULL) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql_select, -1, &stmt, NULL) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             const char *path = (const char *)sqlite3_column_text(stmt, 0);
             if (path && path[0] && is_safe_public_path(path)) unlink(path);
@@ -167,20 +167,20 @@ int db_file_drop_all(cwist_db *db) {
     }
     const char *sql_count = "SELECT COUNT(*) FROM files";
     int count = 0;
-    if (sqlite3_prepare_v2(db->conn, sql_count, -1, &stmt, NULL) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql_count, -1, &stmt, NULL) == SQLITE_OK) {
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             count = sqlite3_column_int(stmt, 0);
         }
         sqlite3_finalize(stmt);
     }
-    sqlite3_exec(db->conn, "DELETE FROM files", NULL, NULL, NULL);
+    sqlite3_exec(fly_db_conn(db), "DELETE FROM files", NULL, NULL, NULL);
     return count;
 }
 
 bool db_file_increment_download(cwist_db *db, int id) {
     const char *sql = "UPDATE files SET download_count = download_count + 1 WHERE id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -190,7 +190,7 @@ bool db_file_increment_download(cwist_db *db, int id) {
 bool db_file_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_hash) {
     const char *sql = "UPDATE files SET delete_pin_hash=? WHERE id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, delete_pin_hash ? delete_pin_hash : "", -1, SQLITE_STATIC);
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
@@ -201,7 +201,7 @@ bool db_file_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_ha
 bool db_file_set_preview_paths(cwist_db *db, int id, const char *thumb_path, const char *preview_path) {
     const char *sql = "UPDATE files SET thumb_path=?, preview_path=? WHERE id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, thumb_path ? thumb_path : "", -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 2, preview_path ? preview_path : "", -1, SQLITE_STATIC);
     sqlite3_bind_int(stmt, 3, id);
@@ -213,7 +213,7 @@ bool db_file_set_preview_paths(cwist_db *db, int id, const char *thumb_path, con
 bool db_file_attach_to_post(cwist_db *db, int id, int post_id, int is_inline) {
     const char *sql = "UPDATE files SET post_id=?, is_inline=? WHERE id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, post_id);
     sqlite3_bind_int(stmt, 2, is_inline ? 1 : 0);
     sqlite3_bind_int(stmt, 3, id);
@@ -225,7 +225,7 @@ bool db_file_attach_to_post(cwist_db *db, int id, int post_id, int is_inline) {
 void db_file_replace_for_post(cwist_db *db, int post_id, const char *filename) {
     const char *sql = "SELECT id, file_path FROM files WHERE post_id=? AND filename=? LIMIT 1";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return;
     sqlite3_bind_int(stmt, 1, post_id);
     sqlite3_bind_text(stmt, 2, filename, -1, SQLITE_STATIC);
     if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -247,7 +247,7 @@ void db_file_cleanup_duplicates(cwist_db *db) {
             "AND a.filename = b.filename AND a.id < b.id "
             "LIMIT 1";
         sqlite3_stmt *stmt = NULL;
-        if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) break;
+        if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) break;
         if (sqlite3_step(stmt) != SQLITE_ROW) {
             sqlite3_finalize(stmt);
             break;
@@ -266,7 +266,7 @@ static bool path_in_db(cwist_db *db, const char *path) {
     if (!path || !path[0]) return false;
     const char *sql = "SELECT 1 FROM files WHERE file_path=? OR thumb_path=? OR preview_path=? LIMIT 1";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, path, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 2, path, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 3, path, -1, SQLITE_STATIC);
@@ -304,7 +304,7 @@ void db_cleanup_orphaned_files(cwist_db *db) {
 void db_file_delete_by_post(cwist_db *db, int post_id) {
     const char *sql = "SELECT id, file_path, thumb_path, preview_path FROM files WHERE post_id=?";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL) != SQLITE_OK) return;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return;
     sqlite3_bind_int(stmt, 1, post_id);
 
     int ids[256];
