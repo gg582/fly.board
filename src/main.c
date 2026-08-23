@@ -46,7 +46,6 @@
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <limits.h>
-#include <time.h>
 
 #define BLOG_CERT "server.crt"
 #define BLOG_KEY  "server.key"
@@ -55,31 +54,6 @@ static _Atomic bool g_cleanup_running = false;
 static int g_cleanup_wake_fd = -1;
 static pthread_t g_cleanup_thread;
 static bool g_cleanup_thread_started = false;
-
-/* Firefox reports a generic content-encoding error when an intermediary or
- * transport path corrupts a compressed response.  Keep the normal compressed
- * path for other clients, but send Firefox-family document/API responses as
- * identity encoding so a bad compressed cache/stream can never prevent login
- * or navigation.  Static assets make the same choice in handlers/file.c. */
-static cwist_middleware_func g_standard_compress_middleware = NULL;
-
-static bool request_needs_compression_compatibility(const cwist_http_request *req) {
-    const char *ua = req ? cwist_http_header_get(req->headers, "User-Agent") : NULL;
-    return ua && (strstr(ua, "Firefox/") != NULL || strstr(ua, "FxiOS/") != NULL);
-}
-
-static void compatibility_compression_middleware(cwist_http_request *req,
-                                                  cwist_http_response *res,
-                                                  cwist_handler_func next) {
-    if (request_needs_compression_compatibility(req)) {
-        next(req, res);
-        /* Cache variants must not mix an identity Firefox response with a
-         * compressed response selected for another browser. */
-        cwist_http_header_add(&res->headers, "Vary", "Accept-Encoding, User-Agent");
-        return;
-    }
-    g_standard_compress_middleware(req, res, next);
-}
 
 /* Wake the cleanup worker immediately during shutdown instead of making it
  * periodically poll just to observe g_cleanup_running. */
@@ -383,17 +357,15 @@ int main(void) {
         CWIST_LOG_INFO("ECH initialized");
     }
 
-    /* Do not apply HTTP content compression here.  The current transport path
-     * can deliver a compressed body without a matching Content-Encoding header
-     * to Firefox, which renders the page as binary data.  Keeping responses in
-     * identity encoding is the safe compatibility mode for every client. */
+    /* Register payload compression backends in preference order:
+     * zstd (fastest + best ratio) → brotli (best ratio for text) → gzip (widest compat).
+     * cwist_mw_compress picks the first backend the client's Accept-Encoding supports. */
     cwist_compress_unregister_all();
+    cwist_compress_register_backend(cwist_compress_backend_zstd());
     cwist_compress_register_backend(cwist_compress_backend_brotli());
-    cwist_compress_register_backend(cwist_compress_backend_zstd()); // enabled zstd compression
     cwist_compress_register_backend(cwist_compress_backend_gzip());
-    g_standard_compress_middleware = cwist_mw_compress(1024);
-    cwist_app_use(app, compatibility_compression_middleware);
-    CWIST_LOG_INFO("Compression middleware registered (brotli > zstd > gzip, Firefox identity compatibility mode, min 1 KiB)");
+    cwist_app_use(app, cwist_mw_compress(1024));
+    CWIST_LOG_INFO("Compression middleware registered (zstd > brotli > gzip, min 1 KiB)");
 
     engine_routes_register(app);
 
