@@ -138,6 +138,11 @@ The worker count is scaled with the load to keep each test realistic: **4 worker
 | Benchmark Tool | h2load nghttp2/1.64.0 |
 | CWIST | `libcwist.a` from the sibling cwist checkout (2026-08-23, event-driven C1M cleartext path) |
 
+> **Serving mode:** as of 2026-08-24 fly.board runs with `CWIST_C1M_MODE=1`
+> (cwist's event-driven reactor path with the non-blocking TLS handshake
+> shepherd). The benchmark results above were collected with the previous
+> blocking pool configuration and are kept as-is.
+
 ### System Tuning
 
 | Parameter | Value |
