@@ -239,7 +239,9 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     }
 
     int post_id = json_int(post, "id", 0);
-    if (post_id > 0) db_post_increment_view(req->db, post_id);
+    /* HEAD requests are routed as GET (see global_middleware); they must not
+     * inflate the view count. */
+    if (post_id > 0 && !cwist_http_header_get(req->headers, "X-Fly-Head-Rewrite")) db_post_increment_view(req->db, post_id);
     cJSON *files = db_file_list_by_post(req->db, post_id);
     cJSON *comments = db_comment_list_by_target(req->db, "post", post_id);
     bool verified = false;
