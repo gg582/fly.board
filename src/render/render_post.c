@@ -4,6 +4,7 @@
 #include "config/config.h"
 #include "utils/utils.h"
 #include "utils/image_inline.h"
+#include "utils/media_preview.h"
 #include "db/sql_escape.h"
 #include "cwist/image_contrast.h"
 #include <cwist/core/sstring/sstring.h>
@@ -417,9 +418,28 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         if (has_home_bg) cwist_sstring_append(b, "style='position:relative;z-index:2;background:none;' ");
         const char *logo_url = image_inline_logo();
         if (!logo_url) logo_url = "/assets/img/logo.png";
+        /* Serve the logo at its rendered size instead of the full-resolution
+         * original: the asset handler turns ?w=&h= into a small webp variant.
+         * Intrinsic width/height let the browser reserve the box before the
+         * image arrives. */
+        char logo_sized[600];
+        const char *logo_final = logo_url;
+        int logo_w = 0, logo_h = 0;
+        if (strncmp(logo_url, "/assets/img/", 12) == 0) {
+            char logo_path[600];
+            snprintf(logo_path, sizeof(logo_path), "public/img/%s", logo_url + 12);
+            get_media_dimensions(logo_path, false, &logo_w, &logo_h);
+            snprintf(logo_sized, sizeof(logo_sized), "%s?w=256&h=256", logo_url);
+            logo_final = logo_sized;
+        }
         cwist_sstring_append(b, "><img class='hero-logo' src='");
-        cwist_sstring_append(b, logo_url);
+        cwist_sstring_append(b, logo_final);
         cwist_sstring_append(b, "' alt='Logo'");
+        if (logo_w > 0 && logo_h > 0) {
+            char logo_dims[64];
+            snprintf(logo_dims, sizeof(logo_dims), " width='%d' height='%d'", logo_w, logo_h);
+            cwist_sstring_append(b, logo_dims);
+        }
         if (has_home_bg) {
             cwist_sstring_append(b, " style='filter:");
             cwist_sstring_append(b, logo_filter);

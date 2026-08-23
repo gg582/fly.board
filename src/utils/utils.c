@@ -6,6 +6,7 @@
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/log.h>
 #include <ctype.h>
+#include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,9 +73,26 @@ bool file_write(const char *path, const void *data, size_t len) {
 }
 
 bool dir_ensure(const char *path) {
+    if (!path || !path[0]) return false;
+    /* Create intermediate directories too: on a fresh checkout
+     * public/uploads itself may not exist, and a single-level mkdir of
+     * public/uploads/.thumbs then fails, silently disabling thumbnail
+     * generation and serving full-size originals instead. */
+    char tmp[PATH_MAX];
+    size_t len = strlen(path);
+    if (len >= sizeof(tmp)) return false;
+    snprintf(tmp, sizeof(tmp), "%s", path);
+    if (tmp[len - 1] == '/') tmp[len - 1] = '\0';
+    for (char *p = tmp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            if (mkdir(tmp, 0755) != 0 && errno != EEXIST) return false;
+            *p = '/';
+        }
+    }
+    if (mkdir(tmp, 0755) != 0 && errno != EEXIST) return false;
     struct stat st;
-    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) return true;
-    return mkdir(path, 0755) == 0;
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
 const char *mime_type(const char *filename) {
