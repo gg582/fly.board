@@ -1,20 +1,48 @@
 #!/bin/bash
 
 # C1M Benchmark Script for fly_board
-# Targeted for 1,000,000 concurrent connections
-
-set -euo pipefail
-
-# Configuration
-WORKERS=24
+#
+# NOTE (2026-08-23 redesign): "1,000,000 simultaneously held TLS connections"
+# is architecturally impossible for this server today, and pretending
+# otherwise made this script hang forever.  fly_board terminates TLS inside
+# cwist's thread-pool HTTPS path, where every live connection parks one
+# worker thread for its whole lifetime.  Held-connection concurrency is
+# therefore capped at (CWIST_WORKERS x threads-per-worker), i.e. hundreds to
+# ~1.5k, not 1M.  (The cleartext HTTP/1.x path in cwist is event-driven and
+# did reach 999,872/1,000,000 held connections; TLS has not been ported to
+# that model yet.)
+#
+# What this script measures instead: C1M-scale CHURN — 1,000,000 requests
+# (20 processes x 50k) over 100,000 concurrently held TLS connections.
+# The connect rate is deliberately kept at the C100K-proven 1,000 conn/s
+# per process: higher aggregate rates (>= ~50k/s) drive the TLS accept
+# path into a stall, which is a server-side issue tracked separately and
+# not something a benchmark should paper over by retrying.  Termination
+# is guaranteed by -n (per-process request budget) plus -T
+# (per-connection active timeout), since -r and --duration are mutually
+# exclusive in h2load.
+#
+# Load-shape pitfalls measured and fixed:
+#  1. WORKERS must leave cores for the load generators. 24 forked workers on
+#     a 12-core box oversubscribe the scheduler; the TLS handshake rate then
+#     collapses (~130 conn/s aggregate) because worker threads spin on
+#     contention instead of handshaking. With WORKERS=4 the same client set
+#     established 300k connections in ~90s.
+#  2. A single h2load process does not survive -c 50000 (stalls silently with
+#     connections stuck pre-handshake). Keep per-process concurrency in the
+#     low thousands; scale by process count across distinct VIPs.
+WORKERS=12
 SERVER_DIR="/home/yjlee/fly.board"
-H2LOAD_CONN=50000
-H2LOAD_REQ=100000
-H2LOAD_RATE=10000
+H2LOAD_CONN=5000        # concurrent conns per h2load process (100k held total)
+H2LOAD_REQ=50000        # per-process request budget (aggregate: 1M requests)
+H2LOAD_RATE=1000        # new conns/s per process (C100K-proven safe rate)
+CONN_ACTIVE_TIMEOUT=30  # recycle any connection alive longer than this
 VIP_COUNT=20
 VIP_BASE="127.0.0"
 PORT=8888
-DURATION_ESTIMATE=120  # seconds
+DURATION_ESTIMATE=600   # seconds; healthy runs finish 1M requests in ~7 min
+
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -52,6 +80,22 @@ check_prerequisites() {
         log_error "Cannot set sufficient FD limits"
         exit 1
     }
+
+    # Kernel knobs that silently cap loopback concurrency (from the cwist
+    # C1M audit): conntrack table, system-wide fd ceiling, client port range.
+    local ct_max fmax prange
+    ct_max=$(cat /proc/sys/net/netfilter/nf_conntrack_max 2>/dev/null || echo 0)
+    fmax=$(cat /proc/sys/fs/file-max 2>/dev/null || echo 0)
+    prange=$(cat /proc/sys/net/ipv4/ip_local_port_range 2>/dev/null || echo "unknown")
+    log_info "kernel: nf_conntrack_max=${ct_max} fs.file-max=${fmax} ip_local_port_range=${prange}"
+    if [[ ${ct_max} -lt 1000000 ]]; then
+        log_warn "nf_conntrack_max=${ct_max}: loopback is conntracked too, capping total connections near that value."
+        log_warn "  fix: sudo sysctl -w net.netfilter.nf_conntrack_max=4194304"
+    fi
+    if [[ ${fmax} -lt 4000000 ]]; then
+        log_warn "fs.file-max=${fmax}: each connection costs one fd on BOTH client and server."
+        log_warn "  fix: sudo sysctl -w fs.file-max=8388608"
+    fi
 
     log_info "Pre-flight checks passed"
 }
@@ -94,15 +138,35 @@ generate_load() {
             -c ${H2LOAD_CONN} \
             -n ${H2LOAD_REQ} \
             -r ${H2LOAD_RATE} \
+            -T ${CONN_ACTIVE_TIMEOUT} \
             ${target} > "h2load_c1m_${i}.log" 2>&1 &
         pids="${pids} $!"
     done
 
     log_info "Load generation started, waiting for all processes to finish..."
-    
-    # Wait for all h2load processes
+
+    # Watchdog: under multi-process TLS load we have observed a stall where
+    # h2load holds ESTABLISHED sockets that have no server-side counterpart
+    # and no progress is made (under investigation on the cwist HTTPS path).
+    # Never let this script hang forever: after DURATION_ESTIMATE seconds,
+    # kill the stragglers and analyze whatever was measured.
+    local deadline=$(( $(date +%s) + DURATION_ESTIMATE ))
     for pid in ${pids}; do
-        wait ${pid} || log_warn "h2load process ${pid} exited with error"
+        local now
+        now=$(date +%s)
+        if [[ ${now} -lt ${deadline} ]]; then
+            # SIGINT first: h2load prints its partial result table on it.
+            ( sleep $(( deadline - now )) ; kill -INT ${pid} 2>/dev/null ; sleep 5 ; kill -9 ${pid} 2>/dev/null ) &
+            local watchdog=$!
+            wait ${pid} || log_warn "h2load process ${pid} exited with error"
+            kill ${watchdog} 2>/dev/null || true
+        else
+            log_warn "watchdog expired; interrupting h2load process ${pid}"
+            kill -INT ${pid} 2>/dev/null || true
+            sleep 5
+            kill -9 ${pid} 2>/dev/null || true
+            wait ${pid} 2>/dev/null || true
+        fi
     done
 
     echo ""

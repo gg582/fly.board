@@ -71,7 +71,10 @@ endif
 # Common flags & defines matching cwist buildchain
 COMMON_DEFINES = -D_GNU_SOURCE -D_XOPEN_SOURCE=700 -D_REENTRANT -DSQLITE_ENABLE_DESERIALIZE
 COMMON_WARNINGS = -Wall -Wextra -pthread -fPIC
-OPT_FLAGS = -O2 -march=native -mtune=native -fno-plt -fomit-frame-pointer
+# Match cwist's GCC_STACK_FLAGS (-Ofast -g).  The FP audit found no NaN/Inf
+# or signed-zero dependencies (media_preview guards src_h > 0, image_contrast
+# uses only finite pow()/threshold heuristics), so -ffast-math is safe here.
+OPT_FLAGS = -Ofast -g -march=native -mtune=native -fno-plt -fomit-frame-pointer
 
 CFLAGS := $(OPT_FLAGS) $(COMMON_WARNINGS) $(COMMON_DEFINES) \
           -Iinclude \

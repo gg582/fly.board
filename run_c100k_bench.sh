@@ -53,6 +53,22 @@ check_prerequisites() {
         exit 1
     }
 
+    # Kernel knobs that silently cap loopback concurrency (from the cwist
+    # C1M audit): conntrack table, system-wide fd ceiling, client port range.
+    local ct_max fmax prange
+    ct_max=$(cat /proc/sys/net/netfilter/nf_conntrack_max 2>/dev/null || echo 0)
+    fmax=$(cat /proc/sys/fs/file-max 2>/dev/null || echo 0)
+    prange=$(cat /proc/sys/net/ipv4/ip_local_port_range 2>/dev/null || echo "unknown")
+    log_info "kernel: nf_conntrack_max=${ct_max} fs.file-max=${fmax} ip_local_port_range=${prange}"
+    if [[ ${ct_max} -lt 1000000 ]]; then
+        log_warn "nf_conntrack_max=${ct_max}: loopback is conntracked too, capping total connections near that value."
+        log_warn "  fix: sudo sysctl -w net.netfilter.nf_conntrack_max=4194304"
+    fi
+    if [[ ${fmax} -lt 4000000 ]]; then
+        log_warn "fs.file-max=${fmax}: each connection costs one fd on BOTH client and server."
+        log_warn "  fix: sudo sysctl -w fs.file-max=8388608"
+    fi
+
     log_info "Pre-flight checks passed"
 }
 
