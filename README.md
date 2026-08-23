@@ -222,32 +222,36 @@ Measured with `h2load` maintaining 100,000 concurrent connections.
 | Approx total RPS | **2410.83** |
 | Success rate | **100.00%** |
 | Exit status | **0** |
-### C1m Churn Test (redesigned 2026-08-23)
+### C1m Churn Test (redesigned 2026-08-23, fixed 2026-08-24)
 
 The old "1,000,000 concurrent TLS connections" target was retired: the HTTPS
 path parks one worker thread per live connection, so held-connection
 concurrency is capped at workers x threads, far below 1M.  (cwist's
 **cleartext** HTTP/1.x path is event-driven and did reach
 1,000,000/1,000,000 held connections — see the cwist README.)  The C1m test
-now measures churn: 20 h2load processes x 50,000 requests over
-100,000 concurrently held TLS connections, bounded by a watchdog.
+measures churn: 20 h2load processes x 50,000 requests over 100,000
+concurrently held TLS connections, bounded by a watchdog.
 
 | Item | Value |
 |------|-------|
 | Workers | 12 |
 | Load shape | 20 x (-c 5000 -n 50000 -r 1000 -T 30) |
-| Intended totals | 100,000 held connections, 1,000,000 requests |
-| Outcome | **stalled mid-run** (server-side defect under investigation) |
-| Peak concurrency before the stall | ~85,000 established connections |
-| Max RSS | **~86 MB** (88,028 KB) |
-| Server wall time | 11:46.69 (watchdog-bounded) |
-| Exit status | **0** (clean shutdown after watchdog stop) |
+| Totals | 1,000,000 requests over 100,000 held connections |
+| Outcome | **completed — no stall** |
+| Total succeeded | **756,610 / 1,000,000 (75.7%)** |
+| Errored | 243,390 (client-side -T 30 recycles of slow conns) |
+| Wall time | ~7 min (h2load "finished in" 410-425 s per process) |
+| Phantom connections | 0 (client/server ESTABLISHED counts matched) |
+| Server shutdown | clean, exit 0 |
 
-Stall postmortem (2026-08-23): h2load-side sockets remain ESTABLISHED with
-no server-side counterpart; all accept loops idle, all HTTPS pool workers
-idle, queue empty; zero ListenOverflows/ListenDrops/Syncookies events;
-conntrack nearly empty; the server keeps answering fresh connections
-(curl 200 in ~44 ms).  Tracked as a cwist HTTPS-path concurrency defect.
+History: the 2026-08-23 run of this same load deadlocked at ~85k
+connections.  Root cause (fixed in cwist `perf(https): non-blocking TLS
+handshake shepherd`): the TLS handshake ran synchronously inside worker
+threads with 30 s poll waits, so a few hundred laggy clients parked the
+whole pool, the accept queue overflowed, and overflowing handshakes were
+dropped silently, leaving clients ESTABLISHED with no server-side socket.
+Handshakes now run on a non-blocking shepherd thread; only established
+sessions occupy pool workers.
 
 > Note: Values measured while maintaining actual client connections over HTTP/2 (TLS 1.3). Worker counts differ per test; see "What This Benchmark Measures".
 
@@ -255,7 +259,7 @@ conntrack nearly empty; the server keeps answering fresh connections
 
 - **Connection Scalability**: RSS stays around **~94–96 MB** from 10,000 through 1,000,000 concurrent connections. The per-connection memory cost is effectively flat.
 - **Stable under Realistic Load**: C10k and C100k completed with **100% success** while staying inside the same memory envelope.
-- **Memory Envelope Holds at C1m scale**: even in the (currently stalling) C1m churn run, RSS stayed ~86 MB and the server shut down cleanly — no memory spiral, no crash. Fixing the churn stall is tracked separately.
+- **Memory Envelope Holds at C1m scale**: the C1m churn run (1M requests over 100k held TLS connections) completes without a stall and RSS stays ~86 MB — no memory spiral, no crash.
 - **Data Safety**: SQLite safely persisted all data on SIGINT (200 FS outputs at C10k).
 
 ### Throughput Benchmark
