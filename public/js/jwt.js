@@ -61,6 +61,32 @@
         window.addEventListener('pageshow', syncServiceWorkerToken);
     }
 
+    function clearServiceWorkerToken() {
+        if (!navigator.serviceWorker) return;
+        var message = { type: 'AUTH_TOKEN', token: '' };
+        function send(worker) {
+            if (worker) worker.postMessage(message);
+        }
+        send(navigator.serviceWorker.controller);
+        navigator.serviceWorker.ready.then(function(registration) {
+            send(registration.active);
+        }).catch(function() {});
+    }
+
+    /* Logout navigations bypass the service worker, so the SW would keep the
+     * stale token and re-authenticate the post-logout redirect via its
+     * bearer fallback.  Clear it the moment a logout action starts. */
+    function isLogoutAction(el) {
+        var target = el && el.closest ? el.closest('a[href*="/logout"], form[action*="/logout"]') : null;
+        return !!target;
+    }
+    document.addEventListener('click', function(e) {
+        if (isLogoutAction(e.target)) clearServiceWorkerToken();
+    }, true);
+    document.addEventListener('submit', function(e) {
+        if (isLogoutAction(e.target)) clearServiceWorkerToken();
+    }, true);
+
     function needsAuthHeader(headers) {
         if (!headers) return true;
         if (headers instanceof Headers) {
