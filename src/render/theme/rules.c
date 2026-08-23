@@ -89,12 +89,8 @@ void rule_root(cJSON *vars, theme_color_t *t) {
     cJSON_AddStringToObject(vars, "--shadow-base", t->shadow_base);
     cJSON_AddStringToObject(vars, "--overlay", "color-mix(in srgb, var(--bg) 72%, transparent)");
     cJSON_AddStringToObject(vars, "--font-display", g_font_settings.display[0] ? g_font_settings.display : "'Outfit', sans-serif");
-    /* TikZJax emits SVG paths with a hard-coded black default.  Expose the
-     * actual foreground for every palette so its axes, labels and uncoloured
-    * paths follow the selected theme instead of assuming a light canvas. */
-    cJSON_AddStringToObject(vars, "--tikz-ink", t->fg);
 
-    const char *background_filename = (t == &light || t == &sepia) ? g_config.bg_full_light : g_config.bg_full_dark;
+    const char *background_filename = (t == &light) ? g_config.bg_full_light : g_config.bg_full_dark;
     char background_url[1024];
     char background_image[1040];
     static_image_url(background_url, sizeof(background_url), background_filename);
@@ -140,7 +136,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, body);
 
     cJSON *h1 = create_rule("h1, .hero h1");
-    add_decl(h1, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Inter', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
+    add_decl(h1, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
     add_decl(h1, "font-weight", g_font_settings.font_weight_h1[0] ? g_font_settings.font_weight_h1 : "800");
     add_decl(h1, "letter-spacing", g_font_settings.letter_spacing_h1[0] ? g_font_settings.letter_spacing_h1 : "-0.05em");
     add_decl(h1, "line-height", "1.1");
@@ -148,7 +144,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h1);
 
     cJSON *h2 = create_rule("h2, .board-line-title, .board-card h2");
-    add_decl(h2, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Inter', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
+    add_decl(h2, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
     add_decl(h2, "font-weight", g_font_settings.font_weight_h2[0] ? g_font_settings.font_weight_h2 : "750");
     add_decl(h2, "letter-spacing", g_font_settings.letter_spacing_h2[0] ? g_font_settings.letter_spacing_h2 : "-0.04em");
     add_decl(h2, "line-height", "1.15");
@@ -156,7 +152,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h2);
 
     cJSON *h3 = create_rule("h3");
-    add_decl(h3, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Inter', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
+    add_decl(h3, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
     add_decl(h3, "font-weight", g_font_settings.font_weight_h3[0] ? g_font_settings.font_weight_h3 : "700");
     add_decl(h3, "letter-spacing", g_font_settings.letter_spacing_h3[0] ? g_font_settings.letter_spacing_h3 : "-0.03em");
     add_decl(h3, "line-height", "1.2");
@@ -164,7 +160,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h3);
 
     cJSON *h4 = create_rule("h4");
-    add_decl(h4, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Inter', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
+    add_decl(h4, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
     add_decl(h4, "font-weight", g_font_settings.font_weight_h4[0] ? g_font_settings.font_weight_h4 : "600");
     add_decl(h4, "letter-spacing", g_font_settings.letter_spacing_h4[0] ? g_font_settings.letter_spacing_h4 : "-0.02em");
     add_decl(h4, "line-height", "1.25");
@@ -172,7 +168,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h4);
 
     cJSON *h5h6 = create_rule("h5, h6");
-    add_decl(h5h6, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Inter', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
+    add_decl(h5h6, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
     add_decl(h5h6, "font-weight", g_font_settings.font_weight_h5h6[0] ? g_font_settings.font_weight_h5h6 : "500");
     add_decl(h5h6, "letter-spacing", g_font_settings.letter_spacing_h5h6[0] ? g_font_settings.letter_spacing_h5h6 : "-0.01em");
     add_decl(h5h6, "line-height", "1.3");
@@ -180,7 +176,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h5h6);
 
     cJSON *topbar_title = create_rule(".topbar-title");
-    add_decl(topbar_title, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'Inter', 'Pretendard Variable', 'Pretendard', 'IBM Plex Sans KR', sans-serif");
+    add_decl(topbar_title, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
     add_decl(topbar_title, "font-weight", g_font_settings.font_weight_topbar_title[0] ? g_font_settings.font_weight_topbar_title : "800");
     add_decl(topbar_title, "letter-spacing", g_font_settings.letter_spacing_topbar_title[0] ? g_font_settings.letter_spacing_topbar_title : "-0.04em");
     add_decl(topbar_title, "line-height", "1.2");
@@ -530,22 +526,6 @@ void rule_components(cJSON *rules) {
     add_decl(btn2h, "color", "var(--accent2)");
     add_decl(btn2h, "border-color", "var(--accent2)");
     cJSON_AddItemToArray(rules, btn2h);
-
-    cJSON *translate_target = create_rule(".post-translate-target");
-    add_decl(translate_target, "background", "var(--panel)");
-    add_decl(translate_target, "color", "var(--accent)");
-    add_decl(translate_target, "accent-color", "var(--accent)");
-    cJSON_AddItemToArray(rules, translate_target);
-
-    cJSON *translate_target_option = create_rule(".post-translate-target option");
-    add_decl(translate_target_option, "background", "var(--panel)");
-    add_decl(translate_target_option, "color", "var(--fg)");
-    cJSON_AddItemToArray(rules, translate_target_option);
-
-    cJSON *translate_target_selected = create_rule(".post-translate-target option:checked");
-    add_decl(translate_target_selected, "background", "var(--accent)");
-    add_decl(translate_target_selected, "color", "var(--panel)");
-    cJSON_AddItemToArray(rules, translate_target_selected);
 
     cJSON *input = create_rule("input, textarea, select");
     add_decl(input, "width", "100%");
@@ -1750,34 +1730,6 @@ void rule_markdown(cJSON *rules) {
     add_decl(article, "min-width", "0");
     cJSON_AddItemToArray(rules, article);
 
-    cJSON *tikz = create_rule(".tikz-render");
-    add_decl(tikz, "display", "block");
-    add_decl(tikz, "max-width", "100%");
-    add_decl(tikz, "margin", "24px 0");
-    add_decl(tikz, "overflow-x", "auto");
-    add_decl(tikz, "color", "var(--tikz-ink)");
-    add_decl(tikz, "transition", "color 0.35s ease");
-    cJSON_AddItemToArray(rules, tikz);
-
-    cJSON *tikz_svg = create_rule(".tikz-render svg");
-    add_decl(tikz_svg, "display", "block");
-    add_decl(tikz_svg, "max-width", "100%");
-    add_decl(tikz_svg, "height", "auto");
-    cJSON_AddItemToArray(rules, tikz_svg);
-
-    cJSON *tikz_public = create_rule(".tikz-public-render");
-    add_decl(tikz_public, "display", "block");
-    add_decl(tikz_public, "width", "100%");
-    add_decl(tikz_public, "min-height", "180px");
-    add_decl(tikz_public, "border", "0");
-    cJSON_AddItemToArray(rules, tikz_public);
-
-    cJSON *tikz_status = create_rule(".tikz-status");
-    add_decl(tikz_status, "color", "var(--muted)");
-    add_decl(tikz_status, "font-size", "0.9rem");
-    add_decl(tikz_status, "padding", "8px 0");
-    cJSON_AddItemToArray(rules, tikz_status);
-
     cJSON *md_h1 = create_rule(".markdown-body h1");
     add_decl(md_h1, "font-size", "2.25rem");
     add_decl(md_h1, "font-weight", g_font_settings.font_weight_md_h1[0] ? g_font_settings.font_weight_md_h1 : "800");
@@ -2046,31 +1998,6 @@ void rule_markdown(cJSON *rules) {
     add_decl(toc_sub, "margin-left", "16px");
     add_decl(toc_sub, "font-size", "0.9em");
     cJSON_AddItemToArray(rules, toc_sub);
-
-    cJSON *toc_l1 = create_rule(".post-toc-level-1");
-    add_decl(toc_l1, "margin-left", "0");
-    add_decl(toc_l1, "font-weight", "600");
-    cJSON_AddItemToArray(rules, toc_l1);
-
-    cJSON *toc_l2 = create_rule(".post-toc-level-2");
-    add_decl(toc_l2, "margin-left", "12px");
-    cJSON_AddItemToArray(rules, toc_l2);
-
-    cJSON *toc_l3 = create_rule(".post-toc-level-3");
-    add_decl(toc_l3, "margin-left", "24px");
-    cJSON_AddItemToArray(rules, toc_l3);
-
-    cJSON *toc_l4 = create_rule(".post-toc-level-4");
-    add_decl(toc_l4, "margin-left", "36px");
-    cJSON_AddItemToArray(rules, toc_l4);
-
-    cJSON *toc_l5 = create_rule(".post-toc-level-5");
-    add_decl(toc_l5, "margin-left", "48px");
-    cJSON_AddItemToArray(rules, toc_l5);
-
-    cJSON *toc_l6 = create_rule(".post-toc-level-6");
-    add_decl(toc_l6, "margin-left", "60px");
-    cJSON_AddItemToArray(rules, toc_l6);
 }
 
 void rule_animations(cJSON *rules) {
@@ -2308,13 +2235,6 @@ void rule_media(cJSON *rules) {
     cJSON *mq_post_summary = create_mobile_rule(".post-row-summary");
     add_decl(mq_post_summary, "font-size", "1.05rem");
     cJSON_AddItemToArray(rules, mq_post_summary);
-
-    /* The broad mobile post-title rule above is for the home feed. On a
-     * sub-board it must not override the compact board list hierarchy: a
-     * featured post remains larger than a normal board post. */
-    cJSON *mq_board_title = create_mobile_rule(".board-typography-list .post-row-title");
-    add_decl(mq_board_title, "font-size", "clamp(1.15rem, 5.2vw, 1.35rem)");
-    cJSON_AddItemToArray(rules, mq_board_title);
 
     cJSON *mq_board_featured_title = create_mobile_rule(".board-typography-list .post-row.featured .post-row-title");
     add_decl(mq_board_featured_title, "font-size", "clamp(1.3rem, 6.2vw, 1.6rem)");
