@@ -495,7 +495,20 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
     const char *p = (req->path && req->path->data) ? req->path->data : "?";
     CWIST_LOG_DEBUG("%s %s", m ? m : "?", p ? p : "?");
 
+    /* The router only registers GET routes, so a bare HEAD (crawlers, health
+     * checks, PageSpeed probes) used to 404.  Route it as GET, then restore
+     * the method afterwards so the HEAD post-processing below still strips
+     * the body.  The marker header lets handlers skip GET side effects such
+     * as view counting. */
+    bool head_rewrite = (req->method == CWIST_HTTP_HEAD);
+    if (head_rewrite) {
+        req->method = CWIST_HTTP_GET;
+        cwist_http_header_add(&req->headers, "X-Fly-Head-Rewrite", "1");
+    }
+
     next(req, res);
+
+    if (head_rewrite) req->method = CWIST_HTTP_HEAD;
 
     strip_html_binary_prefix(res);
 
@@ -503,6 +516,12 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
        Content-Length header so the client knows the GET representation size. */
     if (req->method == CWIST_HTTP_HEAD) {
         cwist_sstring_assign(res->body, "");
+        if (res->use_file_stream) {
+            if (res->file_stream_fd >= 0) close(res->file_stream_fd);
+            res->file_stream_fd = -1;
+            res->use_file_stream = false;
+            res->file_stream_auto_close = false;
+        }
     }
 
     /* For missing image assets, return a valid 1x1 transparent PNG body
@@ -627,80 +646,27 @@ void handler_tasfa_stream_placeholder(cwist_http_request *req, cwist_http_respon
    Dispatch them to the matching GET handler and strip the body below. */
 void handler_not_found(cwist_http_request *req, cwist_http_response *res, cwist_http_status_t status) {
     (void)status;
-    const char *path = (req->path && req->path->data) ? req->path->data : "";
-    if (req->method == CWIST_HTTP_HEAD) {
-        cwist_http_method_t original = req->method;
+    /* cwist matches routes by exact method and only runs the middleware chain
+     * after a match, so HEAD on any GET route lands here.  Re-dispatch once
+     * as GET through the normal router (the marker headers guard against
+     * recursion and let handlers skip GET side effects like view counting),
+     * then strip the body per HEAD semantics.  This replaces the previous
+     * hardcoded list of asset paths that needed individual HEAD shims. */
+    if (req->method == CWIST_HTTP_HEAD &&
+        !cwist_http_header_get(req->headers, "X-Fly-Head-Redispatch")) {
+        cwist_http_header_add(&req->headers, "X-Fly-Head-Redispatch", "1");
+        cwist_http_header_add(&req->headers, "X-Fly-Head-Rewrite", "1");
         req->method = CWIST_HTTP_GET;
-        bool dispatched = false;
-
-        if (strncmp(path, "/assets/img/", 12) == 0 && path[12]) {
-            cwist_query_map_clear(req->path_params);
-            cwist_query_map_set(req->path_params, "filename", path + 12);
-            handler_asset_img(req, res);
-            dispatched = true;
-        } else if (strncmp(path, "/assets/uploads/", 16) == 0 && path[16]) {
-            cwist_query_map_clear(req->path_params);
-            cwist_query_map_set(req->path_params, "filename", path + 16);
-            handler_asset_upload(req, res);
-            dispatched = true;
-        } else if (strncmp(path, "/assets/profile/", 16) == 0 && path[16]) {
-            cwist_query_map_clear(req->path_params);
-            cwist_query_map_set(req->path_params, "filename", path + 16);
-            handler_asset_profile_upload(req, res);
-            dispatched = true;
-        } else if (strcmp(path, "/sw.js") == 0) {
-            handler_sw_js(req, res);
-            dispatched = true;
-        } else if (strncmp(path, "/assets/images/", 15) == 0 && path[15]) {
-            char full_path[PATH_MAX];
-            snprintf(full_path, sizeof(full_path), "public/images/%s", path + 15);
-            if (!send_cached_file_response(req, res, full_path, mime_type(path + 15), "public, max-age=31536000, immutable", NULL)) {
-                res->status_code = CWIST_HTTP_NOT_FOUND;
-                cwist_sstring_assign(res->status_text, "Not Found");
-                cwist_sstring_assign(res->body, "Not found");
-            }
-            dispatched = true;
-        } else if (strncmp(path, "/assets/js/", 11) == 0 && path[11]) {
-            char full_path[PATH_MAX];
-            snprintf(full_path, sizeof(full_path), "public/js/%s", path + 11);
-            if (!send_cached_file_response(req, res, full_path, "application/javascript; charset=utf-8", "public, max-age=31536000, immutable", NULL)) {
-                res->status_code = CWIST_HTTP_NOT_FOUND;
-                cwist_sstring_assign(res->status_text, "Not Found");
-                cwist_sstring_assign(res->body, "Not found");
-            }
-            dispatched = true;
-        } else if (strncmp(path, "/assets/inline/", 15) == 0 && path[15]) {
-            char full_path[PATH_MAX];
-            snprintf(full_path, sizeof(full_path), "public/inline_assets/%s", path + 15);
-            const char *ext = strrchr(path + 15, '.');
-            const char *inline_mime = mime_type(path + 15);
-            if (ext && strcasecmp(ext, ".js") == 0) {
-                inline_mime = "application/javascript; charset=utf-8";
-            } else if (ext && strcasecmp(ext, ".css") == 0) {
-                inline_mime = "text/css; charset=utf-8";
-            }
-            if (!send_cached_file_response(req, res, full_path, inline_mime, "public, max-age=31536000, immutable", NULL)) {
-                res->status_code = CWIST_HTTP_NOT_FOUND;
-                cwist_sstring_assign(res->status_text, "Not Found");
-                cwist_sstring_assign(res->body, "Not found");
-            }
-            dispatched = true;
-        } else if (strncmp(path, "/assets/media/", 14) == 0 && path[14]) {
-            char full_path[PATH_MAX];
-            snprintf(full_path, sizeof(full_path), "public/media/%s", path + 14);
-            if (!send_cached_file_response(req, res, full_path, mime_type(path + 14), "public, max-age=31536000, immutable", NULL)) {
-                res->status_code = CWIST_HTTP_NOT_FOUND;
-                cwist_sstring_assign(res->status_text, "Not Found");
-                cwist_sstring_assign(res->body, "Not found");
-            }
-            dispatched = true;
+        cwist_app_dispatch(req->app, req, res);
+        req->method = CWIST_HTTP_HEAD;
+        cwist_sstring_assign(res->body, "");
+        if (res->use_file_stream) {
+            if (res->file_stream_fd >= 0) close(res->file_stream_fd);
+            res->file_stream_fd = -1;
+            res->use_file_stream = false;
+            res->file_stream_auto_close = false;
         }
-
-        req->method = original;
-        if (dispatched) {
-            cwist_sstring_assign(res->body, "");
-            return;
-        }
+        return;
     }
 
     res->status_code = CWIST_HTTP_NOT_FOUND;
