@@ -237,6 +237,14 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(head, vp);
     cwist_html_element_add_child(head, title_el);
 
+    /* Search engines want an explicit description; the configured subtitle is
+     * the site's own one-line summary, with the title as fallback. */
+    cwist_html_element_t *desc = cwist_html_element_create("meta");
+    cwist_html_element_add_attr(desc, "name", "description");
+    cwist_html_element_add_attr(desc, "content",
+        g_config.subtitle[0] ? g_config.subtitle : (g_config.title[0] ? g_config.title : "Fly Board"));
+    cwist_html_element_add_child(head, desc);
+
     cwist_html_element_t *og_title = cwist_html_element_create("meta");
     cwist_html_element_add_attr(og_title, "property", "og:title");
     cwist_html_element_add_attr(og_title, "content", title);
@@ -558,14 +566,20 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                  * loaded separately so it does not bloat the first payload.
                  * The small local fallbacks are inlined when shell inlining is
                  * enabled and they fit under the per-asset budget. */
-                cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/google-fonts.css?v=2\">");
+                /* Fonts only restyle text, so they must not block first
+                 * paint: preload the sheets and swap rel to stylesheet once
+                 * loaded, with a plain link for no-JS clients.  The inline
+                 * critical theme CSS above already covers the page chrome. */
+                cwist_sstring_append(head_shell, "<link rel=\"preload\" as=\"style\" href=\"/assets/css/google-fonts.css?v=2\" onload=\"this.onload=null;this.rel='stylesheet'\">");
+                cwist_sstring_append(head_shell, "<noscript><link rel=\"stylesheet\" href=\"/assets/css/google-fonts.css?v=2\"></noscript>");
                 if (inline_shell_enabled() && inline_asset_fits(a->font_css_small)) {
                     cwist_sstring_append(head_shell, "<style>");
                     cwist_sstring_append(head_shell, a->font_css_small);
                     cwist_sstring_append(head_shell, "</style>");
                 } else {
-                    cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/pretendard.css\">");
-                    cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/d2coding.css\">");
+                    cwist_sstring_append(head_shell, "<link rel=\"preload\" as=\"style\" href=\"/assets/css/pretendard.css\" onload=\"this.onload=null;this.rel='stylesheet'\">");
+                    cwist_sstring_append(head_shell, "<link rel=\"preload\" as=\"style\" href=\"/assets/css/d2coding.css\" onload=\"this.onload=null;this.rel='stylesheet'\">");
+                    cwist_sstring_append(head_shell, "<noscript><link rel=\"stylesheet\" href=\"/assets/css/pretendard.css\"><link rel=\"stylesheet\" href=\"/assets/css/d2coding.css\"></noscript>");
                 }
 
                 if (inline_shell_enabled()) {
@@ -619,11 +633,13 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     cwist_sstring_append(head_cdn, hl_css);
                     cwist_sstring_append(head_cdn, "</style>");
                 } else {
-                    cwist_sstring_append(head_cdn, "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github");
+                    /* Code-highlight theme is only needed once a code block
+                     * scrolls into view; keep it off the critical path. */
+                    cwist_sstring_append(head_cdn, "<link rel=\"preload\" as=\"style\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github");
                     cwist_sstring_append(head_cdn, dark ? "-dark" : "");
                     cwist_sstring_append(head_cdn, ".min.css\" id=\"hl-theme\" data-active=\"");
                     cwist_sstring_append(head_cdn, dark ? "dark" : "light");
-                    cwist_sstring_append(head_cdn, "\">");
+                    cwist_sstring_append(head_cdn, "\" onload=\"this.onload=null;this.rel='stylesheet'\">");
                 }
 
                 if (needs_katex) {
@@ -632,7 +648,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                         cwist_sstring_append(head_cdn, a->katex_css);
                         cwist_sstring_append(head_cdn, "</style>");
                     } else {
-                        cwist_sstring_append(head_cdn, "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css\">");
+                        cwist_sstring_append(head_cdn, "<link rel=\"preload\" as=\"style\" href=\"https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css\" onload=\"this.onload=null;this.rel='stylesheet'\">");
                     }
                 }
 
