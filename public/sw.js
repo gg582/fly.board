@@ -459,9 +459,19 @@ self.addEventListener('fetch', function(event) {
         return;
     }
 
-    /* Standard page navigations must rely on native browser cookie handling
-     * to avoid race conditions with token postMessage during redirects. */
+    /* Standard page navigations rely on native browser cookie handling, but
+     * a broken/reused keep-alive connection can drop the Cookie header and
+     * the user appears logged out.  When this client has synced its access
+     * token, retry the navigation through the SW with an Authorization
+     * bearer header as the second credential path (the server accepts both;
+     * cookie-less requests are the ones that need it).  Without a synced
+     * token we stay out of the way entirely, preserving the native redirect
+     * behaviour the early return used to guarantee. */
     if (event.request.mode === 'navigate') {
+        var authedRequest = requestWithClientAuth(event.request, event.clientId);
+        if (authedRequest !== event.request) {
+            event.respondWith(fetch(authedRequest));
+        }
         return;
     }
 
