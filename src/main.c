@@ -216,7 +216,10 @@ int main(void) {
      * across multiple worker threads. */
     sqlite3_config(SQLITE_CONFIG_SERIALIZED);
 
-    setenv("CWIST_C1M_MODE", "0", 1);
+    /* Serve through cwist's event-driven C1M reactor path; HTTPS handshakes
+     * are shepherded non-blocking there, so churn cannot park the accept
+     * loop. The environment can still force the legacy pool path. */
+    setenv("CWIST_C1M_MODE", "1", 0);
     signal(SIGPIPE, SIG_IGN);
     fly_log_init();
     if (!ensure_asset_workdir()) {
