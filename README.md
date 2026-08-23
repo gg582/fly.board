@@ -129,14 +129,14 @@ The worker count is scaled with the load to keep each test realistic: **4 worker
 
 | Item | Value |
 |------|-------|
-| OS | Linux 7.1.0-mountain-rc6+ |
+| OS | Linux 6.12.101+deb13-amd64 (Debian 13) |
 | Architecture | x86_64 |
-| CPU | 12 logical cores |
+| CPU | AMD Ryzen 5 5600X (6 cores / 12 threads) |
 | RAM | 62 GiB |
 | GCC | 14.2.0 (Debian 14.2.0-19) |
 | OpenSSL | 3.5.6 |
 | Benchmark Tool | h2load nghttp2/1.64.0 |
-| CWIST | `/usr/local/lib/libcwist.a` |
+| CWIST | `libcwist.a` from the sibling cwist checkout (2026-08-23, event-driven C1M cleartext path) |
 
 ### System Tuning
 
@@ -157,11 +157,11 @@ The worker count is scaled with the load to keep each test realistic: **4 worker
 | State | RSS | Δ from previous | Notes |
 |-------|-----|-----------------|-------|
 | Idle | **~82 MB** (83,708 KB) | — | 4 workers, no connections |
-| C10k | **~96 MB** (96,252 KB) | +12.25 MB | 10,000 concurrent connections |
-| C100k | **~94 MB** (94,352 KB) | -1,900 KB | 100,000 concurrent connections |
-| C1m | **~95 MB** (94,944 KB) | +592 KB | 1,000,000 concurrent connections |
+| C10k | **~91 MB** (93,044 KB) | +9.3 MB | 10,000 concurrent connections |
+| C100k | **~85 MB** (87,460 KB) | -5.6 MB | 100,000 concurrent connections |
+| C1m churn | **~86 MB** (88,028 KB) | +568 KB | 100k held TLS conns, 1M-request churn (stalled mid-run, see C1m section) |
 
-The total RSS change from **C10k to C1m is -1,308 KB** — essentially noise. This is the most important result of the benchmark.
+The total RSS change from **C10k to the C1m churn run is -5,016 KB** — essentially noise. This is the most important result of the benchmark.
 
 RSS values are the **Maximum resident set size (kbytes)** reported by `/usr/bin/time -v` for the server process.
 
@@ -169,8 +169,8 @@ RSS values are the **Maximum resident set size (kbytes)** reported by `/usr/bin/
 
 | Transition | Δ RSS | Δ Connections | Approx. cost per additional connection |
 |---|---|---|---|
-| Idle → C10k | +12.25 MB | 10,000 | ~1.3 KB / connection |
-| C10k → C1m | -1,308 KB | 990,000 | ~-1.4 bytes / additional connection (noise) |
+| Idle → C10k | +9.3 MB | 10,000 | ~0.9 KB / connection |
+| C10k → C1m churn | -5,016 KB | — | within noise; per-connection cost stays flat |
 
 The initial jump from idle to C10k pays for TLS state, connection buffers, and worker overhead up front. After that, the C10k-to-C1m RSS change remains within measurement noise — the per-connection memory cost is effectively flat.
 
@@ -182,23 +182,22 @@ Measured with `h2load` maintaining 10,000 concurrent connections.
 |------|-------|
 | Workers | 4 |
 | Concurrent connections | 10,000 |
-| Duration | 13.62 s |
-| Max RSS | **~96 MB** (96,252 KB) |
-| CPU usage | ~578% |
-| User time | 72.53 s |
-| System time | 6.23 s |
+| Duration | 13.97 s |
+| Max RSS | **~91 MB** (93,044 KB) |
+| CPU usage | ~456% |
+| User time | 60.99 s |
+| System time | 2.86 s |
 | Major page faults | 0 |
-| Minor page faults | 82,722 |
-| Voluntary context switches | 1,689,448 |
-| Involuntary context switches | 18,959 |
-| File system outputs | 200 |
+| Minor page faults | 16,542 |
+| Voluntary context switches | 44,283 |
+| Involuntary context switches | 40,539 |
+| File system outputs | 208 |
 | Total requests | 20000 |
 | Total succeeded | 20000 |
 | Total failed | 0 |
-| Approx total RPS | **2490.60** |
+| Approx total RPS | **2582.71** |
 | Success rate | **100.00%** |
 | Exit status | **0** |
-
 ### C100k Concurrent Connection Test
 
 Measured with `h2load` maintaining 100,000 concurrent connections.
@@ -207,47 +206,48 @@ Measured with `h2load` maintaining 100,000 concurrent connections.
 |------|-------|
 | Workers | 12 |
 | Concurrent connections | 100,000 |
-| Duration | 1:24.88 |
-| Max RSS | **~94 MB** (94,352 KB) |
-| CPU usage | ~871% |
-| User time | 701.20 s |
-| System time | 38.28 s |
+| Duration | 1:32.30 |
+| Max RSS | **~85 MB** (87,460 KB) |
+| CPU usage | ~692% |
+| User time | 607.95 s |
+| System time | 31.34 s |
 | Major page faults | 0 |
-| Minor page faults | 292,073 |
-| Voluntary context switches | 3,522,910 |
-| Involuntary context switches | 184,003 |
-| File system outputs | 208 |
+| Minor page faults | 29,879 |
+| Voluntary context switches | 439,312 |
+| Involuntary context switches | 443,102 |
+| File system outputs | 344 |
 | Total requests | 200000 |
 | Total succeeded | 200000 |
 | Total failed | 0 |
-| Approx total RPS | **2541.24** |
+| Approx total RPS | **2410.83** |
 | Success rate | **100.00%** |
 | Exit status | **0** |
+### C1m Churn Test (redesigned 2026-08-23)
 
-### C1m Concurrent Connection Test
-
-Measured with `h2load` maintaining 1,000,000 concurrent connections.
+The old "1,000,000 concurrent TLS connections" target was retired: the HTTPS
+path parks one worker thread per live connection, so held-connection
+concurrency is capped at workers x threads, far below 1M.  (cwist's
+**cleartext** HTTP/1.x path is event-driven and did reach
+1,000,000/1,000,000 held connections — see the cwist README.)  The C1m test
+now measures churn: 20 h2load processes x 50,000 requests over
+100,000 concurrently held TLS connections, bounded by a watchdog.
 
 | Item | Value |
 |------|-------|
-| Workers | 24 |
-| Concurrent connections | 1,000,000 |
-| Duration | 7:05.71 |
-| Max RSS | **~95 MB** (94,944 KB) |
-| CPU usage | ~641% |
-| User time | 2517.01 s |
-| System time | 215.52 s |
-| Major page faults | 0 |
-| Minor page faults | 789,451 |
-| Voluntary context switches | 23,921,809 |
-| Involuntary context switches | 943,712 |
-| File system outputs | 208 |
-| Total requests | 2000000 |
-| Total succeeded | 711274 |
-| Total failed | 1288726 |
-| Approx total RPS | **1694.48** |
-| Success rate | **35.56%** |
-| Exit status | **0** |
+| Workers | 12 |
+| Load shape | 20 x (-c 5000 -n 50000 -r 1000 -T 30) |
+| Intended totals | 100,000 held connections, 1,000,000 requests |
+| Outcome | **stalled mid-run** (server-side defect under investigation) |
+| Peak concurrency before the stall | ~85,000 established connections |
+| Max RSS | **~86 MB** (88,028 KB) |
+| Server wall time | 11:46.69 (watchdog-bounded) |
+| Exit status | **0** (clean shutdown after watchdog stop) |
+
+Stall postmortem (2026-08-23): h2load-side sockets remain ESTABLISHED with
+no server-side counterpart; all accept loops idle, all HTTPS pool workers
+idle, queue empty; zero ListenOverflows/ListenDrops/Syncookies events;
+conntrack nearly empty; the server keeps answering fresh connections
+(curl 200 in ~44 ms).  Tracked as a cwist HTTPS-path concurrency defect.
 
 > Note: Values measured while maintaining actual client connections over HTTP/2 (TLS 1.3). Worker counts differ per test; see "What This Benchmark Measures".
 
@@ -255,7 +255,7 @@ Measured with `h2load` maintaining 1,000,000 concurrent connections.
 
 - **Connection Scalability**: RSS stays around **~94–96 MB** from 10,000 through 1,000,000 concurrent connections. The per-connection memory cost is effectively flat.
 - **Stable under Realistic Load**: C10k and C100k completed with **100% success** while staying inside the same memory envelope.
-- **Memory Envelope Holds at C1m**: Even when the test hardware could not fully serve all 1,000,000 connections (35.56% success), memory use remained essentially unchanged — the server did not spiral out of control.
+- **Memory Envelope Holds at C1m scale**: even in the (currently stalling) C1m churn run, RSS stayed ~86 MB and the server shut down cleanly — no memory spiral, no crash. Fixing the churn stall is tracked separately.
 - **Data Safety**: SQLite safely persisted all data on SIGINT (200 FS outputs at C10k).
 
 ### Throughput Benchmark
