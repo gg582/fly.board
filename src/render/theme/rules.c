@@ -2229,7 +2229,7 @@ void rule_media(cJSON *rules) {
     cJSON_AddItemToArray(rules, mq_post_row);
 
     cJSON *mq_post_title = create_mobile_rule(".post-row-title");
-    add_decl(mq_post_title, "font-size", "clamp(1.8rem, 9vw, 2.35rem)");
+    add_decl(mq_post_title, "font-size", "clamp(1.3rem, 6.2vw, 1.6rem)");
     cJSON_AddItemToArray(rules, mq_post_title);
 
     cJSON *mq_post_summary = create_mobile_rule(".post-row-summary");
@@ -2237,7 +2237,7 @@ void rule_media(cJSON *rules) {
     cJSON_AddItemToArray(rules, mq_post_summary);
 
     cJSON *mq_board_featured_title = create_mobile_rule(".board-typography-list .post-row.featured .post-row-title");
-    add_decl(mq_board_featured_title, "font-size", "clamp(1.3rem, 6.2vw, 1.6rem)");
+    add_decl(mq_board_featured_title, "font-size", "clamp(1.8rem, 9vw, 2.35rem)");
     cJSON_AddItemToArray(rules, mq_board_featured_title);
 
     cJSON *mq24 = create_mobile_rule(".board-grid");
