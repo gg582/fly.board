@@ -304,6 +304,9 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *boards = db_board_list(req->db);
+    cJSON *tree = db_board_tree_get_all();
+    cJSON *ordered = cJSON_CreateArray();
+    append_boards_flat(ordered, boards, tree, 0, 4);
     int initial_board_id = 0;
     const char *board_slug = cwist_query_map_get(req->query_params, "board");
     if (board_slug && board_slug[0]) {
@@ -313,7 +316,9 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
             cJSON_Delete(board);
         }
     }
-    cwist_sstring *page = render_post_editor(boards, NULL, NULL, initial_board_id, is_dark(req), role, NULL, pp, is_mobile_request(req));
+    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, NULL, pp, is_mobile_request(req));
+    if (ordered) cJSON_Delete(ordered);
+    if (tree) cJSON_Delete(tree);
     if (boards) cJSON_Delete(boards);
     send_html_res(res, page);
     free(pp);
@@ -385,9 +390,14 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     if (!title || !content || !title[0] || !content[0]) {
         CWIST_LOG_WARN("Post creation failed: missing title or content uid=%d", uid);
         cJSON *boards = db_board_list(req->db);
+        cJSON *tree = db_board_tree_get_all();
+        cJSON *ordered = cJSON_CreateArray();
+        append_boards_flat(ordered, boards, tree, 0, 4);
         char *pp = get_profile_pic(req->db, uid, role);
         int initial_board_id = board_id_str ? atoi(board_id_str) : 0;
-        cwist_sstring *page = render_post_editor(boards, NULL, NULL, initial_board_id, is_dark(req), role, "Title and content required", pp, is_mobile_request(req));
+        cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, "Title and content required", pp, is_mobile_request(req));
+        if (ordered) cJSON_Delete(ordered);
+        if (tree) cJSON_Delete(tree);
         if (boards) cJSON_Delete(boards);
         send_html_res(res, page);
         free(pp);
@@ -401,9 +411,14 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         strlen(content) > MAX_POST_CONTENT_LEN) {
         CWIST_LOG_WARN("Post creation failed: input too long uid=%d", uid);
         cJSON *boards = db_board_list(req->db);
+        cJSON *tree = db_board_tree_get_all();
+        cJSON *ordered = cJSON_CreateArray();
+        append_boards_flat(ordered, boards, tree, 0, 4);
         char *pp = get_profile_pic(req->db, uid, role);
         int initial_board_id = board_id_str ? atoi(board_id_str) : 0;
-        cwist_sstring *page = render_post_editor(boards, NULL, NULL, initial_board_id, is_dark(req), role, "Title, summary, or content is too long", pp, is_mobile_request(req));
+        cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, "Title, summary, or content is too long", pp, is_mobile_request(req));
+        if (ordered) cJSON_Delete(ordered);
+        if (tree) cJSON_Delete(tree);
         if (boards) cJSON_Delete(boards);
         send_html_res(res, page);
         free(pp);
@@ -489,12 +504,17 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     cJSON *boards = db_board_list(req->db);
+    cJSON *tree = db_board_tree_get_all();
+    cJSON *ordered = cJSON_CreateArray();
+    append_boards_flat(ordered, boards, tree, 0, 4);
     char *pp = get_profile_pic(req->db, uid, role);
     int post_id_val = json_int(post, "id", 0);
     cJSON *files = db_file_list_by_post(req->db, post_id_val);
-    cwist_sstring *page = render_post_editor(boards, post, files, 0, is_dark(req), role, NULL, pp, is_mobile_request(req));
+    cwist_sstring *page = render_post_editor(ordered, post, files, 0, is_dark(req), role, NULL, pp, is_mobile_request(req));
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
+    if (ordered) cJSON_Delete(ordered);
+    if (tree) cJSON_Delete(tree);
     if (boards) cJSON_Delete(boards);
     send_html_res(res, page);
     free(pp);

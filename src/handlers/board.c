@@ -23,7 +23,7 @@ static int board_depth(int board_id, cJSON *tree) {
     return depth;
 }
 
-static void append_boards_flat(cJSON *out, cJSON *boards, cJSON *tree, int parent_id, int max_depth) {
+void append_boards_flat(cJSON *out, cJSON *boards, cJSON *tree, int parent_id, int max_depth) {
     if (!boards || !out) return;
     int n = cJSON_GetArraySize(boards);
     for (int i = 0; i < n; i++) {
@@ -114,7 +114,12 @@ void handler_board_new_get(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *boards = db_board_list(req->db);
-    send_html_res(res, render_board_form(NULL, boards, is_dark(req), NULL, pp, is_mobile_request(req), role));
+    cJSON *tree = db_board_tree_get_all();
+    cJSON *ordered = cJSON_CreateArray();
+    append_boards_flat(ordered, boards, tree, 0, 4);
+    send_html_res(res, render_board_form(NULL, ordered, is_dark(req), NULL, pp, is_mobile_request(req), role));
+    if (ordered) cJSON_Delete(ordered);
+    if (tree) cJSON_Delete(tree);
     if (boards) cJSON_Delete(boards);
     free(pp);
 }
@@ -161,7 +166,12 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
         auth_is_logged_in(req, &uid, role, sizeof(role));
         char *pp = get_profile_pic(req->db, uid, role);
         cJSON *boards = db_board_list(req->db);
-        cwist_sstring *page = render_board_form(NULL, boards, is_dark(req), error, pp, is_mobile_request(req), role);
+        cJSON *tree = db_board_tree_get_all();
+        cJSON *ordered = cJSON_CreateArray();
+        append_boards_flat(ordered, boards, tree, 0, 4);
+        cwist_sstring *page = render_board_form(NULL, ordered, is_dark(req), error, pp, is_mobile_request(req), role);
+        if (ordered) cJSON_Delete(ordered);
+        if (tree) cJSON_Delete(tree);
         if (boards) cJSON_Delete(boards);
         send_html_res(res, page);
         free(pp);
@@ -208,9 +218,14 @@ void handler_board_edit_get(cwist_http_request *req, cwist_http_response *res) {
     }
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *all_boards = db_board_list(req->db);
+    cJSON *tree = db_board_tree_get_all();
+    cJSON *ordered = cJSON_CreateArray();
+    append_boards_flat(ordered, all_boards, tree, 0, 4);
     int parent_id = db_board_tree_get_parent(bid);
     cJSON_AddNumberToObject(board, "parent_id", parent_id);
-    cwist_sstring *page = render_board_form(board, all_boards, is_dark(req), NULL, pp, is_mobile_request(req), role);
+    cwist_sstring *page = render_board_form(board, ordered, is_dark(req), NULL, pp, is_mobile_request(req), role);
+    if (ordered) cJSON_Delete(ordered);
+    if (tree) cJSON_Delete(tree);
     if (all_boards) cJSON_Delete(all_boards);
     cJSON_Delete(board);
     send_html_res(res, page);

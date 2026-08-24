@@ -72,7 +72,10 @@ void handler_admin_boards_get(cwist_http_request *req, cwist_http_response *res)
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *boards = db_board_list(req->db);
     cJSON *tree = db_board_tree_get_all();
-    cwist_sstring *page = render_admin_boards(boards, tree, is_dark(req), pp, is_mobile_request(req));
+    cJSON *ordered = cJSON_CreateArray();
+    append_boards_flat(ordered, boards, tree, 0, 4);
+    cwist_sstring *page = render_admin_boards(ordered, tree, is_dark(req), pp, is_mobile_request(req));
+    if (ordered) cJSON_Delete(ordered);
     if (boards) cJSON_Delete(boards);
     if (tree) cJSON_Delete(tree);
     send_html_res(res, page);

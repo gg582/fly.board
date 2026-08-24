@@ -257,26 +257,18 @@ void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res) 
     bool is_admin = strcmp(role, "admin") == 0;
 
     cJSON *boards = db_board_list(req->db);
-    cJSON *roots = db_board_tree_get_roots();
+    cJSON *tree = db_board_tree_get_all();
+    cJSON *ordered = cJSON_CreateArray();
+    append_boards_flat(ordered, boards, tree, 0, 4);
+
     cJSON *out = cJSON_CreateArray();
-    if (boards && out) {
-        int n = cJSON_GetArraySize(boards);
+    if (ordered && out) {
+        int n = cJSON_GetArraySize(ordered);
         for (int i = 0; i < n; i++) {
-            cJSON *bo = cJSON_GetArrayItem(boards, i);
+            cJSON *bo = cJSON_GetArrayItem(ordered, i);
             if (!bo) continue;
             int bid = json_int(bo, "id", 0);
             if (bid <= 0 || !db_board_can_user_access(req->db, bid, uid, is_admin)) continue;
-            /* dropdown shows only root-level boards (1-depth) */
-            bool is_root = true;
-            if (roots) {
-                is_root = false;
-                int rn = cJSON_GetArraySize(roots);
-                for (int j = 0; j < rn; j++) {
-                    cJSON *r = cJSON_GetArrayItem(roots, j);
-                    if (r && r->valueint == bid) { is_root = true; break; }
-                }
-            }
-            if (!is_root) continue;
             cJSON *slug = cJSON_GetObjectItem(bo, "slug");
             cJSON *name = cJSON_GetObjectItem(bo, "name");
             if (!slug || !slug->valuestring || !slug->valuestring[0] ||
@@ -285,12 +277,15 @@ void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res) 
             if (!item) continue;
             cJSON_AddStringToObject(item, "slug", slug->valuestring);
             cJSON_AddStringToObject(item, "name", name->valuestring);
+            int depth = json_int(bo, "depth", 0);
+            cJSON_AddNumberToObject(item, "depth", depth);
             cJSON *post_count = cJSON_GetObjectItem(bo, "post_count");
             cJSON_AddNumberToObject(item, "post_count", post_count ? post_count->valuedouble : 0);
             cJSON_AddItemToArray(out, item);
         }
     }
-    if (roots) cJSON_Delete(roots);
+    if (tree) cJSON_Delete(tree);
+    if (ordered) cJSON_Delete(ordered);
 
     char *json = out ? cJSON_PrintUnformatted(out) : NULL;
     cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");

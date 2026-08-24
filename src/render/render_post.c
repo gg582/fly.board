@@ -1204,6 +1204,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
             cJSON *bo = cJSON_GetArrayItem(boards, i);
             cJSON *bname = cJSON_GetObjectItem(bo, "name");
             int bid_val = json_int(bo, "id", 0);
+            int depth = json_int(bo, "depth", 0);
             char bid_buf[32];
             snprintf(bid_buf, sizeof(bid_buf), "%d", bid_val);
             int is_selected = (post_board_id > 0 && post_board_id == bid_val);
@@ -1213,7 +1214,15 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
             cwist_sstring_append(b, bid_buf);
             cwist_sstring_append(b, "' role='option'");
             if (is_selected) cwist_sstring_append(b, " aria-selected='true'");
+            if (depth > 0) {
+                char pad_buf[64];
+                snprintf(pad_buf, sizeof(pad_buf), " style='padding-left:%dpx'", 14 + depth * 14);
+                cwist_sstring_append(b, pad_buf);
+            }
             cwist_sstring_append(b, ">");
+            if (depth > 0) {
+                for (int d = 0; d < depth; d++) cwist_sstring_append(b, "&mdash;&nbsp;");
+            }
             if (bname && bname->valuestring) {
                 char *tmp_bname = sql_escape(bname->valuestring);
                 cwist_sstring_append(b, tmp_bname);

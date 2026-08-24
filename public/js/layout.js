@@ -229,9 +229,13 @@
             var b=arr[i];
             if(!b||!b.slug||!b.name)continue;
             var a=document.createElement('a');
-            a.className='nav-board-subitem';
+            var depth=b.depth||0;
+            a.className='nav-board-subitem' + (depth ? ' nav-board-subitem-depth' : '');
+            if(depth > 0){
+                a.style.paddingLeft = (16 + depth * 14) + 'px';
+            }
             a.href='/board/'+encodeURIComponent(b.slug);
-            a.textContent=b.name;
+            a.textContent=(depth > 0 ? '↳ ' : '') + b.name;
             list.appendChild(a);
         }
         if(!list.children.length){
