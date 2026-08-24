@@ -464,14 +464,18 @@ self.addEventListener('fetch', function(event) {
      * the user appears logged out.  When this client has synced its access
      * token, retry the navigation through the SW with an Authorization
      * bearer header as the second credential path (the server accepts both;
-     * cookie-less requests are the ones that need it).  Without a synced
-     * token we stay out of the way entirely, preserving the native redirect
-     * behaviour the early return used to guarantee. */
+     * cookie-less requests are the ones that need it).
+     *
+     * Even without a synced token, we intercept navigations so that
+     * fetchWithRetry can transparently recover from transient QUIC/H3
+     * connection failures (NS_ERROR_NET_RESET, etc.) that otherwise
+     * surface as status-0 blank pages in Firefox. */
     if (event.request.mode === 'navigate') {
-        var authedRequest = requestWithClientAuth(event.request, event.clientId);
-        if (authedRequest !== event.request) {
-            event.respondWith(fetch(authedRequest));
-        }
+        var navRequest = requestWithClientAuth(event.request, event.clientId);
+        event.respondWith(
+            fetchWithRetry(navRequest, { maxRetries: 3, baseDelay: 500, maxDelay: 5000, firefoxFallback: true })
+                .catch(function() { return fetch(event.request); })
+        );
         return;
     }
 
