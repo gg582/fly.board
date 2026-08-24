@@ -199,9 +199,9 @@ void handler_file_download_chunk(cwist_http_request *req, cwist_http_response *r
 
     /* Approximate progress tracking for tail prediction */
     int received_so_far = json_int(meta, "received_chunks", 0);
-    if (chunk_index + span > received_so_far) {
-        cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(chunk_index + span));
-    }
+    int new_received = received_so_far + span;
+    if (new_received > chunk_count) new_received = chunk_count;
+    cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(new_received));
     const char *chunk_rtt_param = cwist_query_map_get(req->query_params, "chunk_rtt_ms");
     if (chunk_rtt_param) {
         double chunk_rtt = atof(chunk_rtt_param);

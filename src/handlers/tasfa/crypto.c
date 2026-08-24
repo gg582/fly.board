@@ -19,7 +19,8 @@ bool encrypt_stream_block(const unsigned char *key, const unsigned char *iv_seed
                           const char *session_id,
                           const unsigned char *plaintext, size_t plaintext_len,
                           unsigned char *ciphertext, size_t *ciphertext_len_out) {
-    if (!key || !iv_seed || !plaintext || !ciphertext || !ciphertext_len_out) return false;
+    if (!key || !iv_seed || !ciphertext || !ciphertext_len_out) return false;
+    if (plaintext_len > 0 && !plaintext) return false;
     unsigned char iv[12];
     unsigned char aad[512];
     int aad_len = build_stream_aad(aad, sizeof(aad), session_id, chunk_index);
@@ -34,7 +35,9 @@ bool encrypt_stream_block(const unsigned char *key, const unsigned char *iv_seed
     if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, sizeof(iv), NULL) != 1) goto cleanup;
     if (EVP_EncryptInit_ex(ctx, NULL, NULL, key, iv) != 1) goto cleanup;
     if (EVP_EncryptUpdate(ctx, NULL, &out_len, aad, aad_len) != 1) goto cleanup;
-    if (EVP_EncryptUpdate(ctx, ciphertext, &out_len, plaintext, (int)plaintext_len) != 1) goto cleanup;
+    if (plaintext_len > 0) {
+        if (EVP_EncryptUpdate(ctx, ciphertext, &out_len, plaintext, (int)plaintext_len) != 1) goto cleanup;
+    }
     if (EVP_EncryptFinal_ex(ctx, ciphertext + out_len, &final_len) != 1) goto cleanup;
     unsigned char tag[16];
     if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) != 1) goto cleanup;
@@ -50,8 +53,9 @@ bool decrypt_stream_block(const unsigned char *key, const unsigned char *iv_seed
                           const char *upload_id,
                           const unsigned char *ciphertext, size_t ciphertext_len,
                           unsigned char *plaintext, size_t plaintext_len) {
-    if (!key || !iv_seed || !ciphertext || ciphertext_len < 16 || !plaintext) return false;
+    if (!key || !iv_seed || !ciphertext || ciphertext_len < 16) return false;
     if (plaintext_len + 16 != ciphertext_len) return false;
+    if (plaintext_len > 0 && !plaintext) return false;
     unsigned char iv[12];
     unsigned char aad[512];
     int aad_len = build_stream_aad(aad, sizeof(aad), upload_id, chunk_index);
@@ -228,7 +232,7 @@ static bool tasfa_gzip_decompress_to(const unsigned char *input, size_t input_le
     return ok;
 }
 
-/* --- Unified compression with fallback: zstd -> brotli -> gzip --- */
+/* --- Unified compression with fallback: brotli -> zstd -> gzip (ordered by compression efficiency) --- */
 bool tasfa_compress_alloc(const unsigned char *input, size_t input_len,
                           unsigned char **out, size_t *out_len, tasfa_compress_type_t *out_type,
                           bool allow_zstd, bool allow_brotli, bool allow_gzip) {
@@ -237,21 +241,7 @@ bool tasfa_compress_alloc(const unsigned char *input, size_t input_len,
     *out_len = 0;
     *out_type = TASFA_COMPRESS_NONE;
 
-    /* Try zstd first (fastest, good ratio) */
-    if (allow_zstd) {
-        unsigned char *zstd_buf = NULL;
-        size_t zstd_len = 0;
-        if (tasfa_zstd_compress_alloc(input, input_len, &zstd_buf, &zstd_len) &&
-            zstd_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
-            *out = zstd_buf;
-            *out_len = zstd_len;
-            *out_type = TASFA_COMPRESS_ZSTD;
-            return true;
-        }
-        if (zstd_buf) { cwist_free(zstd_buf); zstd_buf = NULL; }
-    }
-
-    /* Fallback to brotli (better ratio, slower) */
+    /* Try brotli first (highest compression ratio) */
     if (allow_brotli) {
         unsigned char *brotli_buf = NULL;
         size_t brotli_len = 0;
@@ -263,6 +253,20 @@ bool tasfa_compress_alloc(const unsigned char *input, size_t input_len,
             return true;
         }
         if (brotli_buf) { cwist_free(brotli_buf); brotli_buf = NULL; }
+    }
+
+    /* Fallback to zstd (fast, good compression ratio) */
+    if (allow_zstd) {
+        unsigned char *zstd_buf = NULL;
+        size_t zstd_len = 0;
+        if (tasfa_zstd_compress_alloc(input, input_len, &zstd_buf, &zstd_len) &&
+            zstd_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
+            *out = zstd_buf;
+            *out_len = zstd_len;
+            *out_type = TASFA_COMPRESS_ZSTD;
+            return true;
+        }
+        if (zstd_buf) { cwist_free(zstd_buf); zstd_buf = NULL; }
     }
 
     /* Final fallback to gzip (universal compatibility) */
