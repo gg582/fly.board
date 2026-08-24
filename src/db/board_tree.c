@@ -29,10 +29,11 @@ static sqlite3 *board_tree_db_conn(void) {
 }
 
 bool db_board_tree_init(const char *path) {
-    if (path && path[0]) {
+    if (path && path[0] && path != g_board_tree_path) {
         snprintf(g_board_tree_path, sizeof(g_board_tree_path), "%s", path);
     }
-    if (sqlite3_open(path, &g_board_tree_db) != SQLITE_OK) {
+    const char *open_path = (path && path[0]) ? path : g_board_tree_path;
+    if (sqlite3_open(open_path, &g_board_tree_db) != SQLITE_OK) {
         CWIST_LOG_ERROR("Failed to open board_tree db: %s", sqlite3_errmsg(g_board_tree_db));
         return false;
     }
