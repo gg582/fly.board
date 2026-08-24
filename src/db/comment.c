@@ -30,10 +30,11 @@ static sqlite3 *comments_db_conn(void) {
 }
 
 bool db_comment_init(const char *path) {
-    if (path && path[0]) {
+    if (path && path[0] && path != g_comments_path) {
         snprintf(g_comments_path, sizeof(g_comments_path), "%s", path);
     }
-    if (sqlite3_open(path, &g_comments_db) != SQLITE_OK) return false;
+    const char *open_path = (path && path[0]) ? path : g_comments_path;
+    if (sqlite3_open(open_path, &g_comments_db) != SQLITE_OK) return false;
     if (!db_configure_connection(g_comments_db)) {
         sqlite3_close(g_comments_db);
         g_comments_db = NULL;
