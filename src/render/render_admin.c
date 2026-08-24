@@ -107,11 +107,15 @@ cwist_sstring *render_admin_boards(cJSON *boards, cJSON *tree, bool dark, const 
                     }
                 }
             }
+            int depth = json_int(bo, "depth", 0);
             char bid_buf[32];
             snprintf(bid_buf, sizeof(bid_buf), "%d", bid);
             cwist_sstring_append(b, "<tr><td style='padding:8px'>");
             cwist_sstring_append(b, bid_buf);
             cwist_sstring_append(b, "</td><td style='padding:8px'>");
+            if (depth > 0) {
+                for (int d = 0; d < depth; d++) cwist_sstring_append(b, "&mdash; ");
+            }
             cwist_sstring_append_escaped(b, name && name->valuestring ? name->valuestring : "");
             cwist_sstring_append(b, "</td><td style='padding:8px'>");
             cwist_sstring_append_escaped(b, slug && slug->valuestring ? slug->valuestring : "");

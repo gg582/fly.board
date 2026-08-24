@@ -45,5 +45,6 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
 
 bool secure_str_eq(const char *a, const char *b);
 cJSON *load_download_session_cached(const char *session_id);
+void append_boards_flat(cJSON *out, cJSON *boards, cJSON *tree, int parent_id, int max_depth);
 
 #endif

@@ -228,6 +228,7 @@ cwist_sstring *render_board_form(cJSON *board, cJSON *all_boards, bool dark, con
             int bid = json_int(bo, "id", 0);
             if (bid <= 0 || bid == self_id) continue;
             cJSON *bname = cJSON_GetObjectItem(bo, "name");
+            int depth = json_int(bo, "depth", 0);
             char bid_buf[32];
             snprintf(bid_buf, sizeof(bid_buf), "%d", bid);
             cwist_sstring_append(fields, "<option value='");
@@ -235,6 +236,9 @@ cwist_sstring *render_board_form(cJSON *board, cJSON *all_boards, bool dark, con
             cwist_sstring_append(fields, "'");
             if (bid == current_parent) cwist_sstring_append(fields, " selected");
             cwist_sstring_append(fields, ">");
+            if (depth > 0) {
+                for (int d = 0; d < depth; d++) cwist_sstring_append(fields, "&mdash; ");
+            }
             if (bname && bname->valuestring) cwist_sstring_append_escaped(fields, bname->valuestring);
             cwist_sstring_append(fields, "</option>");
         }
