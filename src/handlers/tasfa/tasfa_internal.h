@@ -116,7 +116,7 @@ typedef struct {
     time_t expires;
 } finalize_slot_t;
 
-/* Compression with zstd -> brotli -> gzip fallback */
+/* Compression with brotli -> zstd -> gzip fallback */
 typedef enum {
     TASFA_COMPRESS_NONE = 0,
     TASFA_COMPRESS_ZSTD,

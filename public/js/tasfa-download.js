@@ -501,11 +501,12 @@
     }
 
     function chunkByteSize(session, chunkIndex) {
+        if (!session || chunkIndex < 0 || chunkIndex >= session.chunkCount) return 0;
         if (chunkIndex === session.chunkCount - 1) {
             var rem = session.totalSize - (chunkIndex * session.chunkSize);
             return Math.max(0, rem);
         }
-        return Math.min(session.chunkSize, session.totalSize - (chunkIndex * session.chunkSize));
+        return Math.min(session.chunkSize, Math.max(0, session.totalSize - (chunkIndex * session.chunkSize)));
     }
 
     function _dlId(baseUrl) {
@@ -574,8 +575,8 @@
 
     function getSupportedEncodings() {
         var encodings = [];
-        if (supportsCompression('zstd')) encodings.push('zstd');
         if (supportsCompression('br')) encodings.push('br');
+        if (supportsCompression('zstd')) encodings.push('zstd');
         if (supportsCompression('gzip')) encodings.push('gzip');
         return encodings.join(', ');
     }
@@ -737,7 +738,7 @@
                             if (offset + size > data.byteLength) {
                                 size = data.byteLength - offset;
                             }
-                            if (size > 0) {
+                            if (size >= 0) {
                                 parts[idx] = new Uint8Array(data.subarray(offset, offset + size));
                             }
                             offset += size;
@@ -869,7 +870,12 @@
                     if (bitmap[idx] || inflight[idx]) continue;
                     applyPredictedDownloadRule(session);
                     var span = Math.min(session.currentSpan || 1, session.chunkCount - idx);
-                    while (span > 1 && (bitmap[idx + span - 1] || inflight[idx + span - 1])) span -= 1;
+                    for (var s = 1; s < span; s++) {
+                        if (bitmap[idx + s] || inflight[idx + s]) {
+                            span = s;
+                            break;
+                        }
+                    }
                     for (var j = 0; j < span; j++) inflight[idx + j] = 1;
                     return { idx: idx, span: span };
                 }
@@ -1262,6 +1268,11 @@
         var feeder = feedOrderedChunks();
         await scheduler;
         await feeder;
+
+        if (!readyFired && onReady) {
+            readyFired = true;
+            onReady(streamInfo.streamUrl);
+        }
 
         closeTasfaStream(streamInfo.streamId);
         await notifyDownloadComplete(session.sessionId, session.sessionToken);
