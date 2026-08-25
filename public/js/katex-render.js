@@ -152,7 +152,9 @@
         object.setAttribute('aria-label', 'TikZ diagram rendered by public LaTeX service');
         object.data = makeUrl(publicTikZDocument(prepareTikZCode(source)));
         object.onload = function() {
-            notice.remove();
+            if (notice) notice.remove();
+            var err = wrapper.querySelector('.tikz-error');
+            if (err) err.remove();
             wrapper.dataset.tikzState = 'public-rendered';
         };
         object.onerror = function() {
@@ -183,18 +185,17 @@
         if (window.console && console.warn) console.warn('TikZJax render failed', error || 'unknown error');
     }
 
-    /* Retry TikZJax indefinitely for plain diagrams: slow WebAssembly starts
-     * or flaky runs eventually succeed, and each attempt is cheap.  Diagrams
-     * that need packages TikZJax's minimal engine lacks (tikz-cd, pgfplots,
-     * circuitikz, ...) never succeed there, so after a few attempts hand
-     * them to the public engine chain, which cycles providers forever. */
+    /* Retry TikZJax for plain diagrams: slow WebAssembly starts
+     * or flaky runs eventually succeed. Diagrams that need packages
+     * or LaTeX constructs TikZJax's minimal engine lacks (tikz-cd, pgfplots,
+     * circuitikz, font commands, ...) fall back after a few attempts
+     * to the public engine chain, which cycles providers forever. */
     var TIKZJAX_DIALECT_ATTEMPTS = 3;
 
     function retryTikZRender(wrapper, attempt) {
         if (!wrapper || hasTikZOutput(wrapper) || wrapper.dataset.tikzProviderRequested === '1') return;
-        var current = wrapper.querySelector('script[type="text/tikz"]');
-        if (current && current.getAttribute('data-has-packages') === 'true' && attempt >= TIKZJAX_DIALECT_ATTEMPTS) {
-            renderWithPublicTikZProvider(wrapper, 'TikZJax cannot compile this TikZ dialect');
+        if (attempt >= TIKZJAX_DIALECT_ATTEMPTS) {
+            renderWithPublicTikZProvider(wrapper, 'TikZ compilation timed out or dialect unsupported');
             return;
         }
         setTimeout(function() {
@@ -267,16 +268,35 @@
         return out;
     }
 
+    var TIKZ_LATEX_SHIMS =
+        '\\ifx\\small\\undefined\\def\\small{}\\fi\n' +
+        '\\ifx\\footnotesize\\undefined\\def\\footnotesize{}\\fi\n' +
+        '\\ifx\\scriptsize\\undefined\\def\\scriptsize{}\\fi\n' +
+        '\\ifx\\tiny\\undefined\\def\\tiny{}\\fi\n' +
+        '\\ifx\\large\\undefined\\def\\large{}\\fi\n' +
+        '\\ifx\\Large\\undefined\\def\\Large{}\\fi\n' +
+        '\\ifx\\LARGE\\undefined\\def\\LARGE{}\\fi\n' +
+        '\\ifx\\huge\\undefined\\def\\huge{}\\fi\n' +
+        '\\ifx\\Huge\\undefined\\def\\Huge{}\\fi\n' +
+        '\\ifx\\normalsize\\undefined\\def\\normalsize{}\\fi\n' +
+        '\\ifx\\text\\undefined\\def\\text#1{\\hbox{#1}}\\fi\n' +
+        '\\ifx\\textbf\\undefined\\def\\textbf#1{{\\bf #1}}\\fi\n' +
+        '\\ifx\\textit\\undefined\\def\\textit#1{{\\it #1}}\\fi\n';
+
     function prepareTikZCode(code) {
         var trimmed = normalizeTikZDialects(normalizeTikZOperators(code)).trim();
+        var wrapped = trimmed;
         if (!trimmed.includes('\\begin{document}') && !trimmed.includes('\\begin{tikzpicture}') &&
             !trimmed.includes('\\begin{tikzcd}') && !trimmed.includes('\\begin{circuitikz}') &&
             !trimmed.includes('\\begin{forest}') && !trimmed.includes('\\chemfig')) {
             /* chemfig and friends live at document level; only bare drawing
              * commands (\draw, \node, ...) get a tikzpicture wrapper. */
-            return '\\begin{tikzpicture}\n' + trimmed + '\n\\end{tikzpicture}';
+            wrapped = '\\begin{tikzpicture}\n' + trimmed + '\n\\end{tikzpicture}';
         }
-        return trimmed;
+        if (!wrapped.includes('\\ifx\\small\\undefined')) {
+            wrapped = TIKZ_LATEX_SHIMS + wrapped;
+        }
+        return wrapped;
     }
 
     function themeTikZDiagram(wrapper) {
@@ -497,7 +517,11 @@
                         message.className = 'tikz-error';
                         message.textContent = 'Unable to render TikZ diagram.';
                         fallback.appendChild(message);
-                        fallback.appendChild(el.cloneNode(true));
+                        var script = document.createElement('script');
+                        script.type = 'text/tikz';
+                        script.setAttribute('data-raw-tikz', el.textContent);
+                        script.textContent = prepareTikZCode(el.textContent);
+                        fallback.appendChild(script);
                         el.parentNode.replaceChild(fallback, el);
                         renderWithPublicTikZProvider(fallback, error);
                     }

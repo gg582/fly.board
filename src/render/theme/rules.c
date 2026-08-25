@@ -1753,6 +1753,10 @@ void rule_markdown(cJSON *rules) {
     add_decl(tikz_public, "border", "0");
     cJSON_AddItemToArray(rules, tikz_public);
 
+    cJSON *tikz_block = create_rule(".tikz-block");
+    add_decl(tikz_block, "display", "none");
+    cJSON_AddItemToArray(rules, tikz_block);
+
     cJSON *tikz_status = create_rule(".tikz-status");
     add_decl(tikz_status, "color", "var(--muted)");
     add_decl(tikz_status, "font-size", "0.9rem");
