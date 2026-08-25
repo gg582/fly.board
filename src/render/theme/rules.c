@@ -111,6 +111,9 @@ void rule_base(cJSON *rules) {
     cJSON *b = create_rule("html, body");
     add_decl(b, "margin", "0");
     add_decl(b, "padding", "0");
+    add_decl(b, "width", "100%");
+    add_decl(b, "max-width", "100%");
+    add_decl(b, "overflow-x", "hidden");
     add_decl(b, "scrollbar-width", "thin");
     add_decl(b, "scrollbar-color", "var(--border) transparent");
     cJSON_AddItemToArray(rules, b);
@@ -225,9 +228,12 @@ void rule_base(cJSON *rules) {
 
 void rule_layout(cJSON *rules) {
     cJSON *shell = create_rule(".shell");
+    add_decl(shell, "width", "100%");
     add_decl(shell, "max-width", "1800px");
     add_decl(shell, "margin", "0 auto");
     add_decl(shell, "padding", "48px");
+    add_decl(shell, "box-sizing", "border-box");
+    add_decl(shell, "min-width", "0");
     cJSON_AddItemToArray(rules, shell);
 
     cJSON *nav = create_rule(".topbar");
@@ -1731,6 +1737,16 @@ void rule_markdown(cJSON *rules) {
     add_decl(article, "min-width", "0");
     cJSON_AddItemToArray(rules, article);
 
+    cJSON *math_block = create_rule(".math-block, .katex-display");
+    add_decl(math_block, "display", "block");
+    add_decl(math_block, "max-width", "100%");
+    add_decl(math_block, "overflow-x", "auto");
+    add_decl(math_block, "overflow-y", "hidden");
+    add_decl(math_block, "-webkit-overflow-scrolling", "touch");
+    add_decl(math_block, "margin", "16px 0");
+    add_decl(math_block, "padding", "4px 0");
+    cJSON_AddItemToArray(rules, math_block);
+
     cJSON *tikz = create_rule(".tikz-render");
     add_decl(tikz, "display", "block");
     add_decl(tikz, "max-width", "100%");
@@ -2088,6 +2104,8 @@ void rule_media(cJSON *rules) {
     add_decl(mq_shell_width, "width", "100%");
     add_decl(mq_shell_width, "max-width", "100%");
     add_decl(mq_shell_width, "min-width", "0");
+    add_decl(mq_shell_width, "box-sizing", "border-box");
+    add_decl(mq_shell_width, "overflow-x", "hidden");
     cJSON_AddItemToArray(rules, mq_shell_width);
 
     cJSON *mq_acct = create_mobile_rule(".mobile-account-header");

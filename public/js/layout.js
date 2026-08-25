@@ -18,7 +18,11 @@
         var n=window.navigator||{};
         return !!((window.matchMedia&&matchMedia('(pointer: coarse)').matches)||n.maxTouchPoints>1);
     }
-    function shouldUseMobileNav(){return hasMobileUa()||(hasCoarseInput()&&hasMobileAspect());}
+    function shouldUseMobileNav(){
+        var de=document.documentElement;
+        var w=window.innerWidth||de.clientWidth||(window.screen&&window.screen.width)||0;
+        return hasMobileUa()||w<=768||(hasCoarseInput()&&hasMobileAspect());
+    }
     function isMobileLayout(){return document.documentElement.classList.contains('mobile')||(document.body&&document.body.classList.contains('mobile'));}
     function setMobileLayout(on){document.documentElement.classList.toggle('mobile',on);if(document.body)document.body.classList.toggle('mobile',on);}
     function closeMobileNav(){
