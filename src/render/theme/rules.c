@@ -1777,7 +1777,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(tikz, "transition", "color 0.35s ease");
     cJSON_AddItemToArray(rules, tikz);
 
-    cJSON *tikz_svg = create_rule(".tikz-render svg");
+    cJSON *tikz_svg = create_rule(".tikz-render svg, .tikz-render img");
     add_decl(tikz_svg, "display", "block");
     add_decl(tikz_svg, "max-width", "100%");
     add_decl(tikz_svg, "height", "auto");
@@ -1785,8 +1785,8 @@ void rule_markdown(cJSON *rules) {
 
     cJSON *tikz_public = create_rule(".tikz-public-render");
     add_decl(tikz_public, "display", "block");
-    add_decl(tikz_public, "width", "100%");
-    add_decl(tikz_public, "min-height", "180px");
+    add_decl(tikz_public, "max-width", "100%");
+    add_decl(tikz_public, "height", "auto");
     add_decl(tikz_public, "border", "0");
     cJSON_AddItemToArray(rules, tikz_public);
 
