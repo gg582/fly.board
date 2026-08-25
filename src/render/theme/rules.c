@@ -112,7 +112,8 @@ void rule_base(cJSON *rules) {
     add_decl(b, "margin", "0");
     add_decl(b, "padding", "0");
     add_decl(b, "width", "100%");
-    add_decl(b, "max-width", "100%");
+    add_decl(b, "max-width", "100vw");
+    add_decl(b, "overflow-x", "clip");
     add_decl(b, "overflow-x", "hidden");
     add_decl(b, "scrollbar-width", "thin");
     add_decl(b, "scrollbar-color", "var(--border) transparent");
@@ -229,12 +230,21 @@ void rule_base(cJSON *rules) {
 void rule_layout(cJSON *rules) {
     cJSON *shell = create_rule(".shell");
     add_decl(shell, "width", "100%");
-    add_decl(shell, "max-width", "1800px");
+    add_decl(shell, "max-width", "min(100vw, 1800px)");
     add_decl(shell, "margin", "0 auto");
     add_decl(shell, "padding", "48px");
     add_decl(shell, "box-sizing", "border-box");
     add_decl(shell, "min-width", "0");
+    add_decl(shell, "overflow-x", "clip");
+    add_decl(shell, "overflow-x", "hidden");
     cJSON_AddItemToArray(rules, shell);
+
+    cJSON *content = create_rule(".content, main");
+    add_decl(content, "width", "100%");
+    add_decl(content, "max-width", "100%");
+    add_decl(content, "min-width", "0");
+    add_decl(content, "box-sizing", "border-box");
+    cJSON_AddItemToArray(rules, content);
 
     cJSON *nav = create_rule(".topbar");
     add_decl(nav, "display", "flex");
@@ -2096,15 +2106,17 @@ void rule_media(cJSON *rules) {
      * must not increase the page's horizontal scroll width. */
     cJSON *mq_viewport = create_rule("html.mobile, body.mobile");
     add_decl(mq_viewport, "width", "100%");
-    add_decl(mq_viewport, "max-width", "100%");
+    add_decl(mq_viewport, "max-width", "100vw");
+    add_decl(mq_viewport, "overflow-x", "clip");
     add_decl(mq_viewport, "overflow-x", "hidden");
     cJSON_AddItemToArray(rules, mq_viewport);
 
-    cJSON *mq_shell_width = create_mobile_rule(".shell");
+    cJSON *mq_shell_width = create_mobile_rule(".shell, .content, main");
     add_decl(mq_shell_width, "width", "100%");
-    add_decl(mq_shell_width, "max-width", "100%");
+    add_decl(mq_shell_width, "max-width", "100vw");
     add_decl(mq_shell_width, "min-width", "0");
     add_decl(mq_shell_width, "box-sizing", "border-box");
+    add_decl(mq_shell_width, "overflow-x", "clip");
     add_decl(mq_shell_width, "overflow-x", "hidden");
     cJSON_AddItemToArray(rules, mq_shell_width);
 
