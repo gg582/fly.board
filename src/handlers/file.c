@@ -1016,7 +1016,7 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     const char *fallback = cwist_query_map_get(req->query_params, "tasfa_fallback");
     bool is_fallback = fallback && strcmp(fallback, "1") == 0;
 
-    if (!is_fallback && g_config.use_tasfa && !is_image) {
+    if (!is_fallback && g_config.use_tasfa && !is_image && !is_media) {
         bool has_valid_session = false;
         const char *session_id = cwist_http_header_get(req->headers, "X-TASFA-Session-ID");
         const char *session_token = cwist_http_header_get(req->headers, "X-TASFA-Session-Token");

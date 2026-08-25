@@ -128,43 +128,5 @@ function _openModal(blobUrl, title, isAudio, isLoading) {
 
 export function openTasfaVideoModal(url, title, isAudio) {
     if (!url) return;
-
-    // For TASFA-protected videos/audio, use TASFA only for session gating and
-    // let the browser media engine drive playback with native Range requests.
-    if (window.fetchDownloadSession && /\/file\/download\/\d+/.test(url)) {
-        _openModal(null, title, isAudio, true);
-        var sessionPromise = window.tasfaWarmMediaSession ?
-            window.tasfaWarmMediaSession(url) : window.fetchDownloadSession(url);
-        sessionPromise.then(function(session) {
-            var loading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
-            function attachSource(streamUrl) {
-                if (!streamUrl) return;
-                var media = activeModal && activeModal.querySelector('video, audio');
-                var currentLoading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
-                if (media) {
-                    media.style.display = 'block';
-                    media.src = streamUrl;
-                    try { media.load(); } catch(e) {}
-                    try { media.play(); } catch(e) {}
-                }
-                if (currentLoading) currentLoading.style.display = 'none';
-            }
-            var streamUrl = window.tasfaDirectMediaUrl ?
-                window.tasfaDirectMediaUrl(url, session) :
-                (url + '?session_id=' + encodeURIComponent(session.sessionId) +
-                 '&session_token=' + encodeURIComponent(session.sessionToken));
-            attachSource(streamUrl);
-        }).catch(function() {
-            var loading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
-            if (loading) {
-                loading.textContent = 'Failed to load media';
-                loading.style.color = '#ff6b6b';
-            }
-            setTimeout(closeModal, 2000);
-        });
-        return;
-    }
-
-    // For non-TASFA URLs (e.g. direct blob: URLs), open immediately.
-    _openModal(url, title, isAudio);
+    _openModal(url, title, isAudio, false);
 }
