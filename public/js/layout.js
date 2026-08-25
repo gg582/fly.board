@@ -88,7 +88,7 @@
     }
 
     // 2. Theme toggle (simple click-to-toggle)
-    var CACHE_KEY='fly_themes_v2';
+    var CACHE_KEY='fly_themes_v3';
     var CACHE_TTL_MS=300000; // 5 minutes: long enough to avoid FOUC, short enough to pick up config changes
     // monotonic generation counter so async theme operations never overwrite a newer toggle
     var themeGen=0;

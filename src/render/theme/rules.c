@@ -114,6 +114,8 @@ void rule_base(cJSON *rules) {
     add_decl(b, "width", "100%");
     add_decl(b, "max-width", "100%");
     add_decl(b, "overflow-x", "hidden");
+    add_decl(b, "overscroll-behavior-x", "none");
+    add_decl(b, "touch-action", "pan-y pinch-zoom");
     add_decl(b, "scrollbar-width", "thin");
     add_decl(b, "scrollbar-color", "var(--border) transparent");
     cJSON_AddItemToArray(rules, b);
@@ -250,6 +252,8 @@ void rule_layout(cJSON *rules) {
     add_decl(nav, "justify-content", "space-between");
     add_decl(nav, "gap", "16px");
     add_decl(nav, "width", "100%");
+    add_decl(nav, "max-width", "100%");
+    add_decl(nav, "box-sizing", "border-box");
     add_decl(nav, "margin", "0");
     add_decl(nav, "padding", "0 32px");
     add_decl(nav, "background", "color-mix(in srgb, var(--panel) 78%, transparent)");
@@ -384,6 +388,10 @@ void rule_layout(cJSON *rules) {
 
     cJSON *footer = create_rule(".site-footer");
     add_decl(footer, "text-align", "center");
+    add_decl(footer, "width", "100%");
+    add_decl(footer, "max-width", "100%");
+    add_decl(footer, "box-sizing", "border-box");
+    add_decl(footer, "overflow-x", "hidden");
     add_decl(footer, "padding", "80px 24px");
     add_decl(footer, "color", "var(--muted)");
     add_decl(footer, "font-size", "13px");
@@ -2111,6 +2119,8 @@ void rule_media(cJSON *rules) {
     add_decl(mq_viewport, "width", "100%");
     add_decl(mq_viewport, "max-width", "100%");
     add_decl(mq_viewport, "overflow-x", "hidden");
+    add_decl(mq_viewport, "overscroll-behavior-x", "none");
+    add_decl(mq_viewport, "touch-action", "pan-y pinch-zoom");
     cJSON_AddItemToArray(rules, mq_viewport);
 
     cJSON *mq_shell_width = create_mobile_rule(".shell, .content, main");
@@ -2140,7 +2150,10 @@ void rule_media(cJSON *rules) {
 
     cJSON *mq2 = create_mobile_rule(".topbar");
     add_decl(mq2, "align-items", "center");
-    add_decl(mq2, "padding", "0 12px");
+    add_decl(mq2, "padding", "0 16px");
+    add_decl(mq2, "width", "100%");
+    add_decl(mq2, "max-width", "100%");
+    add_decl(mq2, "box-sizing", "border-box");
     cJSON_AddItemToArray(rules, mq2);
 
     cJSON *mq3 = create_mobile_rule(".burger-btn");
@@ -2152,7 +2165,10 @@ void rule_media(cJSON *rules) {
     add_decl(mq4, "position", "fixed");
     add_decl(mq4, "top", "60px");
     add_decl(mq4, "left", "0");
+    add_decl(mq4, "right", "0");
     add_decl(mq4, "width", "100%");
+    add_decl(mq4, "max-width", "100%");
+    add_decl(mq4, "box-sizing", "border-box");
     add_decl(mq4, "flex-direction", "column");
     add_decl(mq4, "background", "color-mix(in srgb, var(--glass-bg) 92%, transparent)");
     add_decl(mq4, "align-items", "stretch");
