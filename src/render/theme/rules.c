@@ -112,8 +112,7 @@ void rule_base(cJSON *rules) {
     add_decl(b, "margin", "0");
     add_decl(b, "padding", "0");
     add_decl(b, "width", "100%");
-    add_decl(b, "max-width", "100vw");
-    add_decl(b, "overflow-x", "clip");
+    add_decl(b, "max-width", "100%");
     add_decl(b, "overflow-x", "hidden");
     add_decl(b, "scrollbar-width", "thin");
     add_decl(b, "scrollbar-color", "var(--border) transparent");
@@ -230,12 +229,11 @@ void rule_base(cJSON *rules) {
 void rule_layout(cJSON *rules) {
     cJSON *shell = create_rule(".shell");
     add_decl(shell, "width", "100%");
-    add_decl(shell, "max-width", "min(100vw, 1800px)");
+    add_decl(shell, "max-width", "1800px");
     add_decl(shell, "margin", "0 auto");
     add_decl(shell, "padding", "48px");
     add_decl(shell, "box-sizing", "border-box");
     add_decl(shell, "min-width", "0");
-    add_decl(shell, "overflow-x", "clip");
     add_decl(shell, "overflow-x", "hidden");
     cJSON_AddItemToArray(rules, shell);
 
@@ -464,8 +462,10 @@ void rule_layout(cJSON *rules) {
     add_decl(overlay, "position", "fixed");
     add_decl(overlay, "top", "0");
     add_decl(overlay, "left", "0");
-    add_decl(overlay, "width", "100vw");
-    add_decl(overlay, "height", "100vh");
+    add_decl(overlay, "right", "0");
+    add_decl(overlay, "bottom", "0");
+    add_decl(overlay, "width", "100%");
+    add_decl(overlay, "height", "100%");
     add_decl(overlay, "background", "color-mix(in srgb, var(--shadow-base) 32%, transparent)");
     add_decl(overlay, "opacity", "0");
     add_decl(overlay, "pointer-events", "none");
@@ -474,6 +474,7 @@ void rule_layout(cJSON *rules) {
     cJSON_AddItemToArray(rules, overlay);
 
     cJSON *overlay_open = create_rule(".mobile-overlay.open");
+    add_decl(overlay_open, "display", "block");
     add_decl(overlay_open, "opacity", "1");
     add_decl(overlay_open, "pointer-events", "auto");
     cJSON_AddItemToArray(rules, overlay_open);
@@ -1125,8 +1126,10 @@ void rule_components(cJSON *rules) {
     add_decl(lb_overlay, "position", "fixed");
     add_decl(lb_overlay, "top", "0");
     add_decl(lb_overlay, "left", "0");
-    add_decl(lb_overlay, "width", "100vw");
-    add_decl(lb_overlay, "height", "100vh");
+    add_decl(lb_overlay, "right", "0");
+    add_decl(lb_overlay, "bottom", "0");
+    add_decl(lb_overlay, "width", "100%");
+    add_decl(lb_overlay, "height", "100%");
     add_decl(lb_overlay, "display", "none");
     add_decl(lb_overlay, "align-items", "center");
     add_decl(lb_overlay, "justify-content", "center");
@@ -2106,17 +2109,15 @@ void rule_media(cJSON *rules) {
      * must not increase the page's horizontal scroll width. */
     cJSON *mq_viewport = create_rule("html.mobile, body.mobile");
     add_decl(mq_viewport, "width", "100%");
-    add_decl(mq_viewport, "max-width", "100vw");
-    add_decl(mq_viewport, "overflow-x", "clip");
+    add_decl(mq_viewport, "max-width", "100%");
     add_decl(mq_viewport, "overflow-x", "hidden");
     cJSON_AddItemToArray(rules, mq_viewport);
 
     cJSON *mq_shell_width = create_mobile_rule(".shell, .content, main");
     add_decl(mq_shell_width, "width", "100%");
-    add_decl(mq_shell_width, "max-width", "100vw");
+    add_decl(mq_shell_width, "max-width", "100%");
     add_decl(mq_shell_width, "min-width", "0");
     add_decl(mq_shell_width, "box-sizing", "border-box");
-    add_decl(mq_shell_width, "overflow-x", "clip");
     add_decl(mq_shell_width, "overflow-x", "hidden");
     cJSON_AddItemToArray(rules, mq_shell_width);
 
@@ -2265,7 +2266,7 @@ void rule_media(cJSON *rules) {
     add_decl(mq18, "padding", "0");
     cJSON_AddItemToArray(rules, mq18);
 
-    cJSON *mq20 = create_mobile_rule(".mobile-overlay");
+    cJSON *mq20 = create_mobile_rule(".mobile-overlay.open");
     add_decl(mq20, "display", "block");
     add_decl(mq20, "backdrop-filter", "blur(4px)");
     add_decl(mq20, "-webkit-backdrop-filter", "blur(4px)");
@@ -2284,7 +2285,7 @@ void rule_media(cJSON *rules) {
     cJSON_AddItemToArray(rules, mq23);
 
     cJSON *mq_post_list = create_mobile_rule(".post-list");
-    add_decl(mq_post_list, "padding", "0 20px 0 28px");
+    add_decl(mq_post_list, "padding", "0");
     cJSON_AddItemToArray(rules, mq_post_list);
 
     cJSON *mq_post_row = create_mobile_rule(".post-row, .post-row.featured");
