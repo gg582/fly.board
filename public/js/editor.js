@@ -2878,7 +2878,15 @@
         function worker() {
             return new Promise(function(resolve) {
                 function next() {
-                    if (runId !== asset.uploadRunId || poolFailed || asset.isCancelling || pending.length === 0) {
+                    if (runId !== asset.uploadRunId || poolFailed || asset.isCancelling) {
+                        resolve();
+                        return;
+                    }
+                    if (pending.length === 0) {
+                        if ((asset.activeChunkPosts || 0) > 0) {
+                            setTimeout(next, 50);
+                            return;
+                        }
                         resolve();
                         return;
                     }

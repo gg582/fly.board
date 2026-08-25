@@ -204,9 +204,8 @@ static bool ensure_compressed_cache(const char *src_path, const char *encoding, 
 bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res,
                                const char *path, const char *mime,
                                const char *cache_control, bool *not_modified) {
-    /* Match the application-wide compatibility mode: serve static text
-     * assets uncompressed until the transport compression mismatch is fixed. */
-    const char *accept_encoding = NULL;
+    /* Serve static text assets with compression in efficiency order: br -> zstd -> gzip */
+    const char *accept_encoding = req ? cwist_http_header_get(req->headers, "Accept-Encoding") : NULL;
     const char *encoding = NULL;
     char compressed_path_buf[PATH_MAX];
 
