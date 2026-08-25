@@ -100,6 +100,16 @@
             .replace(/[\u2212-]{2,}/g, '-');
     }
 
+    /* TikZ path syntax gives meaning to operator runs that math normalizes
+     * away: '--' is the segment connector. Collapsing hyphen runs destroys
+     * valid TikZ paths like '-- (1,0)'. TikZ source only gets the Unicode minus
+     * unified and '=' runs collapsed. */
+    function normalizeTikZOperators(source) {
+        return String(source || '')
+            .replace(/−/g, '-')
+            .replace(/={2,}/g, '=');
+    }
+
     function escapeRegExp(value) {
         return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
@@ -757,12 +767,12 @@
          * headings, rules or table syntax in the live preview. */
         normalized = normalized.replace(/^ {0,3}(`{3,}|~{3,})[ \t]*tikz[^\n]*\n([\s\S]*?)^ {0,3}\1[ \t]*$/gmi, function(_, fence, code) {
             var token = '@@TIKZBLOCK' + tikzBlocks.length + '@@';
-            tikzBlocks.push(escapeHtml(normalizeOperatorRuns(code.replace(/\n$/, ''))));
+            tikzBlocks.push(escapeHtml(normalizeTikZOperators(code.replace(/\n$/, ''))));
             return token;
         });
         normalized = normalized.replace(/\\begin\{(tikzpicture|tikzcd)\}([\s\S]*?)\\end\{\1\}/g, function(_, env, body) {
             var token = '@@TIKZBLOCK' + tikzBlocks.length + '@@';
-            tikzBlocks.push(escapeHtml(normalizeOperatorRuns('\\begin{' + env + '}' + body + '\\end{' + env + '}')));
+            tikzBlocks.push(escapeHtml(normalizeTikZOperators('\\begin{' + env + '}' + body + '\\end{' + env + '}')));
             return token;
         });
         normalized = normalized.replace(/```([\w-]*)\n([\s\S]*?)```/g, function(_, lang, code) {

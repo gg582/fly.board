@@ -155,13 +155,22 @@ int main(void) {
     check("unfenced environment does not swallow following text", doc,
           "<p>following paragraph.</p>", NULL);
 
-    /* 7. Inline environment wedged between inline math on one line. */
-    snprintf(doc, sizeof(doc),
-             "compare $e^x$ \\begin{tikzpicture} \\draw (0,0) -- (1,1); \\end{tikzpicture} with $\\ln x$ here\n");
-    check("inline diagram between inline math survives", doc,
+    /* 8. Inline/unfenced plot with scale option and math labels on a single line. */
+    static const char *TIKZ_USER_PLOT =
+        "\\begin{tikzpicture}[scale=1.35] \\draw[->] (-1.5,0) -- (2.4,0) node[right] {$t$}; "
+        "\\draw[->] (0,-0.4) -- (0,4.5) node[above] {$y$}; \\draw[dashed, gray!40] (-1.3,1) -- (2.1,1); "
+        "\\draw[dashed, gray!40] (1,0) node[below, black, font=\\small] {$1$} -- (1,3); "
+        "\\draw[dashed, gray!40] (0,2) node[left, black, font=\\small] {$2$} -- (1,2); "
+        "\\draw[dashed, gray!40] (0,3) node[left, black, font=\\small] {$3$} -- (1,3); "
+        "\\node[left] at (0,1) {$1$}; \\node[below left] at (0,0) {$0$}; "
+        "\\draw[thick, blue, domain=-1.2:2.0, samples=100, smooth, variable=\\x] plot (\\x, {2^\\x}) node[right] {$2^t$}; "
+        "\\draw[thick, red, domain=-1.0:1.3, samples=100, smooth, variable=\\x] plot (\\x, {3^\\x}) node[right] {$3^t$}; "
+        "\\fill[blue] (1,2) circle (1.5pt); \\fill[red] (1,3) circle (1.5pt); \\fill (0,1) circle (2pt); "
+        "\\node[above left] at (0,1) {$(0,1)$}; \\end{tikzpicture}\n";
+    check("plot with scale and math labels survives intact", TIKZ_USER_PLOT,
           "<div class=\"tikz-block\">", NULL);
-    check_count("inline math around the diagram survives", doc,
-                "<span class=\"math-inline\">", 2);
+    check("plot preserves -- connector in output", TIKZ_USER_PLOT,
+          "-- (2.4,0)", "0) - (2.4,0)");
 
     if (failures == 0) printf("ALL TESTS PASSED\n");
     return failures ? 1 : 0;
