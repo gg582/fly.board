@@ -146,28 +146,69 @@
         }
         notice.textContent = 'Retrying with public TikZ renderer…';
 
-        var object = document.createElement('object');
-        object.className = 'tikz-public-render';
-        object.type = 'application/pdf';
-        object.setAttribute('aria-label', 'TikZ diagram rendered by public LaTeX service');
-        object.data = makeUrl(publicTikZDocument(prepareTikZCode(source)));
-        object.onload = function() {
-            if (notice) notice.remove();
-            var err = wrapper.querySelector('.tikz-error');
-            if (err) err.remove();
-            wrapper.dataset.tikzState = 'public-rendered';
-        };
-        object.onerror = function() {
-            object.remove();
-            /* One engine flaking says nothing about the others; move to the
-             * next provider and keep cycling until something renders. */
+        var compiledDoc = publicTikZDocument(prepareTikZCode(source));
+        var targetUrl = makeUrl(compiledDoc);
+
+        var onPublicFailure = function() {
+            var oldImg = wrapper.querySelector('img.tikz-public-render');
+            if (oldImg) oldImg.remove();
             wrapper.dataset.tikzProviderRequested = '0';
             wrapper.dataset.tikzState = 'pending';
             setTimeout(function() {
                 renderWithPublicTikZProvider(wrapper, error);
             }, TIKZ_RETRY_DELAY_MS);
         };
-        wrapper.appendChild(object);
+
+        var onPublicSuccess = function(imgElement) {
+            if (notice) notice.remove();
+            var err = wrapper.querySelector('.tikz-error');
+            if (err) err.remove();
+            wrapper.dataset.tikzState = 'public-rendered';
+        };
+
+        var renderPdfBlobToImage = function(blob) {
+            var url = URL.createObjectURL(blob);
+            var img = document.createElement('img');
+            img.className = 'tikz-public-render';
+            img.alt = 'TikZ diagram rendered by public LaTeX service';
+            img.onload = function() {
+                URL.revokeObjectURL(url);
+                onPublicSuccess(img);
+            };
+            img.onerror = function() {
+                URL.revokeObjectURL(url);
+                img.remove();
+                onPublicFailure();
+            };
+            img.src = url;
+            wrapper.appendChild(img);
+        };
+
+        if (typeof fetch === 'function') {
+            fetch(targetUrl)
+                .then(function(res) {
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return res.blob();
+                })
+                .then(function(blob) {
+                    if (!blob || blob.size === 0) throw new Error('Empty response');
+                    renderPdfBlobToImage(blob);
+                })
+                .catch(function() {
+                    onPublicFailure();
+                });
+        } else {
+            var img = document.createElement('img');
+            img.className = 'tikz-public-render';
+            img.alt = 'TikZ diagram rendered by public LaTeX service';
+            img.onload = function() { onPublicSuccess(img); };
+            img.onerror = function() {
+                img.remove();
+                onPublicFailure();
+            };
+            img.src = targetUrl;
+            wrapper.appendChild(img);
+        }
     }
 
     function markTikZFailure(wrapper, error) {
