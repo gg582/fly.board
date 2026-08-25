@@ -89,6 +89,7 @@ void rule_root(cJSON *vars, theme_color_t *t) {
     cJSON_AddStringToObject(vars, "--shadow-base", t->shadow_base);
     cJSON_AddStringToObject(vars, "--overlay", "color-mix(in srgb, var(--bg) 72%, transparent)");
     cJSON_AddStringToObject(vars, "--font-display", g_font_settings.display[0] ? g_font_settings.display : "'Outfit', sans-serif");
+    cJSON_AddStringToObject(vars, "--tikz-ink", t->fg);
 
     const char *background_filename = (t == &light) ? g_config.bg_full_light : g_config.bg_full_dark;
     char background_url[1024];
@@ -1729,6 +1730,34 @@ void rule_markdown(cJSON *rules) {
     add_decl(article, "word-break", "break-word");
     add_decl(article, "min-width", "0");
     cJSON_AddItemToArray(rules, article);
+
+    cJSON *tikz = create_rule(".tikz-render");
+    add_decl(tikz, "display", "block");
+    add_decl(tikz, "max-width", "100%");
+    add_decl(tikz, "margin", "24px 0");
+    add_decl(tikz, "overflow-x", "auto");
+    add_decl(tikz, "color", "var(--tikz-ink)");
+    add_decl(tikz, "transition", "color 0.35s ease");
+    cJSON_AddItemToArray(rules, tikz);
+
+    cJSON *tikz_svg = create_rule(".tikz-render svg");
+    add_decl(tikz_svg, "display", "block");
+    add_decl(tikz_svg, "max-width", "100%");
+    add_decl(tikz_svg, "height", "auto");
+    cJSON_AddItemToArray(rules, tikz_svg);
+
+    cJSON *tikz_public = create_rule(".tikz-public-render");
+    add_decl(tikz_public, "display", "block");
+    add_decl(tikz_public, "width", "100%");
+    add_decl(tikz_public, "min-height", "180px");
+    add_decl(tikz_public, "border", "0");
+    cJSON_AddItemToArray(rules, tikz_public);
+
+    cJSON *tikz_status = create_rule(".tikz-status");
+    add_decl(tikz_status, "color", "var(--muted)");
+    add_decl(tikz_status, "font-size", "0.9rem");
+    add_decl(tikz_status, "padding", "8px 0");
+    cJSON_AddItemToArray(rules, tikz_status);
 
     cJSON *md_h1 = create_rule(".markdown-body h1");
     add_decl(md_h1, "font-size", "2.25rem");
