@@ -895,7 +895,13 @@
                         continue;
                     }
                     var claim = claimSpan();
-                    if (!claim) break;
+                    if (!claim) {
+                        if (sharedState.completedChunks < session.chunkCount && (activeFetches > 0 || pending.length > 0)) {
+                            await new Promise(function(r) { setTimeout(r, 40); });
+                            continue;
+                        }
+                        break;
+                    }
                     activeFetches += 1;
                     try {
                         var received = await fetchChunk(baseUrl, session, parts, claim.idx, claim.span);
@@ -958,6 +964,26 @@
             var missing = 0;
             for (var p = 0; p < session.chunkCount; p++) {
                 if (!parts[p]) missing++;
+            }
+            if (missing > 0 && !sharedState.failed) {
+                /* Target-recovery pass for missing chunks before aborting */
+                for (var rpass = 0; rpass < 5 && missing > 0; rpass++) {
+                    for (var mi = 0; mi < session.chunkCount; mi++) {
+                        if (!parts[mi]) {
+                            try {
+                                var rec = await fetchChunk(baseUrl, session, parts, mi, 1, rpass);
+                                if (parts[mi]) {
+                                    missing--;
+                                    if (!bitmap[mi]) {
+                                        bitmap[mi] = 1;
+                                        sharedState.completedChunks += 1;
+                                        sharedState.downloadedBytes += chunkByteSize(session, mi);
+                                    }
+                                }
+                            } catch (re) {}
+                        }
+                    }
+                }
             }
             if (missing > 0) throw new Error('incomplete download: ' + missing + ' chunks missing');
 

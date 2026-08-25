@@ -370,12 +370,7 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    bool was_already_received = false;
-    if (!mark_chunk_received_in_session_state_atomic(upload_id, chunk_index, &was_already_received)) {
-        send_json_response(res, session_error_json("chunk state check failed"), CWIST_HTTP_INTERNAL_ERROR);
-        return;
-    }
-
+    bool was_already_received = is_chunk_already_received(upload_id, chunk_index);
     bool is_retry_target = false;
     if (was_already_received) {
         /* Allow retransmission if this chunk is in the server's retry target list */

@@ -411,10 +411,10 @@ bool send_file_slice_response(cwist_http_request *req, cwist_http_response *res,
     if (total != amount) return false;
     const char *accept_tasfa_encoding = cwist_http_header_get(req->headers, "X-TASFA-Accept-Encoding");
     const char *accept_encoding = cwist_http_header_get(req->headers, "Accept-Encoding");
-    // Prefer standard Accept-Encoding if present; fall back to X-TASFA header.
-    const char *enc_header = accept_encoding ? accept_encoding : accept_tasfa_encoding;
-    bool client_accepts_zstd = enc_header && str_contains_ci_local(enc_header, "zstd");
+    /* Prefer client-advertised X-TASFA-Accept-Encoding for chunk JS decompressors; fall back to Accept-Encoding */
+    const char *enc_header = accept_tasfa_encoding ? accept_tasfa_encoding : accept_encoding;
     bool client_accepts_brotli = enc_header && str_contains_ci_local(enc_header, "br");
+    bool client_accepts_zstd = enc_header && str_contains_ci_local(enc_header, "zstd");
     bool client_accepts_gzip = enc_header && str_contains_ci_local(enc_header, "gzip");
     unsigned char *comp_buf = NULL;
     size_t comp_len = 0;
