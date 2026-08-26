@@ -57,3 +57,8 @@ tune_system.sh
 *.JPG
 lib/libmagic.so
 tests/lib/libmagic.so
+
+# Blog Settings
+
+blog.settings
+fonts.settings
