@@ -963,16 +963,21 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring_append(b, "</p>");
 
     /* Vote buttons */
+    bool can_vote = config_vote_allowed(user_id > 0, user_role);
     cwist_sstring_append(b, "<div id='post-actions' style='margin:16px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap'>");
     cwist_sstring_append(b, "<button id='vote-up' class='btn btn-outline vote-btn' style='padding:6px 12px;font-size:13px");
     if (user_vote == 1) cwist_sstring_append(b, ";border-color:var(--accent);color:var(--accent)");
-    cwist_sstring_append(b, "'>&#9650; ");
+    cwist_sstring_append(b, "'");
+    if (!can_vote) cwist_sstring_append(b, " disabled");
+    cwist_sstring_append(b, ">&#9650; ");
     char vup[32]; snprintf(vup, sizeof(vup), "%d", vote_up);
     cwist_sstring_append(b, vup);
     cwist_sstring_append(b, "</button>");
     cwist_sstring_append(b, "<button id='vote-down' class='btn btn-outline vote-btn' style='padding:6px 12px;font-size:13px");
     if (user_vote == -1) cwist_sstring_append(b, ";border-color:var(--accent);color:var(--accent)");
-    cwist_sstring_append(b, "'>&#9660; ");
+    cwist_sstring_append(b, "'");
+    if (!can_vote) cwist_sstring_append(b, " disabled");
+    cwist_sstring_append(b, ">&#9660; ");
     char vdown[32]; snprintf(vdown, sizeof(vdown), "%d", vote_down);
     cwist_sstring_append(b, vdown);
     cwist_sstring_append(b, "</button>");
@@ -993,13 +998,21 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring_append(b, "down.style.borderColor=v==-1?'var(--accent)':'';down.style.color=v==-1?'var(--accent)':'';");
     cwist_sstring_append(b, "}");
     cwist_sstring_append(b, "updateVoteStyle(uv);");
-    cwist_sstring_append(b, "function sendVote(vt){");
-    cwist_sstring_append(b, "fetch('/post/vote',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'post_id='+pid+'&vote_type='+vt})");
-    cwist_sstring_append(b, ".then(function(r){return r.json();}).then(function(d){");
-    cwist_sstring_append(b, "if(d.ok){document.getElementById('vote-up').innerHTML='&#9650; '+d.up;document.getElementById('vote-down').innerHTML='&#9660; '+d.down;updateVoteStyle(d.user_vote);}");
-    cwist_sstring_append(b, "});}");
-    cwist_sstring_append(b, "document.getElementById('vote-up').addEventListener('click',function(){sendVote(1);});");
-    cwist_sstring_append(b, "document.getElementById('vote-down').addEventListener('click',function(){sendVote(-1);});");
+    if (can_vote) {
+        cwist_sstring_append(b, "function sendVote(vt){");
+        cwist_sstring_append(b, "fetch('/post/vote',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'post_id='+pid+'&vote_type='+vt})");
+        cwist_sstring_append(b, ".then(function(r){return r.json();}).then(function(d){");
+        cwist_sstring_append(b, "if(d.ok){document.getElementById('vote-up').innerHTML='&#9650; '+d.up;document.getElementById('vote-down').innerHTML='&#9660; '+d.down;updateVoteStyle(d.user_vote);}");
+        cwist_sstring_append(b, "else if(d.error){document.getElementById('vote-msg').textContent=d.error;}");
+        cwist_sstring_append(b, "});}");
+        cwist_sstring_append(b, "document.getElementById('vote-up').addEventListener('click',function(){sendVote(1);});");
+        cwist_sstring_append(b, "document.getElementById('vote-down').addEventListener('click',function(){sendVote(-1);});");
+    } else {
+        cwist_sstring_append(b, "document.getElementById('vote-msg').textContent='");
+        cwist_sstring_append(b, strcmp(g_config.vote_only, "admin") == 0
+            ? "Only admins can vote" : "Login required to vote");
+        cwist_sstring_append(b, "';");
+    }
     cwist_sstring_append(b, "})();");
     cwist_sstring_append(b, "</script>");
 

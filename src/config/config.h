@@ -45,6 +45,9 @@ typedef struct {
     int max_upload_parallel_chunks;
     int max_concurrent_downloads;
     char use_special_modes[128];
+    /* Who may vote on posts: "" or "all" (anyone, current behavior),
+     * "authorized" (logged-in users only), "admin" (admins only). */
+    char vote_only[16];
 } blog_config_t;
 
 extern blog_config_t g_config;
@@ -64,6 +67,10 @@ bool config_bg_invert_enabled(const char *target);
  * is void and *out_invert is always false. */
 void config_resolve_bg(const char *light_img, const char *dark_img, const char *target,
                        bool dark_mode, const char **out_img, bool *out_invert);
+
+/* True when a user with the given login state/role may cast a vote,
+ * according to the vote_only setting. */
+bool config_vote_allowed(bool logged_in, const char *role);
 
 typedef struct {
     char import_url[512];

@@ -491,6 +491,21 @@ void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
     }
     int post_id = atoi(post_id_str);
     int vote_type = atoi(vote_type_str);
+    if (!config_vote_allowed(logged_in, role)) {
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddBoolToObject(err, "ok", false);
+        cJSON_AddStringToObject(err, "error", strcmp(g_config.vote_only, "admin") == 0
+            ? "Only admins can vote" : "Login required to vote");
+        char *ejson = cJSON_PrintUnformatted(err);
+        cJSON_Delete(err);
+        cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+        cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
+        cwist_sstring_assign(res->body, ejson ? ejson : "{}");
+        if (ejson) free(ejson);
+        cwist_query_map_destroy(kv);
+        return;
+    }
     if (logged_in) {
         if (vote_type == 0) {
             db_post_vote_remove(req->db, post_id, uid);
