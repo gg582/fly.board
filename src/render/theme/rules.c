@@ -101,8 +101,8 @@ void rule_root(cJSON *vars, theme_color_t *t) {
         config_resolve_bg(g_config.bg_full_light, g_config.bg_full_dark, "toplevel",
                           t != &light, &background_filename, &background_invert);
         if (background_invert) {
-            /* Prefer the precomputed OKLCH-inverted variant; keep the CSS
-             * filter only as the fallback when no variant was built. */
+            /* Prefer the precomputed inverted variant; keep the CSS filter
+             * only as the fallback when no variant was built. */
             const char *variant = image_invert_variant(background_filename);
             if (variant) {
                 background_filename = variant;

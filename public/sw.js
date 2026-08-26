@@ -1,8 +1,8 @@
 var LOGO_CACHE = 'logo-cache-v6';
 var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v2';
-var STATIC_CACHE = 'fly-static-v8';
+var STATIC_CACHE = 'fly-static-v9';
 var CDN_CACHE = 'fly-cdn-v3';
-var PRECACHE = 'fly-precache-v6';
+var PRECACHE = 'fly-precache-v7';
 var LOGO_MAX_AGE = 3600000; // 1 hour in milliseconds
 var STATIC_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days (immutable hashed assets)
 var CDN_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // 30 days (versioned CDN URLs)
@@ -17,7 +17,7 @@ var AUTH_TOKEN_MAX_AGE = 12 * 60 * 60 * 1000;
 var PRECACHE_URLS = [
     '/assets/js/jwt.js',
     '/assets/js/layout.js',
-    '/assets/js/katex-render.js',
+    '/assets/js/katex-render.js?v=11',
     '/assets/js/tasfa-download.js',
     '/assets/css/google-fonts.css?v=2',
     '/assets/css/pretendard.css',
