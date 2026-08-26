@@ -508,4 +508,23 @@
             }
         }, true);
     })();
+
+    /* Prefetch both light/dark hero images once the page is idle.  The first
+     * toggle otherwise pays a fresh fetch for the alternate mode — and on
+     * high-RTT links that late request can land after a second toggle,
+     * reordering the visible state.  The currently visible image is already
+     * in flight, so the browser dedupes it. */
+    (function(){
+        function prefetchHeroImages(){
+            var seen={};
+            document.querySelectorAll('img.hero-bg[data-img-light]').forEach(function(img){
+                ['light','dark'].forEach(function(s){
+                    var u=img.getAttribute('data-img-'+s);
+                    if(u&&!seen[u]){seen[u]=1;var pre=new Image();pre.src=u;}
+                });
+            });
+        }
+        if(window.requestIdleCallback)requestIdleCallback(prefetchHeroImages,{timeout:4000});
+        else setTimeout(prefetchHeroImages,2000);
+    })();
 })();

@@ -16,14 +16,16 @@
 #include <sys/stat.h>
 
 /* Mechanical CSS inversion (invert(1)) flips hue as well as lightness, so
- * photographs and gradients come out with strongly distorted colors.  A
- * perceptual L-flip (OKLCH) keeps hue but crushes contrast on low-contrast
- * art: a light-gray line on white becomes a dark-gray line on black and the
- * whole image reads as "all black".  This module therefore inverts linear
- * luminance (Y -> 1 - Y) while preserving chromaticity: white becomes black,
- * a light-gray line becomes a *light* gray line, black stays white, and
- * saturated colors desaturate toward white/black only as much as the gamut
- * forces — hue never flips and nothing turns neon. */
+ * photographs and gradients come out with strongly distorted colors.  This
+ * module precomputes inverted variants server-side with one of two
+ * hue-preserving algorithms, selected by bg_invert_algo:
+ *   - "luminv" (default): linear-luminance flip (Y -> 1 - Y) preserving
+ *     chromaticity.  Keeps line art readable (a light-gray line on white
+ *     becomes a light line on black); out-of-gamut brights desaturate
+ *     toward white on demand, so nothing turns neon.
+ *   - "oklch": perceptual lightness flip (L -> 1 - L) keeping chroma and
+ *     hue, with chroma damping and gamut clamping.  Smoother on photos and
+ *     gradients, but crushes contrast on low-contrast line art. */
 
 #define MAX_VARIANTS 8
 
@@ -84,6 +86,70 @@ static void invert_pixel_luminance(float *pr, float *pg, float *pb) {
     *pb = linear_to_srgb(out_b);
 }
 
+/* Alternative algorithm selectable via bg_invert_algo=oklch: perceptual
+ * lightness flip in OKLCH (L -> 1 - L), keeping hue and chroma.  Smoother
+ * on photos and gradients, but crushes contrast on low-contrast line art,
+ * hence the chroma damping to avoid neon mid-tones and gamut clamping. */
+static void invert_pixel_oklch(float *pr, float *pg, float *pb) {
+    float r = srgb_to_linear(*pr);
+    float g = srgb_to_linear(*pg);
+    float b = srgb_to_linear(*pb);
+
+    float l = 0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b;
+    float m = 0.2119034982f * r + 0.6806995451f * g + 0.1073969566f * b;
+    float s = 0.0883024619f * r + 0.2817188376f * g + 0.6299787005f * b;
+
+    float l_ = cbrtf(l), m_ = cbrtf(m), s_ = cbrtf(s);
+
+    float L = 0.2104542553f * l_ + 0.7936177850f * m_ - 0.0040720468f * s_;
+    float A = 1.9779984951f * l_ - 2.4285922050f * m_ + 0.4505937099f * s_;
+    float B = 0.0259040371f * l_ + 0.7827717662f * m_ - 0.8086757660f * s_;
+
+    float C = sqrtf(A * A + B * B);
+    float h = atan2f(B, A);
+    float Li = 1.0f - L;
+
+    /* Chroma kept but damped: perceived colorfulness grows with luminance
+     * (Hunt effect), so full chroma across the flip looks neon. */
+    C *= 0.82f;
+
+    /* Binary-search the largest chroma that stays inside the sRGB gamut. */
+    float lo = 0.0f, hi = C;
+    float out_r = 0.0f, out_g = 0.0f, out_b = 0.0f;
+    for (int i = 0; i < 16; i++) {
+        float c = (lo + hi) * 0.5f;
+        float a2 = c * cosf(h);
+        float b2 = c * sinf(h);
+
+        float l2_ = Li + 0.3963377774f * a2 + 0.2158037573f * b2;
+        float m2_ = Li - 0.1055613458f * a2 - 0.0638541728f * b2;
+        float s2_ = Li - 0.0894841775f * a2 - 1.2914855480f * b2;
+
+        float l2 = l2_ * l2_ * l2_;
+        float m2 = m2_ * m2_ * m2_;
+        float s2 = s2_ * s2_ * s2_;
+
+        float rr = +4.0767416621f * l2 - 3.3077115913f * m2 + 0.2309699292f * s2;
+        float gg = -1.2684380046f * l2 + 2.6097574011f * m2 - 0.3413193965f * s2;
+        float bb = -0.0041960863f * l2 - 0.7034186147f * m2 + 1.7076147010f * s2;
+
+        if (rr >= 0.0f && rr <= 1.0f && gg >= 0.0f && gg <= 1.0f && bb >= 0.0f && bb <= 1.0f) {
+            out_r = rr; out_g = gg; out_b = bb;
+            lo = c;
+        } else {
+            hi = c;
+        }
+    }
+
+    *pr = linear_to_srgb(out_r);
+    *pg = linear_to_srgb(out_g);
+    *pb = linear_to_srgb(out_b);
+}
+
+static bool invert_use_oklch(void) {
+    return strcmp(g_config.bg_invert_algo, "oklch") == 0;
+}
+
 #ifdef HAVE_WEBP
 static unsigned char *load_rgba(const char *path, int *w, int *h) {
     int channels = 0;
@@ -111,10 +177,12 @@ static void build_variant(const char *orig_name) {
         if (strcmp(g_variants[i].orig, orig_name) == 0) return;
     }
 
-    /* Prefix doubles as an algorithm version: changing it forces regeneration
-     * of variants cached from an older algorithm. */
+    /* Prefix doubles as an algorithm/version tag: switching bg_invert_algo
+     * changes the filename, so variants built by the other algorithm are
+     * never picked up by accident. */
     invert_entry_t *entry = &g_variants[g_variant_count];
-    int n = snprintf(entry->variant, sizeof(entry->variant), "luminv-%s.webp", orig_name);
+    int n = snprintf(entry->variant, sizeof(entry->variant), "%s-%s.webp",
+                     invert_use_oklch() ? "oklch-inv" : "luminv", orig_name);
     if (n < 0 || n >= (int)sizeof(entry->variant)) return;
 
     char src_path[600], dst_path[600];
@@ -137,10 +205,12 @@ static void build_variant(const char *orig_name) {
         return;
     }
 
+    bool use_oklch = invert_use_oklch();
     for (long i = 0; i < (long)w * h; i++) {
         unsigned char *px = pixels + i * 4;
         float r = px[0] / 255.0f, g = px[1] / 255.0f, b = px[2] / 255.0f;
-        invert_pixel_luminance(&r, &g, &b);
+        if (use_oklch) invert_pixel_oklch(&r, &g, &b);
+        else invert_pixel_luminance(&r, &g, &b);
         px[0] = (unsigned char)(r * 255.0f + 0.5f);
         px[1] = (unsigned char)(g * 255.0f + 0.5f);
         px[2] = (unsigned char)(b * 255.0f + 0.5f);
