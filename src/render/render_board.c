@@ -14,23 +14,15 @@
 
 cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role, const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
-    const char *boards_bg_name = NULL;
-    bool boards_bg_invert = false;
-    config_resolve_bg(g_config.boards_img, g_config.boards_img_dark, "boards", dark, &boards_bg_name, &boards_bg_invert);
-    const char *boards_bg_url = image_inline_bg_url(boards_bg_name);
-    bool boards_bg_css_filter = false;
-    const char *boards_shown_name = boards_bg_name;
-    char boards_inv_url[320] = {0};
-    if (boards_bg_invert) {
-        const char *variant = image_invert_variant(boards_bg_name);
-        if (variant) {
-            snprintf(boards_inv_url, sizeof(boards_inv_url), "/assets/img/%s", variant);
-            boards_bg_url = boards_inv_url;
-            boards_shown_name = variant;
-        } else {
-            boards_bg_css_filter = true;
-        }
-    }
+    const char *boards_shown_l = NULL, *boards_shown_d = NULL;
+    bool boards_css_l = false, boards_css_d = false;
+    const char *boards_url_l = image_bg_resolve(g_config.boards_img, g_config.boards_img_dark, "boards", false, &boards_shown_l, &boards_css_l);
+    const char *boards_url_d = image_bg_resolve(g_config.boards_img, g_config.boards_img_dark, "boards", true, &boards_shown_d, &boards_css_d);
+    const char *boards_bg_url = dark ? boards_url_d : boards_url_l;
+    const char *boards_shown_name = dark ? boards_shown_d : boards_shown_l;
+    bool boards_bg_css_filter = dark ? boards_css_d : boards_css_l;
+    bool boards_mode_variant = (boards_url_l && boards_url_d) ? strcmp(boards_url_l, boards_url_d) != 0
+                                                              : (boards_url_l != boards_url_d);
     int has_boards_bg = boards_bg_url ? 1 : 0;
     char shell_style[768] = {0};
     char text_style[256] = {0};
@@ -55,6 +47,7 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
         cwist_sstring_append(b, "\">");
         cwist_sstring_append(b, "<img class='hero-bg' fetchpriority='high' src='");
         cwist_sstring_append(b, boards_bg_url);
+        if (boards_mode_variant) cwist_sstring_append(b, "' data-theme-bg-variant='1");
         cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0");
         if (boards_bg_css_filter) cwist_sstring_append(b, ";filter:invert(1) hue-rotate(180deg) saturate(0.55)");
         cwist_sstring_append(b, "'>");

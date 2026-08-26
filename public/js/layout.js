@@ -199,6 +199,11 @@
         if(!name)name=(mode==='light'?'dark':'light');
         mode=name;
         document.cookie='theme='+mode+';path=/;max-age=31536000';
+        /* Hero backgrounds are server-rendered per mode (dark variants and
+         * inverted fills are baked into the HTML, including their contrast
+         * analysis styles).  CSS-only swapping cannot update them, so when a
+         * page carries a mode-dependent hero image the toggle must reload. */
+        if(document.querySelector('img.hero-bg[data-theme-bg-variant]')){location.reload();return;}
         setHlCss(mode,myGen);
         updateBtn(mode,myGen);
         spinThemeButton();

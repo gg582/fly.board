@@ -387,27 +387,18 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
 
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id, bool is_mobile, cJSON *children) {
     cwist_sstring *b = cwist_sstring_create();
-    const char *home_bg_name = NULL;
-    bool home_bg_invert = false;
-    config_resolve_bg(g_config.home_img, g_config.home_img_dark, "home", dark, &home_bg_name, &home_bg_invert);
-    const char *home_bg_url = image_inline_bg_url(home_bg_name);
-    /* Prefer the precomputed OKLCH-inverted variant; fall back to a
-     * hue-preserving CSS filter when no variant was built.  The contrast
-     * analysis runs on the image actually shown — the inverted variant when
-     * there is one — so text color/overlay stay correct after inversion. */
-    bool home_bg_css_filter = false;
-    const char *home_shown_name = home_bg_name;
-    char home_inv_url[320] = {0};
-    if (home_bg_invert) {
-        const char *variant = image_invert_variant(home_bg_name);
-        if (variant) {
-            snprintf(home_inv_url, sizeof(home_inv_url), "/assets/img/%s", variant);
-            home_bg_url = home_inv_url;
-            home_shown_name = variant;
-        } else {
-            home_bg_css_filter = true;
-        }
-    }
+    /* Resolve both modes up front: when the effective hero differs between
+     * light and dark, the img carries data-theme-bg-variant so the theme
+     * toggle knows a reload is required (the toggle itself only swaps CSS). */
+    const char *home_shown_l = NULL, *home_shown_d = NULL;
+    bool home_css_l = false, home_css_d = false;
+    const char *home_url_l = image_bg_resolve(g_config.home_img, g_config.home_img_dark, "home", false, &home_shown_l, &home_css_l);
+    const char *home_url_d = image_bg_resolve(g_config.home_img, g_config.home_img_dark, "home", true, &home_shown_d, &home_css_d);
+    const char *home_bg_url = dark ? home_url_d : home_url_l;
+    const char *home_shown_name = dark ? home_shown_d : home_shown_l;
+    bool home_bg_css_filter = dark ? home_css_d : home_css_l;
+    bool home_mode_variant = (home_url_l && home_url_d) ? strcmp(home_url_l, home_url_d) != 0
+                                                        : (home_url_l != home_url_d);
     int has_home_bg = home_bg_url ? 1 : 0;
     char shell_style[768] = {0};
     char text_style[256] = {0};
@@ -432,6 +423,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cwist_sstring_append(b, "\">");
             cwist_sstring_append(b, "<img class='hero-bg' fetchpriority='high' src='");
             cwist_sstring_append(b, home_bg_url);
+            if (home_mode_variant) cwist_sstring_append(b, "' data-theme-bg-variant='1");
             cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0");
             if (home_bg_css_filter) cwist_sstring_append(b, ";filter:invert(1) hue-rotate(180deg) saturate(0.55)");
             cwist_sstring_append(b, "'>");
