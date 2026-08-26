@@ -182,7 +182,7 @@ static void build_variant(const char *orig_name) {
      * built by older code are never picked up by accident. */
     invert_entry_t *entry = &g_variants[g_variant_count];
     int n = snprintf(entry->variant, sizeof(entry->variant), "%s-%s.webp",
-                     invert_use_oklch() ? "oklch-inv2" : "luminv3", orig_name);
+                     invert_use_oklch() ? "oklch-inv2" : "luminv4", orig_name);
     if (n < 0 || n >= (int)sizeof(entry->variant)) return;
 
     char src_path[600], dst_path[600];
@@ -213,15 +213,18 @@ static void build_variant(const char *orig_name) {
             invert_pixel_oklch(&r, &g, &b);
         } else {
             invert_pixel_luminance(&r, &g, &b);
-            /* Toe crush: latent compression noise in the source's bright
-             * flats (invisible on white) lands just above black after the
-             * flip, where the eye sees it as grain.  A quadratic toe below
-             * ~5% linear luminance pushes that noise floor to pure black
-             * while leaving real content untouched. */
+            /* Black-floor lift: linear-luminance inversion maps near-white
+             * paper (e.g. 253/255) to a few percent of linear light, which
+             * the sRGB gamma expands into a visible ~10% gray — with every
+             * speck of source noise spread across it.  Subtract a small
+             * floor (chromaticity preserved) so near-white sources land on
+             * true black while darker content keeps its gradient. */
             float Y = 0.2126f * r + 0.7152f * g + 0.0722f * b;
-            const float toe = 0.05f;
-            if (Y > 0.0f && Y < toe) {
-                float s = Y / toe;
+            const float black_floor = 0.16f;
+            if (Y > 0.0f && Y < black_floor) {
+                float Y2 = (Y - black_floor) / (1.0f - black_floor);
+                if (Y2 < 0.0f) Y2 = 0.0f;
+                float s = Y2 / Y;
                 r *= s; g *= s; b *= s;
             }
         }
