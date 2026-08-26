@@ -400,33 +400,71 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         }
         cwist_sstring_append(b, "<div class='hero' ");
         if (has_home_bg) cwist_sstring_append(b, "style='position:relative;z-index:2;background:none;' ");
-        const char *logo_url = image_inline_logo();
-        if (!logo_url) logo_url = "/assets/img/logo.png";
+        /* Resolve both logo modes (dark variant / inverted fill) so the
+         * theme toggle can swap the logo like the hero background. */
+        bool logo_css_l = false, logo_css_d = false;
+        const char *logo_l = NULL, *logo_d = NULL;
+        image_logo_resolve_modes(&logo_l, &logo_d, &logo_css_l, &logo_css_d);
+        const char *logo_cur = dark ? logo_d : logo_l;
+        if (!logo_cur) logo_cur = image_inline_logo();
+        if (!logo_cur) logo_cur = "/assets/img/logo.png";
         /* Serve the logo at its rendered size instead of the full-resolution
          * original: the asset handler turns ?w=&h= into a small webp variant.
          * Intrinsic width/height let the browser reserve the box before the
          * image arrives. */
         char logo_sized[600];
-        const char *logo_final = logo_url;
+        const char *logo_final = logo_cur;
         int logo_w = 0, logo_h = 0;
-        if (strncmp(logo_url, "/assets/img/", 12) == 0) {
+        if (strncmp(logo_cur, "/assets/img/", 12) == 0) {
             char logo_path[600];
-            snprintf(logo_path, sizeof(logo_path), "public/img/%s", logo_url + 12);
+            snprintf(logo_path, sizeof(logo_path), "public/img/%s", logo_cur + 12);
             get_media_dimensions(logo_path, false, &logo_w, &logo_h);
-            snprintf(logo_sized, sizeof(logo_sized), "%s?w=256&h=256", logo_url);
+            snprintf(logo_sized, sizeof(logo_sized), "%s?w=256&h=256", logo_cur);
             logo_final = logo_sized;
         }
+        /* Swap URLs get the same size suffix treatment. */
+        char logo_sized_l[600] = {0}, logo_sized_d[600] = {0};
+        const char *logo_swap_l = logo_l, *logo_swap_d = logo_d;
+        if (logo_l && strncmp(logo_l, "/assets/img/", 12) == 0) {
+            snprintf(logo_sized_l, sizeof(logo_sized_l), "%s?w=256&h=256", logo_l);
+            logo_swap_l = logo_sized_l;
+        }
+        if (logo_d && strncmp(logo_d, "/assets/img/", 12) == 0) {
+            snprintf(logo_sized_d, sizeof(logo_sized_d), "%s?w=256&h=256", logo_d);
+            logo_swap_d = logo_sized_d;
+        }
+        /* Per-mode filters combine the background contrast analysis with the
+         * rare CSS inversion fallback. */
+        char flt_l[320], flt_d[320];
+        snprintf(flt_l, sizeof(flt_l), "%s%s%s", home_modes[0].logo_filter,
+                 (home_modes[0].logo_filter[0] && logo_css_l) ? " " : "",
+                 logo_css_l ? "invert(1) hue-rotate(180deg) saturate(0.55)" : "");
+        snprintf(flt_d, sizeof(flt_d), "%s%s%s", home_modes[1].logo_filter,
+                 (home_modes[1].logo_filter[0] && logo_css_d) ? " " : "",
+                 logo_css_d ? "invert(1) hue-rotate(180deg) saturate(0.55)" : "");
+        const char *flt_cur = dark ? flt_d : flt_l;
         cwist_sstring_append(b, "><img class='hero-logo' src='");
         cwist_sstring_append(b, logo_final);
         cwist_sstring_append(b, "' alt='Logo'");
+        if (logo_swap_l && logo_swap_d && strcmp(logo_swap_l, logo_swap_d) != 0) {
+            cwist_sstring_append(b, " data-logo-img='1' data-img-light='");
+            cwist_sstring_append_escaped(b, logo_swap_l);
+            cwist_sstring_append(b, "' data-img-dark='");
+            cwist_sstring_append_escaped(b, logo_swap_d);
+            cwist_sstring_append(b, "' data-filter-light='");
+            cwist_sstring_append_escaped(b, flt_l);
+            cwist_sstring_append(b, "' data-filter-dark='");
+            cwist_sstring_append_escaped(b, flt_d);
+            cwist_sstring_append(b, "'");
+        }
         if (logo_w > 0 && logo_h > 0) {
             char logo_dims[64];
             snprintf(logo_dims, sizeof(logo_dims), " width='%d' height='%d'", logo_w, logo_h);
             cwist_sstring_append(b, logo_dims);
         }
-        if (has_home_bg) {
+        if (flt_cur[0]) {
             cwist_sstring_append(b, " style='filter:");
-            cwist_sstring_append(b, home_cur->logo_filter);
+            cwist_sstring_append(b, flt_cur);
             cwist_sstring_append(b, "'");
         }
         cwist_sstring_append(b, " fetchpriority='high'>");

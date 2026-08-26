@@ -45,6 +45,12 @@ typedef struct {
 void hero_bg_resolve_modes(const char *light_img, const char *dark_img, const char *target,
                            hero_bg_mode_t modes[2]);
 
+/* Resolve the logo for both modes (dark variant or inverted fill when
+ * configured).  URLs may be NULL when no logo is configured; css-filter
+ * flags mark the rare no-variant fallback. */
+void image_logo_resolve_modes(const char **out_l, const char **out_d,
+                              bool *out_css_l, bool *out_css_d);
+
 /* Emit the hero wrapper div with both modes in data attributes, the hero-bg
  * img for the current mode, and the current mode's overlay.  Returns false
  * (and emits nothing) when the current mode has no background. */

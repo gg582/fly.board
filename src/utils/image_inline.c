@@ -23,6 +23,7 @@ typedef struct {
     char *boards_bg_dark_url;
     char *files_bg_dark_url;
     char *logo_url;
+    char *logo_dark_url;
     char *favicon_url;
 } inline_images_t;
 
@@ -221,6 +222,7 @@ void image_inline_cache_build(void) {
     /* Logo/favicon are small identity assets; inline with the usual image flag,
      * but still respect the size cap. */
     build_one(g_config.blog_logo,  &g_inline_images.logo_url,    image_inline_enabled(), max_img);
+    build_one(g_config.blog_logo_dark, &g_inline_images.logo_dark_url, image_inline_enabled(), max_img);
     build_one(g_config.favicon,    &g_inline_images.favicon_url, image_inline_enabled(), max_img);
 
     /* If no custom logo is configured, use the default logo.png. */
@@ -249,6 +251,8 @@ const char *image_inline_bg_url(const char *filename) {
         { g_config.home_img_dark,   g_inline_images.home_bg_dark_url },
         { g_config.boards_img_dark, g_inline_images.boards_bg_dark_url },
         { g_config.files_img_dark,  g_inline_images.files_bg_dark_url },
+        { g_config.blog_logo,       g_inline_images.logo_url },
+        { g_config.blog_logo_dark,  g_inline_images.logo_dark_url },
     };
     for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
         if (map[i].name[0] && strcmp(filename, map[i].name) == 0) return map[i].url;

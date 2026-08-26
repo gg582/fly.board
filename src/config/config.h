@@ -11,6 +11,7 @@ typedef struct {
     int port;
     char home_img[256];
     char blog_logo[256];
+    char blog_logo_dark[256];
     char boards_img[256];
     char files_img[256];
     char favicon[256];
@@ -29,6 +30,10 @@ typedef struct {
      * line-art contrast) or "oklch" (perceptual L-flip, smoother on
      * photos). */
     char bg_invert_algo[16];
+    /* When true and only one of blog_logo/blog_logo_dark is set, the other
+     * mode's logo is filled with the inverted variant.  Ignored when both
+     * are set. */
+    bool invert_logo;
     bool use_tasfa;
     bool use_rss;
     bool use_tls;

@@ -222,8 +222,13 @@
                 }
                 ov.setAttribute('style','position:absolute;inset:0;z-index:1;'+os);
             }else if(ov)ov.parentNode.removeChild(ov);
-            var logo=w.querySelector('.hero-logo');
-            if(logo)logo.style.filter=w.getAttribute('data-logo-filter-'+suffix)||'';
+        });
+        /* Logos carry their own per-mode URL/filter (dark variant or
+         * inverted fill), including the contrast-analysis drop-shadow. */
+        document.querySelectorAll('img[data-logo-img]').forEach(function(img){
+            var u=img.getAttribute('data-img-'+suffix);
+            if(u&&img.getAttribute('src')!==u)img.setAttribute('src',u);
+            img.style.filter=img.getAttribute('data-filter-'+suffix)||'';
         });
     }
     window.toggleTheme=function(name){
@@ -517,7 +522,7 @@
     (function(){
         function prefetchHeroImages(){
             var seen={};
-            document.querySelectorAll('img.hero-bg[data-img-light]').forEach(function(img){
+            document.querySelectorAll('img[data-img-light]').forEach(function(img){
                 ['light','dark'].forEach(function(s){
                     var u=img.getAttribute('data-img-'+s);
                     if(u&&!seen[u]){seen[u]=1;var pre=new Image();pre.src=u;}

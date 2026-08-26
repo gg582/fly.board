@@ -99,6 +99,8 @@ bool blog_config_load(const char *path) {
             fprintf(f, "port=%d\n", g_config.port);
             fprintf(f, "home_img=%s\n", g_config.home_img);
             fprintf(f, "blog_logo=%s\n", g_config.blog_logo);
+            fprintf(f, "blog_logo_dark=%s\n", g_config.blog_logo_dark);
+            fprintf(f, "invert_logo=%s\n", g_config.invert_logo ? "true" : "false");
             fprintf(f, "boards_img=%s\n", g_config.boards_img);
             fprintf(f, "files_img=%s\n", g_config.files_img);
             fprintf(f, "favicon=%s\n", g_config.favicon);
@@ -148,6 +150,10 @@ bool blog_config_load(const char *path) {
             snprintf(g_config.home_img, sizeof(g_config.home_img), "%s", val);
         } else if (strcmp(key, "blog_logo") == 0) {
             snprintf(g_config.blog_logo, sizeof(g_config.blog_logo), "%s", val);
+        } else if (strcmp(key, "blog_logo_dark") == 0) {
+            snprintf(g_config.blog_logo_dark, sizeof(g_config.blog_logo_dark), "%s", val);
+        } else if (strcmp(key, "invert_logo") == 0) {
+            g_config.invert_logo = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "boards_img") == 0) {
             snprintf(g_config.boards_img, sizeof(g_config.boards_img), "%s", val);
         } else if (strcmp(key, "files_img") == 0) {
@@ -215,6 +221,7 @@ bool blog_config_load(const char *path) {
        <img> tags that result in 404s in Firefox (and all other browsers). */
     validate_image_setting(g_config.home_img, "home_img");
     validate_image_setting(g_config.blog_logo, "blog_logo");
+    validate_image_setting(g_config.blog_logo_dark, "blog_logo_dark");
     validate_image_setting(g_config.boards_img, "boards_img");
     validate_image_setting(g_config.files_img, "files_img");
     validate_image_setting(g_config.favicon, "favicon");
@@ -227,7 +234,11 @@ bool blog_config_load(const char *path) {
 }
 
 bool config_bg_invert_enabled(const char *target) {
-    if (!target || !target[0] || !g_config.bg_invert_color[0]) return false;
+    if (!target || !target[0]) return false;
+    /* The logo uses its own boolean flag rather than the bg_invert_color
+     * target list. */
+    if (strcasecmp(target, "logo") == 0) return g_config.invert_logo;
+    if (!g_config.bg_invert_color[0]) return false;
     char buf[128];
     snprintf(buf, sizeof(buf), "%s", g_config.bg_invert_color);
     char *save = NULL;

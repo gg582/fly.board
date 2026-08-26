@@ -4,6 +4,7 @@
 #include "theme.h"
 #include "config/config.h"
 #include "utils/image_inline.h"
+#include "utils/image_invert.h"
 #include <cwist/core/html/builder.h>
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/sstring/sstring.h>
@@ -491,10 +492,23 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
     cwist_html_element_t *footer_logo = cwist_html_element_create("img");
     if (footer_logo) {
-        const char *footer_logo_url = image_inline_logo();
+        bool logo_css_l = false, logo_css_d = false;
+        const char *logo_l = NULL, *logo_d = NULL;
+        image_logo_resolve_modes(&logo_l, &logo_d, &logo_css_l, &logo_css_d);
+        const char *footer_logo_url = dark ? logo_d : logo_l;
+        if (!footer_logo_url) footer_logo_url = image_inline_logo();
         if (!footer_logo_url) footer_logo_url = "/assets/img/logo.png";
         cwist_html_element_add_attr(footer_logo, "src", footer_logo_url);
         cwist_html_element_add_attr(footer_logo, "alt", "Logo");
+        if (logo_l && logo_d && strcmp(logo_l, logo_d) != 0) {
+            cwist_html_element_add_attr(footer_logo, "data-logo-img", "1");
+            cwist_html_element_add_attr(footer_logo, "data-img-light", logo_l);
+            cwist_html_element_add_attr(footer_logo, "data-img-dark", logo_d);
+            cwist_html_element_add_attr(footer_logo, "data-filter-light",
+                                        logo_css_l ? "invert(1) hue-rotate(180deg) saturate(0.55)" : "");
+            cwist_html_element_add_attr(footer_logo, "data-filter-dark",
+                                        logo_css_d ? "invert(1) hue-rotate(180deg) saturate(0.55)" : "");
+        }
         cwist_html_element_add_attr(footer_logo, "width", "24");
         cwist_html_element_add_attr(footer_logo, "height", "16");
         cwist_html_element_add_attr(footer_logo, "data-tasfa-skip", "1");
