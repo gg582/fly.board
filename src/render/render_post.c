@@ -387,51 +387,16 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
 
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id, bool is_mobile, cJSON *children) {
     cwist_sstring *b = cwist_sstring_create();
-    /* Resolve both modes up front: when the effective hero differs between
-     * light and dark, the img carries data-theme-bg-variant so the theme
-     * toggle knows a reload is required (the toggle itself only swaps CSS). */
-    const char *home_shown_l = NULL, *home_shown_d = NULL;
-    bool home_css_l = false, home_css_d = false;
-    const char *home_url_l = image_bg_resolve(g_config.home_img, g_config.home_img_dark, "home", false, &home_shown_l, &home_css_l);
-    const char *home_url_d = image_bg_resolve(g_config.home_img, g_config.home_img_dark, "home", true, &home_shown_d, &home_css_d);
-    const char *home_bg_url = dark ? home_url_d : home_url_l;
-    const char *home_shown_name = dark ? home_shown_d : home_shown_l;
-    bool home_bg_css_filter = dark ? home_css_d : home_css_l;
-    bool home_mode_variant = (home_url_l && home_url_d) ? strcmp(home_url_l, home_url_d) != 0
-                                                        : (home_url_l != home_url_d);
-    int has_home_bg = home_bg_url ? 1 : 0;
-    char shell_style[768] = {0};
-    char text_style[256] = {0};
-    char logo_filter[128] = {0};
-    char overlay_style[256] = {0};
+    /* Both modes are resolved and analyzed up front and emitted as data
+     * attributes, so the theme toggle can swap the hero client-side — the
+     * same way the toplevel wallpaper follows the toggle via a CSS var. */
+    hero_bg_mode_t home_modes[2];
+    hero_bg_resolve_modes(g_config.home_img, g_config.home_img_dark, "home", home_modes);
+    const hero_bg_mode_t *home_cur = &home_modes[dark ? 1 : 0];
+    int has_home_bg = home_cur->url ? 1 : 0;
     if (!board_slug || board_slug[0] == '\0') {
         if (has_home_bg) {
-            if (!home_bg_css_filter) {
-                char img_path[512];
-                snprintf(img_path, sizeof(img_path), "public/img/%s", home_shown_name);
-                get_image_text_style(img_path, home_bg_url, shell_style, sizeof(shell_style),
-                                     text_style, sizeof(text_style),
-                                     logo_filter, sizeof(logo_filter),
-                                     overlay_style, sizeof(overlay_style));
-            }
-            /* The CSS-filter fallback cannot be analyzed (no inverted file),
-             * so it pairs with the theme's own foreground instead. */
-            cwist_sstring_append(b, "<div style=\"");
-            cwist_sstring_append(b, shell_style);
-            cwist_sstring_append(b, ";");
-            cwist_sstring_append(b, text_style);
-            cwist_sstring_append(b, "\">");
-            cwist_sstring_append(b, "<img class='hero-bg' fetchpriority='high' src='");
-            cwist_sstring_append(b, home_bg_url);
-            if (home_mode_variant) cwist_sstring_append(b, "' data-theme-bg-variant='1");
-            cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0");
-            if (home_bg_css_filter) cwist_sstring_append(b, ";filter:invert(1) hue-rotate(180deg) saturate(0.55)");
-            cwist_sstring_append(b, "'>");
-            if (overlay_style[0]) {
-                cwist_sstring_append(b, "<div style=\"position:absolute;inset:0;z-index:1;");
-                cwist_sstring_append(b, overlay_style);
-                cwist_sstring_append(b, "\"></div>");
-            }
+            hero_bg_append_open(b, home_modes, dark);
         }
         cwist_sstring_append(b, "<div class='hero' ");
         if (has_home_bg) cwist_sstring_append(b, "style='position:relative;z-index:2;background:none;' ");
@@ -461,7 +426,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         }
         if (has_home_bg) {
             cwist_sstring_append(b, " style='filter:");
-            cwist_sstring_append(b, logo_filter);
+            cwist_sstring_append(b, home_cur->logo_filter);
             cwist_sstring_append(b, "'");
         }
         cwist_sstring_append(b, " fetchpriority='high'>");

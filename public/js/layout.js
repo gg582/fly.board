@@ -166,6 +166,7 @@
         // detect identical CSS and skip; otherwise suppress transition first.
         if(serverBase&&modeBase(mode)!==serverBase)suppressTransition();
         applyTheme(findTheme(themes,mode));
+        swapHeroBgs(mode);
         syncHlTheme();
     }
     applyCached();
@@ -180,6 +181,7 @@
             themes=arr;
             if(serverBase&&modeBase(mode)!==serverBase)suppressTransition();
             applyTheme(findTheme(arr,mode));
+            swapHeroBgs(mode);
             syncHlTheme();
         }).catch(function(){/* network error: use cached or skip */});
     } else {
@@ -194,16 +196,42 @@
             }).catch(function(){});
         }, isSlowTheme ? 5000 : 2000);
     }
+    /* Hero backgrounds carry both modes in data attributes (image URL,
+     * contrast-analysis styles, overlay, logo filter), so the toggle can
+     * swap them client-side — no reload, exactly like the toplevel
+     * wallpaper follows the toggle through its CSS variable. */
+    function swapHeroBgs(name){
+        var suffix=(modeBase(name)==='light')?'light':'dark';
+        document.querySelectorAll('[data-hero-bg]').forEach(function(w){
+            var style=w.getAttribute('data-style-'+suffix);
+            if(style!==null)w.setAttribute('style',style);
+            var img=w.querySelector('img.hero-bg');
+            if(img){
+                var u=img.getAttribute('data-img-'+suffix);
+                if(u){img.style.display='';if(img.getAttribute('src')!==u)img.setAttribute('src',u);}
+                else img.style.display='none';
+                img.style.filter=img.getAttribute('data-filter-'+suffix)||'';
+            }
+            var ov=w.querySelector('.hero-overlay');
+            var os=w.getAttribute('data-overlay-'+suffix)||'';
+            if(os){
+                if(!ov){
+                    ov=document.createElement('div');
+                    ov.className='hero-overlay';
+                    if(img&&img.nextSibling)w.insertBefore(ov,img.nextSibling);else w.appendChild(ov);
+                }
+                ov.setAttribute('style','position:absolute;inset:0;z-index:1;'+os);
+            }else if(ov)ov.parentNode.removeChild(ov);
+            var logo=w.querySelector('.hero-logo');
+            if(logo)logo.style.filter=w.getAttribute('data-logo-filter-'+suffix)||'';
+        });
+    }
     window.toggleTheme=function(name){
         var myGen=++themeGen;
         if(!name)name=(mode==='light'?'dark':'light');
         mode=name;
         document.cookie='theme='+mode+';path=/;max-age=31536000';
-        /* Hero backgrounds are server-rendered per mode (dark variants and
-         * inverted fills are baked into the HTML, including their contrast
-         * analysis styles).  CSS-only swapping cannot update them, so when a
-         * page carries a mode-dependent hero image the toggle must reload. */
-        if(document.querySelector('img.hero-bg[data-theme-bg-variant]')){location.reload();return;}
+        swapHeroBgs(mode);
         setHlCss(mode,myGen);
         updateBtn(mode,myGen);
         spinThemeButton();

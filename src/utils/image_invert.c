@@ -229,3 +229,83 @@ const char *image_bg_resolve(const char *light_img, const char *dark_img, const 
     if (out_css_filter) *out_css_filter = css_filter;
     return url;
 }
+
+/* --- Theme-switchable hero backgrounds ---------------------------------- */
+
+#include <cwist/core/sstring/sstring.h>
+#include <cwist/image_contrast.h>
+
+#define HERO_CSS_FILTER "invert(1) hue-rotate(180deg) saturate(0.55)"
+
+void hero_bg_resolve_modes(const char *light_img, const char *dark_img, const char *target,
+                           hero_bg_mode_t modes[2]) {
+    for (int m = 0; m < 2; m++) {
+        hero_bg_mode_t *md = &modes[m];
+        memset(md, 0, sizeof(*md));
+        md->url = image_bg_resolve(light_img, dark_img, target, m == 1,
+                                   &md->shown_name, &md->css_filter);
+        if (md->url && !md->css_filter) {
+            /* Analyze the image actually shown — the inverted variant when
+             * there is one — so text/overlay stay correct after inversion.
+             * The CSS-filter fallback cannot be analyzed (no inverted file)
+             * and pairs with the theme's own foreground instead. */
+            char img_path[512];
+            snprintf(img_path, sizeof(img_path), "public/img/%s", md->shown_name);
+            get_image_text_style(img_path, md->url,
+                                 md->shell_style, sizeof(md->shell_style),
+                                 md->text_style, sizeof(md->text_style),
+                                 md->logo_filter, sizeof(md->logo_filter),
+                                 md->overlay_style, sizeof(md->overlay_style));
+        }
+    }
+}
+
+static void append_attr(cwist_sstring *b, const char *name, const char *value) {
+    if (!value || !value[0]) return;
+    cwist_sstring_append(b, " ");
+    cwist_sstring_append(b, name);
+    cwist_sstring_append(b, "=\"");
+    cwist_sstring_append_escaped(b, value);
+    cwist_sstring_append(b, "\"");
+}
+
+bool hero_bg_append_open(cwist_sstring *b, const hero_bg_mode_t modes[2], bool dark) {
+    const hero_bg_mode_t *cur = &modes[dark ? 1 : 0];
+    if (!cur->url) return false;
+
+    char style_l[1600], style_d[1600];
+    snprintf(style_l, sizeof(style_l), "%s;%s", modes[0].shell_style, modes[0].text_style);
+    snprintf(style_d, sizeof(style_d), "%s;%s", modes[1].shell_style, modes[1].text_style);
+
+    cwist_sstring_append(b, "<div data-hero-bg");
+    append_attr(b, "data-style-light", style_l);
+    append_attr(b, "data-style-dark", style_d);
+    append_attr(b, "data-overlay-light", modes[0].overlay_style);
+    append_attr(b, "data-overlay-dark", modes[1].overlay_style);
+    append_attr(b, "data-logo-filter-light", modes[0].logo_filter);
+    append_attr(b, "data-logo-filter-dark", modes[1].logo_filter);
+    cwist_sstring_append(b, " style=\"");
+    cwist_sstring_append_escaped(b, dark ? style_d : style_l);
+    cwist_sstring_append(b, "\">");
+
+    cwist_sstring_append(b, "<img class='hero-bg' fetchpriority='high'");
+    append_attr(b, "data-img-light", modes[0].url);
+    append_attr(b, "data-img-dark", modes[1].url);
+    append_attr(b, "data-filter-light", modes[0].css_filter ? HERO_CSS_FILTER : "");
+    append_attr(b, "data-filter-dark", modes[1].css_filter ? HERO_CSS_FILTER : "");
+    cwist_sstring_append(b, " src='");
+    cwist_sstring_append(b, cur->url);
+    cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0");
+    if (cur->css_filter) {
+        cwist_sstring_append(b, ";filter:");
+        cwist_sstring_append(b, HERO_CSS_FILTER);
+    }
+    cwist_sstring_append(b, "'>");
+
+    if (cur->overlay_style[0]) {
+        cwist_sstring_append(b, "<div class='hero-overlay' style=\"position:absolute;inset:0;z-index:1;");
+        cwist_sstring_append_escaped(b, cur->overlay_style);
+        cwist_sstring_append(b, "\"></div>");
+    }
+    return true;
+}
