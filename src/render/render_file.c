@@ -81,48 +81,12 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
 
 cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, int user_id, const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
-    const char *files_shown_l = NULL, *files_shown_d = NULL;
-    bool files_css_l = false, files_css_d = false;
-    const char *files_url_l = image_bg_resolve(g_config.files_img, g_config.files_img_dark, "files", false, &files_shown_l, &files_css_l);
-    const char *files_url_d = image_bg_resolve(g_config.files_img, g_config.files_img_dark, "files", true, &files_shown_d, &files_css_d);
-    const char *files_bg_url = dark ? files_url_d : files_url_l;
-    const char *files_shown_name = dark ? files_shown_d : files_shown_l;
-    bool files_bg_css_filter = dark ? files_css_d : files_css_l;
-    bool files_mode_variant = (files_url_l && files_url_d) ? strcmp(files_url_l, files_url_d) != 0
-                                                           : (files_url_l != files_url_d);
-    int has_files_bg = files_bg_url ? 1 : 0;
-    char shell_style[768] = {0};
-    char text_style[256] = {0};
-    char overlay_style[256] = {0};
+    hero_bg_mode_t files_modes[2];
+    hero_bg_resolve_modes(g_config.files_img, g_config.files_img_dark, "files", files_modes);
+    const hero_bg_mode_t *files_cur = &files_modes[dark ? 1 : 0];
+    int has_files_bg = files_cur->url ? 1 : 0;
     if (has_files_bg) {
-        /* Analyze the image actually shown — the inverted variant when there
-         * is one — so text color/overlay stay correct after inversion.  Only
-         * the CSS-filter fallback skips analysis (no inverted file). */
-        if (!files_bg_css_filter) {
-            char img_path[512];
-            snprintf(img_path, sizeof(img_path), "public/img/%s", files_shown_name);
-            char logo_dummy[64];
-            get_image_text_style(img_path, files_bg_url, shell_style, sizeof(shell_style),
-                                 text_style, sizeof(text_style),
-                                 logo_dummy, sizeof(logo_dummy),
-                                 overlay_style, sizeof(overlay_style));
-        }
-        cwist_sstring_append(b, "<div style=\"");
-        cwist_sstring_append(b, shell_style);
-        cwist_sstring_append(b, ";");
-        cwist_sstring_append(b, text_style);
-        cwist_sstring_append(b, "\">");
-        cwist_sstring_append(b, "<img class='hero-bg' fetchpriority='high' src='");
-        cwist_sstring_append(b, files_bg_url);
-        if (files_mode_variant) cwist_sstring_append(b, "' data-theme-bg-variant='1");
-        cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0");
-        if (files_bg_css_filter) cwist_sstring_append(b, ";filter:invert(1) hue-rotate(180deg) saturate(0.55)");
-        cwist_sstring_append(b, "'>");
-        if (overlay_style[0]) {
-            cwist_sstring_append(b, "<div style=\"position:absolute;inset:0;z-index:1;");
-            cwist_sstring_append(b, overlay_style);
-            cwist_sstring_append(b, "\"></div>");
-        }
+        hero_bg_append_open(b, files_modes, dark);
     }
     cwist_sstring_append(b, "<div class='hero' ");
     if (has_files_bg) cwist_sstring_append(b, "style='position:relative;z-index:2;background:none;' ");

@@ -22,4 +22,32 @@ const char *image_invert_variant(const char *filename);
 const char *image_bg_resolve(const char *light_img, const char *dark_img, const char *target,
                              bool dark_mode, const char **out_shown_name, bool *out_css_filter);
 
+/* --- Theme-switchable hero backgrounds ------------------------------------
+ * Hero backgrounds are baked into the HTML per mode, but the theme toggle
+ * only swaps CSS.  Like the toplevel wallpaper (a CSS variable), the hero
+ * must follow the toggle instantly: the renderer therefore emits BOTH modes
+ * (image URL, contrast-analysis styles, overlay, logo filter) as data
+ * attributes and layout.js swaps them on toggle. */
+
+#include <cwist/core/sstring/sstring.h>
+
+typedef struct {
+    const char *url;         /* display URL for this mode (NULL when unset) */
+    const char *shown_name;  /* filename actually shown (analysis input) */
+    bool css_filter;         /* true when the CSS-filter fallback applies */
+    char shell_style[768];
+    char text_style[256];
+    char logo_filter[128];
+    char overlay_style[256];
+} hero_bg_mode_t;
+
+/* Resolve and analyze both modes (index 0 = light, 1 = dark). */
+void hero_bg_resolve_modes(const char *light_img, const char *dark_img, const char *target,
+                           hero_bg_mode_t modes[2]);
+
+/* Emit the hero wrapper div with both modes in data attributes, the hero-bg
+ * img for the current mode, and the current mode's overlay.  Returns false
+ * (and emits nothing) when the current mode has no background. */
+bool hero_bg_append_open(cwist_sstring *b, const hero_bg_mode_t modes[2], bool dark);
+
 #endif
