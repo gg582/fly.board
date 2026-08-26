@@ -203,8 +203,11 @@
     function swapHeroBgs(name){
         var suffix=(modeBase(name)==='light')?'light':'dark';
         document.querySelectorAll('[data-hero-bg]').forEach(function(w){
+            /* Always overwrite the inline style: when the target mode has no
+             * per-mode style the attribute is omitted server-side, and keeping
+             * the old value would leak the previous mode's text/overlay style. */
             var style=w.getAttribute('data-style-'+suffix);
-            if(style!==null)w.setAttribute('style',style);
+            w.setAttribute('style',style===null?'':style);
             var img=w.querySelector('img.hero-bg');
             if(img){
                 var u=img.getAttribute('data-img-'+suffix);

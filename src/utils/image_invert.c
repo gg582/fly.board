@@ -333,10 +333,12 @@ const char *image_invert_variant(const char *filename) {
 }
 
 /* Ring of URL buffers for inverted variants; deep enough for every hero on
- * a page to resolve both modes before appending. */
+ * a page to resolve both modes before appending.  Thread-local: requests are
+ * rendered on a worker pool, and a shared ring let concurrent renders read
+ * half-written or reused slots, baking wrong data-img-* URLs into pages. */
 #define RESOLVE_RING 16
-static char g_resolve_ring[RESOLVE_RING][320];
-static size_t g_resolve_ring_idx;
+static _Thread_local char g_resolve_ring[RESOLVE_RING][320];
+static _Thread_local size_t g_resolve_ring_idx;
 
 const char *image_bg_resolve(const char *light_img, const char *dark_img, const char *target,
                              bool dark_mode, const char **out_shown_name, bool *out_css_filter) {
