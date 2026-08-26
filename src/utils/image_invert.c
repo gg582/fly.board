@@ -27,7 +27,7 @@
  *     hue, with chroma damping and gamut clamping.  Smoother on photos and
  *     gradients, but crushes contrast on low-contrast line art. */
 
-#define MAX_VARIANTS 8
+#define MAX_VARIANTS 10
 
 typedef struct {
     char orig[256];
@@ -301,7 +301,7 @@ static void build_variant(const char *orig_name) {
 #endif
 
 void image_invert_cache_build(void) {
-    if (!g_config.bg_invert_color[0]) return;
+    if (!g_config.bg_invert_color[0] && !g_config.invert_logo) return;
     if (config_bg_invert_enabled("home")) {
         build_variant(g_config.home_img);
         build_variant(g_config.home_img_dark);
@@ -317,6 +317,10 @@ void image_invert_cache_build(void) {
     if (config_bg_invert_enabled("toplevel")) {
         build_variant(g_config.bg_full_light);
         build_variant(g_config.bg_full_dark);
+    }
+    if (config_bg_invert_enabled("logo")) {
+        build_variant(g_config.blog_logo);
+        build_variant(g_config.blog_logo_dark);
     }
 }
 
@@ -365,6 +369,14 @@ const char *image_bg_resolve(const char *light_img, const char *dark_img, const 
 #include <cwist/image_contrast.h>
 
 #define HERO_CSS_FILTER "invert(1) hue-rotate(180deg) saturate(0.55)"
+
+void image_logo_resolve_modes(const char **out_l, const char **out_d,
+                              bool *out_css_l, bool *out_css_d) {
+    if (out_l) *out_l = image_bg_resolve(g_config.blog_logo, g_config.blog_logo_dark,
+                                         "logo", false, NULL, out_css_l);
+    if (out_d) *out_d = image_bg_resolve(g_config.blog_logo, g_config.blog_logo_dark,
+                                         "logo", true, NULL, out_css_d);
+}
 
 void hero_bg_resolve_modes(const char *light_img, const char *dark_img, const char *target,
                            hero_bg_mode_t modes[2]) {

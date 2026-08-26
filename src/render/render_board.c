@@ -23,14 +23,37 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     }
     cwist_sstring_append(b, "<div class='hero' ");
     if (has_boards_bg) cwist_sstring_append(b, "style='position:relative;z-index:2;background:none;' ");
-    const char *logo_url = image_inline_logo();
+    bool logo_css_l = false, logo_css_d = false;
+    const char *logo_l = NULL, *logo_d = NULL;
+    image_logo_resolve_modes(&logo_l, &logo_d, &logo_css_l, &logo_css_d);
+    const char *logo_url = dark ? logo_d : logo_l;
+    if (!logo_url) logo_url = image_inline_logo();
     if (!logo_url) logo_url = "/assets/img/logo.png";
+    char flt_l[320], flt_d[320];
+    snprintf(flt_l, sizeof(flt_l), "%s%s%s", boards_modes[0].logo_filter,
+             (boards_modes[0].logo_filter[0] && logo_css_l) ? " " : "",
+             logo_css_l ? "invert(1) hue-rotate(180deg) saturate(0.55)" : "");
+    snprintf(flt_d, sizeof(flt_d), "%s%s%s", boards_modes[1].logo_filter,
+             (boards_modes[1].logo_filter[0] && logo_css_d) ? " " : "",
+             logo_css_d ? "invert(1) hue-rotate(180deg) saturate(0.55)" : "");
+    const char *flt_cur = dark ? flt_d : flt_l;
     cwist_sstring_append(b, "><img class='hero-logo' src='");
     cwist_sstring_append(b, logo_url);
     cwist_sstring_append(b, "' alt='Logo'");
-    if (has_boards_bg) {
+    if (logo_l && logo_d && strcmp(logo_l, logo_d) != 0) {
+        cwist_sstring_append(b, " data-logo-img='1' data-img-light='");
+        cwist_sstring_append_escaped(b, logo_l);
+        cwist_sstring_append(b, "' data-img-dark='");
+        cwist_sstring_append_escaped(b, logo_d);
+        cwist_sstring_append(b, "' data-filter-light='");
+        cwist_sstring_append_escaped(b, flt_l);
+        cwist_sstring_append(b, "' data-filter-dark='");
+        cwist_sstring_append_escaped(b, flt_d);
+        cwist_sstring_append(b, "'");
+    }
+    if (flt_cur[0]) {
         cwist_sstring_append(b, " style='filter:");
-        cwist_sstring_append(b, boards_cur->logo_filter);
+        cwist_sstring_append(b, flt_cur);
         cwist_sstring_append(b, "'");
     }
     cwist_sstring_append(b, " fetchpriority='high'><h1>");
