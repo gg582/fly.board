@@ -15,6 +15,7 @@ home_img_dark=
 boards_img_dark=
 files_img_dark=
 bg_invert_color=
+bg_invert_algo=luminv
 use_rss=true
 use_tasfa=true
 use_tls=true

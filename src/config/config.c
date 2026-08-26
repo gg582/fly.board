@@ -75,6 +75,7 @@ static void set_default(void) {
     g_config.max_upload_parallel_chunks = 32;
     g_config.max_concurrent_downloads = 128;
     g_config.use_special_modes[0] = '\0';
+    snprintf(g_config.bg_invert_algo, sizeof(g_config.bg_invert_algo), "luminv");
 }
 
 static void trim_newline(char *s) {
@@ -107,6 +108,7 @@ bool blog_config_load(const char *path) {
             fprintf(f, "boards_img_dark=%s\n", g_config.boards_img_dark);
             fprintf(f, "files_img_dark=%s\n", g_config.files_img_dark);
             fprintf(f, "bg_invert_color=%s\n", g_config.bg_invert_color);
+            fprintf(f, "bg_invert_algo=%s\n", g_config.bg_invert_algo);
             fprintf(f, "root_url=%s\n", g_config.root_url);
             fprintf(f, "use_tasfa=%s\n", g_config.use_tasfa ? "true" : "false");
             fprintf(f, "use_rss=%s\n", g_config.use_rss ? "true" : "false");
@@ -166,6 +168,8 @@ bool blog_config_load(const char *path) {
             snprintf(g_config.files_img_dark, sizeof(g_config.files_img_dark), "%s", val);
         } else if (strcmp(key, "bg_invert_color") == 0) {
             snprintf(g_config.bg_invert_color, sizeof(g_config.bg_invert_color), "%s", val);
+        } else if (strcmp(key, "bg_invert_algo") == 0) {
+            snprintf(g_config.bg_invert_algo, sizeof(g_config.bg_invert_algo), "%s", val);
         } else if (strcmp(key, "use_tasfa") == 0) {
             g_config.use_tasfa = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "use_rss") == 0) {
@@ -202,6 +206,10 @@ bool blog_config_load(const char *path) {
     g_config.max_total_parallel_uploads = clamp_int_config(g_config.max_total_parallel_uploads, 1, 512);
     g_config.max_upload_parallel_chunks = clamp_int_config(g_config.max_upload_parallel_chunks, 1, 64);
     g_config.max_concurrent_downloads = clamp_int_config(g_config.max_concurrent_downloads, 1, 512);
+    if (strcmp(g_config.bg_invert_algo, "oklch") != 0) {
+        /* Unknown values (including empty) fall back to the default. */
+        snprintf(g_config.bg_invert_algo, sizeof(g_config.bg_invert_algo), "luminv");
+    }
 
     /* Validate configured image assets so the renderer does not emit broken
        <img> tags that result in 404s in Firefox (and all other browsers). */

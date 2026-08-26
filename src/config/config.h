@@ -25,6 +25,10 @@ typedef struct {
     /* Comma-separated targets ("home", "boards", "files", "toplevel") whose
      * missing light/dark counterpart is filled with the inverted image. */
     char bg_invert_color[128];
+    /* Inversion algorithm for bg_invert_color: "luminv" (default, keeps
+     * line-art contrast) or "oklch" (perceptual L-flip, smoother on
+     * photos). */
+    char bg_invert_algo[16];
     bool use_tasfa;
     bool use_rss;
     bool use_tls;
