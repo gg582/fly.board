@@ -75,6 +75,7 @@ static void set_default(void) {
     g_config.max_upload_parallel_chunks = 32;
     g_config.max_concurrent_downloads = 128;
     g_config.use_special_modes[0] = '\0';
+    g_config.vote_only[0] = '\0';
     snprintf(g_config.bg_invert_algo, sizeof(g_config.bg_invert_algo), "luminv");
 }
 
@@ -123,6 +124,7 @@ bool blog_config_load(const char *path) {
             fprintf(f, "max_upload_parallel_chunks=%d\n", g_config.max_upload_parallel_chunks);
             fprintf(f, "max_concurrent_downloads=%d\n", g_config.max_concurrent_downloads);
             fprintf(f, "use_special_modes=%s\n", g_config.use_special_modes);
+            fprintf(f, "vote_only=%s\n", g_config.vote_only);
             fclose(f);
         }
         return true;
@@ -200,6 +202,8 @@ bool blog_config_load(const char *path) {
             g_config.max_concurrent_downloads = atoi(val);
         } else if (strcmp(key, "use_special_modes") == 0) {
             snprintf(g_config.use_special_modes, sizeof(g_config.use_special_modes), "%s", val);
+        } else if (strcmp(key, "vote_only") == 0) {
+            snprintf(g_config.vote_only, sizeof(g_config.vote_only), "%s", val);
         }
     }
     fclose(f);
@@ -215,6 +219,11 @@ bool blog_config_load(const char *path) {
     if (strcmp(g_config.bg_invert_algo, "oklch") != 0) {
         /* Unknown values (including empty) fall back to the default. */
         snprintf(g_config.bg_invert_algo, sizeof(g_config.bg_invert_algo), "luminv");
+    }
+    if (g_config.vote_only[0] && strcmp(g_config.vote_only, "all") != 0 &&
+        strcmp(g_config.vote_only, "authorized") != 0 && strcmp(g_config.vote_only, "admin") != 0) {
+        CWIST_LOG_WARN("Unknown vote_only value '%s', falling back to all", g_config.vote_only);
+        g_config.vote_only[0] = '\0';
     }
 
     /* Validate configured image assets so the renderer does not emit broken
@@ -267,6 +276,15 @@ void config_resolve_bg(const char *light_img, const char *dark_img, const char *
     }
     if (out_img) *out_img = img;
     if (out_invert) *out_invert = invert;
+}
+
+bool config_vote_allowed(bool logged_in, const char *role) {
+    const char *mode = g_config.vote_only;
+    if (!mode[0] || strcmp(mode, "all") == 0) return true;
+    if (strcmp(mode, "authorized") == 0) return logged_in;
+    if (strcmp(mode, "admin") == 0)
+        return logged_in && role && strcmp(role, "admin") == 0;
+    return true;
 }
 
 static void font_set_default(void) {
