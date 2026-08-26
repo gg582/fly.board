@@ -4,6 +4,7 @@
 #include "config/config.h"
 #include "utils/utils.h"
 #include "utils/image_inline.h"
+#include "utils/image_invert.h"
 #include "cwist/image_contrast.h"
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
@@ -80,19 +81,40 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
 
 cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, int user_id, const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
-    const char *files_bg_url = image_inline_files_bg();
+    const char *files_bg_name = NULL;
+    bool files_bg_invert = false;
+    config_resolve_bg(g_config.files_img, g_config.files_img_dark, "files", dark, &files_bg_name, &files_bg_invert);
+    const char *files_bg_url = image_inline_bg_url(files_bg_name);
+    bool files_bg_css_filter = false;
+    const char *files_shown_name = files_bg_name;
+    char files_inv_url[320] = {0};
+    if (files_bg_invert) {
+        const char *variant = image_invert_variant(files_bg_name);
+        if (variant) {
+            snprintf(files_inv_url, sizeof(files_inv_url), "/assets/img/%s", variant);
+            files_bg_url = files_inv_url;
+            files_shown_name = variant;
+        } else {
+            files_bg_css_filter = true;
+        }
+    }
     int has_files_bg = files_bg_url ? 1 : 0;
     char shell_style[768] = {0};
     char text_style[256] = {0};
     char overlay_style[256] = {0};
     if (has_files_bg) {
-        char img_path[512];
-        snprintf(img_path, sizeof(img_path), "public/img/%s", g_config.files_img);
-        char logo_dummy[64];
-        get_image_text_style(img_path, files_bg_url, shell_style, sizeof(shell_style),
-                             text_style, sizeof(text_style),
-                             logo_dummy, sizeof(logo_dummy),
-                             overlay_style, sizeof(overlay_style));
+        /* Analyze the image actually shown — the inverted variant when there
+         * is one — so text color/overlay stay correct after inversion.  Only
+         * the CSS-filter fallback skips analysis (no inverted file). */
+        if (!files_bg_css_filter) {
+            char img_path[512];
+            snprintf(img_path, sizeof(img_path), "public/img/%s", files_shown_name);
+            char logo_dummy[64];
+            get_image_text_style(img_path, files_bg_url, shell_style, sizeof(shell_style),
+                                 text_style, sizeof(text_style),
+                                 logo_dummy, sizeof(logo_dummy),
+                                 overlay_style, sizeof(overlay_style));
+        }
         cwist_sstring_append(b, "<div style=\"");
         cwist_sstring_append(b, shell_style);
         cwist_sstring_append(b, ";");
@@ -100,7 +122,9 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
         cwist_sstring_append(b, "\">");
         cwist_sstring_append(b, "<img class='hero-bg' fetchpriority='high' src='");
         cwist_sstring_append(b, files_bg_url);
-        cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0'>");
+        cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0");
+        if (files_bg_css_filter) cwist_sstring_append(b, ";filter:invert(1) hue-rotate(180deg) saturate(0.55)");
+        cwist_sstring_append(b, "'>");
         if (overlay_style[0]) {
             cwist_sstring_append(b, "<div style=\"position:absolute;inset:0;z-index:1;");
             cwist_sstring_append(b, overlay_style);

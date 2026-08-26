@@ -63,6 +63,9 @@ CURL_LIBS := $(shell pkg-config --libs libcurl 2>/dev/null || echo -lcurl)
 NGHTTP2_LIBS := $(shell pkg-config --libs libnghttp2 2>/dev/null)
 BROTLI_LIBS := $(shell pkg-config --libs libbrotlienc libbrotlicommon libbrotlidec 2>/dev/null || echo -lbrotlienc -lbrotlicommon -lbrotlidec)
 WEBP_LIBS := $(shell pkg-config --libs libwebp libwebpmux 2>/dev/null)
+ifneq ($(strip $(WEBP_LIBS)),)
+WEBP_CFLAGS += -DHAVE_WEBP
+endif
 ZSTD_LIBS := $(shell pkg-config --libs libzstd 2>/dev/null)
 ifeq ($(strip $(ZSTD_LIBS)),)
 ZSTD_LIBS = -lzstd
@@ -135,6 +138,7 @@ SRCS := src/main.c \
         src/utils/image_contrast.c \
         src/utils/image_size.c \
         src/utils/image_inline.c \
+        src/utils/image_invert.c \
         src/utils/media_preview.c \
         src/nats/fly_nats.c \
         src/core/log.c \

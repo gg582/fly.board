@@ -103,6 +103,10 @@ bool blog_config_load(const char *path) {
             fprintf(f, "favicon=%s\n", g_config.favicon);
             fprintf(f, "bg_full_light=%s\n", g_config.bg_full_light);
             fprintf(f, "bg_full_dark=%s\n", g_config.bg_full_dark);
+            fprintf(f, "home_img_dark=%s\n", g_config.home_img_dark);
+            fprintf(f, "boards_img_dark=%s\n", g_config.boards_img_dark);
+            fprintf(f, "files_img_dark=%s\n", g_config.files_img_dark);
+            fprintf(f, "bg_invert_color=%s\n", g_config.bg_invert_color);
             fprintf(f, "root_url=%s\n", g_config.root_url);
             fprintf(f, "use_tasfa=%s\n", g_config.use_tasfa ? "true" : "false");
             fprintf(f, "use_rss=%s\n", g_config.use_rss ? "true" : "false");
@@ -154,6 +158,14 @@ bool blog_config_load(const char *path) {
             snprintf(g_config.bg_full_light, sizeof(g_config.bg_full_light), "%s", val);
         } else if (strcmp(key, "bg_full_dark") == 0) {
             snprintf(g_config.bg_full_dark, sizeof(g_config.bg_full_dark), "%s", val);
+        } else if (strcmp(key, "home_img_dark") == 0) {
+            snprintf(g_config.home_img_dark, sizeof(g_config.home_img_dark), "%s", val);
+        } else if (strcmp(key, "boards_img_dark") == 0) {
+            snprintf(g_config.boards_img_dark, sizeof(g_config.boards_img_dark), "%s", val);
+        } else if (strcmp(key, "files_img_dark") == 0) {
+            snprintf(g_config.files_img_dark, sizeof(g_config.files_img_dark), "%s", val);
+        } else if (strcmp(key, "bg_invert_color") == 0) {
+            snprintf(g_config.bg_invert_color, sizeof(g_config.bg_invert_color), "%s", val);
         } else if (strcmp(key, "use_tasfa") == 0) {
             g_config.use_tasfa = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "use_rss") == 0) {
@@ -200,7 +212,42 @@ bool blog_config_load(const char *path) {
     validate_image_setting(g_config.favicon, "favicon");
     validate_image_setting(g_config.bg_full_light, "bg_full_light");
     validate_image_setting(g_config.bg_full_dark, "bg_full_dark");
+    validate_image_setting(g_config.home_img_dark, "home_img_dark");
+    validate_image_setting(g_config.boards_img_dark, "boards_img_dark");
+    validate_image_setting(g_config.files_img_dark, "files_img_dark");
     return true;
+}
+
+bool config_bg_invert_enabled(const char *target) {
+    if (!target || !target[0] || !g_config.bg_invert_color[0]) return false;
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%s", g_config.bg_invert_color);
+    char *save = NULL;
+    for (char *tok = strtok_r(buf, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+        while (*tok == ' ' || *tok == '\t') tok++;
+        size_t len = strlen(tok);
+        while (len > 0 && (tok[len - 1] == ' ' || tok[len - 1] == '\t')) tok[--len] = '\0';
+        if (strcasecmp(tok, target) == 0) return true;
+    }
+    return false;
+}
+
+void config_resolve_bg(const char *light_img, const char *dark_img, const char *target,
+                       bool dark_mode, const char **out_img, bool *out_invert) {
+    bool has_light = light_img && light_img[0];
+    bool has_dark = dark_img && dark_img[0];
+    const char *img = dark_mode ? (has_dark ? dark_img : light_img)
+                                : (has_light ? light_img : dark_img);
+    if (!img || !img[0]) img = NULL;
+    bool invert = false;
+    /* Inversion only fills the mode that has no image of its own; when both
+     * light and dark are explicitly configured the invert setting is void
+     * for this target. */
+    if (img && !(has_light && has_dark) && config_bg_invert_enabled(target)) {
+        invert = dark_mode ? !has_dark : !has_light;
+    }
+    if (out_img) *out_img = img;
+    if (out_invert) *out_invert = invert;
 }
 
 static void font_set_default(void) {

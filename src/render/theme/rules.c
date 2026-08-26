@@ -1,5 +1,6 @@
 #include "../theme.h"
 #include "../../config/config.h"
+#include "../../utils/image_invert.h"
 #include <cjson/cJSON.h>
 #include <stdlib.h>
 #include <string.h>
@@ -91,7 +92,26 @@ void rule_root(cJSON *vars, theme_color_t *t) {
     cJSON_AddStringToObject(vars, "--font-display", g_font_settings.display[0] ? g_font_settings.display : "'Outfit', sans-serif");
     cJSON_AddStringToObject(vars, "--tikz-ink", t->fg);
 
-    const char *background_filename = (t == &light) ? g_config.bg_full_light : g_config.bg_full_dark;
+    const char *background_filename = NULL;
+    bool background_invert = false;
+    if (config_bg_invert_enabled("toplevel")) {
+        /* Opt-in: the missing mode's wallpaper is filled with the (inverted)
+         * configured one.  Without the opt-in, keep the historical behavior
+         * of no cross-mode fallback. */
+        config_resolve_bg(g_config.bg_full_light, g_config.bg_full_dark, "toplevel",
+                          t != &light, &background_filename, &background_invert);
+        if (background_invert) {
+            /* Prefer the precomputed OKLCH-inverted variant; keep the CSS
+             * filter only as the fallback when no variant was built. */
+            const char *variant = image_invert_variant(background_filename);
+            if (variant) {
+                background_filename = variant;
+                background_invert = false;
+            }
+        }
+    } else {
+        background_filename = (t == &light) ? g_config.bg_full_light : g_config.bg_full_dark;
+    }
     char background_url[1024];
     char background_image[1040];
     static_image_url(background_url, sizeof(background_url), background_filename);
@@ -101,6 +121,7 @@ void rule_root(cJSON *vars, theme_color_t *t) {
     } else {
         cJSON_AddStringToObject(vars, "--full-page-background", "none");
     }
+    cJSON_AddStringToObject(vars, "--full-page-background-filter", background_invert ? "invert(1) hue-rotate(180deg) saturate(0.55)" : "none");
 }
 
 void rule_base(cJSON *rules) {
@@ -125,11 +146,6 @@ void rule_base(cJSON *rules) {
 
     cJSON *body = create_rule("body");
     add_decl(body, "background", "var(--bg)");
-    add_decl(body, "background-image", "var(--full-page-background)");
-    add_decl(body, "background-size", "cover");
-    add_decl(body, "background-position", "center center");
-    add_decl(body, "background-attachment", "fixed");
-    add_decl(body, "background-repeat", "no-repeat");
     add_decl(body, "min-height", "100vh");
     add_decl(body, "color", "var(--fg)");
     add_decl(body, "font-family", g_font_settings.body[0] ? g_font_settings.body : "'Space Grotesk', 'IBM Plex Sans KR', 'Pretendard Variable', 'Pretendard', sans-serif");
@@ -140,6 +156,23 @@ void rule_base(cJSON *rules) {
     add_decl(body, "transition", "background 0.5s ease, color 0.5s ease");
     add_decl(body, "-webkit-font-smoothing", "antialiased");
     cJSON_AddItemToArray(rules, body);
+
+    /* The full-page wallpaper lives on a fixed pseudo element so its colors
+     * can be inverted (bg_invert_color=toplevel) without filtering the page
+     * content.  A negative z-index paints it above body's own background
+     * color but below all content. */
+    cJSON *body_bg = create_rule("body::before");
+    add_decl(body_bg, "content", "\"\"");
+    add_decl(body_bg, "position", "fixed");
+    add_decl(body_bg, "inset", "0");
+    add_decl(body_bg, "z-index", "-1");
+    add_decl(body_bg, "background-image", "var(--full-page-background)");
+    add_decl(body_bg, "background-size", "cover");
+    add_decl(body_bg, "background-position", "center center");
+    add_decl(body_bg, "background-repeat", "no-repeat");
+    add_decl(body_bg, "filter", "var(--full-page-background-filter)");
+    add_decl(body_bg, "pointer-events", "none");
+    cJSON_AddItemToArray(rules, body_bg);
 
     cJSON *h1 = create_rule("h1, .hero h1");
     add_decl(h1, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");

@@ -78,7 +78,40 @@
         }
     }
 
-    var TIKZ_RETRY_DELAY_MS = 6000;
+    /* TikZJax's WebAssembly core and fonts take well over 6s to download and
+     * compile on a cold cache, so a short delay here made nearly every diagram
+     * fall through to the public providers.  Give each attempt enough room
+     * for a slow wasm start before declaring failure. */
+    var TIKZ_RETRY_DELAY_MS = 15000;
+
+    /* Lazy PDF.js loader, used only when a diagram falls back to a public
+     * provider.  The providers return a one-page PDF; PDF.js renders it to a
+     * canvas so the result looks like an inline diagram, not a PDF viewer. */
+    function loadPdfJs() {
+        if (window.__flyboardPdfJsReady) return window.__flyboardPdfJsReady;
+        window.__flyboardPdfJsReady = new Promise(function(resolve, reject) {
+            if (window.pdfjsLib) { resolve(window.pdfjsLib); return; }
+            var script = document.createElement('script');
+            /* 2.16 legacy UMD build: runs under our CSP without a module
+             * worker.  The real Worker cannot be constructed from cdnjs
+             * (worker-src allows only 'self' and blob:), so pdf.js falls back
+             * to its fake worker, which loads the worker code through a
+             * regular script tag (allowed by script-src) on the main thread. */
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
+            script.onload = function() {
+                var lib = window.pdfjsLib;
+                if (!lib) { reject(new Error('PDF.js failed to initialize')); return; }
+                lib.GlobalWorkerOptions.workerSrc =
+                    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+                resolve(lib);
+            };
+            script.onerror = function() { reject(new Error('PDF.js failed to load')); };
+            document.head.appendChild(script);
+        });
+        /* A failed network request must not poison later renders. */
+        window.__flyboardPdfJsReady.catch(function(){ window.__flyboardPdfJsReady = null; });
+        return window.__flyboardPdfJsReady;
+    }
 
     function hasTikZOutput(wrapper) {
         return !!(wrapper && wrapper.querySelector('svg'));
@@ -88,8 +121,8 @@
      * browser.  Some browsers, extensions, and slow WebAssembly starts do
      * fail to complete it though, and its minimal engine lacks popular TikZ
      * dialect packages.  Those diagrams are handed to public compile engines
-     * (latexonline.cc, texlive.net) which return a one-page PDF.  An <object>
-     * avoids CORS requirements and lets the browser render the PDF directly. */
+     * (latexonline.cc, texlive.net) which return a one-page PDF that we
+     * rasterize onto a canvas with PDF.js. */
     function publicTikZDocument(code) {
         if (code.includes('\\begin{document}')) return code;
         /* Libraries and packages are preamble commands. Pull line-oriented
@@ -108,7 +141,7 @@
 
     /* Public compile engines, tried in order and cycled indefinitely when
      * one flakes.  Each takes a full LaTeX document and returns a one-page
-     * PDF renderable by the browser via an <object> (no CORS needed). */
+     * PDF, rendered to a canvas by PDF.js after the fetch. */
     var TIKZ_PUBLIC_PROVIDERS = [
         function(doc) {
             return 'https://latexonline.cc/compile?command=pdflatex&text=' + encodeURIComponent(doc);
@@ -150,8 +183,8 @@
         var targetUrl = makeUrl(compiledDoc);
 
         var onPublicFailure = function() {
-            var oldImg = wrapper.querySelector('img.tikz-public-render');
-            if (oldImg) oldImg.remove();
+            var oldRender = wrapper.querySelector('.tikz-public-render');
+            if (oldRender) oldRender.remove();
             wrapper.dataset.tikzProviderRequested = '0';
             wrapper.dataset.tikzState = 'pending';
             setTimeout(function() {
@@ -166,22 +199,59 @@
             wrapper.dataset.tikzState = 'public-rendered';
         };
 
-        var renderPdfBlobToImage = function(blob) {
-            var url = URL.createObjectURL(blob);
-            var img = document.createElement('img');
-            img.className = 'tikz-public-render';
-            img.alt = 'TikZ diagram rendered by public LaTeX service';
-            img.onload = function() {
-                URL.revokeObjectURL(url);
-                onPublicSuccess(img);
+        /* The public providers answer with a one-page PDF, which an <img>
+         * cannot decode and an <object> shows as the browser's full PDF
+         * viewer (toolbar, page frame and all).  Render the PDF to a canvas
+         * with PDF.js so the fallback looks like the diagram image TikZJax
+         * would have produced.  PDF.js is loaded lazily, only when a diagram
+         * actually falls back. */
+        var renderPublicBlob = function(blob) {
+            var showImage = function(url, revoke) {
+                var img = document.createElement('img');
+                img.className = 'tikz-public-render';
+                img.alt = 'TikZ diagram rendered by public LaTeX service';
+                img.onload = function() {
+                    if (revoke) URL.revokeObjectURL(url);
+                    onPublicSuccess(img);
+                };
+                img.onerror = function() {
+                    if (revoke) URL.revokeObjectURL(url);
+                    img.remove();
+                    onPublicFailure();
+                };
+                img.src = url;
+                wrapper.appendChild(img);
             };
-            img.onerror = function() {
-                URL.revokeObjectURL(url);
-                img.remove();
+
+            if (blob.type && blob.type.indexOf('image/') === 0) {
+                showImage(URL.createObjectURL(blob), true);
+                return;
+            }
+
+            loadPdfJs().then(function(pdfjsLib) {
+                return blob.arrayBuffer().then(function(data) {
+                    return pdfjsLib.getDocument({ data: data }).promise;
+                });
+            }).then(function(pdf) {
+                return pdf.getPage(1);
+            }).then(function(page) {
+                var viewport = page.getViewport({ scale: 2 });
+                var canvas = document.createElement('canvas');
+                canvas.className = 'tikz-public-render';
+                canvas.setAttribute('role', 'img');
+                canvas.setAttribute('aria-label', 'TikZ diagram rendered by public LaTeX service');
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                return page.render({
+                    canvasContext: canvas.getContext('2d'),
+                    viewport: viewport
+                }).promise.then(function() {
+                    wrapper.appendChild(canvas);
+                    onPublicSuccess(canvas);
+                });
+            }).catch(function() {
                 onPublicFailure();
-            };
-            img.src = url;
-            wrapper.appendChild(img);
+            });
         };
 
         if (typeof fetch === 'function') {
@@ -192,22 +262,25 @@
                 })
                 .then(function(blob) {
                     if (!blob || blob.size === 0) throw new Error('Empty response');
-                    renderPdfBlobToImage(blob);
+                    renderPublicBlob(blob);
                 })
                 .catch(function() {
                     onPublicFailure();
                 });
         } else {
-            var img = document.createElement('img');
-            img.className = 'tikz-public-render';
-            img.alt = 'TikZ diagram rendered by public LaTeX service';
-            img.onload = function() { onPublicSuccess(img); };
-            img.onerror = function() {
-                img.remove();
-                onPublicFailure();
+            /* No fetch API: still need the bytes for PDF.js, so use XHR. */
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', targetUrl);
+            xhr.responseType = 'blob';
+            xhr.onload = function() {
+                if (xhr.status >= 200 && xhr.status < 300 && xhr.response && xhr.response.size > 0) {
+                    renderPublicBlob(xhr.response);
+                } else {
+                    onPublicFailure();
+                }
             };
-            img.src = targetUrl;
-            wrapper.appendChild(img);
+            xhr.onerror = function() { onPublicFailure(); };
+            xhr.send();
         }
     }
 

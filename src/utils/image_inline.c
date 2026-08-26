@@ -19,6 +19,9 @@ typedef struct {
     char *home_bg_url;
     char *boards_bg_url;
     char *files_bg_url;
+    char *home_bg_dark_url;
+    char *boards_bg_dark_url;
+    char *files_bg_dark_url;
     char *logo_url;
     char *favicon_url;
 } inline_images_t;
@@ -211,6 +214,9 @@ void image_inline_cache_build(void) {
     build_one(g_config.home_img,   &g_inline_images.home_bg_url,   bg_images_inline_enabled(), max_img);
     build_one(g_config.boards_img, &g_inline_images.boards_bg_url, bg_images_inline_enabled(), max_img);
     build_one(g_config.files_img,  &g_inline_images.files_bg_url,  bg_images_inline_enabled(), max_img);
+    build_one(g_config.home_img_dark,   &g_inline_images.home_bg_dark_url,   bg_images_inline_enabled(), max_img);
+    build_one(g_config.boards_img_dark, &g_inline_images.boards_bg_dark_url, bg_images_inline_enabled(), max_img);
+    build_one(g_config.files_img_dark,  &g_inline_images.files_bg_dark_url,  bg_images_inline_enabled(), max_img);
 
     /* Logo/favicon are small identity assets; inline with the usual image flag,
      * but still respect the size cap. */
@@ -233,3 +239,19 @@ const char *image_inline_boards_bg(void) { return g_inline_images.boards_bg_url;
 const char *image_inline_files_bg(void)  { return g_inline_images.files_bg_url; }
 const char *image_inline_logo(void)      { return g_inline_images.logo_url; }
 const char *image_inline_favicon(void)   { return g_inline_images.favicon_url; }
+
+const char *image_inline_bg_url(const char *filename) {
+    if (!filename || !filename[0]) return NULL;
+    const struct { const char *name; const char *url; } map[] = {
+        { g_config.home_img,        g_inline_images.home_bg_url },
+        { g_config.boards_img,      g_inline_images.boards_bg_url },
+        { g_config.files_img,       g_inline_images.files_bg_url },
+        { g_config.home_img_dark,   g_inline_images.home_bg_dark_url },
+        { g_config.boards_img_dark, g_inline_images.boards_bg_dark_url },
+        { g_config.files_img_dark,  g_inline_images.files_bg_dark_url },
+    };
+    for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
+        if (map[i].name[0] && strcmp(filename, map[i].name) == 0) return map[i].url;
+    }
+    return NULL;
+}

@@ -17,6 +17,7 @@
 #include "utils/cache.h"
 #include "utils/reqshare.h"
 #include "utils/image_inline.h"
+#include "utils/image_invert.h"
 #include <cwist/net/http/http3.h>
 #include <openssl/ssl.h>
 #include <cwist/sys/app/app.h>
@@ -246,6 +247,7 @@ int main(void) {
     }
     image_inline_cache_build();
     CWIST_LOG_INFO("Inline image cache built");
+    image_invert_cache_build();
 
     if (!engine_pool_init()) {
         fly_crypto_cleanup();
