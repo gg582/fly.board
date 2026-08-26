@@ -191,7 +191,11 @@ src/crypto/fly_crypto.o: src/crypto/fly_crypto.c
 	$(CC) $(CFLAGS) -DFLY_NO_PQC -c $< -o $@
 
 %.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+# Auto-generated header dependencies: struct layout changes (e.g. config.h)
+# must rebuild every consumer, not just the files edited in the same commit.
+-include $(OBJS:.o=.d)
 
 $(TARGET): $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS) $(LIBS)
