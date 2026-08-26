@@ -17,6 +17,14 @@ typedef struct {
     char root_url[256];
     char bg_full_light[256];
     char bg_full_dark[256];
+    /* Optional dark-mode variants of the hero backgrounds.  When empty, the
+     * base image is used in dark mode as well. */
+    char home_img_dark[256];
+    char boards_img_dark[256];
+    char files_img_dark[256];
+    /* Comma-separated targets ("home", "boards", "files", "toplevel") whose
+     * missing light/dark counterpart is filled with the inverted image. */
+    char bg_invert_color[128];
     bool use_tasfa;
     bool use_rss;
     bool use_tls;
@@ -33,6 +41,20 @@ typedef struct {
 extern blog_config_t g_config;
 
 bool blog_config_load(const char *path);
+
+/* True when target ("home", "boards", "files", "toplevel") is listed in the
+ * bg_invert_color setting. */
+bool config_bg_invert_enabled(const char *target);
+
+/* Resolve the effective background image for a mode.  Picks the dark variant
+ * in dark mode when present, otherwise falls back to whichever variant is
+ * configured.  *out_invert is set when the target is listed in
+ * bg_invert_color, only one of light/dark is configured, and the current
+ * mode is the one without its own image — i.e. the image must be shown with
+ * inverted colors.  When both variants are explicitly configured, inversion
+ * is void and *out_invert is always false. */
+void config_resolve_bg(const char *light_img, const char *dark_img, const char *target,
+                       bool dark_mode, const char **out_img, bool *out_invert);
 
 typedef struct {
     char import_url[512];

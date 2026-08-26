@@ -4,6 +4,7 @@
 #include "config/config.h"
 #include "utils/utils.h"
 #include "utils/image_inline.h"
+#include "utils/image_invert.h"
 #include "utils/media_preview.h"
 #include "db/sql_escape.h"
 #include "cwist/image_contrast.h"
@@ -386,7 +387,27 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
 
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id, bool is_mobile, cJSON *children) {
     cwist_sstring *b = cwist_sstring_create();
-    const char *home_bg_url = image_inline_home_bg();
+    const char *home_bg_name = NULL;
+    bool home_bg_invert = false;
+    config_resolve_bg(g_config.home_img, g_config.home_img_dark, "home", dark, &home_bg_name, &home_bg_invert);
+    const char *home_bg_url = image_inline_bg_url(home_bg_name);
+    /* Prefer the precomputed OKLCH-inverted variant; fall back to a
+     * hue-preserving CSS filter when no variant was built.  The contrast
+     * analysis runs on the image actually shown — the inverted variant when
+     * there is one — so text color/overlay stay correct after inversion. */
+    bool home_bg_css_filter = false;
+    const char *home_shown_name = home_bg_name;
+    char home_inv_url[320] = {0};
+    if (home_bg_invert) {
+        const char *variant = image_invert_variant(home_bg_name);
+        if (variant) {
+            snprintf(home_inv_url, sizeof(home_inv_url), "/assets/img/%s", variant);
+            home_bg_url = home_inv_url;
+            home_shown_name = variant;
+        } else {
+            home_bg_css_filter = true;
+        }
+    }
     int has_home_bg = home_bg_url ? 1 : 0;
     char shell_style[768] = {0};
     char text_style[256] = {0};
@@ -394,12 +415,16 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     char overlay_style[256] = {0};
     if (!board_slug || board_slug[0] == '\0') {
         if (has_home_bg) {
-            char img_path[512];
-            snprintf(img_path, sizeof(img_path), "public/img/%s", g_config.home_img);
-            get_image_text_style(img_path, home_bg_url, shell_style, sizeof(shell_style),
-                                 text_style, sizeof(text_style),
-                                 logo_filter, sizeof(logo_filter),
-                                 overlay_style, sizeof(overlay_style));
+            if (!home_bg_css_filter) {
+                char img_path[512];
+                snprintf(img_path, sizeof(img_path), "public/img/%s", home_shown_name);
+                get_image_text_style(img_path, home_bg_url, shell_style, sizeof(shell_style),
+                                     text_style, sizeof(text_style),
+                                     logo_filter, sizeof(logo_filter),
+                                     overlay_style, sizeof(overlay_style));
+            }
+            /* The CSS-filter fallback cannot be analyzed (no inverted file),
+             * so it pairs with the theme's own foreground instead. */
             cwist_sstring_append(b, "<div style=\"");
             cwist_sstring_append(b, shell_style);
             cwist_sstring_append(b, ";");
@@ -407,7 +432,9 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cwist_sstring_append(b, "\">");
             cwist_sstring_append(b, "<img class='hero-bg' fetchpriority='high' src='");
             cwist_sstring_append(b, home_bg_url);
-            cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0'>");
+            cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0");
+            if (home_bg_css_filter) cwist_sstring_append(b, ";filter:invert(1) hue-rotate(180deg) saturate(0.55)");
+            cwist_sstring_append(b, "'>");
             if (overlay_style[0]) {
                 cwist_sstring_append(b, "<div style=\"position:absolute;inset:0;z-index:1;");
                 cwist_sstring_append(b, overlay_style);

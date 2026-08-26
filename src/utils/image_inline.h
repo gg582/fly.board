@@ -11,4 +11,9 @@ const char *image_inline_files_bg(void);
 const char *image_inline_logo(void);
 const char *image_inline_favicon(void);
 
+/* Resolve a configured background image filename (home/boards/files, light
+ * or dark variant) to its cached URL. Returns NULL when nothing is cached
+ * for that filename. */
+const char *image_inline_bg_url(const char *filename);
+
 #endif
