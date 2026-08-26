@@ -236,6 +236,8 @@
         if(!name)name=(mode==='light'?'dark':'light');
         mode=name;
         document.cookie='theme='+mode+';path=/;max-age=31536000';
+        /* Mirror into localStorage so other tabs can follow the toggle. */
+        try{localStorage.setItem(THEME_SYNC_KEY,mode+'|'+Date.now());}catch(e){}
         swapHeroBgs(mode);
         setHlCss(mode,myGen);
         updateBtn(mode,myGen);
@@ -246,6 +248,24 @@
             applyTheme(t);
         }).catch(function(){/* network error: keep current theme */});
     };
+    /* Re-read the shared cookie and re-apply everything when the visible
+     * state may be stale: bfcache restorations (Firefox/Safari back-forward
+     * cache restores the DOM without re-running scripts) and theme toggles
+     * made in another tab. */
+    var THEME_SYNC_KEY='fly-theme-sync';
+    function syncThemeFromCookie(){
+        var m=document.cookie.match(/theme=(\w+)/);
+        var t=m?m[1]:null;
+        if(!t||!/^(light|dark|ocean|forest|sepia)$/.test(t)||t===mode)return;
+        mode=t;
+        if(serverBase&&modeBase(mode)!==serverBase)suppressTransition();
+        if(themes)applyTheme(findTheme(themes,mode));
+        swapHeroBgs(mode);
+        setHlCss(mode);
+        updateBtn(mode);
+    }
+    window.addEventListener('pageshow',function(e){ if(e.persisted) syncThemeFromCookie(); });
+    window.addEventListener('storage',function(e){ if(e.key===THEME_SYNC_KEY) syncThemeFromCookie(); });
     function bindThemeToggle(){
         var themeBtn=document.getElementById('theme-toggle-btn');
         if(themeBtn&&!themeBtn.dataset.themeBound){
