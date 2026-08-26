@@ -3,9 +3,9 @@
 
 #include <stdbool.h>
 
-/* Build perceptually inverted (OKLCH lightness flip) variants of the
- * configured background images whose target is listed in bg_invert_color.
- * Call once after the config is loaded. */
+/* Build perceptually inverted (luminance flip, hue preserved) variants of
+ * the configured background images whose target is listed in
+ * bg_invert_color.  Call once after the config is loaded. */
 void image_invert_cache_build(void);
 
 /* Returns the generated variant filename (a plain file under public/img/,
