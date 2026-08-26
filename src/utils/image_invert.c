@@ -177,12 +177,12 @@ static void build_variant(const char *orig_name) {
         if (strcmp(g_variants[i].orig, orig_name) == 0) return;
     }
 
-    /* Prefix doubles as an algorithm/version tag: switching bg_invert_algo
-     * changes the filename, so variants built by the other algorithm are
-     * never picked up by accident. */
+    /* Prefix doubles as an algorithm/encoder version tag: changing the
+     * algorithm or the encoder settings changes the filename, so variants
+     * built by older code are never picked up by accident. */
     invert_entry_t *entry = &g_variants[g_variant_count];
     int n = snprintf(entry->variant, sizeof(entry->variant), "%s-%s.webp",
-                     invert_use_oklch() ? "oklch-inv" : "luminv", orig_name);
+                     invert_use_oklch() ? "oklch-inv2" : "luminv3", orig_name);
     if (n < 0 || n >= (int)sizeof(entry->variant)) return;
 
     char src_path[600], dst_path[600];
@@ -209,18 +209,73 @@ static void build_variant(const char *orig_name) {
     for (long i = 0; i < (long)w * h; i++) {
         unsigned char *px = pixels + i * 4;
         float r = px[0] / 255.0f, g = px[1] / 255.0f, b = px[2] / 255.0f;
-        if (use_oklch) invert_pixel_oklch(&r, &g, &b);
-        else invert_pixel_luminance(&r, &g, &b);
+        if (use_oklch) {
+            invert_pixel_oklch(&r, &g, &b);
+        } else {
+            invert_pixel_luminance(&r, &g, &b);
+            /* Toe crush: latent compression noise in the source's bright
+             * flats (invisible on white) lands just above black after the
+             * flip, where the eye sees it as grain.  A quadratic toe below
+             * ~5% linear luminance pushes that noise floor to pure black
+             * while leaving real content untouched. */
+            float Y = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+            const float toe = 0.05f;
+            if (Y > 0.0f && Y < toe) {
+                float s = Y / toe;
+                r *= s; g *= s; b *= s;
+            }
+        }
         px[0] = (unsigned char)(r * 255.0f + 0.5f);
         px[1] = (unsigned char)(g * 255.0f + 0.5f);
         px[2] = (unsigned char)(b * 255.0f + 0.5f);
         /* alpha (px[3]) is kept as-is */
     }
 
+    /* Inverted images place flat regions against near-black backgrounds,
+     * where lossy mosquito noise around lines becomes very visible.  Prefer
+     * lossless webp (great for line art); fall back to high-quality lossy
+     * when lossless would be too large (photos). */
+    size_t webp_size = 0;
     uint8_t *webp = NULL;
-    size_t webp_size = WebPEncodeRGBA(pixels, w, h, w * 4, 85.0f, &webp);
+
+    WebPPicture pic;
+    WebPConfig cfg;
+    WebPMemoryWriter wrt;
+    WebPPictureInit(&pic);
+    WebPConfigInit(&cfg);
+    WebPMemoryWriterInit(&wrt);
+    pic.width = w;
+    pic.height = h;
+    pic.use_argb = 1;
+    if (WebPPictureImportRGBA(&pic, pixels, w * 4)) {
+        cfg.method = 6;
+        cfg.autofilter = 1;
+        cfg.lossless = 1;
+        cfg.quality = 92.0f;
+        pic.writer = WebPMemoryWrite;
+        pic.custom_ptr = &wrt;
+        if (WebPEncode(&cfg, &pic)) {
+            webp = wrt.mem;
+            webp_size = wrt.size;
+        }
+        /* Photos make lossless explode; cap it and redo as lossy. */
+        if (webp && webp_size > 1536 * 1024) {
+            WebPMemoryWriterClear(&wrt);
+            WebPMemoryWriterInit(&wrt);
+            cfg.lossless = 0;
+            if (WebPEncode(&cfg, &pic)) {
+                webp = wrt.mem;
+                webp_size = wrt.size;
+            } else {
+                webp = NULL;
+                webp_size = 0;
+            }
+        }
+    }
+    WebPPictureFree(&pic);
     stbi_image_free(pixels);
     if (!webp) {
+        WebPMemoryWriterClear(&wrt);
         CWIST_LOG_WARN("bg_invert_color: webp encode failed for %s", src_path);
         return;
     }
@@ -230,9 +285,10 @@ static void build_variant(const char *orig_name) {
         fclose(out);
         snprintf(entry->orig, sizeof(entry->orig), "%s", orig_name);
         g_variant_count++;
-        CWIST_LOG_INFO("bg_invert_color: generated %s", dst_path);
+        CWIST_LOG_INFO("bg_invert_color: generated %s (%s, %zu KB)", dst_path,
+                       cfg.lossless ? "lossless" : "lossy", webp_size / 1024);
     }
-    WebPFree(webp);
+    WebPMemoryWriterClear(&wrt);
 }
 #else
 static void build_variant(const char *orig_name) {
