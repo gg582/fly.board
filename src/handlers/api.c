@@ -2,6 +2,7 @@
 #include "handlers_internal.h"
 #include "cwist/board_tree.h"
 #include <curl/curl.h>
+#include <time.h>
 
 #define TRANSLATION_MAX_REQUEST (100U * 1024U)
 #define TRANSLATION_MAX_RESPONSE (256U * 1024U)
@@ -61,9 +62,21 @@ static char *translate_text_via_api(CURL *curl, const char *text, const char *so
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, translation_write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
 
-    CURLcode result = curl_easy_perform(curl);
+    CURLcode result = CURLE_OK;
     long status = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    /* Google may answer 429 when the host IP is rate-limited; back off and retry. */
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+            struct timespec ts = {attempt, 0}; /* 1s, then 2s */
+            nanosleep(&ts, NULL);
+            buffer.body->size = 0;
+            if (buffer.body->data) buffer.body->data[0] = '\0';
+            buffer.overflow = false;
+        }
+        result = curl_easy_perform(curl);
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+        if (result == CURLE_OK && status != 429) break;
+    }
     curl_slist_free_all(headers);
 
     if (result != CURLE_OK || buffer.overflow || status < 200 || status >= 300 || buffer.body->size == 0) {
@@ -138,6 +151,11 @@ void handler_api_translate(cwist_http_request *req, cwist_http_response *res) {
     const char *tgt_str = target->valuestring;
 
     for (int i = 0; i < count; i++) {
+        if (i > 0) {
+            /* space out upstream calls to stay under Google's per-IP rate limit */
+            struct timespec ts = {0, 120 * 1000 * 1000};
+            nanosleep(&ts, NULL);
+        }
         cJSON *chunk = cJSON_GetArrayItem(chunks, i);
         if (!chunk || !chunk->valuestring) {
             cJSON_AddItemToArray(out_array, cJSON_CreateString(""));
