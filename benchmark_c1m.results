@@ -1,37 +1,32 @@
-C1M Churn Benchmark Result - 2026-08-24 (fixed cwist handshake shepherd)
-Methodology: 20 h2load processes x (-c 5000 -n 50000 -r 1000 -T 30) =
-100,000 concurrently held TLS connections, 1,000,000 requests total.
-See run_c1m_bench.sh header for why "1M held TLS connections" is not the
-target for the thread-parking HTTPS path.
+C1M Benchmark Result - 2026. 08. 29. (토) 04:49:01 KST
+Total Requests: 1000000
+Total Succeeded: 1000000
+Total Failed: 0
+Approx Total RPS: 11998.47
+Success Rate: 100.00%
 
-RESULT: COMPLETED — no stall.
-
-  Total Requests:     1,000,000
-  Total Succeeded:    756,610 (75.7%)
-  Total Errored:      243,390 (client-side -T 30 recycles of slow conns)
-  Wall time:          ~7 min (per-process "finished in" 410-425 s)
-  Phantom connections: 0 (server-side and client-side ESTABLISHED counts
-                         matched for the whole run)
-
-  Previously (2026-08-23, pre-fix): the same load deadlocked — ramp to
-  ~85k concurrent connections, then zero progress until the watchdog
-  killed the clients.  cwist fix: the TLS handshake moved out of the
-  worker pool into a non-blocking shepherd thread
-  (cwist "perf(https): non-blocking TLS handshake shepherd"), removing
-  the worker-parking collapse that starved the accept loop and produced
-  phantom connections.
-
-  Remaining errors are throughput-related, not correctness: with the
-  shepherd doing all handshake crypto, ~24% of connections exceeded the
-  h2load-side 30 s active timeout during bursts and were recycled by the
-  client.  Server stayed responsive throughout and shut down cleanly.
-
-SERVER RESOURCE REPORT (pre-fix run, 2026-08-23 23:00 KST)
+SERVER RESOURCE REPORT
 ========================================
 	Command being timed: "./fly_board"
-	User time (seconds): 413.06
-	System time (seconds): 95.95
-	Percent of CPU this job got: 72%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 11:46.69
-	Maximum resident set size (kbytes): 88028
+	User time (seconds): 706.00
+	System time (seconds): 65.88
+	Percent of CPU this job got: 802%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:36.23
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 149816
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 76637
+	Voluntary context switches: 1229242
+	Involuntary context switches: 1093963
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 304
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
 	Exit status: 0
