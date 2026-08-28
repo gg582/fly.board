@@ -1,8 +1,10 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#include "../db/db_internal.h"
 #include "cwist/board_tree.h"
 #include <curl/curl.h>
 #include <time.h>
+#include <stdint.h>
 
 #define TRANSLATION_MAX_REQUEST (100U * 1024U)
 #define TRANSLATION_MAX_RESPONSE (256U * 1024U)
@@ -21,6 +23,53 @@ static size_t translation_write_callback(void *data, size_t size, size_t count, 
     }
     cwist_sstring_append_len(buffer->body, data, bytes);
     return bytes;
+}
+
+/* 64-bit FNV-1a hash used as the translation cache key. */
+static int64_t translation_hash(const char *text) {
+    uint64_t h = 1469598103934665603ULL;
+    for (const unsigned char *p = (const unsigned char *)text; *p; p++) {
+        h ^= *p;
+        h *= 1099511628211ULL;
+    }
+    return (int64_t)h;
+}
+
+static char *translation_cache_get(cwist_db *db, const char *src, const char *tgt, const char *text) {
+    if (!db || !text || !text[0]) return NULL;
+    const char *sql = "SELECT source_text, translated_text FROM translation_cache WHERE src=? AND tgt=? AND hash=? LIMIT 1";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_text(stmt, 1, src, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, tgt, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 3, translation_hash(text));
+    char *cached = NULL;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *orig = (const char *)sqlite3_column_text(stmt, 0);
+        const char *trans = (const char *)sqlite3_column_text(stmt, 1);
+        /* guard against the (astronomically unlikely) hash collision */
+        if (orig && trans && strcmp(orig, text) == 0) cached = strdup(trans);
+    }
+    sqlite3_finalize(stmt);
+    return cached;
+}
+
+static void translation_cache_put(cwist_db *db, const char *src, const char *tgt,
+                                  const char *text, const char *translated, const char *provider) {
+    if (!db || !text || !text[0] || !translated || !translated[0]) return;
+    if (strcmp(text, translated) == 0) return; /* untranslated passthrough is not worth caching */
+    const char *sql = "INSERT INTO translation_cache (src, tgt, hash, source_text, translated_text, provider) "
+                      "VALUES (?,?,?,?,?,?) ON CONFLICT(src, tgt, hash) DO NOTHING";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return;
+    sqlite3_bind_text(stmt, 1, src, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, tgt, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 3, translation_hash(text));
+    sqlite3_bind_text(stmt, 4, text, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, translated, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, provider, -1, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
 }
 
 static void translation_json_error(cwist_http_response *res, int status, const char *message) {
@@ -111,6 +160,52 @@ static char *translate_text_via_api(CURL *curl, const char *text, const char *so
     return translated;
 }
 
+/* Keyless fallback: MyMemory free API (anonymous quota ~10k chars/day). */
+static char *translate_text_via_mymemory(CURL *curl, const char *text, const char *source, const char *target) {
+    if (!text || !text[0]) return strdup("");
+    if (!source || !source[0] || strcmp(source, "auto") == 0) return NULL; /* langpair is mandatory */
+    char *escaped = curl_easy_escape(curl, text, 0);
+    if (!escaped) return NULL;
+
+    char url[2048];
+    snprintf(url, sizeof(url),
+             "https://api.mymemory.translated.net/get?q=%s&langpair=%s%%7C%s",
+             escaped, source, (target && target[0]) ? target : "ko");
+    curl_free(escaped);
+
+    translation_response_buffer buffer = {cwist_sstring_create(), false};
+    struct curl_slist *headers = curl_slist_append(NULL, "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 15000L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, translation_write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
+
+    CURLcode result = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    curl_slist_free_all(headers);
+
+    char *translated = NULL;
+    if (result == CURLE_OK && !buffer.overflow && status >= 200 && status < 300 && buffer.body->size > 0) {
+        cJSON *root = cJSON_ParseWithLength(buffer.body->data, buffer.body->size);
+        cJSON *data = root ? cJSON_GetObjectItemCaseSensitive(root, "responseData") : NULL;
+        cJSON *tt = data ? cJSON_GetObjectItemCaseSensitive(data, "translatedText") : NULL;
+        if (cJSON_IsString(tt) && tt->valuestring && tt->valuestring[0]) {
+            translated = strdup(tt->valuestring);
+        }
+        if (root) cJSON_Delete(root);
+    } else {
+        CWIST_LOG_WARN("MyMemory translate API error: curl_res=%d status=%ld", (int)result, status);
+    }
+    cwist_sstring_destroy(buffer.body);
+    return translated;
+}
+
 void handler_api_translate(cwist_http_request *req, cwist_http_response *res) {
     if (!req->body || !req->body->data || req->body->size < 2 || req->body->size > TRANSLATION_MAX_REQUEST) {
         translation_json_error(res, CWIST_HTTP_BAD_REQUEST, "invalid translation request");
@@ -161,8 +256,20 @@ void handler_api_translate(cwist_http_request *req, cwist_http_response *res) {
             cJSON_AddItemToArray(out_array, cJSON_CreateString(""));
             continue;
         }
-        char *trans = translate_text_via_api(curl, chunk->valuestring, src_str, tgt_str);
+        char *trans = translation_cache_get(req->db, src_str, tgt_str, chunk->valuestring);
+        const char *provider = "cache";
+        if (!trans) {
+            trans = translate_text_via_api(curl, chunk->valuestring, src_str, tgt_str);
+            provider = "google";
+        }
+        if (!trans) {
+            trans = translate_text_via_mymemory(curl, chunk->valuestring, src_str, tgt_str);
+            provider = "mymemory";
+        }
         if (trans) {
+            if (strcmp(provider, "cache") != 0) {
+                translation_cache_put(req->db, src_str, tgt_str, chunk->valuestring, trans, provider);
+            }
             cJSON_AddItemToArray(out_array, cJSON_CreateString(trans));
             free(trans);
         } else {
