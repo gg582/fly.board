@@ -78,8 +78,106 @@ NATS_URL=nats://localhost:4222 ./fly_board
 
 ## 설정
 
-- `blog.settings` – 블로그 제목, 부제목, 푸터, 포트, 업로드 제한
-- `admin.settings` – 관리자 계정 (2줄: `username`\n`password`)
+설정은 세 개의 파일(첫 실행 시 기본값으로 자동 생성)과 운영 토글용 환경변수로 이루어집니다.
+
+### `admin.settings`
+
+두 줄짜리 원본 텍스트: 1행은 관리자 아이디, 2행은 관리자 비밀번호.
+
+### `blog.settings`
+
+`key=value` 형식. 모르는 키는 무시되고, 잘못된 값은 기본값으로 대체됩니다.
+
+| 키 | 기본값 | 값 / 범위 |
+|-----|---------|-----------|
+| `title` | `CWIST Docker Blog` | 상단 바에 표시되는 사이트 제목 |
+| `subtitle` | `Explore boards and read stories.` | 히어로 부제목 |
+| `brand_footer` | `Built with CWIST C Framework` | 푸터 문구 |
+| `root_url` | `https://localhost:8888/` | 사이트의 정규 URL(끝에 `/` 필수). RSS 링크, 인증 메일, 인증서 갱신에 사용 — 운영 시 공개 URL로 설정 |
+| `port` | `8443` | TCP/UDP 리슨 포트(HTTP/3는 같은 포트를 UDP로 사용) |
+| `accent` | `#3b82f6` | 강조 색상(hex) |
+| `use_tls` | `true` | HTTPS on/off(먼저 `./keygen.sh` 실행 필요) |
+| `use_http2` | `true` | TLS 위 HTTP/2 |
+| `use_http3` | `true` | UDP 위 HTTP/3 (QUIC) |
+| `use_tasfa` | `true` | TASFA 미디어 파이프라인(ffmpeg 썸네일/프리뷰) |
+| `use_rss` | `false` | `/rss.xml` 노출 |
+| `roundness` | `0.0` | UI 모서리 둥글기, `0.0`–`1.0` |
+| `max_upload_size` | `1G` | 파일당 업로드 한도. `K/M/G/T` 접미사 사용 가능(예: `500M`) |
+| `max_total_parallel_uploads` | `8` | 전체 동시 업로드 수(1–512) |
+| `max_upload_parallel_chunks` | `32` | 업로드당 병렬 청크 수(1–64) |
+| `max_concurrent_downloads` | `128` | 동시 다운로드 수(1–512) |
+| `vote_only` | *(비어 있으면 `all`)* | 글 추천 가능 범위: `all`(익명 포함 전체), `authorized`(로그인 사용자만), `admin`(관리자만) |
+| `use_special_modes` | *(비어 있음)* | 라이트/다크 테마 대체: `라이트테마,다크테마`(또는 단일 테마). 사용 가능한 테마: `light`, `dark`, `ocean`, `forest`, `sepia`. 예: `ocean,forest` |
+| `home_img`, `boards_img`, `files_img` | *(비어 있음)* | 페이지별 히어로/배경 이미지. `public/img/` 안의 파일명 |
+| `*_dark` (`home_img_dark`, `boards_img_dark`, `files_img_dark`) | *(비어 있음)* | 위 항목의 다크 모드 변형 |
+| `blog_logo`, `blog_logo_dark` | *(비어 있음)* | `public/img/` 안의 로고 이미지 |
+| `invert_logo` | `false` | 이미지가 없는 모드용으로 로고를 자동 반전 |
+| `favicon` | *(비어 있음)* | `public/img/` 안의 파비콘 |
+| `bg_full_light`, `bg_full_dark` | *(비어 있음)* | 전체 페이지 배경 이미지 |
+| `bg_invert_color` | *(비어 있음)* | 한쪽 모드 이미지만 있을 때 반전으로 나머지를 생성할 대상(쉼표 구분): `home`, `boards`, `files`, `toplevel`, `logo` |
+| `bg_invert_algo` | `luminv` | 반전 알고리즘: `luminv` 또는 `oklch` |
+
+### `fonts.settings`
+
+타이포그래피 재정의: `font_body`, `font_heading`, `font_ui`, `font_code`, `font_blockquote`, `font_display`, `font_import_url`, `font_face_family`, `font_face_src`와 요소별 `letter_spacing_*`, `font_weight_*`. 첫 실행 시 기본값이 모두 기록되므로 생성된 파일을 열어 전체 키를 확인할 수 있습니다.
+
+### 환경변수
+
+**코어**
+
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `BLOG_ROOT` | *(없음)* | 프로젝트 루트. 바이너리를 다른 디렉터리에서 실행할 때 사용. 미설정 시 `public/`이 있는 위치를 자동 탐색 |
+| `DEBUG` | *(끔)* | `1`/`true`/`yes`면 DEBUG/INFO 로그 출력, 아니면 경고/에러만 |
+| `NATS_URL` | *(없음)* | 예: `nats://localhost:4222` — NATS 메시징 게이트웨이 활성화 |
+| `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | *(없음)* | ECH(Encrypted Client Hello) 키 파일 / 키 디렉터리 |
+| `CWIST_C1M_MODE` | `1` | 이벤트 기반 C1M 리액터. `0`으로 설정하면 레거시 스레드 풀 경로 사용 |
+
+**성능 / 캐시**
+
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `FLYBOARD_CACHE_MAX_MB` | `64` | 페이지 캐시 크기(MB, 1–1024) |
+| `FLYBOARD_ADVERTISE_H3` | `true` | HTTP/3를 알리는 `Alt-Svc` 헤더 전송 |
+| `FLYBOARD_ALT_SVC_MAX_AGE` | `300` | `Alt-Svc`의 `ma` 값(초, 0–86400) |
+| `FLYBOARD_INLINE_IMAGES` | *(끔)* | 이미지를 base64 data URI로 HTML에 인라인 |
+| `FLYBOARD_INLINE_ALL_ASSETS` | *(끔)* | 스크립트/스타일까지 인라인 |
+| `FLYBOARD_INLINE_BG_IMAGES` | *(끔)* | 배경 이미지도 인라인(`ALL_ASSETS`와 별개의 명시적 옵트인) |
+| `FLYBOARD_INLINE_MAX_IMAGE_SIZE` | `49152` | 인라인할 이미지당 최대 바이트 |
+| `FLYBOARD_INLINE_MAX_ASSET_SIZE` | `65536` | 인라인할 스크립트/스타일 청크당 최대 바이트 |
+| `FLY_MEDIA_MAX_CONCURRENT` | `2` | 미디어 프리뷰용 ffmpeg 동시 변환 수 |
+| `FLYBOARD_MEDIA_BACKFILL_ON_START` | *(끔)* | 시작 시 레거시 미디어 프리뷰 전체 재생성(유지보수용) |
+
+**TLS 인증서 자동 갱신** — 로컬 ACME 클라이언트 사용. `keygen.sh`의 자가서명 임시 인증서는 자동으로 감지해 건드리지 않음
+
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `FLY_CERT_RENEWAL` | *(끔)* | `true`면 매일 만료 감시. 남은 기간이 `FLY_CERT_DAYS` 이하일 때 갱신하고 재시작 없이 핫리로드 |
+| `FLY_CERT_DAYS` | `30` | 갱신 임계일 |
+| `FLY_CERT_EMAIL` | `admin@<호스트>` | ACME 계정 이메일 |
+| `FLY_CERT_LEGO_BIN` | `lego` | lego 바이너리 이름/경로(DNS 챌린지 등은 래퍼 스크립트 지정) |
+
+도메인은 `root_url`에서 추출하며 HTTP-01 챌린지를 사용하므로 80번 포트가 서버에 도달해야 합니다. 상태는 `.lego/`에 저장되고, 갱신된 인증서는 `server.crt`/`server.key`에 설치됩니다.
+
+**이메일 인증 가입** — 기본은 꺼짐(자유 가입)
+
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `FLY_EMAIL_CERT` | *(끔)* | `true`면 가입 시 입력한 이메일로 인증 링크(24시간 유효)를 SMTP로 발송하고, 인증 전까지 로그인 차단 |
+| `FLY_SMTP_HOST` | *(켰을 때 필수)* | SMTP 릴레이 호스트 |
+| `FLY_SMTP_PORT` | `25`(implicit TLS면 `465`) | SMTP 포트 |
+| `FLY_SMTP_TLS` | *(끔)* | `starttls` 또는 `implicit` |
+| `FLY_SMTP_USER` / `FLY_SMTP_PASS` | *(없음)* | AUTH LOGIN 자격 증명(선택) |
+| `FLY_SMTP_FROM` | `FLY_SMTP_USER` | envelope/헤더 발신자 |
+
+예시 — 이메일 인증 가입 + 인증서 자동 갱신 운영:
+
+```sh
+FLY_CERT_RENEWAL=true FLY_CERT_EMAIL=admin@example.com \
+FLY_EMAIL_CERT=true FLY_SMTP_HOST=smtp.example.com FLY_SMTP_PORT=587 \
+FLY_SMTP_TLS=starttls FLY_SMTP_USER=noreply@example.com FLY_SMTP_PASS=secret \
+./fly_board
+```
 
 ## 데이터베이스
 

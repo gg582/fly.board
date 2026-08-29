@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 cJSON *db_user_get_by_username(cwist_db *db, const char *username) {
     const char *sql = "SELECT * FROM users WHERE username=? LIMIT 1";
@@ -88,6 +89,56 @@ bool db_user_update_password(cwist_db *db, int id, const char *password_hash) {
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
+}
+
+bool db_user_set_email_verified(cwist_db *db, int id, bool verified) {
+    const char *sql = "UPDATE users SET email_verified=? WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, verified ? 1 : 0);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+bool db_email_token_create(cwist_db *db, int user_id, const char *token, long expires_at) {
+    const char *sql = "INSERT INTO email_tokens (user_id, token, expires_at) VALUES (?,?,?)";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, user_id);
+    sqlite3_bind_text(stmt, 2, token, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 3, (sqlite3_int64)expires_at);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+/* Validate a verification token.  On success marks the user verified,
+ * deletes all of that user's tokens, and returns the user id; 0 otherwise. */
+int db_email_token_consume(cwist_db *db, const char *token) {
+    const char *sql = "SELECT user_id, expires_at FROM email_tokens WHERE token=? LIMIT 1";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, token, -1, SQLITE_TRANSIENT);
+    int user_id = 0;
+    long expires_at = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        user_id = sqlite3_column_int(stmt, 0);
+        expires_at = (long)sqlite3_column_int64(stmt, 1);
+    }
+    sqlite3_finalize(stmt);
+    if (user_id <= 0 || expires_at < (long)time(NULL)) return 0;
+
+    db_user_set_email_verified(db, user_id, true);
+    const char *del = "DELETE FROM email_tokens WHERE user_id=?";
+    stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), del, -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, user_id);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+    return user_id;
 }
 
 cJSON *db_user_list(cwist_db *db) {

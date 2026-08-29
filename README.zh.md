@@ -78,8 +78,106 @@ NATS_URL=nats://localhost:4222 ./fly_board
 
 ## 配置
 
-- `blog.settings` – 博客标题、副标题、页脚、端口与上传限制
-- `admin.settings` – 管理员账户（2 行：`username`\n`password`）
+配置来自三个文件（首次运行时自动以默认值创建），以及用于运维开关的环境变量。
+
+### `admin.settings`
+
+两行原始内容：第 1 行为管理员用户名，第 2 行为管理员密码。
+
+### `blog.settings`
+
+简单的 `key=value` 行。未知键会被忽略；无效值回退到默认值。
+
+| 键 | 默认值 | 取值 / 作用范围 |
+|-----|---------|----------------|
+| `title` | `CWIST Docker Blog` | 顶栏显示的网站标题 |
+| `subtitle` | `Explore boards and read stories.` | 主视觉区副标题 |
+| `brand_footer` | `Built with CWIST C Framework` | 页脚文本 |
+| `root_url` | `https://localhost:8888/` | 站点规范 URL（以 `/` 结尾）。用于 RSS 链接、验证邮件和证书续期——生产环境中请设置为公网 URL |
+| `port` | `8443` | TCP/UDP 监听端口（HTTP/3 在同一端口上走 UDP） |
+| `accent` | `#3b82f6` | 强调色（十六进制） |
+| `use_tls` | `true` | `true`/`false` — 开启/关闭 HTTPS（先运行 `./keygen.sh`） |
+| `use_http2` | `true` | 基于 TLS 的 HTTP/2 |
+| `use_http3` | `true` | 基于 UDP 的 HTTP/3（QUIC） |
+| `use_tasfa` | `true` | TASFA 媒体管线（通过 ffmpeg 生成视频缩略图/预览） |
+| `use_rss` | `false` | 暴露 `/rss.xml` |
+| `roundness` | `0.0` | UI 圆角程度，`0.0`–`1.0` |
+| `max_upload_size` | `1G` | 单文件上传上限。支持后缀 `K/M/G/T`（如 `500M`） |
+| `max_total_parallel_uploads` | `8` | 全局并发上传数（1–512） |
+| `max_upload_parallel_chunks` | `32` | 每次上传的并行分块数（1–64） |
+| `max_concurrent_downloads` | `128` | 并发下载数（1–512） |
+| `vote_only` | *(空 = `all`)* | 谁可以对文章投票：`all`（任何人，含匿名）、`authorized`（仅登录用户）、`admin`（仅管理员） |
+| `use_special_modes` | *(空)* | 替换浅色/深色主题：`lightTheme,darkTheme`（或单个主题）。可用主题：`light`、`dark`、`ocean`、`forest`、`sepia`。例如 `ocean,forest` |
+| `home_img`、`boards_img`、`files_img` | *(空)* | 各页面的主视觉/背景图；文件位于 `public/img/` 内 |
+| `*_dark`（`home_img_dark`、`boards_img_dark`、`files_img_dark`） | *(空)* | 上述图片的深色模式变体 |
+| `blog_logo`、`blog_logo_dark` | *(空)* | `public/img/` 中的 Logo 图片 |
+| `invert_logo` | `false` | 为没有图片的模式自动反色 Logo |
+| `favicon` | *(空)* | `public/img/` 中的 Favicon 文件 |
+| `bg_full_light`、`bg_full_dark` | *(空)* | 整页背景图 |
+| `bg_invert_color` | *(空)* | 逗号分隔的目标列表，其缺失的模式变体将通过反色另一模式自动生成：`home`、`boards`、`files`、`toplevel`、`logo` |
+| `bg_invert_algo` | `luminv` | 反色算法：`luminv` 或 `oklch` |
+
+### `fonts.settings`
+
+字体排版覆盖项：`font_body`、`font_heading`、`font_ui`、`font_code`、`font_blockquote`、`font_display`、`font_import_url`、`font_face_family`、`font_face_src`，以及按元素的 `letter_spacing_*` 和 `font_weight_*` 值。首次运行时会写出默认值，打开生成的文件即可查看所有键。
+
+### 环境变量
+
+**核心**
+
+| 变量 | 默认值 | 说明 |
+|----------|---------|-------------|
+| `BLOG_ROOT` | *(未设置)* | 项目根目录；当二进制文件在项目根之外启动时使用。否则会自动检测包含 `public/` 的目录 |
+| `DEBUG` | *(关闭)* | `1`/`true`/`yes` 启用 DEBUG/INFO 日志；否则仅输出警告/错误 |
+| `NATS_URL` | *(未设置)* | 例如 `nats://localhost:4222` — 启用 NATS 消息网关 |
+| `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | *(未设置)* | ECH（Encrypted Client Hello）密钥文件 / 密钥目录 |
+| `CWIST_C1M_MODE` | `1` | 事件驱动的 C1M reactor。设为 `0` 可强制使用传统的线程池路径 |
+
+**性能 / 缓存**
+
+| 变量 | 默认值 | 说明 |
+|----------|---------|-------------|
+| `FLYBOARD_CACHE_MAX_MB` | `64` | 页面缓存大小（MB，1–1024） |
+| `FLYBOARD_ADVERTISE_H3` | `true` | 发送通告 HTTP/3 的 `Alt-Svc` 响应头 |
+| `FLYBOARD_ALT_SVC_MAX_AGE` | `300` | `Alt-Svc` 的 `ma` 值（秒，0–86400） |
+| `FLYBOARD_INLINE_IMAGES` | *(关闭)* | 将图片以 base64 data URI 内联到 HTML 中 |
+| `FLYBOARD_INLINE_ALL_ASSETS` | *(关闭)* | 同时内联脚本/样式 |
+| `FLYBOARD_INLINE_BG_IMAGES` | *(关闭)* | 同时内联背景图（即使开启 `ALL_ASSETS` 也需显式启用） |
+| `FLYBOARD_INLINE_MAX_IMAGE_SIZE` | `49152` | 每张内联图片的最大字节数 |
+| `FLYBOARD_INLINE_MAX_ASSET_SIZE` | `65536` | 每个内联脚本/样式块的最大字节数 |
+| `FLY_MEDIA_MAX_CONCURRENT` | `2` | 媒体预览的并发 ffmpeg 转换数 |
+| `FLYBOARD_MEDIA_BACKFILL_ON_START` | *(关闭)* | 启动时重新生成所有旧版媒体预览（仅限维护时运行） |
+
+**TLS 证书自动续期**（使用本地 ACME 客户端；会检测到 `keygen.sh` 生成的临时自签名证书且绝不改动）
+
+| 变量 | 默认值 | 说明 |
+|----------|---------|-------------|
+| `FLY_CERT_RENEWAL` | *(关闭)* | `true` 启用每日到期看门狗。当证书剩余天数 ≤ `FLY_CERT_DAYS` 时续期，并热加载而无需重启 |
+| `FLY_CERT_DAYS` | `30` | 续期阈值（天） |
+| `FLY_CERT_EMAIL` | `admin@<host>` | ACME 账户邮箱 |
+| `FLY_CERT_LEGO_BIN` | `lego` | lego 二进制名称/路径（可指向用于 DNS 挑战等的包装脚本） |
+
+看门狗从 `root_url` 推导域名，并以 HTTP-01 挑战运行 lego，因此 80 端口必须可达。状态保存在 `.lego/` 下；续期后的证书会覆盖安装到 `server.crt`/`server.key`。
+
+**邮箱验证注册**（默认关闭 = 开放注册）
+
+| 变量 | 默认值 | 说明 |
+|----------|---------|-------------|
+| `FLY_EMAIL_CERT` | *(关闭)* | `true` 要求新注册用户验证邮箱后才能登录。系统会通过 SMTP 发送 24 小时有效的令牌链接 |
+| `FLY_SMTP_HOST` | *(启用时必填)* | SMTP 中继主机 |
+| `FLY_SMTP_PORT` | `25`（隐式 TLS 时为 `465`） | SMTP 端口 |
+| `FLY_SMTP_TLS` | *(关闭)* | `starttls` 或 `implicit` |
+| `FLY_SMTP_USER` / `FLY_SMTP_PASS` | *(未设置)* | AUTH LOGIN 凭据（可选） |
+| `FLY_SMTP_FROM` | `FLY_SMTP_USER` | 信封/邮件头发件人 |
+
+示例 — 生产环境启用邮箱验证注册与证书自动续期：
+
+```sh
+FLY_CERT_RENEWAL=true FLY_CERT_EMAIL=admin@example.com \
+FLY_EMAIL_CERT=true FLY_SMTP_HOST=smtp.example.com FLY_SMTP_PORT=587 \
+FLY_SMTP_TLS=starttls FLY_SMTP_USER=noreply@example.com FLY_SMTP_PASS=secret \
+./fly_board
+```
 
 ## 数据库
 

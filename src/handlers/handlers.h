@@ -17,6 +17,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res);
 void handler_logout(cwist_http_request *req, cwist_http_response *res);
 void handler_register_get(cwist_http_request *req, cwist_http_response *res);
 void handler_register_post(cwist_http_request *req, cwist_http_response *res);
+void handler_verify_email_get(cwist_http_request *req, cwist_http_response *res);
 void handler_unregister_post(cwist_http_request *req, cwist_http_response *res);
 
 void handler_profile_get(cwist_http_request *req, cwist_http_response *res);
@@ -92,6 +93,7 @@ void handler_sw_js(cwist_http_request *req, cwist_http_response *res);
 void handler_tasfa_stream_placeholder(cwist_http_request *req, cwist_http_response *res);
 void handler_static_js(cwist_http_request *req, cwist_http_response *res);
 void handler_static_css(cwist_http_request *req, cwist_http_response *res);
+void handler_static_font(cwist_http_request *req, cwist_http_response *res);
 
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next);
 void handler_not_found(cwist_http_request *req, cwist_http_response *res, cwist_http_status_t status);

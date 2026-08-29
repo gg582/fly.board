@@ -78,8 +78,106 @@ NATS_URL=nats://localhost:4222 ./fly_board
 
 ## Configuración
 
-- `blog.settings` – Título del blog, subtítulo, pie de página, puerto y límites de subida
-- `admin.settings` – Cuenta de administrador (2 líneas: `username`\n`password`)
+La configuración proviene de tres archivos (creados automáticamente con valores predeterminados en el primer arranque) más variables de entorno para opciones operativas.
+
+### `admin.settings`
+
+Dos líneas en texto plano: la línea 1 es el nombre de usuario del administrador, la línea 2 la contraseña del administrador.
+
+### `blog.settings`
+
+Líneas simples de tipo `key=value`. Las claves desconocidas se ignoran; los valores inválidos recurren a los valores predeterminados.
+
+| Clave | Predeterminado | Valores / alcance |
+|-------|----------------|-------------------|
+| `title` | `CWIST Docker Blog` | Título del sitio mostrado en la barra superior |
+| `subtitle` | `Explore boards and read stories.` | Subtítulo del hero |
+| `brand_footer` | `Built with CWIST C Framework` | Texto del pie de página |
+| `root_url` | `https://localhost:8888/` | URL canónica del sitio (con `/` final). Se usa para enlaces RSS, correos de verificación y renovación de certificados — configúrala con la URL pública en producción |
+| `port` | `8443` | Puerto de escucha TCP/UDP (HTTP/3 usa el mismo puerto sobre UDP) |
+| `accent` | `#3b82f6` | Color de acento (hex) |
+| `use_tls` | `true` | `true`/`false` — HTTPS activado/desactivado (ejecuta `./keygen.sh` primero) |
+| `use_http2` | `true` | HTTP/2 sobre TLS |
+| `use_http3` | `true` | HTTP/3 (QUIC) sobre UDP |
+| `use_tasfa` | `true` | Pipeline multimedia TASFA (miniaturas/vistas previas de vídeo vía ffmpeg) |
+| `use_rss` | `false` | Expone `/rss.xml` |
+| `roundness` | `0.0` | Redondez de esquinas de la interfaz, `0.0`–`1.0` |
+| `max_upload_size` | `1G` | Límite de subida por archivo. Acepta sufijos `K/M/G/T` (p. ej. `500M`) |
+| `max_total_parallel_uploads` | `8` | Subidas concurrentes en total (1–512) |
+| `max_upload_parallel_chunks` | `32` | Chunks paralelos por subida (1–64) |
+| `max_concurrent_downloads` | `128` | Descargas concurrentes (1–512) |
+| `vote_only` | *(vacío = `all`)* | Quién puede votar en las publicaciones: `all` (cualquiera, incl. anónimos), `authorized` (solo usuarios con sesión iniciada), `admin` (solo administradores) |
+| `use_special_modes` | *(vacío)* | Sustituye los temas claro/oscuro: `lightTheme,darkTheme` (o un solo tema). Temas disponibles: `light`, `dark`, `ocean`, `forest`, `sepia`. P. ej. `ocean,forest` |
+| `home_img`, `boards_img`, `files_img` | *(vacío)* | Imágenes hero/de fondo por página; nombre de archivo dentro de `public/img/` |
+| `*_dark` (`home_img_dark`, `boards_img_dark`, `files_img_dark`) | *(vacío)* | Variantes de modo oscuro de las anteriores |
+| `blog_logo`, `blog_logo_dark` | *(vacío)* | Imagen del logo en `public/img/` |
+| `invert_logo` | `false` | Invierte automáticamente el logo para el modo que no tiene imagen |
+| `favicon` | *(vacío)* | Archivo de favicon en `public/img/` |
+| `bg_full_light`, `bg_full_dark` | *(vacío)* | Imágenes de fondo de página completa |
+| `bg_invert_color` | *(vacío)* | Objetivos separados por comas cuya variante del modo faltante se genera automáticamente invirtiendo la otra: `home`, `boards`, `files`, `toplevel`, `logo` |
+| `bg_invert_algo` | `luminv` | Algoritmo de inversión: `luminv` u `oklch` |
+
+### `fonts.settings`
+
+Ajustes de tipografía: `font_body`, `font_heading`, `font_ui`, `font_code`, `font_blockquote`, `font_display`, `font_import_url`, `font_face_family`, `font_face_src`, además de valores por elemento `letter_spacing_*` y `font_weight_*`. Los valores predeterminados se escriben en el primer arranque, así que abre el archivo generado para ver todas las claves.
+
+### Variables de entorno
+
+**Núcleo**
+
+| Variable | Predeterminado | Descripción |
+|----------|----------------|-------------|
+| `BLOG_ROOT` | *(sin definir)* | Raíz del proyecto; se usa cuando el binario se inicia fuera de ella. De lo contrario se detecta automáticamente el directorio que contiene `public/` |
+| `DEBUG` | *(desactivado)* | `1`/`true`/`yes` activa los registros DEBUG/INFO; en caso contrario solo se muestran advertencias/errores |
+| `NATS_URL` | *(sin definir)* | p. ej. `nats://localhost:4222` — activa la pasarela de mensajería NATS |
+| `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | *(sin definir)* | Archivo de clave / directorio de claves ECH (Encrypted Client Hello) |
+| `CWIST_C1M_MODE` | `1` | Reactor C1M orientado a eventos. Ponlo en `0` para forzar la ruta clásica basada en thread-pool |
+
+**Rendimiento / caché**
+
+| Variable | Predeterminado | Descripción |
+|----------|----------------|-------------|
+| `FLYBOARD_CACHE_MAX_MB` | `64` | Tamaño de la caché de páginas en MB (1–1024) |
+| `FLYBOARD_ADVERTISE_H3` | `true` | Envía cabeceras `Alt-Svc` anunciando HTTP/3 |
+| `FLYBOARD_ALT_SVC_MAX_AGE` | `300` | Valor `ma` de `Alt-Svc` en segundos (0–86400) |
+| `FLYBOARD_INLINE_IMAGES` | *(desactivado)* | Incrusta imágenes como data URIs base64 en el HTML |
+| `FLYBOARD_INLINE_ALL_ASSETS` | *(desactivado)* | Incrusta también scripts/estilos |
+| `FLYBOARD_INLINE_BG_IMAGES` | *(desactivado)* | Incrusta también imágenes de fondo (opt-in explícito incluso con `ALL_ASSETS`) |
+| `FLYBOARD_INLINE_MAX_IMAGE_SIZE` | `49152` | Bytes máximos por imagen incrustada |
+| `FLYBOARD_INLINE_MAX_ASSET_SIZE` | `65536` | Bytes máximos por fragmento de script/estilo incrustado |
+| `FLY_MEDIA_MAX_CONCURRENT` | `2` | Conversiones ffmpeg concurrentes para vistas previas multimedia |
+| `FLYBOARD_MEDIA_BACKFILL_ON_START` | *(desactivado)* | Regenera todas las vistas previas multimedia antiguas al arrancar (solo en ejecuciones de mantenimiento) |
+
+**Renovación automática del certificado TLS** (usa un cliente ACME local; los certificados autofirmados temporales de `keygen.sh` se detectan y nunca se modifican)
+
+| Variable | Predeterminado | Descripción |
+|----------|----------------|-------------|
+| `FLY_CERT_RENEWAL` | *(desactivado)* | `true` activa el vigilante diario de caducidad. Renueva cuando al certificado le quedan ≤ `FLY_CERT_DAYS` días y lo recarga en caliente sin reiniciar |
+| `FLY_CERT_DAYS` | `30` | Umbral de renovación en días |
+| `FLY_CERT_EMAIL` | `admin@<host>` | Correo de la cuenta ACME |
+| `FLY_CERT_LEGO_BIN` | `lego` | Nombre/ruta del binario lego (apunta a un script envoltorio para desafíos DNS, etc.) |
+
+El vigilante deriva el dominio de `root_url` y ejecuta lego con el desafío HTTP-01, por lo que el puerto 80 debe ser accesible en la máquina. El estado se guarda en `.lego/`; los certificados renovados se instalan sobre `server.crt`/`server.key`.
+
+**Registro con verificación por correo** (desactivado por defecto = registro abierto)
+
+| Variable | Predeterminado | Descripción |
+|----------|----------------|-------------|
+| `FLY_EMAIL_CERT` | *(desactivado)* | `true` exige que los nuevos registros verifiquen su correo antes de poder iniciar sesión. Se envía un enlace con token de 24 horas por SMTP |
+| `FLY_SMTP_HOST` | *(obligatorio si está activado)* | Host del relay SMTP |
+| `FLY_SMTP_PORT` | `25` (`465` con TLS implícito) | Puerto SMTP |
+| `FLY_SMTP_TLS` | *(desactivado)* | `starttls` o `implicit` |
+| `FLY_SMTP_USER` / `FLY_SMTP_PASS` | *(sin definir)* | Credenciales AUTH LOGIN (opcional) |
+| `FLY_SMTP_FROM` | `FLY_SMTP_USER` | Remitente de sobre/cabecera |
+
+Ejemplo — producción con registro verificado y renovación automática de certificados:
+
+```sh
+FLY_CERT_RENEWAL=true FLY_CERT_EMAIL=admin@example.com \
+FLY_EMAIL_CERT=true FLY_SMTP_HOST=smtp.example.com FLY_SMTP_PORT=587 \
+FLY_SMTP_TLS=starttls FLY_SMTP_USER=noreply@example.com FLY_SMTP_PASS=secret \
+./fly_board
+```
 
 ## Base de datos
 

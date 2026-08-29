@@ -78,8 +78,106 @@ NATS_URL=nats://localhost:4222 ./fly_board
 
 ## 設定
 
-- `blog.settings` – ブログタイトル、サブタイトル、フッター、ポート、アップロード上限
-- `admin.settings` – 管理者アカウント（2 行: `username`\n`password`）
+設定は 3 つのファイル（初回起動時にデフォルトで自動生成されます）と、運用切り替え用の環境変数から読み込まれます。
+
+### `admin.settings`
+
+2 行のプレーンテキスト: 1 行目は管理者ユーザー名、2 行目は管理者パスワードです。
+
+### `blog.settings`
+
+`key=value` 形式のプレーンな行です。不明なキーは無視され、無効な値はデフォルトにフォールバックします。
+
+| キー | デフォルト | 値 / スコープ |
+|-----|---------|----------------|
+| `title` | `CWIST Docker Blog` | トップバーに表示されるサイトタイトル |
+| `subtitle` | `Explore boards and read stories.` | ヒーロー部分のサブタイトル |
+| `brand_footer` | `Built with CWIST C Framework` | フッターテキスト |
+| `root_url` | `https://localhost:8888/` | サイトの正規 URL（末尾に `/`）。RSS リンク、確認メール、証明書更新に使用 — 本番環境では公開 URL を設定してください |
+| `port` | `8443` | TCP/UDP リッスンポート（HTTP/3 は同じポートを UDP で使用） |
+| `accent` | `#3b82f6` | アクセントカラー（hex） |
+| `use_tls` | `true` | `true`/`false` — HTTPS のオン/オフ（先に `./keygen.sh` を実行してください） |
+| `use_http2` | `true` | TLS 上の HTTP/2 |
+| `use_http3` | `true` | UDP 上の HTTP/3（QUIC） |
+| `use_tasfa` | `true` | TASFA メディアパイプライン（ffmpeg による動画サムネイル/プレビュー） |
+| `use_rss` | `false` | `/rss.xml` を公開 |
+| `roundness` | `0.0` | UI の角丸、`0.0`–`1.0` |
+| `max_upload_size` | `1G` | ファイルごとのアップロード上限。サフィックス `K/M/G/T` が使用可能（例: `500M`） |
+| `max_total_parallel_uploads` | `8` | 全体の同時アップロード数（1–512） |
+| `max_upload_parallel_chunks` | `32` | アップロードごとの並列チャンク数（1–64） |
+| `max_concurrent_downloads` | `128` | 同時ダウンロード数（1–512） |
+| `vote_only` | *（空 = `all`）* | 投稿に投票できるユーザー: `all`（匿名含む全員）、`authorized`（ログインユーザーのみ）、`admin`（管理者のみ） |
+| `use_special_modes` | *（空）* | ライト/ダークテーマを置き換え: `lightTheme,darkTheme`（または単一テーマ）。利用可能なテーマ: `light`、`dark`、`ocean`、`forest`、`sepia`。例: `ocean,forest` |
+| `home_img`、`boards_img`、`files_img` | *（空）* | ページごとのヒーロー/背景画像。`public/img/` 内のファイル名 |
+| `*_dark`（`home_img_dark`、`boards_img_dark`、`files_img_dark`） | *（空）* | 上記のダークモード用バリアント |
+| `blog_logo`、`blog_logo_dark` | *（空）* | `public/img/` 内のロゴ画像 |
+| `invert_logo` | `false` | 画像がないモード向けにロゴを自動反転 |
+| `favicon` | *（空）* | `public/img/` 内のファビコンファイル |
+| `bg_full_light`、`bg_full_dark` | *（空）* | ページ全体の背景画像 |
+| `bg_invert_color` | *（空）* | 不足しているモード側バリアントを、もう一方を反転して自動生成する対象（カンマ区切り）: `home`、`boards`、`files`、`toplevel`、`logo` |
+| `bg_invert_algo` | `luminv` | 反転アルゴリズム: `luminv` または `oklch` |
+
+### `fonts.settings`
+
+タイポグラフィのオーバーライド: `font_body`、`font_heading`、`font_ui`、`font_code`、`font_blockquote`、`font_display`、`font_import_url`、`font_face_family`、`font_face_src`、および要素ごとの `letter_spacing_*` と `font_weight_*` の値。初回起動時にデフォルトが書き出されるので、生成されたファイルを開いて全キーを確認してください。
+
+### 環境変数
+
+**コア**
+
+| 変数 | デフォルト | 説明 |
+|----------|---------|-------------|
+| `BLOG_ROOT` | *（未設定）* | プロジェクトルート。バイナリがその外部から起動された場合に使用。それ以外では `public/` を含むディレクトリが自動検出されます |
+| `DEBUG` | *（オフ）* | `1`/`true`/`yes` で DEBUG/INFO ログを有効化。それ以外は警告/エラーのみ出力 |
+| `NATS_URL` | *（未設定）* | 例: `nats://localhost:4222` — NATS メッセージングゲートウェイを有効化 |
+| `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | *（未設定）* | ECH（Encrypted Client Hello）キーファイル / キーディレクトリ |
+| `CWIST_C1M_MODE` | `1` | イベント駆動 C1M リアクター。`0` に設定すると従来のスレッドプール経路を強制 |
+
+**パフォーマンス / キャッシュ**
+
+| 変数 | デフォルト | 説明 |
+|----------|---------|-------------|
+| `FLYBOARD_CACHE_MAX_MB` | `64` | ページキャッシュサイズ（MB、1–1024） |
+| `FLYBOARD_ADVERTISE_H3` | `true` | HTTP/3 を告知する `Alt-Svc` ヘッダーを送信 |
+| `FLYBOARD_ALT_SVC_MAX_AGE` | `300` | `Alt-Svc` の `ma` 値（秒、0–86400） |
+| `FLYBOARD_INLINE_IMAGES` | *（オフ）* | 画像を base64 データ URI として HTML にインライン化 |
+| `FLYBOARD_INLINE_ALL_ASSETS` | *（オフ）* | スクリプト/スタイルもインライン化 |
+| `FLYBOARD_INLINE_BG_IMAGES` | *（オフ）* | 背景画像もインライン化（`ALL_ASSETS` でも明示的なオプトインが必要） |
+| `FLYBOARD_INLINE_MAX_IMAGE_SIZE` | `49152` | インライン化する画像ごとの最大バイト数 |
+| `FLYBOARD_INLINE_MAX_ASSET_SIZE` | `65536` | インライン化するスクリプト/スタイルチャンクごとの最大バイト数 |
+| `FLY_MEDIA_MAX_CONCURRENT` | `2` | メディアプレビュー用の同時 ffmpeg 変換数 |
+| `FLYBOARD_MEDIA_BACKFILL_ON_START` | *（オフ）* | 起動時にすべての従来メディアプレビューを再生成（メンテナンス実行専用） |
+
+**TLS 証明書の自動更新**（ローカル ACME クライアントを使用。`keygen.sh` で作成した一時的な自己署名証明書は検出され、一切変更されません）
+
+| 変数 | デフォルト | 説明 |
+|----------|---------|-------------|
+| `FLY_CERT_RENEWAL` | *（オフ）* | `true` で日次の期限ウォッチドッグを有効化。証明書の残り日数が `FLY_CERT_DAYS` 日以下になると更新し、再起動なしでホットリロード |
+| `FLY_CERT_DAYS` | `30` | 更新しきい値（日数） |
+| `FLY_CERT_EMAIL` | `admin@<host>` | ACME アカウントのメールアドレス |
+| `FLY_CERT_LEGO_BIN` | `lego` | lego バイナリ名/パス（DNS チャレンジなどにはラッパースクリプトを指定） |
+
+ウォッチドッグは `root_url` からドメインを導出し、HTTP-01 チャレンジで lego を実行するため、マシンにポート 80 へ到達できる必要があります。状態は `.lego/` 以下に保存され、更新された証明書は `server.crt`/`server.key` に上書きインストールされます。
+
+**メール確認付きサインアップ**（デフォルトはオフ = 誰でも登録可能）
+
+| 変数 | デフォルト | 説明 |
+|----------|---------|-------------|
+| `FLY_EMAIL_CERT` | *（オフ）* | `true` で新規登録時にログイン前のメール確認を必須化。24 時間有効なトークンリンクが SMTP で送信されます |
+| `FLY_SMTP_HOST` | *（有効時は必須）* | SMTP リレーホスト |
+| `FLY_SMTP_PORT` | `25`（暗黙的 TLS の場合は `465`） | SMTP ポート |
+| `FLY_SMTP_TLS` | *（オフ）* | `starttls` または `implicit` |
+| `FLY_SMTP_USER` / `FLY_SMTP_PASS` | *（未設定）* | AUTH LOGIN 認証情報（オプション） |
+| `FLY_SMTP_FROM` | `FLY_SMTP_USER` | エンベロープ/ヘッダーの送信者 |
+
+例 — メール確認付きサインアップと証明書自動更新を有効にした本番環境:
+
+```sh
+FLY_CERT_RENEWAL=true FLY_CERT_EMAIL=admin@example.com \
+FLY_EMAIL_CERT=true FLY_SMTP_HOST=smtp.example.com FLY_SMTP_PORT=587 \
+FLY_SMTP_TLS=starttls FLY_SMTP_USER=noreply@example.com FLY_SMTP_PASS=secret \
+./fly_board
+```
 
 ## データベース
 
