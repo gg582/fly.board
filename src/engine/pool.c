@@ -9,6 +9,10 @@
 static ttak_thread_pool_t *g_work_pool = NULL;
 static pthread_rwlock_t g_pool_lock = PTHREAD_RWLOCK_INITIALIZER;
 static bool g_accepting_work = false;
+/* cwist_app_listen() forks worker processes; the pool threads exist only in
+ * the process that created them, so children must not join the inherited
+ * handles during shutdown. */
+static pid_t g_pool_owner = 0;
 
 static size_t pool_size(const char *env_name, size_t fallback, size_t min, size_t max) {
     const char *value = getenv(env_name);
@@ -63,6 +67,7 @@ bool engine_pool_init(void) {
         return false;
     }
     g_accepting_work = true;
+    g_pool_owner = getpid();
     pthread_rwlock_unlock(&g_pool_lock);
     return true;
 }
@@ -72,8 +77,10 @@ void engine_pool_shutdown(void) {
     g_accepting_work = false;
     ttak_thread_pool_t *work_pool = g_work_pool;
     g_work_pool = NULL;
+    bool is_owner = (g_pool_owner == getpid());
+    g_pool_owner = 0;
     pthread_rwlock_unlock(&g_pool_lock);
-    if (work_pool) ttak_thread_pool_destroy(work_pool);
+    if (work_pool && is_owner) ttak_thread_pool_destroy(work_pool);
 }
 
 bool engine_pool_schedule(ttak_task_func_t func,
