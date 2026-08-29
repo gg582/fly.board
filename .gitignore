@@ -1,4 +1,5 @@
 *.o
+*.d
 fly_board
 data/blog.db
 data/board_tree.db
@@ -62,3 +63,9 @@ tests/lib/libmagic.so
 
 blog.settings
 fonts.settings
+s3.settings
+
+# Server-generated image variants (WebP optimize + dark-mode inversion)
+public/img/opt*w-*.webp
+public/img/oklch-inv*-*.webp
+public/img/luminv*-*.webp

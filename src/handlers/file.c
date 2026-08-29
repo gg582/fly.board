@@ -2,6 +2,7 @@
 #include "handlers_internal.h"
 #include "tasfa/tasfa_internal.h"
 #include "../utils/media_preview.h"
+#include "../utils/s3_client.h"
 #include "../db/db_internal.h"
 #include <ctype.h>
 #include <strings.h>
@@ -923,6 +924,17 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     const char *preview_path = (jpreview && jpreview->type == cJSON_String && jpreview->valuestring) ? jpreview->valuestring : "";
     bool is_image = strncmp(mime, "image/", 6) == 0;
     bool is_media = strncmp(mime, "video/", 6) == 0 || strncmp(mime, "audio/", 6) == 0;
+
+    /* Offloaded objects live in the S3 bucket: hand the client a time-limited
+     * presigned URL instead of a local file. */
+    if (s3_path_is(resolved_path)) {
+        char presigned[2048];
+        bool ok = s3_presign_get(s3_path_key(resolved_path), presigned, sizeof(presigned), 3600);
+        cJSON_Delete(file);
+        if (!ok) { send_upload_not_found(res); return; }
+        redirect(res, presigned);
+        return;
+    }
     if (!is_image && !is_media && (!mime[0] || strcmp(mime, "application/octet-stream") == 0)) {
         const char *name_mime = mime_type(filename);
         if (name_mime) {
@@ -1076,10 +1088,8 @@ void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
                 cJSON *fpath = cJSON_GetObjectItem(f, "file_path");
                 cJSON *thumb_path = cJSON_GetObjectItem(f, "thumb_path");
                 cJSON *preview_path = cJSON_GetObjectItem(f, "preview_path");
-                if (fpath && fpath->valuestring && fpath->valuestring[0] && is_safe_public_path(fpath->valuestring)) {
-                    unlink(fpath->valuestring);
-                } else if (fpath && fpath->valuestring && fpath->valuestring[0]) {
-                    CWIST_LOG_WARN("Refusing to delete unsafe file path: %s", fpath->valuestring);
+                if (fpath && fpath->valuestring && fpath->valuestring[0]) {
+                    storage_delete_file(fpath->valuestring);
                 }
                 if (thumb_path && thumb_path->valuestring && thumb_path->valuestring[0] && is_safe_public_path(thumb_path->valuestring)) {
                     unlink(thumb_path->valuestring);

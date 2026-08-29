@@ -121,6 +121,10 @@ NATS_URL=nats://localhost:4222 ./fly_board
 
 字體排版覆寫：`font_body`、`font_heading`、`font_ui`、`font_code`、`font_blockquote`、`font_display`、`font_import_url`、`font_face_family`、`font_face_src`，以及各元素的 `letter_spacing_*` 與 `font_weight_*` 值。首次執行時會寫出預設值，因此可開啟產生的檔案查看所有鍵。
 
+### `s3.settings`（選用）
+
+S3 相容物件儲存，用於存放上傳的檔案（AWS S3、MinIO、R2、B2）。完全選用——留空時，檔案會保留在本機磁碟的 `public/uploads/` 下。支援 `mode=mirror`（保留本機副本並備份至 S3）與 `mode=offload`（移至 S3，透過預先簽署的重導向提供下載）。完整參考與設定範例：[S3.md](S3.md)。
+
 ### 環境變數
 
 **核心**

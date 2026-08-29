@@ -618,6 +618,21 @@ void handler_static_js(cwist_http_request *req, cwist_http_response *res) {
     }
 }
 
+void handler_static_font(cwist_http_request *req, cwist_http_response *res) {
+    const char *filename = cwist_query_map_get(req->path_params, "filename");
+    if (!safe_static_filename(filename)) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        return;
+    }
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "public/fonts/%s", filename);
+    if (!send_cached_file_response(req, res, path,
+                                   "font/woff2",
+                                   "public, max-age=31536000, immutable", NULL)) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+    }
+}
+
 void handler_static_css(cwist_http_request *req, cwist_http_response *res) {
     const char *filename = cwist_query_map_get(req->path_params, "filename");
     if (!safe_static_filename(filename)) {

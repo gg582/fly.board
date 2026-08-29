@@ -117,4 +117,29 @@ extern font_settings_t g_font_settings;
 
 bool font_settings_load(const char *path);
 
+typedef struct {
+    /* All fields empty means S3 is disabled (the default).  S3 is used only
+     * when endpoint, bucket, access_key and secret_key are all set. */
+    char endpoint[256];     /* e.g. https://s3.amazonaws.com or https://minio.local:9000 */
+    char region[64];        /* e.g. us-east-1 */
+    char bucket[128];
+    char access_key[128];
+    char secret_key[256];
+    char prefix[256];       /* optional key prefix, e.g. "uploads/" */
+    bool use_path_style;    /* path-style (bucket in URL path) vs virtual-host style */
+    /* "mirror" (default when enabled): keep the local file and also copy it
+     * to S3; downloads keep using the local file.  "offload": move the file
+     * to S3, delete the local copy, and serve downloads via presigned
+     * redirects.  Anything else behaves as "mirror". */
+    char mode[16];
+} s3_config_t;
+
+extern s3_config_t g_s3_config;
+
+bool s3_config_load(const char *path);
+/* True when the S3 settings are complete enough to use. */
+bool s3_config_enabled(void);
+/* True when S3 is enabled with mode=offload. */
+bool s3_config_offload(void);
+
 #endif

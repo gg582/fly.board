@@ -121,6 +121,10 @@ NATS_URL=nats://localhost:4222 ./fly_board
 
 タイポグラフィのオーバーライド: `font_body`、`font_heading`、`font_ui`、`font_code`、`font_blockquote`、`font_display`、`font_import_url`、`font_face_family`、`font_face_src`、および要素ごとの `letter_spacing_*` と `font_weight_*` の値。初回起動時にデフォルトが書き出されるので、生成されたファイルを開いて全キーを確認してください。
 
+### `s3.settings`（オプション）
+
+アップロードされたファイル向けの S3 互換オブジェクトストレージ（AWS S3、MinIO、R2、B2）。完全にオプションで、空のままにしておけばファイルは `public/uploads/` 配下のローカルディスクに保存されます。`mode=mirror`（ローカルコピーを保持しつつ S3 にバックアップ）と `mode=offload`（S3 に移動し、プリサインドリダイレクトでダウンロードを配信）をサポートします。完全なリファレンスと設定例は [S3.md](S3.md) を参照してください。
+
 ### 環境変数
 
 **コア**

@@ -121,6 +121,10 @@ NATS_URL=nats://localhost:4222 ./fly_board
 
 타이포그래피 재정의: `font_body`, `font_heading`, `font_ui`, `font_code`, `font_blockquote`, `font_display`, `font_import_url`, `font_face_family`, `font_face_src`와 요소별 `letter_spacing_*`, `font_weight_*`. 첫 실행 시 기본값이 모두 기록되므로 생성된 파일을 열어 전체 키를 확인할 수 있습니다.
 
+### `s3.settings` (선택)
+
+업로드 파일용 S3 호환 오브젝트 스토리지(AWS S3, MinIO, R2, B2). 완전한 선택 사항이며, 비어 있으면 파일은 `public/uploads/` 로컬 디스크에 저장됩니다. `mode=mirror`(로컬 사본 유지 + S3 백업)와 `mode=offload`(S3로 이동, 다운로드는 presigned 리다이렉트)를 지원합니다. 전체 레퍼런스와 설정 예시: [S3.ko.md](S3.ko.md).
+
 ### 환경변수
 
 **코어**

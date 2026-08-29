@@ -85,6 +85,7 @@ int db_file_drop_all(cwist_db *db);
 bool db_file_increment_download(cwist_db *db, int id);
 bool db_file_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_hash);
 bool db_file_set_preview_paths(cwist_db *db, int id, const char *thumb_path, const char *preview_path);
+bool db_file_update_file_path(cwist_db *db, int id, const char *file_path);
 bool db_file_attach_to_post(cwist_db *db, int id, int post_id, int is_inline);
 void db_file_replace_for_post(cwist_db *db, int post_id, const char *filename);
 void db_file_cleanup_duplicates(cwist_db *db);

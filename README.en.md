@@ -121,6 +121,10 @@ Plain `key=value` lines. Unknown keys are ignored; invalid values fall back to d
 
 Typography overrides: `font_body`, `font_heading`, `font_ui`, `font_code`, `font_blockquote`, `font_display`, `font_import_url`, `font_face_family`, `font_face_src`, plus per-element `letter_spacing_*` and `font_weight_*` values. Defaults are written out on first run, so open the generated file to see every key.
 
+### `s3.settings` (optional)
+
+S3-compatible object storage for uploaded files (AWS S3, MinIO, R2, B2). Entirely optional — when empty, files stay on local disk under `public/uploads/`. Supports `mode=mirror` (keep local copy + S3 backup) and `mode=offload` (move to S3, serve downloads via presigned redirects). Full reference and example configurations: [S3.md](S3.md).
+
 ### Environment variables
 
 **Core**
