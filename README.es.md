@@ -121,6 +121,10 @@ Líneas simples de tipo `key=value`. Las claves desconocidas se ignoran; los val
 
 Ajustes de tipografía: `font_body`, `font_heading`, `font_ui`, `font_code`, `font_blockquote`, `font_display`, `font_import_url`, `font_face_family`, `font_face_src`, además de valores por elemento `letter_spacing_*` y `font_weight_*`. Los valores predeterminados se escriben en el primer arranque, así que abre el archivo generado para ver todas las claves.
 
+### `s3.settings` (opcional)
+
+Almacenamiento de objetos compatible con S3 para los archivos subidos (AWS S3, MinIO, R2, B2). Totalmente opcional: cuando está vacío, los archivos permanecen en el disco local bajo `public/uploads/`. Admite `mode=mirror` (conserva la copia local + respaldo en S3) y `mode=offload` (traslada a S3 y sirve las descargas mediante redirecciones prefirmadas). Referencia completa y ejemplos de configuración: [S3.md](S3.md).
+
 ### Variables de entorno
 
 **Núcleo**

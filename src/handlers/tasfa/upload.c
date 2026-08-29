@@ -2,6 +2,7 @@
 #define _DEFAULT_SOURCE
 #include "tasfa_internal.h"
 #include "engine/pool.h"
+#include "utils/s3_client.h"
 
 void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
@@ -1017,6 +1018,22 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
 
     if (thumb_path[0] || preview_path[0]) {
         db_file_set_preview_paths(req->db, fid, thumb_path[0] ? thumb_path : "", preview_path[0] ? preview_path : "");
+    }
+
+    /* Optional S3 object storage.  Mirror mode keeps the local copy and also
+     * stores the object; offload mode moves the bytes to the bucket, marks
+     * the row "s3://<key>", and drops the local file.  A failed PUT always
+     * falls back to plain local storage. */
+    if (s3_config_enabled()) {
+        char marker[800];
+        if (s3_store_upload(final_path, mime_buf, marker, sizeof(marker))) {
+            if (s3_config_offload() && db_file_update_file_path(req->db, fid, marker)) {
+                unlink(final_path);
+                snprintf(final_path, sizeof(final_path), "%s", marker);
+            }
+        } else {
+            FLY_LOG_ERROR("S3 store failed for %s; keeping local copy", final_path);
+        }
     }
 
     char delete_pin[13], delete_pin_hash[512];

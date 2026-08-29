@@ -2,6 +2,7 @@
 #include "db.h"
 #include "db_internal.h"
 #include "utils/utils.h"
+#include "utils/s3_client.h"
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/log.h>
 #include <stdio.h>
@@ -160,8 +161,7 @@ int db_file_drop_all(cwist_db *db) {
     if (sqlite3_prepare_v2(fly_db_conn(db), sql_select, -1, &stmt, NULL) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             const char *path = (const char *)sqlite3_column_text(stmt, 0);
-            if (path && path[0] && is_safe_public_path(path)) unlink(path);
-            else if (path && path[0]) CWIST_LOG_WARN("Refusing to drop unsafe file path: %s", path);
+            if (path && path[0]) storage_delete_file(path);
         }
         sqlite3_finalize(stmt);
     }
@@ -192,6 +192,19 @@ bool db_file_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_ha
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, delete_pin_hash ? delete_pin_hash : "", -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+/* Repoint a file row at a new storage location (e.g. an "s3://<key>" marker
+ * after an offload-mode upload has been pushed to object storage). */
+bool db_file_update_file_path(cwist_db *db, int id, const char *file_path) {
+    const char *sql = "UPDATE files SET file_path=? WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, file_path, -1, SQLITE_STATIC);
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -231,7 +244,7 @@ void db_file_replace_for_post(cwist_db *db, int post_id, const char *filename) {
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         int existing_id = sqlite3_column_int(stmt, 0);
         const char *existing_path = (const char *)sqlite3_column_text(stmt, 1);
-        if (existing_path && existing_path[0]) unlink(existing_path);
+        if (existing_path && existing_path[0]) storage_delete_file(existing_path);
         sqlite3_finalize(stmt);
         db_file_delete(db, existing_id);
     } else {
@@ -255,7 +268,12 @@ void db_file_cleanup_duplicates(cwist_db *db) {
         int id = sqlite3_column_int(stmt, 0);
         const char *path = (const char *)sqlite3_column_text(stmt, 1);
         sqlite3_finalize(stmt);
-        if (path && path[0]) unlink(path);
+        if (path && path[0]) {
+            /* path points into the finalized statement's row; copy first. */
+            char path_copy[PATH_MAX];
+            snprintf(path_copy, sizeof(path_copy), "%s", path);
+            storage_delete_file(path_copy);
+        }
         db_file_delete(db, id);
     }
 }
@@ -329,7 +347,7 @@ void db_file_delete_by_post(cwist_db *db, int post_id) {
     sqlite3_finalize(stmt);
 
     for (int i = 0; i < count; i++) {
-        if (paths[i][0] && is_safe_public_path(paths[i])) unlink(paths[i]);
+        if (paths[i][0]) storage_delete_file(paths[i]);
         if (thumbs[i][0] && is_safe_public_path(thumbs[i])) unlink(thumbs[i]);
         if (previews[i][0]) {
             if ((paths[i][0] == '\0' || strcmp(previews[i], paths[i]) != 0) && is_safe_public_path(previews[i])) {

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include "utils.h"
+#include "utils/s3_client.h"
 #include "db/db.h"
 #include "config/config.h"
 #include <cwist/core/mem/alloc.h>
@@ -468,6 +469,22 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
         }
         if (thumb_path[0] || preview_path[0]) {
             db_file_set_preview_paths(db, fid, thumb_path, preview_path);
+        }
+
+        /* Optional S3 object storage.  Mirror mode keeps the local copy and
+         * also stores the object; offload mode moves the bytes to the bucket,
+         * marks the row "s3://<key>", and drops the local file.  A failed
+         * PUT always falls back to plain local storage. */
+        if (s3_config_enabled()) {
+            char marker[800];
+            if (s3_store_upload(f->data, out->mime_type, marker, sizeof(marker))) {
+                if (s3_config_offload() && db_file_update_file_path(db, fid, marker)) {
+                    snprintf(out->file_path, sizeof(out->file_path), "%s", marker);
+                    unlink(f->data);
+                }
+            } else {
+                FLY_LOG_ERROR("S3 store failed for %s; keeping local copy", f->data);
+            }
         }
     }
 

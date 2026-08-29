@@ -8,6 +8,7 @@
 
 blog_config_t g_config = {0};
 font_settings_t g_font_settings = {0};
+s3_config_t g_s3_config = {0};
 
 static long long parse_size_bytes(const char *value, long long def) {
     if (!value || !value[0]) return def;
@@ -240,6 +241,73 @@ bool blog_config_load(const char *path) {
     validate_image_setting(g_config.boards_img_dark, "boards_img_dark");
     validate_image_setting(g_config.files_img_dark, "files_img_dark");
     return true;
+}
+
+bool s3_config_load(const char *path) {
+    memset(&g_s3_config, 0, sizeof(g_s3_config));
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        /* s3.settings is optional: write an empty template so operators can
+         * discover the keys, and run with S3 disabled. */
+        f = fopen(path, "w");
+        if (f) {
+            fprintf(f, "# S3-compatible object storage for uploaded files (optional)\n");
+            fprintf(f, "# Fill every value below to enable; leave empty to keep local disk storage.\n");
+            fprintf(f, "endpoint=\n");
+            fprintf(f, "region=\n");
+            fprintf(f, "bucket=\n");
+            fprintf(f, "access_key=\n");
+            fprintf(f, "secret_key=\n");
+            fprintf(f, "prefix=\n");
+            fprintf(f, "use_path_style=\n");
+            fprintf(f, "# mode: mirror (keep local copy, also store in S3) or offload (move to S3)\n");
+            fprintf(f, "mode=\n");
+            fclose(f);
+        }
+        return true;
+    }
+    char line[768];
+    while (fgets(line, sizeof(line), f)) {
+        trim_newline(line);
+        char *eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        const char *key = line;
+        const char *val = eq + 1;
+        if (strcmp(key, "endpoint") == 0) {
+            snprintf(g_s3_config.endpoint, sizeof(g_s3_config.endpoint), "%s", val);
+        } else if (strcmp(key, "region") == 0) {
+            snprintf(g_s3_config.region, sizeof(g_s3_config.region), "%s", val);
+        } else if (strcmp(key, "bucket") == 0) {
+            snprintf(g_s3_config.bucket, sizeof(g_s3_config.bucket), "%s", val);
+        } else if (strcmp(key, "access_key") == 0) {
+            snprintf(g_s3_config.access_key, sizeof(g_s3_config.access_key), "%s", val);
+        } else if (strcmp(key, "secret_key") == 0) {
+            snprintf(g_s3_config.secret_key, sizeof(g_s3_config.secret_key), "%s", val);
+        } else if (strcmp(key, "prefix") == 0) {
+            snprintf(g_s3_config.prefix, sizeof(g_s3_config.prefix), "%s", val);
+        } else if (strcmp(key, "use_path_style") == 0) {
+            g_s3_config.use_path_style = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
+        } else if (strcmp(key, "mode") == 0) {
+            snprintf(g_s3_config.mode, sizeof(g_s3_config.mode), "%s", val);
+        }
+    }
+    fclose(f);
+    if (s3_config_enabled() && g_s3_config.mode[0] &&
+        strcmp(g_s3_config.mode, "mirror") != 0 && strcmp(g_s3_config.mode, "offload") != 0) {
+        CWIST_LOG_WARN("Unknown s3 mode '%s', falling back to mirror", g_s3_config.mode);
+        g_s3_config.mode[0] = '\0';
+    }
+    return true;
+}
+
+bool s3_config_enabled(void) {
+    return g_s3_config.endpoint[0] && g_s3_config.bucket[0] &&
+           g_s3_config.access_key[0] && g_s3_config.secret_key[0];
+}
+
+bool s3_config_offload(void) {
+    return s3_config_enabled() && strcmp(g_s3_config.mode, "offload") == 0;
 }
 
 bool config_bg_invert_enabled(const char *target) {
