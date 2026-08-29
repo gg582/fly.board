@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> 接続数が増えてもメモリをほぼ平坦に保つ、数少ないシンプルなブログエンジンの一つ: idle 時 **~104 MB RSS**（4 workers 構成。single worker 構成では実運用サーバーで **68–120 MB** を維持）、C10k、C100k、さらに C1m でも **~110–146 MB**。
+> 接続数が増えてもメモリをほぼ平坦に保つ、数少ないシンプルなブログエンジンの一つ: idle 時 RSS は single worker 構成でも **~108 MB**（4 workers 構成では **~102 MB**）、C10k、C100k、さらに C1m でも **~110–146 MB** を維持。
 > C 言語製 CWIST Web フレームワークをベースに、HTTPS/3、Argon2id、PQC 署名、NATS メッセージングをサポートする軽量な掲示板＆ブログエンジン。
 
 ## 機能
 
-- **メモリ効率と接続スケーラビリティ** – スタック＋ヒープの C 実装。idle 時 **~104 MB RSS**、C10k から C1m までの同時接続で RSS は **~110–146 MB** 前後に維持される。
+- **メモリ効率と接続スケーラビリティ** – スタック＋ヒープの C 実装。idle 時 **~102–108 MB RSS**（1–4 workers）、C10k から C1m までの同時接続で RSS は **~110–146 MB** 前後に維持される。
 - **最新トランスポート** – デフォルトで TLS 1.3 + HTTP/3（QUIC）。オプションで ECH（Encrypted Client Hello）も利用可能。
 - **安全な認証** – クライアント側 SHA-512 プリハッシュ + サーバー側 **Argon2id**（OpenSSL 3 KDF）。JWT セッション Cookie。
 - **掲示板 / ブログ ハイブリッド** – Slug ベースの Markdown 投稿 + 複数掲示板 + 入れ子コメント。
@@ -156,8 +156,9 @@ MIT License
 
 | 状態 | RSS | 前状態からの Δ | 備考 |
 |-------|-----|-----------------|-------|
-| Idle | **~104 MB** (106,192 KB) | — | 4 workers, no connections |
-| C10k | **~110 MB** (112,436 KB) | +6,244 KB | 10,000 concurrent connections |
+| Idle (1 worker) | **~108 MB** (110,196 KB) | — | 1 worker, no connections |
+| Idle (4 workers) | **~102 MB** (104,940 KB) | — | 4 workers, no connections |
+| C10k | **~110 MB** (112,436 KB) | +7,496 KB vs idle (4 workers) | 10,000 concurrent connections |
 | C100k | **~146 MB** (148,848 KB) | +36,412 KB | 100,000 concurrent connections |
 | C1m churn | **~146 MB** (149,816 KB) | +968 KB | 100k held TLS conns, 1M-request churn |
 
@@ -169,7 +170,7 @@ RSS 値は、サーバープロセスに対する `/usr/bin/time -v` の **Maxim
 
 | 遷移 | Δ RSS | Δ 接続数 | 追加接続あたりの概算コスト |
 |---|---|---|---|
-| Idle → C10k | +6,244 KB | 10,000 | 接続あたり ~0.6 KB |
+| Idle → C10k | +7,496 KB | 10,000 | 接続あたり ~0.75 KB |
 | C10k → C1m churn | +37,380 KB | — | 追加の保持接続あたり ~0.4 KB。C100k → C1m は +968 KB（ノイズ） |
 
 Idle から C10k への初期ジャンプは、TLS 状態、接続バッファ、worker オーバーヘッドを前払いするコストです。C10k から C100k までは追加の保持接続あたり約 ~0.4 KB にとどまり、C100k から C1m への RSS 変化（+968 KB）は測定ノイズの範囲です — 接続あたりのメモリコストは実質的に平坦です。
@@ -267,9 +268,6 @@ Idle から C10k への初期ジャンプは、TLS 状態、接続バッファ�
 | 平均 RPS | **7167.28** |
 | 平均スループット | **290.51 MB/s** |
 | リクエストレイテンシ (h2load `time for request`) | min 183 µs, mean 30.69 ms, max 209.00 ms, sd 11.18 ms |
-| 概算パーセンタイルレイテンシ* | p50 ~30.7 ms, p95 ~49.1 ms, p99 ~56.7 ms |
-
-\* パーセンタイルは報告された平均と標準偏差から推定しています。h2load のデフォルト出力は min/max/mean/sd のみです。正確なパーセンタイルヒストグラムには `--latency-collect` オプションを使用してください。
 
 #### `wrk` を使用した HTTP/1.1 比較
 

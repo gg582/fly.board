@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> 연결이 증가할 때 메모리를 거의 일정하게 유지하는 몇 안 되는 심플한 블로그 엔진입니다: idle 시 **~104 MB RSS**(4 workers; single worker 운영 시 실제 프로덕션 서버에서 **68–120 MB** 유지), 그리고 C10k, C100k, 심지어 C1m에서도 **~110–146 MB**를 유지합니다.
+> 연결이 증가할 때 메모리를 거의 일정하게 유지하는 몇 안 되는 심플한 블로그 엔진입니다: single worker로도 idle 시 **~108 MB RSS**(4 workers 시 **~102 MB**), 그리고 C10k, C100k, 심지어 C1m에서도 **~110–146 MB**를 유지합니다.
 > C 기반 CWIST 웹 프레임워크 위에 구축된 가벼운 게시판 겸 블로그 엔진으로, HTTPS/3, Argon2id, PQC 서명, NATS 메시징을 지원합니다.
 
 ## 특징
 
-- **메모리 효율 및 연결 확장성** – 스택+힙 C 구현. idle 시 **~104 MB RSS**; C10k부터 C1m 동시 연결까지 RSS가 **~110–146 MB**를 유지합니다.
+- **메모리 효율 및 연결 확장성** – 스택+힙 C 구현. idle 시 **~102–108 MB RSS**(1–4 workers); C10k부터 C1m 동시 연결까지 RSS가 **~110–146 MB**를 유지합니다.
 - **최신 전송 계층** – 기본적으로 TLS 1.3 + HTTP/3 (QUIC). 선택적 ECH(Encrypted Client Hello).
 - **안전한 인증** – 클라이언트 측 SHA-512 프리해시 + 서버 측 **Argon2id** (OpenSSL 3 KDF). JWT 세션 쿠키.
 - **게시판 / 블로그 하이브리드** – 슬러그 기반 마크다운 포스트 + 다중 게시판 + 계층형 댓글.
@@ -156,8 +156,9 @@ MIT License
 
 | 상태 | RSS | 이전 대비 변화 | 비고 |
 |-------|-----|----------------|-------|
-| Idle | **~104 MB** (106,192 KB) | — | 4 workers, no connections |
-| C10k | **~110 MB** (112,436 KB) | +6,244 KB | 10,000 concurrent connections |
+| Idle (1 worker) | **~108 MB** (110,196 KB) | — | 1 worker, no connections |
+| Idle (4 workers) | **~102 MB** (104,940 KB) | — | 4 workers, no connections |
+| C10k | **~110 MB** (112,436 KB) | +7,496 KB (idle 4 workers 대비) | 10,000 concurrent connections |
 | C100k | **~146 MB** (148,848 KB) | +36,412 KB | 100,000 concurrent connections |
 | C1m churn | **~146 MB** (149,816 KB) | +968 KB | 100k held TLS conns, 1M-request churn |
 
@@ -169,7 +170,7 @@ RSS 값은 서버 프로세스에 대해 `/usr/bin/time -v`가 보고한 **Maxim
 
 | 전환 | Δ RSS | Δ 연결 수 | 연결당 대략적 비용 |
 |---|---|---|---|
-| Idle → C10k | +6,244 KB | 10,000 | 연결당 ~0.6 KB |
+| Idle → C10k | +7,496 KB | 10,000 | 연결당 ~0.75 KB |
 | C10k → C1m churn | +37,380 KB | — | 추가 유지 연결당 ~0.4 KB; C100k → C1m은 +968 KB(노이즈) |
 
 Idle에서 C10k로의 초기 증가는 TLS 상태, 연결 버퍼, worker 오버헤드를 미리 지불하는 비용입니다. C10k에서 C100k까지는 추가 유지 연결당 약 ~0.4 KB에 그치고, C100k에서 C1m까지의 RSS 변화(+968 KB)는 측정 노이즈 범위입니다 — 연결당 메모리 비용은 사실상 일정합니다.
@@ -267,9 +268,6 @@ Idle에서 C10k로의 초기 증가는 TLS 상태, 연결 버퍼, worker 오버�
 | Mean RPS | **7167.28** |
 | Mean throughput | **290.51 MB/s** |
 | 요청 지연 (h2load `time for request`) | min 183 µs, mean 30.69 ms, max 209.00 ms, sd 11.18 ms |
-| 대략적 백분위 지연* | p50 ~30.7 ms, p95 ~49.1 ms, p99 ~56.7 ms |
-
-\* 백분위는 보고된 평균과 표준편차로 추정한 값입니다. h2load 기본 출력은 min/max/mean/sd만 제공하며, 정확한 백분위 히스토그램을 위해서는 `--latency-collect` 옵션을 사용하세요.
 
 #### `wrk`를 사용한 HTTP/1.1 비교
 

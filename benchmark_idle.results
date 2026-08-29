@@ -1,0 +1,13 @@
+Idle Benchmark Result - 2026-08-29 (KST)
+No client connections; server started and shut down cleanly (SIGINT, exit 0).
+RSS values are "Maximum resident set size (kbytes)" from /usr/bin/time -v.
+
+=== Idle, CWIST_WORKERS=1 ===
+Command being timed: "./fly_board"
+Maximum resident set size (kbytes): 110196
+Exit status: 0
+
+=== Idle, CWIST_WORKERS=4 ===
+Command being timed: "./fly_board"
+Maximum resident set size (kbytes): 104940
+Exit status: 0

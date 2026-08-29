@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> One of the few simple blog engines that keeps memory nearly flat as connections scale: **~104 MB RSS** at idle (4 workers; maintains **68–120 MB** on a real production server with a single worker), and **~110–146 MB** under C10k, C100k, and even C1m.
+> One of the few simple blog engines that keeps memory nearly flat as connections scale: **~108 MB RSS** at idle even with a single worker (**~102 MB** with 4 workers), and **~110–146 MB** under C10k, C100k, and even C1m.
 > A lightweight board-and-blog engine built on the C-based CWIST web framework, supporting HTTPS/3, Argon2id, PQC signatures, and NATS messaging.
 
 ## Features
 
-- **Memory-Efficient & Connection-Scalable** – Stack+heap C implementation. **~104 MB RSS** at idle; RSS stays around **~110–146 MB** from C10k through C1m concurrent connections.
+- **Memory-Efficient & Connection-Scalable** – Stack+heap C implementation. **~102–108 MB RSS** at idle (1–4 workers); RSS stays around **~110–146 MB** from C10k through C1m concurrent connections.
 - **Modern Transport** – TLS 1.3 + HTTP/3 (QUIC) by default. Optional ECH (Encrypted Client Hello).
 - **Secure Auth** – Client-side SHA-512 prehash + server-side **Argon2id** (OpenSSL 3 KDF). JWT session cookies.
 - **Board / Blog Hybrid** – Slug-based markdown posts + multiple boards + nested comments.
@@ -161,8 +161,9 @@ The worker count is scaled with the load to keep each test realistic: **4 worker
 
 | State | RSS | Δ from previous | Notes |
 |-------|-----|-----------------|-------|
-| Idle | **~104 MB** (106,192 KB) | — | 4 workers, no connections |
-| C10k | **~110 MB** (112,436 KB) | +6,244 KB | 10,000 concurrent connections |
+| Idle (1 worker) | **~108 MB** (110,196 KB) | — | 1 worker, no connections |
+| Idle (4 workers) | **~102 MB** (104,940 KB) | — | 4 workers, no connections |
+| C10k | **~110 MB** (112,436 KB) | +7,496 KB vs idle (4 workers) | 10,000 concurrent connections |
 | C100k | **~146 MB** (148,848 KB) | +36,412 KB | 100,000 concurrent connections |
 | C1m churn | **~146 MB** (149,816 KB) | +968 KB | 100k held TLS conns, 1M-request churn |
 
@@ -174,7 +175,7 @@ RSS values are the **Maximum resident set size (kbytes)** reported by `/usr/bin/
 
 | Transition | Δ RSS | Δ Connections | Approx. cost per additional connection |
 |---|---|---|---|
-| Idle → C10k | +6,244 KB | 10,000 | ~0.6 KB / connection |
+| Idle → C10k | +7,496 KB | 10,000 | ~0.75 KB / connection |
 | C10k → C1m churn | +37,380 KB | — | ~0.4 KB / added held connection; C100k → C1m is +968 KB (noise) |
 
 The initial jump from idle to C10k pays for TLS state, connection buffers, and worker overhead up front. From C10k to C100k the cost stays near ~0.4 KB per additional held connection, and the C100k-to-C1m RSS change (+968 KB) is pure measurement noise — the per-connection memory cost is effectively flat.
@@ -291,9 +292,6 @@ The benchmark above measures **connection scalability**, not absolute **request 
 | Mean RPS | **7167.28** |
 | Mean throughput | **290.51 MB/s** |
 | Request latency (h2load `time for request`) | min 183 µs, mean 30.69 ms, max 209.00 ms, sd 11.18 ms |
-| Approx. percentile latency* | p50 ~30.7 ms, p95 ~49.1 ms, p99 ~56.7 ms |
-
-\* Percentiles are approximated from the reported mean and standard deviation; h2load prints min/max/mean/sd by default. Run with `--latency-collect` for exact percentile histograms.
 
 #### HTTP/1.1 comparison with `wrk`
 

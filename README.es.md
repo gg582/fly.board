@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> Uno de los pocos motores de blog sencillos que mantiene la memoria casi plana a medida que escalan las conexiones: **~104 MB RSS** en reposo (4 workers; mantiene **68–120 MB** en un servidor de producción real con un solo worker) y todavía **~110–146 MB** bajo C10k, C100k e incluso C1m.
+> Uno de los pocos motores de blog sencillos que mantiene la memoria casi plana a medida que escalan las conexiones: **~108 MB RSS** en reposo incluso con un solo worker (**~102 MB** con 4 workers) y se mantiene en **~110–146 MB** bajo C10k, C100k e incluso C1m.
 > Motor híbrido ligero de foro y blog construido sobre el framework web CWIST en C, con soporte para HTTPS/3, Argon2id, firmas PQC y mensajería NATS.
 
 ## Características
 
-- **Eficiente en memoria y escalable en conexiones** – Implementación en C con pila y montón. **~104 MB RSS** en reposo; el RSS se mantiene alrededor de **~110–146 MB** desde C10k hasta C1m conexiones simultáneas.
+- **Eficiente en memoria y escalable en conexiones** – Implementación en C con pila y montón. **~102–108 MB RSS** en reposo (1–4 workers); el RSS se mantiene alrededor de **~110–146 MB** desde C10k hasta C1m conexiones simultáneas.
 - **Transporte moderno** – TLS 1.3 + HTTP/3 (QUIC) por defecto. ECH (Encrypted Client Hello) opcional.
 - **Autenticación segura** – Prehash SHA-512 del lado del cliente + **Argon2id** del lado del servidor (KDF de OpenSSL 3). Cookies de sesión JWT.
 - **Híbrido foro / blog** – Publicaciones Markdown basadas en slug + múltiples tableros + comentarios anidados.
@@ -156,8 +156,9 @@ La cantidad de workers se escala con la carga para mantener cada prueba realista
 
 | Estado | RSS | Δ desde el anterior | Notas |
 |--------|-----|---------------------|-------|
-| En reposo | **~104 MB** (106,192 KB) | — | 4 workers, no connections |
-| C10k | **~110 MB** (112,436 KB) | +6,244 KB | 10,000 concurrent connections |
+| En reposo (1 worker) | **~108 MB** (110,196 KB) | — | 1 worker, no connections |
+| En reposo (4 workers) | **~102 MB** (104,940 KB) | — | 4 workers, no connections |
+| C10k | **~110 MB** (112,436 KB) | +7,496 KB vs en reposo (4 workers) | 10,000 concurrent connections |
 | C100k | **~146 MB** (148,848 KB) | +36,412 KB | 100,000 concurrent connections |
 | C1m churn | **~146 MB** (149,816 KB) | +968 KB | 100k held TLS conns, 1M-request churn |
 
@@ -169,7 +170,7 @@ Los valores RSS son el **Maximum resident set size (kbytes)** reportado por `/us
 
 | Transición | Δ RSS | Δ Conexiones | Costo aproximado por conexión adicional |
 |---|---|---|---|
-| Idle → C10k | +6,244 KB | 10,000 | ~0.6 KB / conexión |
+| Idle → C10k | +7,496 KB | 10,000 | ~0.75 KB / conexión |
 | C10k → C1m churn | +37,380 KB | — | ~0.4 KB / conexión retenida adicional; C100k → C1m es +968 KB (ruido) |
 
 El salto inicial de Idle a C10k paga por adelantado el estado TLS, los búferes de conexión y la sobrecarga de workers. De C10k a C100k el costo se mantiene cerca de ~0.4 KB por conexión retenida adicional, y el cambio de RSS de C100k a C1m (+968 KB) es puro ruido de medición — el costo de memoria por conexión es efectivamente plano.
@@ -267,9 +268,6 @@ La prueba anterior mide **escalabilidad de conexiones**, no el **rendimiento abs
 | Mean RPS | **7167.28** |
 | Mean throughput | **290.51 MB/s** |
 | Latencia de solicitud (h2load `time for request`) | min 183 µs, mean 30.69 ms, max 209.00 ms, sd 11.18 ms |
-| Latencia percentil aproximada* | p50 ~30.7 ms, p95 ~49.1 ms, p99 ~56.7 ms |
-
-\* Los percentiles se aproximan a partir de la media y la desviación estándar reportadas; h2load imprime min/max/mean/sd por defecto. Ejecute con `--latency-collect` para histogramas percentiles exactos.
 
 #### Comparación HTTP/1.1 con `wrk`
 
