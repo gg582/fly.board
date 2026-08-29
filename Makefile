@@ -140,6 +140,8 @@ SRCS := src/main.c \
         src/utils/image_inline.c \
         src/utils/image_invert.c \
         src/utils/media_preview.c \
+        src/utils/cert_renewal.c \
+        src/utils/email.c \
         src/nats/fly_nats.c \
         src/core/log.c \
         src/config/config.c \
@@ -217,7 +219,7 @@ check-render: $(RENDER_TESTS)
 	@for t in $(RENDER_TESTS); do $$t || exit 1; done
 
 clean:
-	rm -f $(OBJS) $(TARGET) $(RENDER_TESTS) tests/render_file
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(RENDER_TESTS) tests/render_file
 
 distclean: clean
 	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true

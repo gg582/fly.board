@@ -321,6 +321,11 @@ bool db_migrate(cwist_db *db) {
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, actor_name TEXT, kind TEXT NOT NULL, post_id INTEGER, post_slug TEXT, comment_id INTEGER, excerpt TEXT, is_read INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read, created_at DESC)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS translation_cache (id INTEGER PRIMARY KEY AUTOINCREMENT, src TEXT NOT NULL, tgt TEXT NOT NULL, hash INTEGER NOT NULL, source_text TEXT NOT NULL, translated_text TEXT NOT NULL, provider TEXT DEFAULT 'google', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(src, tgt, hash))");
+    /* Existing accounts must stay usable when FLY_EMAIL_CERT is turned on,
+     * so the new column defaults to verified=1; only rows created while the
+     * flag is on are explicitly inserted as unverified. */
+    db_exec_sql(db, "ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 1");
+    db_exec_sql(db, "CREATE TABLE IF NOT EXISTS email_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, token TEXT UNIQUE NOT NULL, expires_at INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
 
     /* Rebuild posts with nullable user_id so anonymous posts (user_id 0)
      * survive PRAGMA foreign_keys=ON. Runs before the posts indexes below

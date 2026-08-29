@@ -18,6 +18,7 @@
 #include "utils/reqshare.h"
 #include "utils/image_inline.h"
 #include "utils/image_invert.h"
+#include "utils/cert_renewal.h"
 #include <cwist/net/http/http3.h>
 #include <openssl/ssl.h>
 #include <cwist/sys/app/app.h>
@@ -55,6 +56,9 @@ static _Atomic bool g_cleanup_running = false;
 static int g_cleanup_wake_fd = -1;
 static pthread_t g_cleanup_thread;
 static bool g_cleanup_thread_started = false;
+/* cwist_app_listen() forks worker processes; the thread exists only in the
+ * process that created it, so children must not join the inherited handle. */
+static pid_t g_cleanup_thread_owner = 0;
 
 /* Wake the cleanup worker immediately during shutdown instead of making it
  * periodically poll just to observe g_cleanup_running. */
@@ -74,10 +78,10 @@ static void cleanup_close_wake_fd(void) {
 }
 
 static void cleanup_join(void) {
-    if (g_cleanup_thread_started) {
+    if (g_cleanup_thread_started && g_cleanup_thread_owner == getpid()) {
         pthread_join(g_cleanup_thread, NULL);
-        g_cleanup_thread_started = false;
     }
+    g_cleanup_thread_started = false;
 }
 
 /* Full preview regeneration can launch many ffmpeg processes.  New uploads
@@ -305,6 +309,7 @@ int main(void) {
         FLY_LOG_ERROR("Failed to start cleanup worker");
     } else if (g_cleanup_wake_fd >= 0) {
         g_cleanup_thread_started = true;
+        g_cleanup_thread_owner = getpid();
     }
 
     cwist_app_set_max_memspace(app, CWIST_MIB(512));
@@ -362,6 +367,11 @@ int main(void) {
         CWIST_LOG_INFO("ECH initialized");
     }
 
+    /* Daily ACME renewal watchdog; no-op unless FLY_CERT_RENEWAL=true. */
+    if (g_config.use_tls) {
+        cert_renewal_start(app);
+    }
+
     /* Register payload compression backends in preference order:
      * brotli (best ratio) → zstd (balanced speed + ratio) → gzip (widest compat).
      * cwist_mw_compress picks the first backend the client's Accept-Encoding supports. */
@@ -397,6 +407,8 @@ int main(void) {
         }
     }
     int rc = cwist_app_listen(app, g_config.port);
+    cert_renewal_stop();
+    cert_renewal_join();
     cleanup_stop();
     cleanup_join();
     engine_nats_stop();

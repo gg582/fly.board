@@ -14,6 +14,7 @@ void engine_routes_register(cwist_app *app) {
     cwist_app_get(app, "/assets/js/:filename", handler_static_js);
     cwist_app_get(app, "/js/:filename", handler_static_js);
     cwist_app_get(app, "/assets/css/:filename", handler_static_css);
+    cwist_app_get(app, "/assets/fonts/:filename", handler_static_font);
     cwist_app_static_with_cache(app, "/assets/media", "public/media", "public, max-age=31536000, immutable");
     cwist_app_get(app, "/sw.js", handler_sw_js);
     cwist_app_get(app, "/__tasfa_stream__/:stream_id", handler_tasfa_stream_placeholder);
@@ -31,6 +32,7 @@ void engine_routes_register(cwist_app *app) {
     cwist_app_get(app, "/logout", handler_logout);
     cwist_app_get(app, "/register", handler_register_get);
     cwist_app_post(app, "/register", handler_register_post);
+    cwist_app_get(app, "/verify-email", handler_verify_email_get);
     cwist_app_post(app, "/unregister", handler_unregister_post);
 
     cwist_app_get(app, "/profile", handler_profile_get);

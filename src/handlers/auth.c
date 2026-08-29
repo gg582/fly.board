@@ -1,6 +1,17 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#include "utils/email.h"
 #include <ctype.h>
+#include <openssl/rand.h>
+
+/* Copy of the hex-token idiom used elsewhere; 64 hex chars for 32 bytes. */
+static bool random_hex(char *out, size_t byte_len) {
+    unsigned char bytes[32];
+    if (byte_len > sizeof(bytes) || RAND_bytes(bytes, (int)byte_len) != 1) return false;
+    for (size_t i = 0; i < byte_len; i++) snprintf(out + (i * 2), 3, "%02x", bytes[i]);
+    out[byte_len * 2] = '\0';
+    return true;
+}
 
 static bool req_is_tls(cwist_http_request *req) {
     if (!req) return g_config.use_tls;
@@ -161,6 +172,15 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
+    /* With email verification on, unverified accounts cannot log in. */
+    if (email_cert_enabled() && json_int(user, "email_verified", 1) == 0) {
+        CWIST_LOG_WARN("Login blocked: email not verified username='%s'", username);
+        cJSON_Delete(user);
+        send_html_res(res, render_login(dark, "Email not verified. Check your inbox.", mobile, redirect_target));
+        cwist_query_map_destroy(kv);
+        return;
+    }
+
     char *token = auth_jwt_issue(user_id, uname->valuestring, role->valuestring);
     if (!token) {
         CWIST_LOG_ERROR("User login failed: token issue error username='%s'", username);
@@ -215,16 +235,65 @@ void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     bool ok = db_user_create(req->db, username, email, hash);
-    cwist_query_map_destroy(kv);
     if (!ok) {
         CWIST_LOG_WARN("Registration failed: username or email exists username='%s' email='%s'", username, email);
         send_html_res(res, render_register(dark, "Username or email already exists", is_mobile_request(req), legal_docs));
+        cwist_query_map_destroy(kv);
         if (legal_docs) cJSON_Delete(legal_docs);
         return;
     }
     if (legal_docs) cJSON_Delete(legal_docs);
     CWIST_LOG_INFO("User registered: username='%s' email='%s'", username, email);
+
+    /* Email verification mode: hold the account unverified until the user
+     * follows the link mailed to the address they signed up with. */
+    if (email_cert_enabled()) {
+        cJSON *user = db_user_get_by_username(req->db, username);
+        int user_id = user ? json_int(user, "id", 0) : 0;
+        char token[65];
+        char link[768];
+        bool sent = false;
+        if (user_id > 0 && random_hex(token, 32)) {
+            snprintf(link, sizeof(link), "%sverify-email?token=%s", g_config.root_url, token);
+            char body[1024];
+            snprintf(body, sizeof(body),
+                     "Hello %s,\n\nConfirm your email address to activate your account:\n\n%s\n\n"
+                     "This link expires in 24 hours.\n",
+                     username, link);
+            db_user_set_email_verified(req->db, user_id, false);
+            if (db_email_token_create(req->db, user_id, token, (long)time(NULL) + 24 * 3600)) {
+                sent = email_send(email, "Confirm your account", body);
+            }
+        }
+        if (user) cJSON_Delete(user);
+        if (sent) {
+            CWIST_LOG_INFO("Verification mail sent: username='%s' email='%s'", username, email);
+            send_html_res(res, render_register(dark, "Verification email sent. Check your inbox to activate your account.", is_mobile_request(req), NULL));
+        } else {
+            FLY_LOG_ERROR("Verification mail failed: username='%s' email='%s'", username, email);
+            send_html_res(res, render_register(dark, "Could not send verification email; contact the administrator.", is_mobile_request(req), NULL));
+        }
+        cwist_query_map_destroy(kv);
+        return;
+    }
+    cwist_query_map_destroy(kv);
     redirect(res, "/login");
+}
+
+void handler_verify_email_get(cwist_http_request *req, cwist_http_response *res) {
+    const char *token = cwist_query_map_get(req->query_params, "token");
+    if (!email_cert_enabled() || !token || !token[0]) {
+        redirect(res, "/login");
+        return;
+    }
+    int user_id = db_email_token_consume(req->db, token);
+    if (user_id <= 0) {
+        CWIST_LOG_WARN("Email verification failed: invalid or expired token");
+        send_html_res(res, render_login(is_dark(req), "Invalid or expired verification link", is_mobile_request(req), NULL));
+        return;
+    }
+    CWIST_LOG_INFO("Email verified: uid=%d", user_id);
+    send_html_res(res, render_login(is_dark(req), "Email verified. Please log in.", is_mobile_request(req), NULL));
 }
 
 void handler_unregister_post(cwist_http_request *req, cwist_http_response *res) {

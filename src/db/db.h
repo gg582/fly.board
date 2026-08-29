@@ -22,6 +22,9 @@ bool db_user_update_profile_pic(cwist_db *db, int id, const char *profile_pic);
 bool db_user_update_profile(cwist_db *db, int id, const char *nickname, const char *bio, const char *profile_pic);
 bool db_user_update_password(cwist_db *db, int id, const char *password_hash);
 cJSON *db_user_list(cwist_db *db);
+bool db_user_set_email_verified(cwist_db *db, int id, bool verified);
+bool db_email_token_create(cwist_db *db, int user_id, const char *token, long expires_at);
+int db_email_token_consume(cwist_db *db, const char *token);
 
 /* Boards */
 bool db_board_create(cwist_db *db, const char *name, const char *slug, const char *description, bool admin_only, int read_perm, int write_perm, int comment_perm);

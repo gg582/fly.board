@@ -78,8 +78,106 @@ NATS_URL=nats://localhost:4222 ./fly_board
 
 ## 設定
 
-- `blog.settings` – 部落格標題、副標題、頁尾、埠號與上傳限制
-- `admin.settings` – 管理員帳戶（2 行：`username`\n`password`）
+設定來自三個檔案（首次執行時會以預設值自動建立），再加上用於操作開關的環境變數。
+
+### `admin.settings`
+
+兩行原始文字：第 1 行為管理員使用者名稱，第 2 行為管理員密碼。
+
+### `blog.settings`
+
+純文字 `key=value` 行。未知的鍵會被忽略；無效的值會回退為預設值。
+
+| 鍵 | 預設值 | 值 / 範圍 |
+|-----|---------|----------------|
+| `title` | `CWIST Docker Blog` | 顯示於頂欄的網站標題 |
+| `subtitle` | `Explore boards and read stories.` | Hero 副標題 |
+| `brand_footer` | `Built with CWIST C Framework` | 頁尾文字 |
+| `root_url` | `https://localhost:8888/` | 站點的正式 URL（結尾需帶 `/`）。用於 RSS 連結、驗證信與憑證續期 —— 正式環境中請設為公開 URL |
+| `port` | `8443` | TCP/UDP 監聽埠號（HTTP/3 在同一埠號上使用 UDP） |
+| `accent` | `#3b82f6` | 強調色（hex） |
+| `use_tls` | `true` | `true`/`false` —— HTTPS 開關（請先執行 `./keygen.sh`） |
+| `use_http2` | `true` | TLS 上的 HTTP/2 |
+| `use_http3` | `true` | UDP 上的 HTTP/3（QUIC） |
+| `use_tasfa` | `true` | TASFA 媒體管線（透過 ffmpeg 產生影片縮圖/預覽） |
+| `use_rss` | `false` | 開放 `/rss.xml` |
+| `roundness` | `0.0` | UI 圓角程度，`0.0`–`1.0` |
+| `max_upload_size` | `1G` | 單一檔案上傳上限。接受後綴 `K/M/G/T`（例如 `500M`） |
+| `max_total_parallel_uploads` | `8` | 整體併發上傳數（1–512） |
+| `max_upload_parallel_chunks` | `32` | 每次上傳的併發分塊數（1–64） |
+| `max_concurrent_downloads` | `128` | 併發下載數（1–512） |
+| `vote_only` | *(空白 = `all`)* | 誰可以對文章投票：`all`（任何人，含匿名）、`authorized`（僅登入使用者）、`admin`（僅管理員） |
+| `use_special_modes` | *(空白)* | 取代淺色/深色主題：`lightTheme,darkTheme`（或單一主題）。可用主題：`light`、`dark`、`ocean`、`forest`、`sepia`。例如 `ocean,forest` |
+| `home_img`、`boards_img`、`files_img` | *(空白)* | 各頁面的 Hero/背景圖片；`public/img/` 內的檔名 |
+| `*_dark`（`home_img_dark`、`boards_img_dark`、`files_img_dark`） | *(空白)* | 上述項目的深色模式版本 |
+| `blog_logo`、`blog_logo_dark` | *(空白)* | `public/img/` 中的 Logo 圖片 |
+| `invert_logo` | `false` | 為沒有圖片的模式自動反轉 Logo |
+| `favicon` | *(空白)* | `public/img/` 中的 Favicon 檔案 |
+| `bg_full_light`、`bg_full_dark` | *(空白)* | 整頁背景圖片 |
+| `bg_invert_color` | *(空白)* | 以逗號分隔的目標，其缺少的模式版本會以反轉另一個版本自動產生：`home`、`boards`、`files`、`toplevel`、`logo` |
+| `bg_invert_algo` | `luminv` | 反轉演算法：`luminv` 或 `oklch` |
+
+### `fonts.settings`
+
+字體排版覆寫：`font_body`、`font_heading`、`font_ui`、`font_code`、`font_blockquote`、`font_display`、`font_import_url`、`font_face_family`、`font_face_src`，以及各元素的 `letter_spacing_*` 與 `font_weight_*` 值。首次執行時會寫出預設值，因此可開啟產生的檔案查看所有鍵。
+
+### 環境變數
+
+**核心**
+
+| 變數 | 預設值 | 說明 |
+|----------|---------|-------------|
+| `BLOG_ROOT` | *(未設定)* | 專案根目錄；當執行檔在專案根目錄以外啟動時使用。否則會自動偵測包含 `public/` 的目錄 |
+| `DEBUG` | *(關閉)* | `1`/`true`/`yes` 啟用 DEBUG/INFO 日誌；否則只輸出警告/錯誤 |
+| `NATS_URL` | *(未設定)* | 例如 `nats://localhost:4222` —— 啟用 NATS 訊息閘道 |
+| `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | *(未設定)* | ECH（Encrypted Client Hello）金鑰檔案 / 金鑰目錄 |
+| `CWIST_C1M_MODE` | `1` | 事件驅動的 C1M reactor。設為 `0` 可強制使用舊式執行緒池路徑 |
+
+**效能 / 快取**
+
+| 變數 | 預設值 | 說明 |
+|----------|---------|-------------|
+| `FLYBOARD_CACHE_MAX_MB` | `64` | 頁面快取大小（MB，1–1024） |
+| `FLYBOARD_ADVERTISE_H3` | `true` | 發送宣告 HTTP/3 的 `Alt-Svc` 標頭 |
+| `FLYBOARD_ALT_SVC_MAX_AGE` | `300` | `Alt-Svc` 的 `ma` 值（秒，0–86400） |
+| `FLYBOARD_INLINE_IMAGES` | *(關閉)* | 將圖片以 base64 data URI 內嵌於 HTML |
+| `FLYBOARD_INLINE_ALL_ASSETS` | *(關閉)* | 同時內嵌腳本/樣式 |
+| `FLYBOARD_INLINE_BG_IMAGES` | *(關閉)* | 同時內嵌背景圖片（即使啟用 `ALL_ASSETS` 仍需明確指定） |
+| `FLYBOARD_INLINE_MAX_IMAGE_SIZE` | `49152` | 每張內嵌圖片的最大位元組數 |
+| `FLYBOARD_INLINE_MAX_ASSET_SIZE` | `65536` | 每個內嵌腳本/樣式區塊的最大位元組數 |
+| `FLY_MEDIA_MAX_CONCURRENT` | `2` | 媒體預覽的併發 ffmpeg 轉換數 |
+| `FLYBOARD_MEDIA_BACKFILL_ON_START` | *(關閉)* | 啟動時重新產生所有舊版媒體預覽（僅限維護用途） |
+
+**自動 TLS 憑證續期**（使用本機 ACME 客戶端；會偵測到 `keygen.sh` 產生的臨時自簽憑證，且絕不更動）
+
+| 變數 | 預設值 | 說明 |
+|----------|---------|-------------|
+| `FLY_CERT_RENEWAL` | *(關閉)* | `true` 啟用每日到期檢查。當憑證剩餘天數 ≤ `FLY_CERT_DAYS` 時續期，並在不重新啟動的情況下熱載入 |
+| `FLY_CERT_DAYS` | `30` | 續期閾值（天） |
+| `FLY_CERT_EMAIL` | `admin@<host>` | ACME 帳戶電子郵件 |
+| `FLY_CERT_LEGO_BIN` | `lego` | lego 執行檔名稱/路徑（可指向包裝腳本以使用 DNS 挑戰等） |
+
+Watchdog 會從 `root_url` 推導網域，並以 HTTP-01 挑戰執行 lego，因此機器的 80 埠必須可從外部連線。狀態存放於 `.lego/` 之下；續期後的憑證會安裝覆蓋 `server.crt`/`server.key`。
+
+**電子郵件驗證註冊**（預設關閉 = 開放註冊）
+
+| 變數 | 預設值 | 說明 |
+|----------|---------|-------------|
+| `FLY_EMAIL_CERT` | *(關閉)* | `true` 時要求新註冊者先驗證電子郵件才能登入。系統會透過 SMTP 寄出 24 小時有效的 token 連結 |
+| `FLY_SMTP_HOST` | *(啟用時必填)* | SMTP 中繼主機 |
+| `FLY_SMTP_PORT` | `25`（隱含 TLS 時為 `465`） | SMTP 埠號 |
+| `FLY_SMTP_TLS` | *(關閉)* | `starttls` 或 `implicit` |
+| `FLY_SMTP_USER` / `FLY_SMTP_PASS` | *(未設定)* | AUTH LOGIN 憑證（可選） |
+| `FLY_SMTP_FROM` | `FLY_SMTP_USER` | 信封/標頭寄件者 |
+
+範例 —— 啟用驗證註冊與自動憑證續期的正式環境：
+
+```sh
+FLY_CERT_RENEWAL=true FLY_CERT_EMAIL=admin@example.com \
+FLY_EMAIL_CERT=true FLY_SMTP_HOST=smtp.example.com FLY_SMTP_PORT=587 \
+FLY_SMTP_TLS=starttls FLY_SMTP_USER=noreply@example.com FLY_SMTP_PASS=secret \
+./fly_board
+```
 
 ## 資料庫
 
