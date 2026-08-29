@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> 少數能在連線數增加時仍幾乎維持記憶體平坦的簡易部落格引擎之一：閒置時 **~104 MB RSS**（4 個 workers；在單一 worker 的實際生產伺服器上則維持於 **68–120 MB**），即使在 C10k、C100k 乃至 C1m 下仍維持 **~110–146 MB**。
+> 少數能在連線數增加時仍幾乎維持記憶體平坦的簡易部落格引擎之一：即使只有單一 worker，閒置 RSS 也僅 **~108 MB**（4 個 workers 時為 **~102 MB**），且在 C10k、C100k 乃至 C1m 下仍維持 **~110–146 MB**。
 > 以 C 語言 CWIST Web 框架為基礎，支援 HTTPS/3、Argon2id、PQC 簽章與 NATS 訊息的輕量化論壇兼部落格引擎。
 
 ## 特性
 
-- **記憶體高效且具連線擴展性** – 堆疊+堆積 C 實作。閒置時 **~104 MB RSS**；從 C10k 到 C1m 的併發連線下，RSS 皆維持在 **~110–146 MB**。
+- **記憶體高效且具連線擴展性** – 堆疊+堆積 C 實作。閒置時 **~102–108 MB RSS**（1–4 workers）；從 C10k 到 C1m 的併發連線下，RSS 皆維持在 **~110–146 MB**。
 - **現代傳輸層** – 預設 TLS 1.3 + HTTP/3（QUIC）。可選 ECH（Encrypted Client Hello）。
 - **安全認證** – 用戶端 SHA-512 預雜湊 + 伺服端 **Argon2id**（OpenSSL 3 KDF）。JWT 工作階段 Cookie。
 - **論壇 / 部落格混合** – Slug 式 Markdown 文章 + 多看板 + 巢狀評論。
@@ -156,8 +156,9 @@ worker 數量會隨負載調整，讓每項測試貼近現實：C10k 為 **4 個
 
 | 狀態 | RSS | 較前項變化 | 備註 |
 |-------|-----|-----------------|-------|
-| 閒置 | **~104 MB** (106,192 KB) | — | 4 workers, no connections |
-| C10k | **~110 MB** (112,436 KB) | +6,244 KB | 10,000 concurrent connections |
+| 閒置 (1 worker) | **~108 MB** (110,196 KB) | — | 1 worker, no connections |
+| 閒置 (4 workers) | **~102 MB** (104,940 KB) | — | 4 workers, no connections |
+| C10k | **~110 MB** (112,436 KB) | +7,496 KB vs 閒置 (4 workers) | 10,000 concurrent connections |
 | C100k | **~146 MB** (148,848 KB) | +36,412 KB | 100,000 concurrent connections |
 | C1m churn | **~146 MB** (149,816 KB) | +968 KB | 100k held TLS conns, 1M-request churn |
 
@@ -169,7 +170,7 @@ RSS 值為伺服器處理序 `/usr/bin/time -v` 回報的 **Maximum resident set
 
 | 階段 | Δ RSS | Δ 連線數 | 每條新增連線的約略成本 |
 |---|---|---|---|
-| Idle → C10k | +6,244 KB | 10,000 | ~0.6 KB / 連線 |
+| Idle → C10k | +7,496 KB | 10,000 | ~0.75 KB / 連線 |
 | C10k → C1m churn | +37,380 KB | — | 每條新增保持連線約 ~0.4 KB；C100k → C1m 為 +968 KB（雜訊） |
 
 從 Idle 到 C10k 的初始躍升預先支付了 TLS 狀態、連線緩衝區與 worker 開銷。從 C10k 到 C100k，每條新增保持連線的成本約為 ~0.4 KB，而 C100k 到 C1m 的 RSS 變化（+968 KB）仍在測量雜訊範圍內 —— 每條連線的記憶體成本實際上是平坦的。
@@ -267,9 +268,6 @@ RSS 值為伺服器處理序 `/usr/bin/time -v` 回報的 **Maximum resident set
 | Mean RPS | **7167.28** |
 | Mean throughput | **290.51 MB/s** |
 | 請求延遲 (h2load `time for request`) | min 183 µs, mean 30.69 ms, max 209.00 ms, sd 11.18 ms |
-| 近似百分位延遲* | p50 ~30.7 ms, p95 ~49.1 ms, p99 ~56.7 ms |
-
-\* 百分位由回報的平均值與標準差估算而來。h2load 預設輸出僅提供 min/max/mean/sd，精確百分位直方圖請使用 `--latency-collect` 選項。
 
 #### 使用 `wrk` 的 HTTP/1.1 對比
 
