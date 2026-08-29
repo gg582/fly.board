@@ -17,6 +17,93 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
+PRETENDARD_SUBSET_CSS = """/*
+ * Pretendard Variable — local subset first, full font as CDN fallback.
+ * The local file holds basic Latin + KS X 1001 (2,350 Hangul syllables) and
+ * common punctuation (~460 KB instead of the full ~2 MB).  Glyphs outside
+ * the subset fall through to the CDN face via unicode-range, so browsers
+ * only download the 2 MB original when a rare character actually appears.
+ */
+@font-face {
+    font-family: 'Pretendard Variable';
+    font-weight: 45 920;
+    font-style: normal;
+    font-display: swap;
+    src: url('/assets/fonts/PretendardVariable-KR.woff2') format('woff2-variations');
+    unicode-range: U+0000-00FF, U+0100-017F, U+2000-206F, U+20AC, U+2122,
+                   U+2190-21FF, U+3000-303F, U+FF00-FFEF,
+                   U+AC00-D7A3;
+}
+
+@font-face {
+    font-family: 'Pretendard Variable';
+    font-weight: 45 920;
+    font-style: normal;
+    font-display: swap;
+    src: url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2/PretendardVariable.woff2') format('woff2-variations');
+    unicode-range: U+1100-11FF, U+3130-318F, U+A960-A97F, U+D7B0-D7FF,
+                   U+4E00-9FFF, U+F900-FAFF;
+}
+"""
+
+
+def ksx1001_hangul():
+    """The 2,350 precomposed Hangul syllables of KS X 1001 (EUC-KR rows B0-C8)."""
+    chars = []
+    for b1 in range(0xB0, 0xC9):
+        for b2 in range(0xA1, 0xFF):
+            try:
+                chars.append(bytes([b1, b2]).decode("euc_kr"))
+            except UnicodeDecodeError:
+                pass
+    return "".join(chars)
+
+
+def build_pretendard_subset(full_woff2_url):
+    """Subset the 2 MB Pretendard Variable font to Latin + KS X 1001 Hangul.
+
+    Writes public/fonts/PretendardVariable-KR.woff2.  Returns False (caller
+    falls back to the CDN-only CSS) when fontTools/brotli are unavailable.
+    """
+    try:
+        from fontTools import subset
+        import brotli  # noqa: F401  (required for woff2 output)
+    except ImportError:
+        print("  fontTools/brotli not available; keeping CDN-only CSS",
+              file=sys.stderr)
+        return False
+
+    os.makedirs("public/fonts", exist_ok=True)
+    out_path = os.path.join("public/fonts", "PretendardVariable-KR.woff2")
+    data = fetch(full_woff2_url)
+    src_path = out_path + ".full.tmp"
+    with open(src_path, "wb") as fh:
+        fh.write(data)
+    text_path = out_path + ".text.tmp"
+    with open(text_path, "w", encoding="utf-8") as fh:
+        fh.write(ksx1001_hangul())
+    try:
+        subset.main([
+            src_path,
+            f"--output-file={out_path}",
+            "--flavor=woff2",
+            f"--text-file={text_path}",
+            "--unicodes=U+0000-00FF,U+0100-017F,U+2000-206F,U+20AC,U+2122,"
+            "U+2190-21FF,U+3000-303F,U+FF00-FFEF",
+            "--layout-features=*",
+            "--name-IDs=*",
+            "--name-legacy",
+            "--name-languages=*",
+        ])
+    finally:
+        for tmp in (src_path, text_path):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    print(f"  wrote {out_path} ({os.path.getsize(out_path) // 1024} KiB)")
+    return True
+
 
 def fetch(url, headers=None, timeout=60):
     req_headers = {"User-Agent": USER_AGENT}
@@ -177,13 +264,22 @@ def main():
     google_css = resolve_font_urls(google_css, base_url=google_fonts_url)
     save(os.path.join("public/css", "google-fonts.css"), google_css)
 
-    print("Downloading Pretendard variable font CSS...")
-    pretendard_url = (
+    print("Building Pretendard variable font CSS (local KR subset + CDN fallback)...")
+    pretendard_full_url = (
         "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9"
-        "/dist/web/variable/pretendardvariable.min.css"
+        "/packages/pretendard/dist/web/variable/woff2/PretendardVariable.woff2"
     )
-    pretendard_css = fetch(pretendard_url).decode("utf-8", errors="replace")
-    pretendard_css = resolve_font_urls(pretendard_css, base_url=pretendard_url)
+    subset_ok = build_pretendard_subset(pretendard_full_url)
+    if subset_ok:
+        pretendard_css = PRETENDARD_SUBSET_CSS
+    else:
+        # fontTools unavailable: keep the previous plain CDN @font-face.
+        pretendard_url = (
+            "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9"
+            "/dist/web/variable/pretendardvariable.min.css"
+        )
+        pretendard_css = fetch(pretendard_url).decode("utf-8", errors="replace")
+        pretendard_css = resolve_font_urls(pretendard_css, base_url=pretendard_url)
     save(os.path.join("public/css", "pretendard.css"), pretendard_css)
 
     print("Writing D2Coding font-face CSS...")
