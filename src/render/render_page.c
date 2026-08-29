@@ -214,6 +214,27 @@ static cwist_html_element_t *notif_bell_link(int count, const char *extra_class)
     return bell;
 }
 
+/* The hero background is the LCP element but its URL is only known once the
+ * body is rendered; lift the exact src into a head preload so the browser
+ * starts the fetch before it parses the body. */
+static void append_hero_preload(cwist_sstring *head, const char *body_html) {
+    if (!body_html) return;
+    const char *hero = strstr(body_html, "class='hero-bg'");
+    if (!hero) return;
+    const char *src = strstr(hero, "src='");
+    if (!src) return;
+    src += 5;
+    const char *end = strchr(src, '\'');
+    if (!end || end == src || (size_t)(end - src) >= 512) return;
+    char url[512];
+    memcpy(url, src, (size_t)(end - src));
+    url[end - src] = '\0';
+    if (strncmp(url, "/assets/", 8) != 0 && strncmp(url, "data:", 5) != 0) return;
+    cwist_sstring_append(head, "<link rel=\"preload\" as=\"image\" href=\"");
+    cwist_sstring_append_escaped(head, url);
+    cwist_sstring_append(head, "\" fetchpriority=\"high\">");
+}
+
 cwist_sstring *render_page(const char *title, const char *body_html, bool dark, const char *user_role, const char *profile_pic, bool is_mobile) {
 
     /* Consume and reset the per-request TLS so a count set for this render
@@ -576,6 +597,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             inline_assets_t *a = get_inline_assets();
             cwist_sstring *head_shell = cwist_sstring_create();
             if (head_shell) {
+                append_hero_preload(head_shell, body_html);
                 /* Fonts are split: the large Google Fonts sheet is always
                  * loaded separately so it does not bloat the first payload.
                  * The small local fallbacks are inlined when shell inlining is
@@ -784,7 +806,12 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         if (pos_body_app) {
             cwist_sstring *body_app = cwist_sstring_create();
             if (body_app) {
-                if (g_config.use_tasfa) {
+                /* The TASFA downloader is ~80 KB and only acts on pages that
+                 * actually render downloadable media/links (or the markdown
+                 * editor, which calls into it for previews).  Skip the fetch
+                 * entirely on pages without any TASFA hooks. */
+                if (g_config.use_tasfa && body_html &&
+                    (strstr(body_html, "data-tasfa") || strstr(body_html, "editor.js"))) {
                     cwist_sstring_append(body_app,
                         "<script src=\"/assets/js/tasfa-download.js?v=animated-video-v1\" defer></script>");
                 }

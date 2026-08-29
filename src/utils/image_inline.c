@@ -141,6 +141,116 @@ static unsigned char *load_image_any(const char *path, int *w, int *h, int *chan
 #endif
 }
 
+#ifdef HAVE_WEBP
+/* Bilinear downscale in place-ish: returns a new buffer when the image is
+ * wider than max_w, preserving aspect ratio.  Identity when already small. */
+static unsigned char *downscale_to_width(const unsigned char *px, int w, int h, int ch,
+                                         int max_w, int *out_w, int *out_h) {
+    if (w <= max_w) { *out_w = w; *out_h = h; return NULL; }
+    int nw = max_w;
+    int nh = (int)((long)h * max_w / w);
+    if (nh < 1) nh = 1;
+    unsigned char *out = (unsigned char *)malloc((size_t)nw * nh * ch);
+    if (!out) { *out_w = w; *out_h = h; return NULL; }
+    for (int y = 0; y < nh; y++) {
+        float sy = (y + 0.5f) * h / nh - 0.5f;
+        int y0 = (int)sy; if (y0 < 0) y0 = 0;
+        int y1 = y0 + 1; if (y1 >= h) y1 = h - 1;
+        float fy = sy - y0; if (fy < 0) fy = 0;
+        for (int x = 0; x < nw; x++) {
+            float sx = (x + 0.5f) * w / nw - 0.5f;
+            int x0 = (int)sx; if (x0 < 0) x0 = 0;
+            int x1 = x0 + 1; if (x1 >= w) x1 = w - 1;
+            float fx = sx - x0; if (fx < 0) fx = 0;
+            const unsigned char *p00 = px + ((size_t)y0 * w + x0) * ch;
+            const unsigned char *p10 = px + ((size_t)y0 * w + x1) * ch;
+            const unsigned char *p01 = px + ((size_t)y1 * w + x0) * ch;
+            const unsigned char *p11 = px + ((size_t)y1 * w + x1) * ch;
+            unsigned char *dst = out + ((size_t)y * nw + x) * ch;
+            for (int c = 0; c < ch; c++) {
+                float v = p00[c] * (1 - fx) * (1 - fy) + p10[c] * fx * (1 - fy)
+                        + p01[c] * (1 - fx) * fy + p11[c] * fx * fy;
+                dst[c] = (unsigned char)(v + 0.5f);
+            }
+        }
+    }
+    *out_w = nw; *out_h = nh;
+    return out;
+}
+
+/* PageSpeed: branding/hero assets are often uploaded as multi-MB PNGs far
+ * larger than their rendered size.  Re-encode them as lossy WebP, capped at
+ * opt_max_width pixels wide, cached next to the source and rebuilt only when
+ * the source changes (mtime), mirroring the invert-variant cache.  Returns
+ * the variant URL, or NULL when the source cannot be improved. */
+static char *optimized_webp_url(const char *filename, int opt_max_width) {
+    if (!filename || !filename[0]) return NULL;
+    if (strchr(filename, '/')) return NULL; /* expect a plain basename */
+
+    char src_path[512];
+    snprintf(src_path, sizeof(src_path), "public/img/%s", filename);
+    struct stat sst;
+    if (stat(src_path, &sst) != 0 || sst.st_size <= 0) return NULL;
+
+    char variant[300];
+    int n = snprintf(variant, sizeof(variant), "opt%dw-%s.webp", opt_max_width, filename);
+    if (n < 0 || n >= (int)sizeof(variant)) return NULL;
+
+    char dst_path[600];
+    snprintf(dst_path, sizeof(dst_path), "public/img/%s", variant);
+    struct stat dst;
+    if (stat(dst_path, &dst) == 0 && dst.st_mtime >= sst.st_mtime &&
+        dst.st_size > 0 && dst.st_size < sst.st_size) {
+        return external_image_url(variant);
+    }
+
+    int w = 0, h = 0, ch = 0;
+    unsigned char *pixels = load_image_any(src_path, &w, &h, &ch);
+    if (!pixels || w <= 0 || h <= 0) { if (pixels) stbi_image_free(pixels); return NULL; }
+
+    int ew = w, eh = h;
+    unsigned char *scaled = downscale_to_width(pixels, w, h, ch, opt_max_width, &ew, &eh);
+    const unsigned char *enc_px = scaled ? scaled : pixels;
+
+    /* Already-small files (or ones we cannot shrink) keep the original. */
+    uint8_t *webp = NULL;
+    size_t webp_size = 0;
+    if (ch == 4) {
+        webp_size = WebPEncodeRGBA(enc_px, ew, eh, ew * 4, 82.0f, &webp);
+    } else if (ch == 3 || ch == 1) {
+        unsigned char *rgb = NULL;
+        if (ch == 1) {
+            rgb = (unsigned char *)malloc((size_t)ew * eh * 3);
+            if (rgb) {
+                for (long i = 0; i < (long)ew * eh; i++)
+                    rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = enc_px[i * ch];
+                enc_px = rgb;
+            }
+        }
+        webp_size = WebPEncodeRGB(enc_px, ew, eh, ew * 3, 82.0f, &webp);
+        free(rgb);
+    }
+    free(scaled);
+    stbi_image_free(pixels);
+
+    if (!webp || webp_size >= (size_t)sst.st_size) {
+        if (webp) WebPFree(webp);
+        return NULL;
+    }
+    FILE *out = fopen(dst_path, "wb");
+    if (!out) { WebPFree(webp); return NULL; }
+    fwrite(webp, 1, webp_size, out);
+    fclose(out);
+    WebPFree(webp);
+    return external_image_url(variant);
+}
+#else
+static char *optimized_webp_url(const char *filename, int opt_max_width) {
+    (void)filename; (void)opt_max_width;
+    return NULL;
+}
+#endif
+
 static char *encode_image_to_webp_data_url(const char *path, size_t max_bytes) {
 #ifndef HAVE_WEBP
     (void)path; (void)max_bytes;
@@ -193,15 +303,22 @@ static char *encode_image_to_webp_data_url(const char *path, size_t max_bytes) {
 #endif
 }
 
-static void build_one(const char *filename, char **out_url, bool allow_inline, size_t max_bytes) {
+/* Width caps for the on-disk WebP variants: heroes render full-width (cap at
+ * a desktop viewport), logos/favicons render a few dozen CSS pixels tall. */
+#define OPT_MAX_WIDTH_BG 1920
+#define OPT_MAX_WIDTH_LOGO 512
+#define OPT_MAX_WIDTH_FAVICON 128
+
+static void build_one(const char *filename, char **out_url, bool allow_inline, size_t max_bytes,
+                      int opt_max_width) {
     if (!filename || !filename[0]) return;
-    if (!allow_inline) {
-        *out_url = external_image_url(filename);
-        return;
+    if (allow_inline) {
+        char path[512];
+        snprintf(path, sizeof(path), "public/img/%s", filename);
+        *out_url = encode_image_to_webp_data_url(path, max_bytes);
+        if (*out_url) return;
     }
-    char path[512];
-    snprintf(path, sizeof(path), "public/img/%s", filename);
-    *out_url = encode_image_to_webp_data_url(path, max_bytes);
+    *out_url = optimized_webp_url(filename, opt_max_width);
     if (!*out_url) {
         *out_url = external_image_url(filename);
     }
@@ -212,23 +329,26 @@ void image_inline_cache_build(void) {
 
     /* Hero/background images are large; only inline when explicitly requested
      * and still under the per-image size budget. */
-    build_one(g_config.home_img,   &g_inline_images.home_bg_url,   bg_images_inline_enabled(), max_img);
-    build_one(g_config.boards_img, &g_inline_images.boards_bg_url, bg_images_inline_enabled(), max_img);
-    build_one(g_config.files_img,  &g_inline_images.files_bg_url,  bg_images_inline_enabled(), max_img);
-    build_one(g_config.home_img_dark,   &g_inline_images.home_bg_dark_url,   bg_images_inline_enabled(), max_img);
-    build_one(g_config.boards_img_dark, &g_inline_images.boards_bg_dark_url, bg_images_inline_enabled(), max_img);
-    build_one(g_config.files_img_dark,  &g_inline_images.files_bg_dark_url,  bg_images_inline_enabled(), max_img);
+    build_one(g_config.home_img,   &g_inline_images.home_bg_url,   bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
+    build_one(g_config.boards_img, &g_inline_images.boards_bg_url, bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
+    build_one(g_config.files_img,  &g_inline_images.files_bg_url,  bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
+    build_one(g_config.home_img_dark,   &g_inline_images.home_bg_dark_url,   bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
+    build_one(g_config.boards_img_dark, &g_inline_images.boards_bg_dark_url, bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
+    build_one(g_config.files_img_dark,  &g_inline_images.files_bg_dark_url,  bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
 
     /* Logo/favicon are small identity assets; inline with the usual image flag,
      * but still respect the size cap. */
-    build_one(g_config.blog_logo,  &g_inline_images.logo_url,    image_inline_enabled(), max_img);
-    build_one(g_config.blog_logo_dark, &g_inline_images.logo_dark_url, image_inline_enabled(), max_img);
-    build_one(g_config.favicon,    &g_inline_images.favicon_url, image_inline_enabled(), max_img);
+    build_one(g_config.blog_logo,  &g_inline_images.logo_url,    image_inline_enabled(), max_img, OPT_MAX_WIDTH_LOGO);
+    build_one(g_config.blog_logo_dark, &g_inline_images.logo_dark_url, image_inline_enabled(), max_img, OPT_MAX_WIDTH_LOGO);
+    build_one(g_config.favicon,    &g_inline_images.favicon_url, image_inline_enabled(), max_img, OPT_MAX_WIDTH_FAVICON);
 
     /* If no custom logo is configured, use the default logo.png. */
     if (!g_inline_images.logo_url) {
         if (image_inline_enabled()) {
             g_inline_images.logo_url = encode_image_to_webp_data_url("public/img/logo.png", max_img);
+        }
+        if (!g_inline_images.logo_url) {
+            g_inline_images.logo_url = optimized_webp_url("logo.png", OPT_MAX_WIDTH_LOGO);
         }
         if (!g_inline_images.logo_url) {
             g_inline_images.logo_url = external_image_url("logo.png");
