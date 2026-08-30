@@ -196,7 +196,13 @@ static char *translate_text_via_mymemory(CURL *curl, const char *text, const cha
         cJSON *data = root ? cJSON_GetObjectItemCaseSensitive(root, "responseData") : NULL;
         cJSON *tt = data ? cJSON_GetObjectItemCaseSensitive(data, "translatedText") : NULL;
         if (cJSON_IsString(tt) && tt->valuestring && tt->valuestring[0]) {
-            translated = strdup(tt->valuestring);
+            /* MyMemory reports quota/limit failures as 200 OK with the error
+             * text stuffed into translatedText — never present those as a
+             * translation. */
+            if (strncmp(tt->valuestring, "MYMEMORY WARNING", 16) != 0 &&
+                strncmp(tt->valuestring, "QUERY LENGTH LIMIT", 18) != 0) {
+                translated = strdup(tt->valuestring);
+            }
         }
         if (root) cJSON_Delete(root);
     } else {
@@ -273,7 +279,15 @@ void handler_api_translate(cwist_http_request *req, cwist_http_response *res) {
             cJSON_AddItemToArray(out_array, cJSON_CreateString(trans));
             free(trans);
         } else {
-            cJSON_AddItemToArray(out_array, cJSON_CreateString(chunk->valuestring));
+            /* All upstreams failed: report an honest failure so the client can
+             * fall back to its on-device WASM translator instead of rendering
+             * untranslated text mixed into the page. */
+            CWIST_LOG_WARN("Translation failed for chunk %d/%d (src=%s tgt=%s)", i + 1, count, src_str, tgt_str);
+            curl_easy_cleanup(curl);
+            cJSON_Delete(input);
+            cJSON_Delete(out_array);
+            translation_json_error(res, CWIST_HTTP_SERVICE_UNAVAILABLE, "translation upstream unavailable");
+            return;
         }
     }
 
