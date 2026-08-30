@@ -195,12 +195,22 @@ static char *translate_text_via_mymemory(CURL *curl, const char *text, const cha
         cJSON *root = cJSON_ParseWithLength(buffer.body->data, buffer.body->size);
         cJSON *data = root ? cJSON_GetObjectItemCaseSensitive(root, "responseData") : NULL;
         cJSON *tt = data ? cJSON_GetObjectItemCaseSensitive(data, "translatedText") : NULL;
-        if (cJSON_IsString(tt) && tt->valuestring && tt->valuestring[0]) {
-            /* MyMemory reports quota/limit failures as 200 OK with the error
-             * text stuffed into translatedText — never present those as a
-             * translation. */
+        cJSON *rs = root ? cJSON_GetObjectItemCaseSensitive(root, "responseStatus") : NULL;
+        /* MyMemory reports failures (bad langpair, quota, limits) as HTTP 200
+         * with responseStatus != 200 and the error text stuffed into
+         * translatedText — never present those as a translation. */
+        bool status_ok = true;
+        if (cJSON_IsNumber(rs)) {
+            status_ok = ((int)cJSON_GetNumberValue(rs) == 200);
+        } else if (cJSON_IsString(rs) && rs->valuestring) {
+            status_ok = (atoi(rs->valuestring) == 200);
+        }
+        if (status_ok && cJSON_IsString(tt) && tt->valuestring && tt->valuestring[0]) {
             if (strncmp(tt->valuestring, "MYMEMORY WARNING", 16) != 0 &&
-                strncmp(tt->valuestring, "QUERY LENGTH LIMIT", 18) != 0) {
+                strncmp(tt->valuestring, "QUERY LENGTH LIMIT", 18) != 0 &&
+                strncmp(tt->valuestring, "INVALID ", 8) != 0 &&
+                strncmp(tt->valuestring, "NO QUERY SPECIFIED", 18) != 0 &&
+                strncmp(tt->valuestring, "PLEASE SELECT", 13) != 0) {
                 translated = strdup(tt->valuestring);
             }
         }
