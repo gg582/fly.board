@@ -14,6 +14,55 @@
     var activeRequestId = 0;
     var originalBlocks = [];
 
+    /* ---- On-device WASM fallback (transformers.js + opus-mt) ----
+     * Used when the server-side providers are rate-limited or down.  The
+     * model (~80 MB) downloads once and is cached by the browser. */
+    var wasmPipelines = {};
+    var wasmUnavailable = {};
+
+    function wasmModelCandidates(src, tgt) {
+        return [
+            'Xenova/opus-mt-' + src + '-' + tgt,
+            'Xenova/opus-mt-tc-big-' + src + '-' + tgt
+        ];
+    }
+
+    async function getWasmPipeline(src, tgt) {
+        var pairKey = src + '|' + tgt;
+        if (wasmUnavailable[pairKey]) throw new Error('no wasm model for ' + pairKey);
+        if (!wasmPipelines[pairKey]) {
+            wasmPipelines[pairKey] = (async function() {
+                var mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+                mod.env.allowLocalModels = false;
+                var candidates = wasmModelCandidates(src, tgt);
+                var lastError = null;
+                for (var i = 0; i < candidates.length; i++) {
+                    try {
+                        return await mod.pipeline('translation', candidates[i]);
+                    } catch (e) {
+                        lastError = e;
+                    }
+                }
+                throw lastError || new Error('no wasm model for ' + pairKey);
+            })();
+            wasmPipelines[pairKey].catch(function() {
+                wasmUnavailable[pairKey] = true;
+                delete wasmPipelines[pairKey];
+            });
+        }
+        return wasmPipelines[pairKey];
+    }
+
+    async function translateChunksWasm(chunks, src, tgt) {
+        var pipe = await getWasmPipeline(src, tgt);
+        var parts = [];
+        for (var i = 0; i < chunks.length; i++) {
+            var out = await pipe(chunks[i]);
+            parts.push(out && out[0] && out[0].translation_text ? out[0].translation_text : chunks[i]);
+        }
+        return parts;
+    }
+
     function setState(next) {
         state = next;
         var busy = next === 'loading' || next === 'translating';
@@ -133,26 +182,43 @@
         var timeout = controller ? setTimeout(function() { controller.abort(); }, 60000) : null;
         try {
             var batchSize = 6;
+            var wasmMode = false;
             for (var i = 0; i < blocks.length; i += batchSize) {
                 if (activeRequestId !== currentRequestId) return;
                 var batchBlocks = blocks.slice(i, i + batchSize);
                 var chunks = batchBlocks.map(function(b) { return b.text; });
-                var response = await fetch('/api/translate', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    signal: controller ? controller.signal : undefined,
-                    body: JSON.stringify({source: sourceLanguage, target: target, chunks: chunks})
-                });
-                var result = await response.json();
-                if (!response.ok || !result.ok || !Array.isArray(result.parts)) {
-                    throw new Error(result.error || 'Translation request failed (' + response.status + ')');
+                var parts = null;
+                if (!wasmMode) {
+                    try {
+                        var response = await fetch('/api/translate', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            signal: controller ? controller.signal : undefined,
+                            body: JSON.stringify({source: sourceLanguage, target: target, chunks: chunks})
+                        });
+                        var result = await response.json();
+                        if (!response.ok || !result.ok || !Array.isArray(result.parts)) {
+                            throw new Error(result.error || 'Translation request failed (' + response.status + ')');
+                        }
+                        parts = result.parts;
+                    } catch (serverError) {
+                        if (controller && controller.signal.aborted) throw serverError;
+                        /* Server providers are rate-limited/down: switch the
+                         * rest of the job to the on-device WASM translator. */
+                        console.warn('Server translation failed, falling back to WASM:', serverError);
+                        wasmMode = true;
+                    }
+                }
+                if (wasmMode) {
+                    status.textContent = 'Server unavailable — translating on your device (first run downloads a model)…';
+                    parts = await translateChunksWasm(chunks, sourceLanguage, target);
                 }
                 if (activeRequestId !== currentRequestId) return;
-                for (var j = 0; j < result.parts.length; j++) {
+                for (var j = 0; j < parts.length; j++) {
                     var idx = i + j;
                     if (blocks[idx]) {
                         var targetNode = blocks[idx].element;
-                        targetNode.textContent = result.parts[j];
+                        targetNode.textContent = parts[j];
                         targetNode.style.opacity = '1';
                     }
                 }
