@@ -19,7 +19,7 @@
 #define RS_RESULT_TTL_SEC 2
 
 /* Safety timeout for a leader that never finishes. */
-#define RS_LEADER_TTL_SEC 30
+#define RS_LEADER_TTL_SEC 5
 
 typedef enum {
     RS_IN_PROGRESS,

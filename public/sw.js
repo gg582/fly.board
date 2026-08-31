@@ -344,11 +344,9 @@ function fetchWithRetry(request, options) {
     var triedFirefoxFallback = false;
 
     function delay() {
-        var exp = Math.min(retries, 4); // 5s * 2^4 = 80s, clamped to 90s ceiling
-        var d = Math.min(baseDelay * Math.pow(2, exp), maxDelay);
-        // ±2000 ms jitter: wide enough to desynchronise clients on the same
-        // KR-> [US West] -> EU -> NG path that all drop at once.
-        d += Math.floor(Math.random() * 2000);
+        var exp = Math.min(retries, 4);
+        var d = Math.min(baseDelay * Math.pow(1.5, exp), maxDelay);
+        d += Math.floor(Math.random() * 100);
         return new Promise(function(resolve) { setTimeout(resolve, d); });
     }
 
