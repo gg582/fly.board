@@ -39,10 +39,8 @@ bool is_dark(cwist_http_request *req) {
 void redirect(cwist_http_response *res, const char *url) {
     res->status_code = (cwist_http_status_t)302;
     cwist_http_header_add(&res->headers, "Location", url);
-    cwist_sstring_assign(res->body, "Redirecting...");
-    char len_buf[32];
-    snprintf(len_buf, sizeof(len_buf), "%zu", res->body->size);
-    cwist_http_header_add(&res->headers, "Content-Length", len_buf);
+    cwist_sstring_assign(res->body, "");
+    cwist_http_header_add(&res->headers, "Content-Length", "0");
 }
 
 /* Extract scheme://host[:port] from root_url (e.g. https://example.com:8443/).
