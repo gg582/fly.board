@@ -98,32 +98,47 @@ static bool origins_match(const char *a, const char *b) {
     return true;
 }
 
-/* Redirect to the Referer URL only when it is same-origin or a local path.
+static bool is_asset_or_sw_path(const char *path) {
+    if (!path) return false;
+    if (strncmp(path, "/assets/", 8) == 0) return true;
+    if (strcmp(path, "/sw.js") == 0 || strncmp(path, "/sw.js?", 7) == 0) return true;
+    return false;
+}
+
+/* Redirect to the Referer URL only when it is same-origin or a local path,
+ * and does not point to a static asset or service worker script.
  * Prevents open-redirect attacks via a forged Referer header. */
 void redirect_referer_safe(cwist_http_response *res, const char *referer, const char *fallback) {
     if (referer && referer[0]) {
         if (referer[0] == '/' && referer[1] != '/') {
-            redirect(res, referer);
-            return;
-        }
-
-        const char *origin = site_origin();
-        size_t origin_len = strlen(origin);
-        if (strncmp(referer, origin, origin_len) == 0 &&
-            (referer[origin_len] == '/' || referer[origin_len] == '\0')) {
-            const char *path = referer + origin_len;
-            redirect(res, (path[0] == '/') ? path : "/");
-            return;
-        }
-
-        /* Extract pathname if scheme://host:port/... */
-        const char *scheme_sep = strstr(referer, "://");
-        if (scheme_sep) {
-            const char *host_start = scheme_sep + 3;
-            const char *path_start = strchr(host_start, '/');
-            if (path_start && path_start[0] == '/' && path_start[1] != '/') {
-                redirect(res, path_start);
+            if (!is_asset_or_sw_path(referer)) {
+                redirect(res, referer);
                 return;
+            }
+        } else {
+            const char *origin = site_origin();
+            size_t origin_len = strlen(origin);
+            if (strncmp(referer, origin, origin_len) == 0 &&
+                (referer[origin_len] == '/' || referer[origin_len] == '\0')) {
+                const char *path = referer + origin_len;
+                const char *target = (path[0] == '/') ? path : "/";
+                if (!is_asset_or_sw_path(target)) {
+                    redirect(res, target);
+                    return;
+                }
+            } else {
+                /* Extract pathname if scheme://host:port/... */
+                const char *scheme_sep = strstr(referer, "://");
+                if (scheme_sep) {
+                    const char *host_start = scheme_sep + 3;
+                    const char *path_start = strchr(host_start, '/');
+                    if (path_start && path_start[0] == '/' && path_start[1] != '/') {
+                        if (!is_asset_or_sw_path(path_start)) {
+                            redirect(res, path_start);
+                            return;
+                        }
+                    }
+                }
             }
         }
     }

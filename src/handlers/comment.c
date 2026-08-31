@@ -117,8 +117,25 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
     } else {
         CWIST_LOG_WARN("Comment creation failed: missing fields");
     }
+
+    char target_fallback[256] = "/";
+    if (target_type && target_id_str) {
+        if (strcmp(target_type, "post") == 0) {
+            cJSON *p = db_post_get_by_id(req->db, atoi(target_id_str));
+            if (p) {
+                cJSON *slug = cJSON_GetObjectItem(p, "slug");
+                if (slug && slug->valuestring && slug->valuestring[0]) {
+                    snprintf(target_fallback, sizeof(target_fallback), "/post/%s", slug->valuestring);
+                }
+                cJSON_Delete(p);
+            }
+        } else if (strcmp(target_type, "file") == 0) {
+            snprintf(target_fallback, sizeof(target_fallback), "/file/%s", target_id_str);
+        }
+    }
+
     cwist_query_map_destroy(kv);
-    redirect_referer_safe(res, referer, "/");
+    redirect_referer_safe(res, referer, target_fallback);
 }
 
 void handler_comment_edit_post(cwist_http_request *req, cwist_http_response *res) {
