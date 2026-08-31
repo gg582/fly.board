@@ -410,11 +410,13 @@ self.addEventListener('fetch', function(event) {
         // Don't intercept cross-origin requests (multi-port)
         if (new URL(url).origin !== self.location.origin) return;
 
-        // Bypass SW interception for auth routes, chunk transfers, handshakes, uploads,
+        // Bypass SW interception for auth routes, comments, chunk transfers, handshakes, uploads,
         // and requests with query credentials.
-        if (url.includes('/login') ||
+        if (event.request.method !== 'GET' ||
+            url.includes('/login') ||
             url.includes('/register') ||
             url.includes('/logout') ||
+            url.includes('/comment/') ||
             url.includes('/account/') ||
             url.includes('/chunk/') ||
             url.includes('/handshake') ||
