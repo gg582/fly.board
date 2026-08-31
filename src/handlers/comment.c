@@ -119,15 +119,18 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
     }
 
     char target_fallback[256] = "/";
-    if (target_type && target_id_str) {
+    if (target_type && target_id_str && target_id_str[0]) {
         if (strcmp(target_type, "post") == 0) {
-            cJSON *p = db_post_get_by_id(req->db, atoi(target_id_str));
-            if (p) {
-                cJSON *slug = cJSON_GetObjectItem(p, "slug");
-                if (slug && slug->valuestring && slug->valuestring[0]) {
-                    snprintf(target_fallback, sizeof(target_fallback), "/post/%s", slug->valuestring);
+            int tid = atoi(target_id_str);
+            if (tid > 0) {
+                cJSON *p = db_post_get_by_id(req->db, tid);
+                if (p) {
+                    cJSON *slug = cJSON_GetObjectItem(p, "slug");
+                    if (slug && slug->valuestring && slug->valuestring[0]) {
+                        snprintf(target_fallback, sizeof(target_fallback), "/post/%s", slug->valuestring);
+                    }
+                    cJSON_Delete(p);
                 }
-                cJSON_Delete(p);
             }
         } else if (strcmp(target_type, "file") == 0) {
             snprintf(target_fallback, sizeof(target_fallback), "/file/%s", target_id_str);
