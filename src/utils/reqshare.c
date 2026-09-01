@@ -31,6 +31,8 @@ typedef struct rs_entry {
     rs_state_t state;
     cwist_sstring *result;
     time_t expires_at;
+    int waiters;    /* threads currently blocked on cond */
+    bool unlinked;  /* removed from the bucket; freed once waiters drain */
     pthread_cond_t cond;
     struct rs_entry *next;
 } rs_entry_t;
@@ -59,6 +61,16 @@ static void free_entry(rs_entry_t *e) {
     if (e->result) cwist_sstring_destroy(e->result);
     pthread_cond_destroy(&e->cond);
     rs_free(e);
+}
+
+/* Unlink an entry from its bucket chain and free it only when no thread is
+ * still blocked on its condition variable.  Freeing an entry while a waiter
+ * sits inside pthread_cond_timedwait() is use-after-free: glibc detects it
+ * as heap corruption or the woken waiter crashes on the destroyed cond. */
+static void unlink_entry(rs_entry_t **prev, rs_entry_t *e) {
+    *prev = e->next;
+    e->unlinked = true;
+    if (e->waiters == 0) free_entry(e);
 }
 
 bool reqshare_init(void) {
@@ -100,8 +112,7 @@ cwist_sstring *reqshare_wait_or_start(const char *key, bool *leader) {
                     return copy;
                 }
                 /* Expired: drop it and let this request become the leader. */
-                *prev = e->next;
-                free_entry(e);
+                unlink_entry(prev, e);
                 break;
             }
             /* Another request is in flight.  Wait for it, but wake up
@@ -110,19 +121,29 @@ cwist_sstring *reqshare_wait_or_start(const char *key, bool *leader) {
              * request for the same key indefinitely and eventually starve the
              * worker pool on long-running servers. */
             bool leader_timed_out = false;
+            e->waiters++;
             while (e->state == RS_IN_PROGRESS) {
                 struct timespec ts;
                 clock_gettime(CLOCK_REALTIME, &ts);
                 ts.tv_sec += 1;
                 int rc = pthread_cond_timedwait(&e->cond, &g_mutex, &ts);
                 if (rc == ETIMEDOUT && e->state == RS_IN_PROGRESS && time(NULL) > e->expires_at) {
-                    *prev = e->next;
-                    free_entry(e);
+                    /* Wake the remaining waiters before unlinking so nobody
+                     * stays blocked on a soon-to-be-orphaned entry. */
+                    e->state = RS_DONE;
+                    e->expires_at = now; /* immediately stale */
+                    pthread_cond_broadcast(&e->cond);
                     leader_timed_out = true;
                     break;
                 }
             }
+            e->waiters--;
+            if (e->unlinked) {
+                if (e->waiters == 0) free_entry(e);
+                break;
+            }
             if (leader_timed_out) {
+                unlink_entry(prev, e);
                 break;
             }
             if (e->state == RS_DONE && e->expires_at > now) {
@@ -131,8 +152,7 @@ cwist_sstring *reqshare_wait_or_start(const char *key, bool *leader) {
                 return copy;
             }
             /* The leader finished with an expired/empty result.  Start fresh. */
-            *prev = e->next;
-            free_entry(e);
+            unlink_entry(prev, e);
             break;
         }
         prev = &e->next;
