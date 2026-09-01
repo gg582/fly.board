@@ -97,7 +97,8 @@ void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     const char *redirect_target = cwist_query_map_get(req->query_params, "redirect");
-    cwist_http_header_add(&res->headers, "Alt-Svc", "clear");
+    /* Alt-Svc is owned by the CWIST framework (h3 advertisement); the app must
+     * not add its own or the response ends up with duplicate Alt-Svc headers. */
     send_html_res(res, render_login(is_dark(req), NULL, is_mobile_request(req), redirect_target));
 }
 
