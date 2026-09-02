@@ -72,10 +72,19 @@ bool page_cache_set(const char *key, const char *data, size_t len, uint32_t ttl_
     pthread_mutex_lock(&g_mutex);
     uint32_t h = hash_str(key) % CACHE_BUCKETS;
 
-    /* Remove existing entry with the same key. */
+    /* Remove existing entry with the same key.  A pinned entry is being read
+     * by another thread right now; freeing it here is a use-after-free (and
+     * corrupts the tcache once the chunk is reused).  Mark it expired instead
+     * and skip the write — the last reader's release will reclaim it, and the
+     * next request can populate the cache fresh. */
     cache_entry_t **prev = &g_buckets[h];
     while (*prev) {
         if (strcmp((*prev)->key, key) == 0) {
+            if ((*prev)->pin_count > 0) {
+                (*prev)->expires_at = 0;
+                pthread_mutex_unlock(&g_mutex);
+                return false;
+            }
             cache_entry_t *old = *prev;
             *prev = old->next;
             free_entry(old);

@@ -142,17 +142,21 @@ cwist_sstring *reqshare_wait_or_start(const char *key, bool *leader) {
                 if (e->waiters == 0) free_entry(e);
                 break;
             }
-            if (leader_timed_out) {
-                unlink_entry(prev, e);
-                break;
-            }
-            if (e->state == RS_DONE && e->expires_at > now) {
+            if (!leader_timed_out && e->state == RS_DONE && e->expires_at > now) {
                 cwist_sstring *copy = copy_sstring(e->result);
                 pthread_mutex_unlock(&g_mutex);
                 return copy;
             }
-            /* The leader finished with an expired/empty result.  Start fresh. */
-            unlink_entry(prev, e);
+            /* The leader timed out, or finished with an expired/empty result.
+             * Unlink and start fresh.  `prev` was captured before the cond
+             * wait, and other threads may have unlinked/freed predecessor
+             * entries in this bucket while we slept, so re-walk the chain
+             * instead of trusting the stale link pointer. */
+            {
+                rs_entry_t **p = &g_buckets[h];
+                while (*p && *p != e) p = &(*p)->next;
+                if (*p) unlink_entry(p, e);
+            }
             break;
         }
         prev = &e->next;
