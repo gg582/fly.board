@@ -548,8 +548,8 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
                     *h = (*h)->next;
                     cwist_sstring_destroy(r->key);
                     cwist_sstring_destroy(r->value);
-                    /* Directly free the header node */
-                    cwist_free(r);
+                    /* Arena-owned nodes are reclaimed with the arena. */
+                    if (!r->arena_owned) cwist_free(r);
                 } else {
                     h = &(*h)->next;
                 }
