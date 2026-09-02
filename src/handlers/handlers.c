@@ -334,18 +334,7 @@ static void strip_html_binary_prefix(cwist_http_response *res) {
     memmove(res->body->data, doctype, len + 1);
     res->body->size = len;
 
-    cwist_http_header_node **node = &res->headers;
-    while (*node) {
-        if (strcmp((*node)->key->data, "Content-Length") == 0) {
-            cwist_http_header_node *old = *node;
-            *node = old->next;
-            cwist_sstring_destroy(old->key);
-            cwist_sstring_destroy(old->value);
-            if (!old->arena_owned) cwist_free(old);
-        } else {
-            node = &(*node)->next;
-        }
-    }
+    cwist_http_header_remove(&res->headers, "Content-Length");
     char length[32];
     snprintf(length, sizeof(length), "%zu", len);
     cwist_http_header_add(&res->headers, "Content-Length", length);
@@ -539,21 +528,9 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
                 0x02,0x00,0x01,0x73,0x75,0x01,0x18,0x00,0x00,0x00,0x00,0x49,0x45,0x4E,0x44,0xAE,
                 0x42,0x60,0x82
             };
-            cwist_http_header_node **h = &res->headers;
-            while (*h) {
-                if (strcmp((*h)->key->data, "Content-Type") == 0 ||
-                    strcmp((*h)->key->data, "Content-Length") == 0 ||
-                    strcmp((*h)->key->data, "Cache-Control") == 0) {
-                    cwist_http_header_node *r = *h;
-                    *h = (*h)->next;
-                    cwist_sstring_destroy(r->key);
-                    cwist_sstring_destroy(r->value);
-                    /* Arena-owned nodes are reclaimed with the arena. */
-                    if (!r->arena_owned) cwist_free(r);
-                } else {
-                    h = &(*h)->next;
-                }
-            }
+            cwist_http_header_remove(&res->headers, "Content-Type");
+            cwist_http_header_remove(&res->headers, "Content-Length");
+            cwist_http_header_remove(&res->headers, "Cache-Control");
             cwist_http_header_add(&res->headers, "Content-Type", "image/png");
             cwist_http_header_add(&res->headers, "Cache-Control", "no-store, no-cache, must-revalidate");
             char len_buf[8];

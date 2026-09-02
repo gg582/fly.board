@@ -43,7 +43,7 @@ bool fly_crypto_init(void) {
 #ifdef HAVE_PQC
     if (g_sign_key) return true;
     cwist_error_t err = cwist_pqc_sig_keygen(&g_sign_key);
-    return err.errtype == CWIST_ERR_INT16 && err.error.err_i16 == 0;
+    return cwist_error_is_ok(&err);
 #else
     return true;
 #endif
@@ -55,7 +55,7 @@ bool fly_crypto_sign(const uint8_t *msg, size_t msg_len, char **sig_b64) {
     uint8_t *sig = NULL;
     size_t sig_len = 0;
     cwist_error_t err = cwist_pqc_sig_sign(g_sign_key, msg, msg_len, &sig, &sig_len);
-    if (err.errtype != CWIST_ERR_INT16 || err.error.err_i16 != 0) return false;
+    if (!cwist_error_is_ok(&err)) return false;
     char *b64 = base64_encode(sig, sig_len);
     cwist_free(sig);
     if (!b64) return false;
@@ -88,7 +88,7 @@ bool fly_crypto_pubkey_export(char **pk_b64) {
     uint8_t *pk = NULL;
     size_t pk_len = 0;
     cwist_error_t err = cwist_pqc_sig_pubkey_export(g_sign_key, &pk, &pk_len);
-    if (err.errtype != CWIST_ERR_INT16 || err.error.err_i16 != 0) return false;
+    if (!cwist_error_is_ok(&err)) return false;
     char *b64 = base64_encode(pk, pk_len);
     cwist_free(pk);
     if (!b64) return false;

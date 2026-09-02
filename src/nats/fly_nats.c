@@ -167,19 +167,19 @@ bool fly_nats_init(const char *url) {
     if (g_nats) return true;
     if (!url) url = "nats://localhost:4222";
     cwist_error_t err = cwist_nats_connect(&g_nats, url);
-    if (err.errtype != CWIST_ERR_INT16 || err.error.err_i16 != 0) {
+    if (!cwist_error_is_ok(&err)) {
         FLY_LOG_ERROR("[fly_nats] connect failed");
         return false;
     }
     err = cwist_nats_subscribe(g_nats, "flyboard.posts", on_post_msg, NULL);
-    if (err.errtype != CWIST_ERR_INT16 || err.error.err_i16 != 0) {
+    if (!cwist_error_is_ok(&err)) {
         FLY_LOG_ERROR("[fly_nats] subscribe failed");
         cwist_nats_destroy(g_nats);
         g_nats = NULL;
         return false;
     }
     err = cwist_nats_subscribe(g_nats, "flyboard.comments", on_comment_msg, NULL);
-    if (err.errtype != CWIST_ERR_INT16 || err.error.err_i16 != 0) {
+    if (!cwist_error_is_ok(&err)) {
         FLY_LOG_ERROR("[fly_nats] subscribe failed");
         cwist_nats_destroy(g_nats);
         g_nats = NULL;
@@ -200,7 +200,7 @@ bool fly_nats_publish_post(const char *title, const char *slug, const char *summ
     if (!json) return false;
     cwist_error_t err = cwist_nats_publish_string(g_nats, "flyboard.posts", json);
     free(json);
-    return err.errtype == CWIST_ERR_INT16 && err.error.err_i16 == 0;
+    return cwist_error_is_ok(&err);
 #else
     (void)title; (void)slug; (void)summary;
     return true;
@@ -214,7 +214,7 @@ bool fly_nats_publish_comment(const char *origin, const char *actor_name, const 
     if (!json) return false;
     cwist_error_t err = cwist_nats_publish_string(g_nats, "flyboard.comments", json);
     free(json);
-    return err.errtype == CWIST_ERR_INT16 && err.error.err_i16 == 0;
+    return cwist_error_is_ok(&err);
 #else
     (void)origin; (void)actor_name; (void)kind; (void)post_slug; (void)recipient_user_id; (void)excerpt;
     return true;
