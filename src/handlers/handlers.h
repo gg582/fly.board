@@ -88,6 +88,7 @@ void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res);
 void handler_api_my_files(cwist_http_request *req, cwist_http_response *res);
 void handler_api_metrics(cwist_http_request *req, cwist_http_response *res);
 void handler_api_translate(cwist_http_request *req, cwist_http_response *res);
+void handler_api_reports(cwist_http_request *req, cwist_http_response *res);
 
 void handler_sw_js(cwist_http_request *req, cwist_http_response *res);
 void handler_tasfa_stream_placeholder(cwist_http_request *req, cwist_http_response *res);
