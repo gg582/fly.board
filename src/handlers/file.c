@@ -341,7 +341,9 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
         strncmp(req->version->data, "HTTP/1.", 7) == 0;
 
     if (is_http11_tls) {
-        char *buf = (char *)cwist_alloc(response_len);
+        /* +1: cwist_sstring_adopt_len terminates the buffer with a NUL at
+         * buf[response_len], so it must be part of the allocation. */
+        char *buf = (char *)cwist_alloc(response_len + 1);
         if (!buf) {
             close(fd);
             res->status_code = CWIST_HTTP_SERVICE_UNAVAILABLE;
@@ -365,7 +367,10 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
          * one file-length buffer instead of two, which raises the practical
          * size ceiling of the HTTP/1.1 TLS path. */
         cwist_error_t adopt_err = cwist_sstring_adopt_len(res->body, buf, total);
-        if (adopt_err.errtype != CWIST_ERR_INT16 || adopt_err.error.err_i16 != 0) {
+        /* adopt_len reports through the INT8 sstring channel, not INT16;
+         * checking the wrong channel misreads success as failure and leaves
+         * res->body->data dangling after the buffer is freed. */
+        if (adopt_err.errtype != CWIST_ERR_INT8 || adopt_err.error.err_i8 != ERR_SSTRING_OKAY) {
             cwist_free(buf);
             return false;
         }
