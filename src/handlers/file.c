@@ -367,10 +367,10 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
          * one file-length buffer instead of two, which raises the practical
          * size ceiling of the HTTP/1.1 TLS path. */
         cwist_error_t adopt_err = cwist_sstring_adopt_len(res->body, buf, total);
-        /* adopt_len reports through the INT8 sstring channel, not INT16;
-         * checking the wrong channel misreads success as failure and leaves
-         * res->body->data dangling after the buffer is freed. */
-        if (adopt_err.errtype != CWIST_ERR_INT8 || adopt_err.error.err_i8 != ERR_SSTRING_OKAY) {
+        /* Check via the channel-agnostic helper: open-coding the wrong
+         * channel here once misread success as failure and left
+         * res->body->data dangling after the buffer was freed. */
+        if (!cwist_error_is_ok(&adopt_err)) {
             cwist_free(buf);
             return false;
         }

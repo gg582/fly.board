@@ -1375,7 +1375,7 @@ static void rewrite_x_equation(cwist_sstring *html) {
 static void md_output_cb(const MD_CHAR *data, MD_SIZE size, void *userdata) {
     cwist_sstring *str = (cwist_sstring *)userdata;
     cwist_error_t err = cwist_sstring_append_len(str, data, size);
-    if (err.errtype != CWIST_ERR_INT8 || err.error.err_i8 != ERR_SSTRING_OKAY) {
+    if (!cwist_error_is_ok(&err)) {
         size_t new_size = (size_t)(str->size * 1.25f);
         if (new_size < str->size + size) new_size = str->size + size;
         cwist_sstring_change_size(str, new_size, false);
