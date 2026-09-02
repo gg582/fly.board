@@ -714,3 +714,49 @@ void handler_api_metrics(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring_assign(res->body, m->data);
     cwist_sstring_destroy(m);
 }
+
+/* ---- Network Error Logging (NEL) / Reporting API collector ----
+ * Browsers POST application/reports+json batches here (the site advertises
+ * this endpoint via the Report-To/NEL headers).  Each entry carries the
+ * client-side view of a network failure (QUIC/TCP resets, protocol errors)
+ * that never reaches our access log, so they are worth persisting to the
+ * journal at WARN level.  Best-effort: always answer 204. */
+#define NEL_MAX_BODY (64 * 1024)
+#define NEL_MAX_ENTRIES 32
+
+static const char *nel_str(cJSON *obj, const char *key) {
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(obj, key);
+    return (item && cJSON_IsString(item)) ? item->valuestring : "";
+}
+
+void handler_api_reports(cwist_http_request *req, cwist_http_response *res) {
+    res->status_code = CWIST_HTTP_NO_CONTENT;
+    cwist_sstring_assign(res->body, "");
+    cwist_http_header_add(&res->headers, "Content-Length", "0");
+
+    if (!req->body || !req->body->data || req->body->size == 0 || req->body->size > NEL_MAX_BODY) {
+        return;
+    }
+
+    cJSON *reports = cJSON_ParseWithLength(req->body->data, req->body->size);
+    if (!reports) return;
+
+    cJSON *entry = NULL;
+    int logged = 0;
+    cJSON_ArrayForEach(entry, reports) {
+        if (++logged > NEL_MAX_ENTRIES) break;
+        cJSON *body = cJSON_GetObjectItemCaseSensitive(entry, "body");
+        CWIST_LOG_WARN("[NEL] type=%s url=%s err=%s protocol=%s phase=%s status=%d method=%s server_ip=%s elapsed=%dms ua=%s",
+                       nel_str(entry, "type"),
+                       nel_str(entry, "url"),
+                       body ? nel_str(body, "type") : "",
+                       body ? nel_str(body, "protocol") : "",
+                       body ? nel_str(body, "phase") : "",
+                       body ? json_int(body, "status_code", 0) : 0,
+                       body ? nel_str(body, "method") : "",
+                       body ? nel_str(body, "server_ip") : "",
+                       body ? json_int(body, "elapsed_time", 0) : 0,
+                       nel_str(entry, "user_agent"));
+    }
+    cJSON_Delete(reports);
+}
