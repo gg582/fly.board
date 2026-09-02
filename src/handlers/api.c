@@ -719,8 +719,9 @@ void handler_api_metrics(cwist_http_request *req, cwist_http_response *res) {
  * Browsers POST application/reports+json batches here (the site advertises
  * this endpoint via the Report-To/NEL headers).  Each entry carries the
  * client-side view of a network failure (QUIC/TCP resets, protocol errors)
- * that never reaches our access log, so they are worth persisting to the
- * journal at WARN level.  Best-effort: always answer 204. */
+ * that never reaches our access log.  Logged at ERROR level because the
+ * process runs with WARN suppressed in production, and every NEL entry
+ * represents a request that failed for a real user. */
 #define NEL_MAX_BODY (64 * 1024)
 #define NEL_MAX_ENTRIES 32
 
@@ -746,7 +747,7 @@ void handler_api_reports(cwist_http_request *req, cwist_http_response *res) {
     cJSON_ArrayForEach(entry, reports) {
         if (++logged > NEL_MAX_ENTRIES) break;
         cJSON *body = cJSON_GetObjectItemCaseSensitive(entry, "body");
-        CWIST_LOG_WARN("[NEL] type=%s url=%s err=%s protocol=%s phase=%s status=%d method=%s server_ip=%s elapsed=%dms ua=%s",
+        CWIST_LOG_ERROR("[NEL] type=%s url=%s err=%s protocol=%s phase=%s status=%d method=%s server_ip=%s elapsed=%dms ua=%s",
                        nel_str(entry, "type"),
                        nel_str(entry, "url"),
                        body ? nel_str(body, "type") : "",
