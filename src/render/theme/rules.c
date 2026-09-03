@@ -324,6 +324,40 @@ void rule_layout(cJSON *rules) {
     add_decl(navitemh, "border-bottom-color", "var(--accent)");
     cJSON_AddItemToArray(rules, navitemh);
 
+    /* Notification bell: flat SVG icon inherits the nav-item color (accent
+     * on hover like the other items); the badge is a flat accent chip pinned
+     * to the bell's top-right corner. */
+    cJSON *notifbell = create_rule(".notif-bell");
+    add_decl(notifbell, "position", "relative");
+    add_decl(notifbell, "display", "inline-flex");
+    add_decl(notifbell, "align-items", "center");
+    add_decl(notifbell, "justify-content", "center");
+    cJSON_AddItemToArray(rules, notifbell);
+
+    cJSON *notificon = create_rule(".notif-bell-icon");
+    add_decl(notificon, "display", "block");
+    cJSON_AddItemToArray(rules, notificon);
+
+    cJSON *notifbadge = create_rule(".notif-badge");
+    add_decl(notifbadge, "position", "absolute");
+    add_decl(notifbadge, "top", "1px");
+    add_decl(notifbadge, "right", "0");
+    add_decl(notifbadge, "min-width", "16px");
+    add_decl(notifbadge, "height", "16px");
+    add_decl(notifbadge, "padding", "0 4px");
+    add_decl(notifbadge, "box-sizing", "border-box");
+    add_decl(notifbadge, "border-radius", radius_str(8));
+    add_decl(notifbadge, "background", "var(--accent)");
+    add_decl(notifbadge, "color", "var(--bg)");
+    add_decl(notifbadge, "font-size", "10px");
+    add_decl(notifbadge, "font-weight", "700");
+    add_decl(notifbadge, "line-height", "1");
+    add_decl(notifbadge, "display", "flex");
+    add_decl(notifbadge, "align-items", "center");
+    add_decl(notifbadge, "justify-content", "center");
+    add_decl(notifbadge, "pointer-events", "none");
+    cJSON_AddItemToArray(rules, notifbadge);
+
     cJSON *board_dd = create_rule(".nav-board-dropdown, .nav-admin-dropdown");
     add_decl(board_dd, "position", "relative");
     add_decl(board_dd, "display", "inline-flex");
