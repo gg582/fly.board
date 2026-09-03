@@ -29,6 +29,27 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     const char *logo_url = dark ? logo_d : logo_l;
     if (!logo_url) logo_url = image_inline_logo();
     if (!logo_url) logo_url = "/assets/img/logo.png";
+    /* Serve the logo at its rendered size (?w=&h= makes the asset handler
+     * pick a small variant) and reserve the box with intrinsic dimensions,
+     * mirroring the post page hero. */
+    char logo_sized[600];
+    const char *logo_final = logo_url;
+    int logo_w = 0, logo_h = 0;
+    if (strncmp(logo_url, "/assets/img/", 12) == 0) {
+        image_file_dimensions_from_url(logo_url, &logo_w, &logo_h);
+        snprintf(logo_sized, sizeof(logo_sized), "%s?w=256&h=256", logo_url);
+        logo_final = logo_sized;
+    }
+    char swap_l_buf[600], swap_d_buf[600];
+    const char *swap_l = logo_l, *swap_d = logo_d;
+    if (logo_l && strncmp(logo_l, "/assets/img/", 12) == 0) {
+        snprintf(swap_l_buf, sizeof(swap_l_buf), "%s?w=256&h=256", logo_l);
+        swap_l = swap_l_buf;
+    }
+    if (logo_d && strncmp(logo_d, "/assets/img/", 12) == 0) {
+        snprintf(swap_d_buf, sizeof(swap_d_buf), "%s?w=256&h=256", logo_d);
+        swap_d = swap_d_buf;
+    }
     char flt_l[320], flt_d[320];
     snprintf(flt_l, sizeof(flt_l), "%s%s%s", boards_modes[0].logo_filter,
              (boards_modes[0].logo_filter[0] && logo_css_l) ? " " : "",
@@ -38,13 +59,18 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
              logo_css_d ? "invert(1) hue-rotate(180deg) saturate(0.55)" : "");
     const char *flt_cur = dark ? flt_d : flt_l;
     cwist_sstring_append(b, "><img class='hero-logo' src='");
-    cwist_sstring_append(b, logo_url);
+    cwist_sstring_append(b, logo_final);
     cwist_sstring_append(b, "' alt='Logo'");
-    if (logo_l && logo_d && strcmp(logo_l, logo_d) != 0) {
+    if (logo_w > 0 && logo_h > 0) {
+        char logo_dims[64];
+        snprintf(logo_dims, sizeof(logo_dims), " width='%d' height='%d'", logo_w, logo_h);
+        cwist_sstring_append(b, logo_dims);
+    }
+    if (swap_l && swap_d && strcmp(swap_l, swap_d) != 0) {
         cwist_sstring_append(b, " data-logo-img='1' data-img-light='");
-        cwist_sstring_append_escaped(b, logo_l);
+        cwist_sstring_append_escaped(b, swap_l);
         cwist_sstring_append(b, "' data-img-dark='");
-        cwist_sstring_append_escaped(b, logo_d);
+        cwist_sstring_append_escaped(b, swap_d);
         cwist_sstring_append(b, "' data-filter-light='");
         cwist_sstring_append_escaped(b, flt_l);
         cwist_sstring_append(b, "' data-filter-dark='");
