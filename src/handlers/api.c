@@ -594,15 +594,112 @@ void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res) {
 void handler_robots_txt(cwist_http_request *req, cwist_http_response *res) {
     (void)req;
     cwist_sstring *robots = cwist_sstring_create();
-    cwist_sstring_append(robots, "User-agent: *\nAllow: /\n");
-    cwist_sstring_append(robots, "Sitemap: ");
-    append_rss_link(robots, g_config.root_url, "/sitemap.xml");
-    cwist_sstring_append(robots, "\n");
+    const char *rlvl = robots_level();
+    if (strcmp(rlvl, "block") == 0) {
+        cwist_sstring_append(robots, "User-agent: *\nDisallow: /\n");
+    } else {
+        cwist_sstring_append(robots, "User-agent: *\nAllow: /\n");
+        if (strcmp(rlvl, "restrict") == 0) {
+            cwist_sstring_append(robots,
+                "Disallow: /admin\n"
+                "Disallow: /admin/\n"
+                "Disallow: /api/\n"
+                "Disallow: /login\n"
+                "Disallow: /logout\n"
+                "Disallow: /register\n"
+                "Disallow: /profile\n"
+                "Disallow: /notifications\n"
+                "Disallow: /notification\n");
+        }
+        cwist_sstring_append(robots, "Sitemap: ");
+        append_rss_link(robots, g_config.root_url, "/sitemap.xml");
+        cwist_sstring_append(robots, "\n");
+    }
+
+    /* AI/LLM policy: restrict and block both keep known training crawlers
+     * out; the difference is only whether /llms.txt itself is served. */
+    if (strcmp(llms_level(), "allow") != 0) {
+        static const char *const ai_bots[] = {
+            "GPTBot", "ChatGPT-User", "OAI-SearchBot", "ClaudeBot",
+            "Claude-User", "anthropic-ai", "CCBot", "Google-Extended",
+            "PerplexityBot", "Bytespider", "Amazonbot", "meta-externalagent",
+            "FacebookBot", "Applebot-Extended", "cohere-ai", "Diffbot",
+            "ImagesiftBot", "Omgilibot", "YouBot",
+        };
+        for (size_t i = 0; i < sizeof(ai_bots) / sizeof(ai_bots[0]); i++) {
+            cwist_sstring_append(robots, "User-agent: ");
+            cwist_sstring_append(robots, ai_bots[i]);
+            cwist_sstring_append(robots, "\nDisallow: /\n");
+        }
+    }
 
     cwist_http_header_add(&res->headers, "Content-Type", "text/plain; charset=utf-8");
     cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=3600");
     cwist_sstring_assign(res->body, robots->data);
     cwist_sstring_destroy(robots);
+}
+
+void handler_llms_txt(cwist_http_request *req, cwist_http_response *res) {
+    if (strcmp(llms_level(), "block") == 0) {
+        res->status_code = 404;
+        cwist_http_header_add(&res->headers, "Content-Type", "text/plain; charset=utf-8");
+        cwist_sstring_assign(res->body, "Not found\n");
+        return;
+    }
+
+    /* llmstxt.org convention: H1 name, blockquote summary, then link lists. */
+    cwist_sstring *b = cwist_sstring_create();
+    cwist_sstring_append(b, "# ");
+    cwist_sstring_append(b, g_config.title);
+    cwist_sstring_append(b, "\n\n> ");
+    cwist_sstring_append(b, g_config.subtitle);
+    cwist_sstring_append(b, "\n\n## Site\n\n");
+    cwist_sstring_append(b, "- [Home](");
+    cwist_sstring_append(b, g_config.root_url);
+    cwist_sstring_append(b, ")\n- [Boards](");
+    append_rss_link(b, g_config.root_url, "/boards");
+    cwist_sstring_append(b, ")\n- [Files](");
+    append_rss_link(b, g_config.root_url, "/files");
+    cwist_sstring_append(b, ")\n- [Sitemap](");
+    append_rss_link(b, g_config.root_url, "/sitemap.xml");
+    cwist_sstring_append(b, ")\n");
+    if (g_config.use_rss) {
+        cwist_sstring_append(b, "- [RSS](");
+        append_rss_link(b, g_config.root_url, "/rss.xml");
+        cwist_sstring_append(b, ")\n");
+    }
+
+    cJSON *posts = db_post_list_search(req->db, 0, NULL, NULL, 20, 0);
+    if (posts) {
+        int n = cJSON_GetArraySize(posts);
+        bool header_printed = false;
+        for (int i = 0; i < n; i++) {
+            cJSON *p = cJSON_GetArrayItem(posts, i);
+            cJSON *secret = cJSON_GetObjectItem(p, "is_secret");
+            if (secret && secret->valueint) continue;
+            cJSON *slug = cJSON_GetObjectItem(p, "slug");
+            if (!slug || !slug->valuestring || !slug->valuestring[0]) continue;
+            cJSON *title = cJSON_GetObjectItem(p, "title");
+            const char *title_s = (title && title->valuestring && title->valuestring[0])
+                                  ? title->valuestring : slug->valuestring;
+            if (!header_printed) {
+                cwist_sstring_append(b, "\n## Recent posts\n\n");
+                header_printed = true;
+            }
+            cwist_sstring_append(b, "- [");
+            cwist_sstring_append(b, title_s);
+            cwist_sstring_append(b, "](");
+            append_rss_link(b, g_config.root_url, "/post/");
+            cwist_sstring_append(b, slug->valuestring);
+            cwist_sstring_append(b, ")\n");
+        }
+        cJSON_Delete(posts);
+    }
+
+    cwist_http_header_add(&res->headers, "Content-Type", "text/markdown; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=3600");
+    cwist_sstring_assign(res->body, b->data);
+    cwist_sstring_destroy(b);
 }
 
 /* ---- My Files ---- */

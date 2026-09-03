@@ -435,6 +435,14 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             snprintf(logo_sized_d, sizeof(logo_sized_d), "%s?w=256&h=256", logo_d);
             logo_swap_d = logo_sized_d;
         }
+        /* Responsive logo candidates via the asset handler's ?w=&h= thumbs;
+         * the theme toggle swaps srcset alongside src (layout.js).  The
+         * current-mode srcset uses the effective URL so the default-logo
+         * fallback is covered too. */
+        char logo_ss_cur[1400] = {0}, logo_ss_l[1400] = {0}, logo_ss_d[1400] = {0};
+        bool has_ss_cur = image_logo_srcset(logo_cur, logo_w, logo_h, logo_ss_cur, sizeof(logo_ss_cur));
+        bool has_ss_l = logo_l && image_logo_srcset(logo_l, logo_w, logo_h, logo_ss_l, sizeof(logo_ss_l));
+        bool has_ss_d = logo_d && image_logo_srcset(logo_d, logo_w, logo_h, logo_ss_d, sizeof(logo_ss_d));
         /* Per-mode filters combine the background contrast analysis with the
          * rare CSS inversion fallback. */
         char flt_l[320], flt_d[320];
@@ -448,11 +456,30 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         cwist_sstring_append(b, "><img class='hero-logo' src='");
         cwist_sstring_append(b, logo_final);
         cwist_sstring_append(b, "' alt='Logo'");
+        if (has_ss_cur) {
+            cwist_sstring_append(b, " srcset='");
+            cwist_sstring_append_escaped(b, logo_ss_cur);
+            cwist_sstring_append(b, "'");
+            if (logo_w > 0 && logo_h > 0) {
+                char logo_sizes[40];
+                snprintf(logo_sizes, sizeof(logo_sizes), " sizes='%dpx'",
+                         (int)((100L * logo_w + logo_h / 2) / logo_h));
+                cwist_sstring_append(b, logo_sizes);
+            }
+        }
         if (logo_swap_l && logo_swap_d && strcmp(logo_swap_l, logo_swap_d) != 0) {
             cwist_sstring_append(b, " data-logo-img='1' data-img-light='");
             cwist_sstring_append_escaped(b, logo_swap_l);
             cwist_sstring_append(b, "' data-img-dark='");
             cwist_sstring_append_escaped(b, logo_swap_d);
+            if (has_ss_l) {
+                cwist_sstring_append(b, "' data-srcset-light='");
+                cwist_sstring_append_escaped(b, logo_ss_l);
+            }
+            if (has_ss_d) {
+                cwist_sstring_append(b, "' data-srcset-dark='");
+                cwist_sstring_append_escaped(b, logo_ss_d);
+            }
             cwist_sstring_append(b, "' data-filter-light='");
             cwist_sstring_append_escaped(b, flt_l);
             cwist_sstring_append(b, "' data-filter-dark='");

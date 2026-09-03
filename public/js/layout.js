@@ -233,6 +233,8 @@
         document.querySelectorAll('img[data-logo-img]').forEach(function(img){
             var u=img.getAttribute('data-img-'+suffix);
             if(u&&img.getAttribute('src')!==u)img.setAttribute('src',u);
+            var ss=img.getAttribute('data-srcset-'+suffix);
+            if(ss)img.setAttribute('srcset',ss);else img.removeAttribute('srcset');
             img.style.filter=img.getAttribute('data-filter-'+suffix)||'';
         });
     }

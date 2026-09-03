@@ -142,4 +142,23 @@ bool s3_config_enabled(void);
 /* True when S3 is enabled with mode=offload. */
 bool s3_config_offload(void);
 
+/* robots.txt / llms.txt access policy (robots.settings).
+ * Each level is "allow" (default), "restrict", or "block":
+ *  - robots.level: general crawler policy.  allow = full access;
+ *    restrict = full access except admin/private paths; block = no crawlers.
+ *  - llms.level: AI/LLM policy.  allow = serve /llms.txt and allow AI
+ *    crawlers; restrict = serve /llms.txt but disallow training crawlers in
+ *    robots.txt; block = no /llms.txt (404) and AI crawlers disallowed. */
+typedef struct {
+    char robots_level[16];
+    char llms_level[16];
+} robots_config_t;
+
+extern robots_config_t g_robots_config;
+
+bool robots_config_load(const char *path);
+/* Normalized level accessors ("allow" for anything unrecognized). */
+const char *robots_level(void);
+const char *llms_level(void);
+
 #endif

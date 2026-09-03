@@ -9,6 +9,7 @@
 blog_config_t g_config = {0};
 font_settings_t g_font_settings = {0};
 s3_config_t g_s3_config = {0};
+robots_config_t g_robots_config = {0};
 
 static long long parse_size_bytes(const char *value, long long def) {
     if (!value || !value[0]) return def;
@@ -309,6 +310,70 @@ bool s3_config_enabled(void) {
 bool s3_config_offload(void) {
     return s3_config_enabled() && strcmp(g_s3_config.mode, "offload") == 0;
 }
+
+/* ---- robots.txt / llms.txt policy (robots.settings) ---- */
+
+static const char *normalize_level(const char *val) {
+    if (val && (strcmp(val, "restrict") == 0 || strcmp(val, "block") == 0)) return val;
+    return "allow";
+}
+
+bool robots_config_load(const char *path) {
+    memset(&g_robots_config, 0, sizeof(g_robots_config));
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        /* Optional file: write a commented template and run fully open. */
+        f = fopen(path, "w");
+        if (f) {
+            fprintf(f, "# robots.txt and llms.txt access policy.\n");
+            fprintf(f, "# Edit, save, then restart the service (systemctl restart flyboard).\n");
+            fprintf(f, "#\n");
+            fprintf(f, "# robots.level - policy for regular crawlers (robots.txt):\n");
+            fprintf(f, "#   allow    : every crawler may fetch everything (default)\n");
+            fprintf(f, "#   restrict : allow everything except admin/private paths\n");
+            fprintf(f, "#              (/admin, /api/, /login, /logout, /register, /profile, /notifications)\n");
+            fprintf(f, "#   block    : disallow all crawlers (Disallow: /, no sitemap)\n");
+            fprintf(f, "#\n");
+            fprintf(f, "# llms.level - policy for AI/LLM agents (/llms.txt and AI crawlers):\n");
+            fprintf(f, "#   allow    : serve /llms.txt; AI crawlers are welcome (default)\n");
+            fprintf(f, "#   restrict : serve /llms.txt, but disallow well-known training\n");
+            fprintf(f, "#              crawlers (GPTBot, ClaudeBot, CCBot, Google-Extended, ...)\n");
+            fprintf(f, "#              in robots.txt\n");
+            fprintf(f, "#   block    : do not serve /llms.txt (404) and disallow AI crawlers\n");
+            fprintf(f, "#\n");
+            fprintf(f, "# Unknown values fall back to allow.\n");
+            fprintf(f, "robots.level=allow\n");
+            fprintf(f, "llms.level=allow\n");
+            fclose(f);
+        }
+        return true;
+    }
+    char line[768];
+    while (fgets(line, sizeof(line), f)) {
+        trim_newline(line);
+        char *eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        if (strcmp(line, "robots.level") == 0) {
+            snprintf(g_robots_config.robots_level, sizeof(g_robots_config.robots_level), "%s", eq + 1);
+        } else if (strcmp(line, "llms.level") == 0) {
+            snprintf(g_robots_config.llms_level, sizeof(g_robots_config.llms_level), "%s", eq + 1);
+        }
+    }
+    fclose(f);
+    /* normalize_level() may return a pointer into the same buffer, so go
+     * through a temporary (snprintf with overlapping src/dst is UB). */
+    char tmp[16];
+    snprintf(tmp, sizeof(tmp), "%s", normalize_level(g_robots_config.robots_level));
+    snprintf(g_robots_config.robots_level, sizeof(g_robots_config.robots_level), "%s", tmp);
+    snprintf(tmp, sizeof(tmp), "%s", normalize_level(g_robots_config.llms_level));
+    snprintf(g_robots_config.llms_level, sizeof(g_robots_config.llms_level), "%s", tmp);
+    return true;
+}
+
+const char *robots_level(void) { return g_robots_config.robots_level[0] ? g_robots_config.robots_level : "allow"; }
+const char *llms_level(void)   { return g_robots_config.llms_level[0] ? g_robots_config.llms_level : "allow"; }
+
 
 bool config_bg_invert_enabled(const char *target) {
     if (!target || !target[0]) return false;

@@ -442,6 +442,31 @@ bool image_file_dimensions_from_url(const char *url, int *out_w, int *out_h) {
     return false;
 }
 
+bool image_logo_srcset(const char *base_url, int iw, int ih, char *out, size_t out_sz) {
+    if (!base_url || strncmp(base_url, "/assets/img/", 12) != 0) return false;
+    if (!out || out_sz == 0) return false;
+    out[0] = '\0';
+    static const int ws[] = { 128, 256, 512 };
+    size_t used = 0;
+    int n = 0;
+    for (size_t i = 0; i < sizeof(ws) / sizeof(ws[0]); i++) {
+        if (iw > 0 && ws[i] > iw && n > 0) break; /* no upscale candidates */
+        int tw = ws[i];
+        if (iw > 0 && ih > iw) {
+            /* Tall image: the thumb box is square, so the resulting width
+             * scales with the aspect ratio. */
+            tw = (int)(((long)ws[i] * iw + ih / 2) / ih);
+            if (tw < 1) tw = 1;
+        }
+        int m = snprintf(out + used, out_sz - used, "%s%s?w=%d&h=%d %dw",
+                         n ? ", " : "", base_url, ws[i], ws[i], tw);
+        if (m < 0 || (size_t)m >= out_sz - used) { out[0] = '\0'; return false; }
+        used += (size_t)m;
+        n++;
+    }
+    return n >= 2;
+}
+
 /* Compose a srcset value for a hero/background URL from the on-disk width
  * variants (768/1280/1920 plus the file itself).  Returns false when fewer
  * than two candidates exist — then the caller keeps the plain src. */

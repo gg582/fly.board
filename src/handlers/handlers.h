@@ -10,6 +10,7 @@ void handler_themes_json(cwist_http_request *req, cwist_http_response *res);
 void handler_rss_xml(cwist_http_request *req, cwist_http_response *res);
 void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res);
 void handler_robots_txt(cwist_http_request *req, cwist_http_response *res);
+void handler_llms_txt(cwist_http_request *req, cwist_http_response *res);
 void handler_post_vote(cwist_http_request *req, cwist_http_response *res);
 
 void handler_login_get(cwist_http_request *req, cwist_http_response *res);
