@@ -656,6 +656,10 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=3\" defer></script>");
                     cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js\" defer></script>");
                 }
+                /* Progressive enhancement only: WebGPU Lanczos-3 upscaling
+                 * for high-DPI displays.  Deferred and fully fail-safe, so it
+                 * ships regardless of shell inlining. */
+                cwist_sstring_append(head_shell, "<script src=\"/assets/js/webgpu-upscale.js?v=1\" defer></script>");
 
                 cwist_sstring *doc2 = cwist_sstring_create();
                 if (doc2) {
