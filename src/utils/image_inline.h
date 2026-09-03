@@ -1,6 +1,9 @@
 #ifndef IMAGE_INLINE_H
 #define IMAGE_INLINE_H
 
+#include <stdbool.h>
+#include <stddef.h>
+
 /* Build an in-memory cache of configured static images encoded as WebP
  * data URLs. Call once after config is loaded. */
 void image_inline_cache_build(void);
@@ -15,5 +18,21 @@ const char *image_inline_favicon(void);
  * or dark variant) to its cached URL. Returns NULL when nothing is cached
  * for that filename. */
 const char *image_inline_bg_url(const char *filename);
+
+/* Generate (when missing/stale) a downscaled WebP variant of a public/img
+ * basename capped at `width` pixels wide.  No-op when the variant already
+ * exists or would not be smaller than the source. */
+void image_inline_make_width_variant(const char *basename, int width);
+
+/* Generate the 768w/1280w hero/background variants used by srcset.  Called
+ * from image_inline_cache_build. */
+void image_inline_build_responsive_bg(void);
+
+/* Compose a srcset value for a hero/background URL from the on-disk width
+ * variants.  Returns false when nothing responsive can be offered. */
+bool image_inline_srcset(const char *url, char *out, size_t out_sz);
+
+/* Intrinsic pixel dimensions of an /assets/img/ URL. */
+bool image_file_dimensions_from_url(const char *url, int *out_w, int *out_h);
 
 #endif

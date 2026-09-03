@@ -195,6 +195,8 @@ static void build_variant(const char *orig_name) {
     if (stat(dst_path, &dst) == 0 && dst.st_mtime >= sst.st_mtime) {
         snprintf(entry->orig, sizeof(entry->orig), "%s", orig_name);
         g_variant_count++;
+        image_inline_make_width_variant(entry->variant, 768);
+        image_inline_make_width_variant(entry->variant, 1280);
         return;
     }
 
@@ -290,6 +292,9 @@ static void build_variant(const char *orig_name) {
         g_variant_count++;
         CWIST_LOG_INFO("bg_invert_color: generated %s (%s, %zu KB)", dst_path,
                        cfg.lossless ? "lossless" : "lossy", webp_size / 1024);
+        /* Smaller widths for responsive srcset on the dark hero. */
+        image_inline_make_width_variant(entry->variant, 768);
+        image_inline_make_width_variant(entry->variant, 1280);
     }
     WebPMemoryWriterClear(&wrt);
 }
@@ -436,6 +441,19 @@ bool hero_bg_append_open(cwist_sstring *b, const hero_bg_mode_t modes[2], bool d
     append_attr(b, "data-img-dark", modes[1].url);
     append_attr(b, "data-filter-light", modes[0].css_filter ? HERO_CSS_FILTER : "");
     append_attr(b, "data-filter-dark", modes[1].css_filter ? HERO_CSS_FILTER : "");
+    /* Responsive variants (768/1280/1920w) cut the hero payload to roughly
+     * the rendered viewport width; layout.js swaps srcset alongside src on
+     * theme changes. */
+    char srcset_l[1200], srcset_d[1200];
+    bool has_ss_l = modes[0].url && image_inline_srcset(modes[0].url, srcset_l, sizeof(srcset_l));
+    bool has_ss_d = modes[1].url && image_inline_srcset(modes[1].url, srcset_d, sizeof(srcset_d));
+    if (has_ss_l || has_ss_d) {
+        append_attr(b, "sizes", "100vw");
+        append_attr(b, "data-srcset-light", has_ss_l ? srcset_l : NULL);
+        append_attr(b, "data-srcset-dark", has_ss_d ? srcset_d : NULL);
+        append_attr(b, "srcset", dark ? (has_ss_d ? srcset_d : NULL)
+                                      : (has_ss_l ? srcset_l : NULL));
+    }
     cwist_sstring_append(b, " src='");
     cwist_sstring_append(b, cur->url);
     cwist_sstring_append(b, "' alt='' style='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:0");

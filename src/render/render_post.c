@@ -419,6 +419,8 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             char logo_path[600];
             snprintf(logo_path, sizeof(logo_path), "public/img/%s", logo_cur + 12);
             get_media_dimensions(logo_path, false, &logo_w, &logo_h);
+            if (logo_w <= 0 || logo_h <= 0)
+                image_file_dimensions_from_url(logo_cur, &logo_w, &logo_h);
             snprintf(logo_sized, sizeof(logo_sized), "%s?w=256&h=256", logo_cur);
             logo_final = logo_sized;
         }

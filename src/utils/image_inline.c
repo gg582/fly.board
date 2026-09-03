@@ -354,6 +354,9 @@ void image_inline_cache_build(void) {
             g_inline_images.logo_url = external_image_url("logo.png");
         }
     }
+
+    /* Multi-width variants for hero/background srcset. */
+    image_inline_build_responsive_bg();
 }
 
 const char *image_inline_home_bg(void)   { return g_inline_images.home_bg_url; }
@@ -378,4 +381,141 @@ const char *image_inline_bg_url(const char *filename) {
         if (map[i].name[0] && strcmp(filename, map[i].name) == 0) return map[i].url;
     }
     return NULL;
+}
+
+/* --- Responsive (srcset) support ----------------------------------------- */
+
+/* Intrinsic pixel width of an image file, reading only the header. */
+static int width_of_file(const char *path) {
+    int w = 0, h = 0, ch = 0;
+    if (stbi_info(path, &w, &h, &ch)) return w;
+#ifdef HAVE_WEBP
+    size_t len = 0;
+    unsigned char *data = read_file(path, &len);
+    if (data) {
+        int ww = 0, hh = 0;
+        if (WebPGetInfo(data, len, &ww, &hh)) w = ww;
+        free(data);
+    }
+#endif
+    return w;
+}
+
+void image_inline_make_width_variant(const char *basename, int width) {
+    (void)optimized_webp_url(basename, width);
+}
+
+void image_inline_build_responsive_bg(void) {
+    const char *const names[] = {
+        g_config.home_img, g_config.boards_img, g_config.files_img,
+        g_config.home_img_dark, g_config.boards_img_dark, g_config.files_img_dark,
+    };
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        if (!names[i][0]) continue;
+        image_inline_make_width_variant(names[i], 768);
+        image_inline_make_width_variant(names[i], 1280);
+    }
+}
+
+bool image_file_dimensions_from_url(const char *url, int *out_w, int *out_h) {
+    if (!url || !out_w || !out_h) return false;
+    if (strncmp(url, "/assets/img/", 12) != 0) return false;
+    char name[320];
+    snprintf(name, sizeof(name), "%s", url + 12);
+    char *q = strchr(name, '?');
+    if (q) *q = '\0';
+    if (!name[0]) return false;
+    char path[640];
+    snprintf(path, sizeof(path), "public/img/%s", name);
+    int w = 0, h = 0, ch = 0;
+    if (stbi_info(path, &w, &h, &ch)) { *out_w = w; *out_h = h; return true; }
+#ifdef HAVE_WEBP
+    size_t len = 0;
+    unsigned char *data = read_file(path, &len);
+    if (data) {
+        int ww = 0, hh = 0;
+        int ok = WebPGetInfo(data, len, &ww, &hh);
+        free(data);
+        if (ok) { *out_w = ww; *out_h = hh; return true; }
+    }
+#endif
+    return false;
+}
+
+/* Compose a srcset value for a hero/background URL from the on-disk width
+ * variants (768/1280/1920 plus the file itself).  Returns false when fewer
+ * than two candidates exist — then the caller keeps the plain src. */
+bool image_inline_srcset(const char *url, char *out, size_t out_sz) {
+    if (!url || !out || out_sz == 0) return false;
+    out[0] = '\0';
+    if (strncmp(url, "/assets/img/", 12) != 0) return false;
+
+    char self[320];
+    snprintf(self, sizeof(self), "%s", url + 12);
+    char *q = strchr(self, '?');
+    if (q) *q = '\0';
+    if (!self[0]) return false;
+
+    /* Source stem: the file the opt<w>w- variants were generated from. */
+    char stem[320];
+    snprintf(stem, sizeof(stem), "%s", self);
+    char *s = stem;
+    if (strncmp(s, "opt1920w-", 9) == 0) s += 9;
+    size_t sl = strlen(s);
+    if (sl > 5 && strcmp(s + sl - 5, ".webp") == 0) s[sl - 5] = '\0';
+
+    struct { char name[352]; int w; } cand[4];
+    int n_cand = 0;
+    static const int widths[] = { 768, 1280, 1920 };
+    for (int i = 0; i < 3; i++) {
+        char var[352];
+        snprintf(var, sizeof(var), "opt%dw-%s.webp", widths[i], s);
+        char path[720];
+        snprintf(path, sizeof(path), "public/img/%s", var);
+        struct stat st;
+        if (stat(path, &st) != 0 || st.st_size <= 0) continue;
+        int w = width_of_file(path);
+        if (w <= 0) w = widths[i];
+        snprintf(cand[n_cand].name, sizeof(cand[0].name), "%s", var);
+        cand[n_cand].w = w;
+        n_cand++;
+    }
+    /* The current file itself (e.g. the full-resolution inverted variant)
+     * is a candidate too, unless it is already listed as opt1920w-<stem>. */
+    char opt1920[352];
+    snprintf(opt1920, sizeof(opt1920), "opt1920w-%s.webp", s);
+    if (strcmp(self, opt1920) != 0 && n_cand < 4) {
+        char path[720];
+        snprintf(path, sizeof(path), "public/img/%s", self);
+        struct stat st;
+        if (stat(path, &st) == 0 && st.st_size > 0) {
+            int w = width_of_file(path);
+            if (w > 0) {
+                bool dup = false;
+                for (int i = 0; i < n_cand; i++) if (cand[i].w == w) { dup = true; break; }
+                if (!dup) {
+                    snprintf(cand[n_cand].name, sizeof(cand[0].name), "%s", self);
+                    cand[n_cand].w = w;
+                    n_cand++;
+                }
+            }
+        }
+    }
+    if (n_cand < 2) { out[0] = '\0'; return false; }
+
+    /* Ascending width order. */
+    for (int i = 0; i < n_cand - 1; i++)
+        for (int j = i + 1; j < n_cand; j++)
+            if (cand[j].w < cand[i].w) {
+                typeof(cand[0]) tmp = cand[i]; cand[i] = cand[j]; cand[j] = tmp;
+            }
+
+    size_t used = 0;
+    for (int i = 0; i < n_cand; i++) {
+        int n = snprintf(out + used, out_sz - used, "%s/assets/img/%s %dw",
+                         i ? ", " : "", cand[i].name, cand[i].w);
+        if (n < 0 || (size_t)n >= out_sz - used) { out[0] = '\0'; return false; }
+        used += (size_t)n;
+    }
+    return true;
 }
