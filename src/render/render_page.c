@@ -195,22 +195,43 @@ void render_set_nav_notifications(int unread_count) {
     g_nav_notif_count = unread_count > 0 ? unread_count : 0;
 }
 
-/* Bell icon link to /notifications with an unread-count badge. */
+/* Bell icon link to /notifications with an unread-count badge.  The icon is
+ * a flat stroke SVG (currentColor) so it matches the rest of the UI instead
+ * of the platform's 3D emoji; the badge only appears when there are unread
+ * notifications. */
 static cwist_html_element_t *notif_bell_link(int count, const char *extra_class) {
     cwist_html_element_t *bell = cwist_html_element_create("a");
     cwist_html_element_add_attr(bell, "href", "/notifications");
+    cwist_html_element_add_attr(bell, "aria-label", "알림");
     cwist_html_element_add_class(bell, "nav-item notif-bell");
     if (extra_class) cwist_html_element_add_class(bell, extra_class);
-    cwist_html_element_t *icon = cwist_html_element_create("span");
+    cwist_html_element_t *icon = cwist_html_element_create("svg");
     cwist_html_element_add_class(icon, "notif-bell-icon");
-    cwist_html_element_set_text(icon, "\U0001F514");
+    cwist_html_element_add_attr(icon, "width", "18");
+    cwist_html_element_add_attr(icon, "height", "18");
+    cwist_html_element_add_attr(icon, "viewBox", "0 0 24 24");
+    cwist_html_element_add_attr(icon, "fill", "none");
+    cwist_html_element_add_attr(icon, "stroke", "currentColor");
+    cwist_html_element_add_attr(icon, "stroke-width", "2");
+    cwist_html_element_add_attr(icon, "stroke-linecap", "round");
+    cwist_html_element_add_attr(icon, "stroke-linejoin", "round");
+    cwist_html_element_add_attr(icon, "aria-hidden", "true");
+    cwist_html_element_t *p1 = cwist_html_element_create("path");
+    cwist_html_element_add_attr(p1, "d", "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9");
+    cwist_html_element_add_child(icon, p1);
+    cwist_html_element_t *p2 = cwist_html_element_create("path");
+    cwist_html_element_add_attr(p2, "d", "M13.73 21a2 2 0 0 1-3.46 0");
+    cwist_html_element_add_child(icon, p2);
     cwist_html_element_add_child(bell, icon);
-    cwist_html_element_t *badge = cwist_html_element_create("span");
-    cwist_html_element_add_class(badge, "notif-badge");
-    char cnt[16];
-    snprintf(cnt, sizeof(cnt), "%d", count);
-    cwist_html_element_set_text(badge, cnt);
-    cwist_html_element_add_child(bell, badge);
+    if (count > 0) {
+        cwist_html_element_t *badge = cwist_html_element_create("span");
+        cwist_html_element_add_class(badge, "notif-badge");
+        char cnt[16];
+        if (count > 99) snprintf(cnt, sizeof(cnt), "99+");
+        else snprintf(cnt, sizeof(cnt), "%d", count);
+        cwist_html_element_set_text(badge, cnt);
+        cwist_html_element_add_child(bell, badge);
+    }
     return bell;
 }
 
