@@ -35,4 +35,10 @@ bool image_inline_srcset(const char *url, char *out, size_t out_sz);
 /* Intrinsic pixel dimensions of an /assets/img/ URL. */
 bool image_file_dimensions_from_url(const char *url, int *out_w, int *out_h);
 
+/* Compose a srcset for the hero logo from the asset handler's on-demand
+ * ?w=&h= thumbs (128/256/512).  iw/ih are the intrinsic dimensions (0 when
+ * unknown); the descriptor width accounts for the thumb's preserved aspect.
+ * Returns false when nothing responsive can be offered. */
+bool image_logo_srcset(const char *base_url, int iw, int ih, char *out, size_t out_sz);
+
 #endif

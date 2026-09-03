@@ -15,5 +15,7 @@ bool engine_settings_load(void) {
     CWIST_LOG_INFO("Font settings loaded");
     s3_config_load("s3.settings");
     if (s3_config_enabled()) CWIST_LOG_INFO("S3 storage enabled (bucket=%s)", g_s3_config.bucket);
+    robots_config_load("robots.settings");
+    CWIST_LOG_INFO("Robots policy loaded (robots=%s, llms=%s)", robots_level(), llms_level());
     return true;
 }

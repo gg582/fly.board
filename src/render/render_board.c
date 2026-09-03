@@ -50,6 +50,13 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
         snprintf(swap_d_buf, sizeof(swap_d_buf), "%s?w=256&h=256", logo_d);
         swap_d = swap_d_buf;
     }
+    /* Responsive logo candidates; layout.js swaps srcset with the theme.
+     * The current-mode srcset uses the effective URL so the default-logo
+     * fallback is covered too. */
+    char logo_ss_cur[1400] = {0}, logo_ss_l[1400] = {0}, logo_ss_d[1400] = {0};
+    bool has_ss_cur = image_logo_srcset(logo_url, logo_w, logo_h, logo_ss_cur, sizeof(logo_ss_cur));
+    bool has_ss_l = logo_l && image_logo_srcset(logo_l, logo_w, logo_h, logo_ss_l, sizeof(logo_ss_l));
+    bool has_ss_d = logo_d && image_logo_srcset(logo_d, logo_w, logo_h, logo_ss_d, sizeof(logo_ss_d));
     char flt_l[320], flt_d[320];
     snprintf(flt_l, sizeof(flt_l), "%s%s%s", boards_modes[0].logo_filter,
              (boards_modes[0].logo_filter[0] && logo_css_l) ? " " : "",
@@ -61,6 +68,17 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     cwist_sstring_append(b, "><img class='hero-logo' src='");
     cwist_sstring_append(b, logo_final);
     cwist_sstring_append(b, "' alt='Logo'");
+    if (has_ss_cur) {
+        cwist_sstring_append(b, " srcset='");
+        cwist_sstring_append_escaped(b, logo_ss_cur);
+        cwist_sstring_append(b, "'");
+        if (logo_w > 0 && logo_h > 0) {
+            char logo_sizes[40];
+            snprintf(logo_sizes, sizeof(logo_sizes), " sizes='%dpx'",
+                     (int)((100L * logo_w + logo_h / 2) / logo_h));
+            cwist_sstring_append(b, logo_sizes);
+        }
+    }
     if (logo_w > 0 && logo_h > 0) {
         char logo_dims[64];
         snprintf(logo_dims, sizeof(logo_dims), " width='%d' height='%d'", logo_w, logo_h);
@@ -71,6 +89,14 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
         cwist_sstring_append_escaped(b, swap_l);
         cwist_sstring_append(b, "' data-img-dark='");
         cwist_sstring_append_escaped(b, swap_d);
+        if (has_ss_l) {
+            cwist_sstring_append(b, "' data-srcset-light='");
+            cwist_sstring_append_escaped(b, logo_ss_l);
+        }
+        if (has_ss_d) {
+            cwist_sstring_append(b, "' data-srcset-dark='");
+            cwist_sstring_append_escaped(b, logo_ss_d);
+        }
         cwist_sstring_append(b, "' data-filter-light='");
         cwist_sstring_append_escaped(b, flt_l);
         cwist_sstring_append(b, "' data-filter-dark='");
