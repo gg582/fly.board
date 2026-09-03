@@ -456,13 +456,18 @@ bool image_inline_srcset(const char *url, char *out, size_t out_sz) {
     if (q) *q = '\0';
     if (!self[0]) return false;
 
-    /* Source stem: the file the opt<w>w- variants were generated from. */
+    /* Source stem: the file the opt<w>w- variants were generated from.  The
+     * optimized 1920w variant is named opt1920w-<orig>.webp; anything else
+     * (plain source, inverted variant) is passed to the optimizer verbatim,
+     * so its variants are opt<w>w-<self>.webp. */
     char stem[320];
     snprintf(stem, sizeof(stem), "%s", self);
     char *s = stem;
-    if (strncmp(s, "opt1920w-", 9) == 0) s += 9;
-    size_t sl = strlen(s);
-    if (sl > 5 && strcmp(s + sl - 5, ".webp") == 0) s[sl - 5] = '\0';
+    if (strncmp(s, "opt1920w-", 9) == 0) {
+        s += 9;
+        size_t sl = strlen(s);
+        if (sl > 5 && strcmp(s + sl - 5, ".webp") == 0) s[sl - 5] = '\0';
+    }
 
     struct { char name[352]; int w; } cand[4];
     int n_cand = 0;
@@ -476,6 +481,7 @@ bool image_inline_srcset(const char *url, char *out, size_t out_sz) {
         if (stat(path, &st) != 0 || st.st_size <= 0) continue;
         int w = width_of_file(path);
         if (w <= 0) w = widths[i];
+        if (n_cand > 0 && cand[n_cand - 1].w == w) continue; /* no real downscale */
         snprintf(cand[n_cand].name, sizeof(cand[0].name), "%s", var);
         cand[n_cand].w = w;
         n_cand++;
