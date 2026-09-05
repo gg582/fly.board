@@ -5,6 +5,7 @@
 #include "render/render.h"
 #include "db/db.h"
 #include "db/db_internal.h"
+#include "handlers/handlers_internal.h"
 #include "utils/media_preview.h"
 #include <cwist/core/log.h>
 #include <cwist/core/sstring/sstring.h>
@@ -20,7 +21,7 @@
 static void *gif_warmup_thread_func(void *arg) {
     (void)arg;
     sqlite3 *conn = NULL;
-    if (sqlite3_open("data/blog.db", &conn) != SQLITE_OK) {
+    if (sqlite3_open(FLY_DB_MAIN_PATH, &conn) != SQLITE_OK) {
         if (conn) sqlite3_close(conn);
         return NULL;
     }
@@ -138,6 +139,48 @@ static void gif_warmup_start(void) {
     }
 }
 
+static void warmup_board_list_cache(cwist_db *db, bool dark, bool mobile) {
+    char key[256];
+    page_cache_key_board_list(key, sizeof(key), dark, mobile, "", 0);
+    if (page_cache_get(key, NULL, NULL, NULL)) {
+        page_cache_release(key);
+        return;
+    }
+
+    cJSON *boards = db_board_list(db);
+    cJSON *tree = db_board_tree_get_all();
+    if (boards) {
+        cJSON *all_recent_posts = db_post_recent_by_boards_batch(db, 2);
+        int post_count = all_recent_posts ? cJSON_GetArraySize(all_recent_posts) : 0;
+        int n = cJSON_GetArraySize(boards);
+        for (int i = 0; i < n; i++) {
+            cJSON *bo = cJSON_GetArrayItem(boards, i);
+            int bid = json_int(bo, "id", 0);
+            if (bid > 0) {
+                cJSON *board_posts = cJSON_CreateArray();
+                for (int p = 0; p < post_count; p++) {
+                    cJSON *post = cJSON_GetArrayItem(all_recent_posts, p);
+                    if (json_int(post, "board_id", 0) == bid) {
+                        cJSON_AddItemToArray(board_posts, cJSON_Duplicate(post, 1));
+                    }
+                }
+                cJSON_AddItemToObject(bo, "posts", board_posts);
+            }
+        }
+        if (all_recent_posts) cJSON_Delete(all_recent_posts);
+    }
+    cJSON *ordered = cJSON_CreateArray();
+    append_boards_flat(ordered, boards, tree, 0, 2);
+    cwist_sstring *page = render_board_list(ordered, dark, "", NULL, mobile);
+    cJSON_Delete(ordered);
+    if (boards) cJSON_Delete(boards);
+    if (tree) cJSON_Delete(tree);
+    if (page) {
+        page_cache_set(key, page->data, page->size, 300);
+        cwist_sstring_destroy(page);
+    }
+}
+
 void page_cache_warmup(cwist_db *db) {
     if (!db) return;
     CWIST_LOG_INFO("Warming up page cache...");
@@ -163,6 +206,8 @@ void page_cache_warmup(cwist_db *db) {
             cwist_sstring_destroy(page);
         }
         if (posts) cJSON_Delete(posts);
+
+        warmup_board_list_cache(db, dark, mobile);
     }
 
     CWIST_LOG_INFO("Page cache warmup complete (%zu bytes)", page_cache_total_bytes());

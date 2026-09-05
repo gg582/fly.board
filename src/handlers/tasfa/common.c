@@ -407,3 +407,35 @@ int clamp_int(int value, int min_value, int max_value) {
     if (value > max_value) return max_value;
     return value;
 }
+
+bool tasfa_media_concurrency_acquire(cwist_http_request *req) {
+    bool need_disconnect_check = (req && req->client_fd >= 0);
+    pthread_mutex_lock(&g_media_mtx);
+    while (g_media_concurrency >= TASFA_MAX_MEDIA_CONCURRENCY) {
+        if (need_disconnect_check) {
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_nsec += 100000000; /* 100ms */
+            if (ts.tv_nsec >= 1000000000) { ts.tv_sec++; ts.tv_nsec -= 1000000000; }
+            int rc = pthread_cond_timedwait(&g_media_cond, &g_media_mtx, &ts);
+            if (rc == ETIMEDOUT && !is_client_connected(req)) {
+                pthread_mutex_unlock(&g_media_mtx);
+                return false;
+            }
+        } else {
+            pthread_cond_wait(&g_media_cond, &g_media_mtx);
+        }
+    }
+    g_media_concurrency++;
+    pthread_mutex_unlock(&g_media_mtx);
+    return true;
+}
+
+void tasfa_media_concurrency_release(void) {
+    pthread_mutex_lock(&g_media_mtx);
+    if (g_media_concurrency > 0) {
+        g_media_concurrency--;
+    }
+    pthread_cond_signal(&g_media_cond);
+    pthread_mutex_unlock(&g_media_mtx);
+}

@@ -222,6 +222,8 @@ bool str_contains_ci_local(const char *haystack, const char *needle);
 int rename_fallback(const char *src, const char *dst);
 bool sha256_file(const char *path, unsigned char out[32]);
 int clamp_int(int value, int min_value, int max_value);
+bool tasfa_media_concurrency_acquire(cwist_http_request *req);
+void tasfa_media_concurrency_release(void);
 
 /* crypto.c */
 bool encrypt_stream_block(const unsigned char *key, const unsigned char *iv_seed, int chunk_index,

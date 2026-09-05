@@ -101,6 +101,22 @@ cJSON *db_post_recent_by_board(cwist_db *db, int board_id, int limit) {
     return db_sqlite3_rows_to_json(stmt);
 }
 
+cJSON *db_post_recent_by_boards_batch(cwist_db *db, int limit_per_board) {
+    const char *sql =
+        "WITH ranked_posts AS ("
+        "  SELECT p.*, u.username as author_name, b.name as board_name,"
+        "         ROW_NUMBER() OVER (PARTITION BY p.board_id ORDER BY p.created_at DESC) as rn"
+        "  FROM posts p"
+        "  LEFT JOIN users u ON p.user_id = u.id"
+        "  LEFT JOIN boards b ON p.board_id = b.id"
+        ") "
+        "SELECT * FROM ranked_posts WHERE rn <= ? ORDER BY board_id, rn";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_int(stmt, 1, limit_per_board);
+    return db_sqlite3_rows_to_json(stmt);
+}
+
 int db_post_count(cwist_db *db, int board_id) {
     const char *sql = (board_id > 0) ? "SELECT COUNT(*) FROM posts WHERE board_id=?" : "SELECT COUNT(*) FROM posts";
     sqlite3_stmt *stmt = NULL;

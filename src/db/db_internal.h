@@ -5,6 +5,8 @@
 #include <cjson/cJSON.h>
 #include "db.h"
 
+#define FLY_DB_MAIN_PATH "data/blog.db"
+
 /* Apply concurrency-safe defaults to a freshly opened SQLite connection:
  * busy timeout for graceful contention handling and WAL mode so readers and
  * writers do not block each other.  Returns false if a required pragma fails,
