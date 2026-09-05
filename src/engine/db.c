@@ -6,7 +6,7 @@
 #include <sqlite3.h>
 #include <pthread.h>
 
-#define DB_PATH   "data/blog.db"
+#define DB_PATH   FLY_DB_MAIN_PATH
 
 /* CWIST may fork worker processes before entering the event loop.  SQLite
  * connections must not be shared across processes: file descriptors, page

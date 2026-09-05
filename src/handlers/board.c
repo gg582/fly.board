@@ -81,17 +81,24 @@ void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
     cJSON *boards = db_board_list(req->db);
     cJSON *tree = db_board_tree_get_all();
     if (boards) {
+        cJSON *all_recent_posts = db_post_recent_by_boards_batch(req->db, 2);
+        int post_count = all_recent_posts ? cJSON_GetArraySize(all_recent_posts) : 0;
         int n = cJSON_GetArraySize(boards);
         for (int i = 0; i < n; i++) {
             cJSON *bo = cJSON_GetArrayItem(boards, i);
-            cJSON *bid = cJSON_GetObjectItem(bo, "id");
-            if (bid) {
-                cJSON *posts = db_post_recent_by_board(req->db, json_int(bo, "id", 0), 2);
-                if (posts) {
-                    cJSON_AddItemToObject(bo, "posts", posts);
+            int bid = json_int(bo, "id", 0);
+            if (bid > 0) {
+                cJSON *board_posts = cJSON_CreateArray();
+                for (int p = 0; p < post_count; p++) {
+                    cJSON *post = cJSON_GetArrayItem(all_recent_posts, p);
+                    if (json_int(post, "board_id", 0) == bid) {
+                        cJSON_AddItemToArray(board_posts, cJSON_Duplicate(post, 1));
+                    }
                 }
+                cJSON_AddItemToObject(bo, "posts", board_posts);
             }
         }
+        if (all_recent_posts) cJSON_Delete(all_recent_posts);
     }
     cJSON *ordered = cJSON_CreateArray();
     append_boards_flat(ordered, boards, tree, 0, 2);

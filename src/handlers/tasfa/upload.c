@@ -539,34 +539,39 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring_assign(res->body, "");
 }
 
-static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_http_response *res) {
-    int uid = 0;
-    char role[32] = {0};
-    auth_is_logged_in(req, &uid, role, sizeof(role));
-    cwist_query_map *kv = cwist_query_map_create();
-    cwist_query_map_parse(kv, req->body->data);
-    const char *upload_id = cwist_query_map_get(kv, "upload_id");
-    const char *upload_token = cwist_query_map_get(kv, "upload_token");
+static bool tasfa_finalize_session_process(cwist_db *db,
+                                           const char *upload_id,
+                                           const char *upload_token,
+                                           cwist_http_request *client_req,
+                                           int auth_uid,
+                                           int *out_status,
+                                           cJSON **out_response) {
+    *out_status = 500;
+    *out_response = NULL;
+
     if (!is_safe_segment(upload_id) || !upload_token) {
-        cwist_query_map_destroy(kv);
-        send_json_response(res, session_error_json("invalid completion payload"), CWIST_HTTP_BAD_REQUEST);
-        return;
+        *out_status = CWIST_HTTP_BAD_REQUEST;
+        *out_response = session_error_json("invalid completion payload");
+        return false;
     }
+
     int lock_fd = open_upload_session_lock(upload_id);
     cJSON *meta = lock_fd >= 0 ? load_upload_session(upload_id) : NULL;
     if (!meta) {
         close_upload_session_lock(lock_fd);
-        cwist_query_map_destroy(kv);
-        send_json_response(res, session_error_json("upload session not found"), CWIST_HTTP_NOT_FOUND);
-        return;
+        *out_status = CWIST_HTTP_NOT_FOUND;
+        *out_response = session_error_json("upload session not found");
+        return false;
     }
+
     if (!secure_str_eq(upload_token, json_string(meta, "upload_token", ""))) {
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
-        cwist_query_map_destroy(kv);
-        send_json_response(res, session_error_json("upload completion rejected"), CWIST_HTTP_FORBIDDEN);
-        return;
+        *out_status = CWIST_HTTP_FORBIDDEN;
+        *out_response = session_error_json("upload completion rejected");
+        return false;
     }
+
     int chunk_count = json_int(meta, "chunk_count", 0);
     const char *bitmap = json_string(meta, "received_bitmap", "");
     int received = bitmap_count_set(bitmap, chunk_count);
@@ -632,20 +637,21 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
         cJSON_AddStringToObject(obj, "error", "missing upload chunks");
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
-        cwist_query_map_destroy(kv);
-        send_json_response(res, obj, (cwist_http_status_t)409);
-        return;
+        *out_status = 409;
+        *out_response = obj;
+        return false;
     }
+
     const char *filename = json_string(meta, "filename", "upload.bin");
     int post_id = json_int(meta, "post_id", 0);
-    int owner_uid = json_int(meta, "uid", uid);
+    int owner_uid = json_int(meta, "uid", auth_uid);
     bool media_acquired = false;
     if (owner_uid <= 0) {
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
-        cwist_query_map_destroy(kv);
-        send_json_response(res, session_error_json("login required"), CWIST_HTTP_UNAUTHORIZED);
-        return;
+        *out_status = CWIST_HTTP_UNAUTHORIZED;
+        *out_response = session_error_json("login required");
+        return false;
     }
 
     /* === Server-Authoritative HTP Recovery === */
@@ -699,9 +705,9 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
         }
 
         /* Server-side recursive contraction */
-        int chunk_size = json_int(meta, "chunk_size", TASFA_UPLOAD_CHUNK_SIZE_DEFAULT);
+        int chunk_size_val = json_int(meta, "chunk_size", TASFA_UPLOAD_CHUNK_SIZE_DEFAULT);
         double rtt_ms = json_double(meta, "link_rtt_ms", 0.0);
-        if (suspect_count > 0 && htp_repair_worthwhile(suspect_count, chunk_count, chunk_size, rtt_ms)) {
+        if (suspect_count > 0 && htp_repair_worthwhile(suspect_count, chunk_count, chunk_size_val, rtt_ms)) {
             int next_count = htp_contract_groups(htp_balanced_scalars, chunk_count, modulus_M,
                                                   suspects, suspect_count);
             if (next_count > 0 && next_count < suspect_count) {
@@ -756,10 +762,10 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
                         cJSON_AddStringToObject(obj, "error", "htp line sum mismatch - chunks reset for retry");
                         cJSON_Delete(meta);
                         close_upload_session_lock(lock_fd);
-                        cwist_query_map_destroy(kv);
                         cwist_free(suspects);
-                        send_json_response(res, obj, (cwist_http_status_t)409);
-                        return;
+                        *out_status = 409;
+                        *out_response = obj;
+                        return false;
                     }
                 }
             }
@@ -843,37 +849,19 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
         cwist_free(suspects);
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
-        cwist_query_map_destroy(kv);
-        send_json_response(res, obj, (cwist_http_status_t)409);
-        return;
+        *out_status = 409;
+        *out_response = obj;
+        return false;
     }
     cwist_free(suspects);
 
     finalize_cache_update_status(upload_id, "Processing media previews...");
 
     /* Concurrency limit for ffmpeg */
-    {
-        bool need_disconnect_check = (req && req->client_fd >= 0);
-        pthread_mutex_lock(&g_media_mtx);
-        while (g_media_concurrency >= TASFA_MAX_MEDIA_CONCURRENCY) {
-            if (need_disconnect_check) {
-                struct timespec ts;
-                clock_gettime(CLOCK_REALTIME, &ts);
-                ts.tv_nsec += 100000000; /* 100ms */
-                if (ts.tv_nsec >= 1000000000) { ts.tv_sec++; ts.tv_nsec -= 1000000000; }
-                int rc = pthread_cond_timedwait(&g_media_cond, &g_media_mtx, &ts);
-                if (rc == ETIMEDOUT && !is_client_connected(req)) {
-                    pthread_mutex_unlock(&g_media_mtx);
-                    goto client_disconnect;
-                }
-            } else {
-                pthread_cond_wait(&g_media_cond, &g_media_mtx);
-            }
-        }
-        g_media_concurrency++;
-        media_acquired = true;
-        pthread_mutex_unlock(&g_media_mtx);
+    if (!tasfa_media_concurrency_acquire(client_req)) {
+        goto client_disconnect;
     }
+    media_acquired = true;
 
     char mime_buf[128] = {0};
     if (!mime_type_from_data(temp_path, mime_buf, sizeof(mime_buf))) {
@@ -911,26 +899,26 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
         snprintf(final_path, sizeof(final_path), "public/uploads/%s_%s", upload_id, final_filename);
         if (rename_fallback(temp_path, final_path) != 0) {
             FLY_LOG_ERROR("[TASFA] final file rename failed from %s to %s: errno=%d (%s)", temp_path, final_path, errno, strerror(errno));
-            pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
+            tasfa_media_concurrency_release();
             cJSON_Delete(meta);
             close_upload_session_lock(lock_fd);
-            cwist_query_map_destroy(kv);
-            send_json_response(res, session_error_json("final file create failed"), CWIST_HTTP_INTERNAL_ERROR);
-            return;
+            *out_status = CWIST_HTTP_INTERNAL_ERROR;
+            *out_response = session_error_json("final file create failed");
+            return false;
         }
     }
 
-    if (!is_client_connected(req)) goto client_disconnect;
+    if (!is_client_connected(client_req)) goto client_disconnect;
     unsigned char checksum[32];
     if (!sha256_file(final_path, checksum)) {
-        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
+        tasfa_media_concurrency_release();
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
-        cwist_query_map_destroy(kv);
-        send_json_response(res, session_error_json("checksum compute failed"), CWIST_HTTP_INTERNAL_ERROR);
-        return;
+        *out_status = CWIST_HTTP_INTERNAL_ERROR;
+        *out_response = session_error_json("checksum compute failed");
+        return false;
     }
-    if (!is_client_connected(req)) goto client_disconnect;
+    if (!is_client_connected(client_req)) goto client_disconnect;
     if (!mime_type_from_data(final_path, mime_buf, sizeof(mime_buf))) {
         snprintf(mime_buf, sizeof(mime_buf), "%s", mime_type(filename));
     }
@@ -941,7 +929,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     char *active_filename = NULL;
     for (int attempt = 0; attempt < 10; attempt++) {
         if (active_filename) cwist_free(active_filename);
-        active_filename = db_file_unique_filename(req->db, post_id, filename);
+        active_filename = db_file_unique_filename(db, post_id, filename);
         if (!active_filename) { fid = 0; break; }
         if (strcmp(active_filename, filename) != 0) {
             char new_final_path[PATH_MAX];
@@ -957,21 +945,21 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
                 snprintf(mime_buf, sizeof(mime_buf), "%s", mime_type(filename));
             }
         }
-        fid = db_file_create_volume_get_id(req->db, post_id, owner_uid, filename, mime_buf, final_path, (size_t)json_long_long(meta, "total_size", 0));
+        fid = db_file_create_volume_get_id(db, post_id, owner_uid, filename, mime_buf, final_path, (size_t)json_long_long(meta, "total_size", 0));
         if (fid != -1) break;
     }
     if (active_filename) cwist_free(active_filename);
 
     if (fid <= 0) {
-        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
+        tasfa_media_concurrency_release();
         unlink(final_path);
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
-        cwist_query_map_destroy(kv);
-        send_json_response(res, session_error_json("db insert failed"), CWIST_HTTP_INTERNAL_ERROR);
-        return;
+        *out_status = CWIST_HTTP_INTERNAL_ERROR;
+        *out_response = session_error_json("db insert failed");
+        return false;
     }
-    if (!is_client_connected(req)) goto client_disconnect;
+    if (!is_client_connected(client_req)) goto client_disconnect;
 
     /* Generate thumbnails/previews via ffmpeg */
     char thumb_path[PATH_MAX] = {0};
@@ -1013,11 +1001,11 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
             tasfa_generate_htp_metadata_for_file(preview_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
         } else preview_path[0] = '\0';
     }
-    pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
+    tasfa_media_concurrency_release();
     media_acquired = false;
 
     if (thumb_path[0] || preview_path[0]) {
-        db_file_set_preview_paths(req->db, fid, thumb_path[0] ? thumb_path : "", preview_path[0] ? preview_path : "");
+        db_file_set_preview_paths(db, fid, thumb_path[0] ? thumb_path : "", preview_path[0] ? preview_path : "");
     }
 
     /* Optional S3 object storage.  Mirror mode keeps the local copy and also
@@ -1027,7 +1015,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     if (s3_config_enabled()) {
         char marker[800];
         if (s3_store_upload(final_path, mime_buf, marker, sizeof(marker))) {
-            if (s3_config_offload() && db_file_update_file_path(req->db, fid, marker)) {
+            if (s3_config_offload() && db_file_update_file_path(db, fid, marker)) {
                 unlink(final_path);
                 snprintf(final_path, sizeof(final_path), "%s", marker);
             }
@@ -1039,7 +1027,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     char delete_pin[13], delete_pin_hash[512];
     delete_pin[0] = '\0';
     if (random_hex(delete_pin, 6) && auth_hash_password(delete_pin, delete_pin_hash, sizeof(delete_pin_hash))) {
-        (void)db_file_set_delete_pin_hash(req->db, fid, delete_pin_hash);
+        (void)db_file_set_delete_pin_hash(db, fid, delete_pin_hash);
     } else {
         delete_pin[0] = '\0';
     }
@@ -1050,24 +1038,8 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
     close_upload_session_lock(lock_fd);
     cleanup_upload_session(upload_id);
     tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), upload_id);
-    cwist_query_map_destroy(kv);
+
     cJSON *obj = cJSON_CreateObject();
-
-goto skip_disconnect;
-
-client_disconnect:
-    if (media_acquired) {
-        pthread_mutex_lock(&g_media_mtx); g_media_concurrency--; pthread_cond_signal(&g_media_cond); pthread_mutex_unlock(&g_media_mtx);
-    }
-    cJSON_Delete(meta);
-    close_upload_session_lock(lock_fd);
-    cleanup_upload_session(upload_id);
-    tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), upload_id);
-    cwist_query_map_destroy(kv);
-    send_json_response(res, session_error_json("client disconnected"), CWIST_HTTP_BAD_REQUEST);
-    return;
-
-skip_disconnect:
     cJSON_AddBoolToObject(obj, "ok", true);
     cJSON_AddBoolToObject(obj, "is_gif_converted", is_gif_upload && gif_converted);
     cJSON_AddNumberToObject(obj, "id", fid);
@@ -1088,29 +1060,53 @@ skip_disconnect:
     for (int i = 0; i < 32; i++) snprintf(checksum_hex + (i * 2), 3, "%02x", checksum[i]);
     checksum_hex[64] = '\0';
     cJSON_AddStringToObject(obj, "checksum", checksum_hex);
-    send_json_response(res, obj, CWIST_HTTP_OK);
+
+    *out_status = CWIST_HTTP_OK;
+    *out_response = obj;
+    return true;
+
+client_disconnect:
+    if (media_acquired) {
+        tasfa_media_concurrency_release();
+    }
+    cJSON_Delete(meta);
+    close_upload_session_lock(lock_fd);
+    cleanup_upload_session(upload_id);
+    tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), upload_id);
+    *out_status = CWIST_HTTP_BAD_REQUEST;
+    *out_response = session_error_json("client disconnected");
+    return false;
+}
+
+static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    cwist_query_map *kv = cwist_query_map_create();
+    cwist_query_map_parse(kv, req->body->data);
+    const char *upload_id = cwist_query_map_get(kv, "upload_id");
+    const char *upload_token = cwist_query_map_get(kv, "upload_token");
+
+    int status = 500;
+    cJSON *response_obj = NULL;
+    tasfa_finalize_session_process(req->db, upload_id, upload_token, req, uid, &status, &response_obj);
+    cwist_query_map_destroy(kv);
+
+    send_json_response(res, response_obj ? response_obj : session_error_json("internal error"), (cwist_http_status_t)status);
 }
 
 static void *upload_finalize_worker(void *arg) {
     upload_finalize_job_t *job = (upload_finalize_job_t *)arg;
     if (!job) return NULL;
 
-    cwist_http_request *fake_req = cwist_http_request_create();
-    cwist_http_response *fake_res = cwist_http_response_create();
-    if (fake_req && fake_res) {
-        fake_req->db = job->db;
-        if (!fake_req->body) fake_req->body = cwist_sstring_create();
-        char body[256];
-        snprintf(body, sizeof(body), "upload_id=%s&upload_token=%s", job->upload_id, job->upload_token);
-        cwist_sstring_assign(fake_req->body, body);
-        handler_file_upload_complete_sync(fake_req, fake_res);
-        finalize_cache_mark_done(job->upload_id, (int)fake_res->status_code,
-                                 fake_res->body && fake_res->body->data ? fake_res->body->data : "{}");
-    } else {
-        finalize_cache_mark_done(job->upload_id, 500, "{\"ok\":false,\"error\":\"finalize worker failed\"}");
-    }
-    if (fake_res) cwist_http_response_destroy(fake_res);
-    if (fake_req) cwist_http_request_destroy(fake_req);
+    int status = 500;
+    cJSON *response_obj = NULL;
+    tasfa_finalize_session_process(job->db, job->upload_id, job->upload_token, NULL, 0, &status, &response_obj);
+
+    char *body = response_obj ? cJSON_PrintUnformatted(response_obj) : NULL;
+    finalize_cache_mark_done(job->upload_id, status, body ? body : "{\"ok\":false,\"error\":\"finalize failed\"}");
+    if (body) free(body);
+    if (response_obj) cJSON_Delete(response_obj);
     free(job);
     return NULL;
 }
