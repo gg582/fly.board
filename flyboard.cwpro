@@ -1,0 +1,28 @@
+{
+  "format": "cwist-project/v1",
+  "name": "flyboard",
+  "version": "1.0.0",
+  "language": "c",
+  "entrypoint": "src/main.c",
+  "build": {
+    "command": "make -j",
+    "binary": "fly_board"
+  },
+  "dev": {
+    "command": "./fly_board",
+    "debounce_ms": 200,
+    "stop_timeout_ms": 5000
+  },
+  "watch": {
+    "exclude": ["data", "posts", "img"]
+  },
+  "dependencies": {
+    "cwist": ">=3.3"
+  },
+  "openapi": {
+    "source": "src",
+    "output": "openapi.json",
+    "title": "fly.board",
+    "version": "1.0.0"
+  }
+}
