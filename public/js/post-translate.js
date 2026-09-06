@@ -285,6 +285,10 @@
                         }
                     }
 
+                    if (!fetchedParts) {
+                        throw new Error('All translation backends unavailable');
+                    }
+
                     for (var mIdx = 0; mIdx < missingIndices.length; mIdx++) {
                         var origIdx = missingIndices[mIdx];
                         var translatedText = (fetchedParts && fetchedParts[mIdx]) ? fetchedParts[mIdx] : missingChunks[mIdx];
