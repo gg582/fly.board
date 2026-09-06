@@ -173,7 +173,9 @@ static char *translate_text_via_api(CURL *curl, const char *text, const char *so
                         }
                     }
                 }
-                translated = strdup(comb->data ? comb->data : "");
+                if (comb->data && comb->data[0] && !is_invalid_translation_text(comb->data)) {
+                    translated = strdup(comb->data);
+                }
                 cwist_sstring_destroy(comb);
             }
             cJSON_Delete(root);
