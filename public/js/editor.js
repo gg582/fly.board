@@ -2542,8 +2542,27 @@
         touchTasfaActivity(asset);
         var pending = asset.pendingChunks;
         if (!pending || !pending.length) {
-            pending = [];
-            for (var i = 0; i < asset.totalChunks; i++) pending.push(i);
+            var rawChunks = [];
+            for (var i = 0; i < asset.totalChunks; i++) rawChunks.push(i);
+            // Interleave transmission across groups to disperse burst losses:
+            // Instead of sending 0, 1, 2, 3, 4, 5 consecutively (which would wipe out group 0 on a burst loss),
+            // send in round-robin across groups: g0_v0, g1_v0, g2_v0, ..., g0_v1, g1_v1, ...
+            var dataChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
+            var groupCount = Math.ceil(dataChunks / 6);
+            if (groupCount > 1) {
+                var interleaved = [];
+                for (var slot = 0; slot < 6; slot++) {
+                    for (var g = 0; g < groupCount; g++) {
+                        var c = g * 6 + slot;
+                        if (c < dataChunks) interleaved.push(c);
+                    }
+                }
+                // Append parity chunks at the end
+                for (var p = dataChunks; p < asset.totalChunks; p++) interleaved.push(p);
+                pending = interleaved;
+            } else {
+                pending = rawChunks;
+            }
         }
         asset.pendingChunks = null;
         // Aggressive restart after stall: blast at max then taper based on feedback
