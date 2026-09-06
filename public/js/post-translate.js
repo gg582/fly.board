@@ -148,6 +148,20 @@
         });
     }
 
+    function isInvalidTranslationText(text) {
+        if (!text || typeof text !== 'string') return true;
+        var upper = text.toUpperCase();
+        if (upper.indexOf('INVALID LANGUAGE PAIR') !== -1) return true;
+        if (upper.indexOf('INVALID TARGET LANGUAGE') !== -1) return true;
+        if (upper.indexOf('INVALID SOURCE LANGUAGE') !== -1) return true;
+        if (upper.indexOf('MYMEMORY WARNING') !== -1) return true;
+        if (upper.indexOf('QUERY LENGTH LIMIT') !== -1) return true;
+        if (upper.indexOf('NO QUERY SPECIFIED') !== -1) return true;
+        if (upper.indexOf('PLEASE SELECT') !== -1) return true;
+        if (upper.indexOf('INVALID ') === 0) return true;
+        return false;
+    }
+
     /* Client memory cache for already translated texts: key is "source|target|text" -> translated text */
     var clientTranslateCache = {};
 
@@ -274,6 +288,9 @@
                     for (var mIdx = 0; mIdx < missingIndices.length; mIdx++) {
                         var origIdx = missingIndices[mIdx];
                         var translatedText = (fetchedParts && fetchedParts[mIdx]) ? fetchedParts[mIdx] : missingChunks[mIdx];
+                        if (isInvalidTranslationText(translatedText)) {
+                            translatedText = missingChunks[mIdx];
+                        }
                         parts[origIdx] = translatedText;
                         if (translatedText && translatedText !== missingChunks[mIdx]) {
                             var saveKey = sourceLanguage + '|' + target + '|' + missingChunks[mIdx];
@@ -287,9 +304,10 @@
                     var idx = i + j;
                     if (blocks[idx]) {
                         var targetNode = blocks[idx].element;
-                        targetNode.textContent = parts[j] || blocks[idx].text;
+                        var finalText = (parts[j] && !isInvalidTranslationText(parts[j])) ? parts[j] : blocks[idx].text;
+                        targetNode.textContent = finalText;
                         targetNode.style.opacity = '1';
-                        if (blocks[idx].tocLink) blocks[idx].tocLink.textContent = parts[j] || blocks[idx].text;
+                        if (blocks[idx].tocLink) blocks[idx].tocLink.textContent = finalText;
                     }
                 }
             }
