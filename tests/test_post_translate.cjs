@@ -40,6 +40,7 @@ function page(text, fetchImpl) {
     source.childNodes = [paragraph];
     const button = element('button');
     const select = element('select');
+    select.options = targets.map((t) => ({ value: t.value, text: t.label, disabled: false, hidden: false }));
     const status = element('span');
     const requests = [];
     const ids = {

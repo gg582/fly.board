@@ -427,13 +427,18 @@ bool send_file_slice_response(cwist_http_request *req, cwist_http_response *res,
         if (tasfa_compress_alloc((const unsigned char *)buf, total, &comp_buf, &comp_len, &comp_type,
                                  client_accepts_zstd, client_accepts_brotli, client_accepts_gzip) &&
             comp_len + TASFA_COMPRESS_MIN_GAIN_BYTES < total) {
-            payload = comp_buf;
-            payload_len = comp_len;
             if (comp_type == TASFA_COMPRESS_ZSTD) encoding_name = "zstd";
             else if (comp_type == TASFA_COMPRESS_BROTLI) encoding_name = "br";
             else if (comp_type == TASFA_COMPRESS_GZIP) encoding_name = "gzip";
-        }
-        if (comp_buf && !encoding_name) {
+            
+            if (encoding_name) {
+                payload = comp_buf;
+                payload_len = comp_len;
+            } else {
+                cwist_free(comp_buf);
+                comp_buf = NULL;
+            }
+        } else if (comp_buf) {
             cwist_free(comp_buf);
             comp_buf = NULL;
         }
