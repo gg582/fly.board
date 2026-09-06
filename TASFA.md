@@ -147,25 +147,20 @@ For a failing group the server evaluates each slot against the three line equati
 | v4   | L2, L3    |
 | v5   | L3        |
 
-The suspicion score for each slot is deterministic and derived only from topology:
-
-```
-score = in_fail / total_fail
-```
-
-where `in_fail` is the number of failing line equations the slot participates in, and `total_fail` is the total number of failing equations in that group. No arbitrary confidence constants are used.
-
-If a slot only appears in passing equations, it is **cleared** from the suspect list.
+The suspicion score for each slot is derived from topological syndrome analysis:
+- When exactly two lines agree and one differs ($L_a == L_b \neq L_c$), the failing equation isolates two candidates: the exclusive side slot on $L_c$ (score `1.0`, dominant syndrome) and the opposite corner slot shared by $L_a, L_b$ (score `0.5`).
+- The remaining 4 slots that do not touch the failed equation are **cleared** immediately (score `0.0`).
+- When all three lines differ ($L_1 \neq L_2 \neq L_3$), scores are proportional to participation in the normalized residual magnitudes $|L_i - L_j|$.
 
 Scores are aggregated across all failed groups; if a chunk appears in multiple groups, its maximum score is kept.
 
-### Hybrid HTP-XOR Erasure Coding
+### Full HTP-XOR Peeling Decoder
 
-To resolve packet/chunk loss without high computational cost on low-spec servers, TASFA uses a hybrid model of HTP topological suspect location and lightweight XOR erasure coding:
+To resolve chunk corruption or loss without expensive Galois Field $GF(2^8)$ matrix inversions, TASFA combines topological syndrome localization with an iterative peeling XOR decoder:
 - **XOR Parity Generation**: Every 6-chunk group contains a 7th parity chunk $P = C_0 \oplus C_1 \oplus C_2 \oplus C_3 \oplus C_4 \oplus C_5$.
-- **Zero-Cost Suspect Localization**: When a group fails integrity checks, HTP's line sums and suspicion scores pinpoint the exact corrupted or missing chunk index $i$ at negligible CPU cost (simple scalar arithmetic).
-- **$O(1)$ Recovery**: If exactly one chunk $C_i$ is missing or corrupted within a group, the server instantly reconstructs it via $C_i = P \oplus \bigoplus_{j \neq i} C_j$ using SIMD bitwise XOR. This avoids expensive matrix inversions and Galois Field arithmetic.
-- **Multi-Erasure Fallback**: If two or more chunks are corrupted or missing, the server bypasses the FEC limits and falls back to normal retransmission (ARQ) via `retry_targets`.
+- **Zero-Cost Suspect Localization**: When a group fails integrity checks, HTP's line sums pinpoint the single corrupted chunk index $i$ in $O(1)$ integer operations.
+- **Iterative Peeling Recovery**: The server reconstructs $C_i = P \oplus \bigoplus_{j \neq i} C_j$ using SIMD bitwise XOR at memory bus bandwidth (20~40 GB/s). Groups are resolved sequentially, clearing restored chunks across the lattice until convergence.
+- **Multi-Erasure Fallback**: If two or more independent chunks in the same group cannot be isolated, the server falls back to ARQ retransmission via `retry_targets`.
 
 ### Repair cost threshold
 
