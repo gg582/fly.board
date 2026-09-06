@@ -589,7 +589,8 @@
             var stats = ensureTasfaStats(asset);
             // Ramp up on every success after aggressive restart, taper gently
             var mult = Date.now() < (stats.fastRecoveryUntil || 0) ? 1.3 : 1.15;
-            asset.targetParallel = Math.min(asset.maxParallel, Math.max(1, Math.round((asset.targetParallel || 1) * mult)));
+            // Preserve multiplicative growth, but always advance at low worker counts.
+            asset.targetParallel = Math.min(asset.maxParallel, Math.max((asset.targetParallel || 1) + 1, Math.round((asset.targetParallel || 1) * mult)));
             tasfaTrace(asset, 'success-ramp', { durationMs: Math.round(durationMs || 0), mbps: bytes && durationMs ? (((bytes * 8) / durationMs / 1000).toFixed(2)) : '0' });
             scheduleUploadRenegotiate(asset, false);
         }

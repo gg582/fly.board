@@ -245,7 +245,12 @@ tests/test_multipart_debug: tests/test_multipart_debug.c $(SERVER_OBJS) $(MD4C_L
 check-multipart: $(MP_TESTS)
 	@for t in $(MP_TESTS); do $$t > /dev/null || exit 1; done
 
-test: check-render check-multipart $(TARGET)
+# Client transfer regression tests (Node.js 18+; no native build or server required).
+.PHONY: check-tasfa
+check-tasfa:
+	node --test tests/test_tasfa_adaptation.cjs tests/test_tasfa_download.cjs
+
+test: check-tasfa check-render check-multipart $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
