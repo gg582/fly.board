@@ -35,6 +35,19 @@ static int64_t translation_hash(const char *text) {
     return (int64_t)h;
 }
 
+static bool is_invalid_translation_text(const char *text) {
+    if (!text || !text[0]) return true;
+    if (strstr(text, "MYMEMORY WARNING") != NULL) return true;
+    if (strstr(text, "QUERY LENGTH LIMIT") != NULL) return true;
+    if (strstr(text, "INVALID LANGUAGE PAIR") != NULL) return true;
+    if (strstr(text, "INVALID TARGET LANGUAGE") != NULL) return true;
+    if (strstr(text, "INVALID SOURCE LANGUAGE") != NULL) return true;
+    if (strstr(text, "NO QUERY SPECIFIED") != NULL) return true;
+    if (strstr(text, "PLEASE SELECT") != NULL) return true;
+    if (strncmp(text, "INVALID ", 8) == 0) return true;
+    return false;
+}
+
 static char *translation_cache_get(cwist_db *db, const char *src, const char *tgt, const char *text) {
     if (!db || !text || !text[0]) return NULL;
     const char *sql = "SELECT source_text, translated_text FROM translation_cache WHERE src=? AND tgt=? AND hash=? LIMIT 1";
@@ -47,8 +60,10 @@ static char *translation_cache_get(cwist_db *db, const char *src, const char *tg
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         const char *orig = (const char *)sqlite3_column_text(stmt, 0);
         const char *trans = (const char *)sqlite3_column_text(stmt, 1);
-        /* guard against the (astronomically unlikely) hash collision */
-        if (orig && trans && strcmp(orig, text) == 0) cached = strdup(trans);
+        /* guard against the (astronomically unlikely) hash collision and cached error strings */
+        if (orig && trans && strcmp(orig, text) == 0 && !is_invalid_translation_text(trans)) {
+            cached = strdup(trans);
+        }
     }
     sqlite3_finalize(stmt);
     return cached;
@@ -58,6 +73,7 @@ static void translation_cache_put(cwist_db *db, const char *src, const char *tgt
                                   const char *text, const char *translated, const char *provider) {
     if (!db || !text || !text[0] || !translated || !translated[0]) return;
     if (strcmp(text, translated) == 0) return; /* untranslated passthrough is not worth caching */
+    if (is_invalid_translation_text(translated)) return; /* do not cache error texts */
     const char *sql = "INSERT INTO translation_cache (src, tgt, hash, source_text, translated_text, provider) "
                       "VALUES (?,?,?,?,?,?) ON CONFLICT(src, tgt, hash) DO NOTHING";
     sqlite3_stmt *stmt = NULL;
@@ -171,21 +187,28 @@ static char *translate_text_via_api(CURL *curl, const char *text, const char *so
 static char *translate_text_via_mymemory(CURL *curl, const char *text, const char *source, const char *target) {
     if (!text || !text[0]) return strdup("");
     if (!source || !source[0] || strcmp(source, "auto") == 0) return NULL; /* langpair is mandatory */
+
     char *escaped = curl_easy_escape(curl, text, 0);
     if (!escaped) return NULL;
 
-    char url[2048];
-    snprintf(url, sizeof(url),
-             "https://api.mymemory.translated.net/get?q=%s&langpair=%s%%7C%s",
-             escaped, source, (target && target[0]) ? target : "ko");
+    const char *tgt = (target && target[0]) ? target : "ko";
+    cwist_sstring *post_fields = cwist_sstring_create();
+    cwist_sstring_append(post_fields, "q=");
+    cwist_sstring_append(post_fields, escaped);
+    cwist_sstring_append(post_fields, "&langpair=");
+    cwist_sstring_append(post_fields, source);
+    cwist_sstring_append(post_fields, "%7C");
+    cwist_sstring_append(post_fields, tgt);
     curl_free(escaped);
 
     translation_response_buffer buffer = {cwist_sstring_create(), false};
     struct curl_slist *headers = curl_slist_append(NULL, "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded;charset=utf-8");
 
-    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_URL, "https://api.mymemory.translated.net/get");
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_fields->data ? post_fields->data : "");
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)post_fields->size);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 15000L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
@@ -196,6 +219,7 @@ static char *translate_text_via_mymemory(CURL *curl, const char *text, const cha
     long status = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_slist_free_all(headers);
+    cwist_sstring_destroy(post_fields);
 
     char *translated = NULL;
     if (result == CURLE_OK && !buffer.overflow && status >= 200 && status < 300 && buffer.body->size > 0) {
@@ -213,11 +237,7 @@ static char *translate_text_via_mymemory(CURL *curl, const char *text, const cha
             status_ok = (atoi(rs->valuestring) == 200);
         }
         if (status_ok && cJSON_IsString(tt) && tt->valuestring && tt->valuestring[0]) {
-            if (strncmp(tt->valuestring, "MYMEMORY WARNING", 16) != 0 &&
-                strncmp(tt->valuestring, "QUERY LENGTH LIMIT", 18) != 0 &&
-                strncmp(tt->valuestring, "INVALID ", 8) != 0 &&
-                strncmp(tt->valuestring, "NO QUERY SPECIFIED", 18) != 0 &&
-                strncmp(tt->valuestring, "PLEASE SELECT", 13) != 0) {
+            if (!is_invalid_translation_text(tt->valuestring)) {
                 translated = strdup(tt->valuestring);
             }
         }
