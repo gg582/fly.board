@@ -232,6 +232,27 @@ static bool tasfa_gzip_decompress_to(const unsigned char *input, size_t input_le
     return ok;
 }
 
+/* Probe three independent windows, not their concatenation (which can invent
+ * redundancy). This is only a content hint, never a wire encoding: zstd level 1
+ * is used even for gzip-only clients. At most 48 KiB enters the probe codec,
+ * independent of request size. Small tails retain the existing codec policy.
+ * Any promising window, or a probe error, keeps the full compression path.
+ * See docs/tasfa-compression.md for the deliberate false-negative trade-off. */
+#define TASFA_COMPRESS_PROBE_MIN_BYTES (128 * 1024)
+#define TASFA_COMPRESS_PROBE_WINDOW_BYTES (16 * 1024)
+
+static bool tasfa_compression_worth_trying(const unsigned char *input, size_t input_len) {
+    if (input_len < TASFA_COMPRESS_PROBE_MIN_BYTES) return true;
+    const size_t window = TASFA_COMPRESS_PROBE_WINDOW_BYTES;
+    const size_t offsets[] = {0, (input_len - window) / 2, input_len - window};
+    unsigned char encoded[ZSTD_COMPRESSBOUND(TASFA_COMPRESS_PROBE_WINDOW_BYTES)];
+    for (size_t i = 0; i < sizeof(offsets) / sizeof(offsets[0]); i++) {
+        size_t len = ZSTD_compress(encoded, sizeof(encoded), input + offsets[i], window, 1);
+        if (ZSTD_isError(len) || len + 32 < window) return true;
+    }
+    return false;
+}
+
 /* --- Unified compression with fallback: brotli -> zstd -> gzip (ordered by compression efficiency) --- */
 bool tasfa_compress_alloc(const unsigned char *input, size_t input_len,
                           unsigned char **out, size_t *out_len, tasfa_compress_type_t *out_type,
@@ -240,6 +261,10 @@ bool tasfa_compress_alloc(const unsigned char *input, size_t input_len,
     *out = NULL;
     *out_len = 0;
     *out_type = TASFA_COMPRESS_NONE;
+
+    if (input_len <= TASFA_COMPRESS_MIN_GAIN_BYTES ||
+        (!allow_brotli && !allow_zstd && !allow_gzip)) return false;
+    if (!tasfa_compression_worth_trying(input, input_len)) return false;
 
     /* Try brotli first (highest compression ratio) */
     if (allow_brotli) {

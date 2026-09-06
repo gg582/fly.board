@@ -250,7 +250,35 @@ check-multipart: $(MP_TESTS)
 check-tasfa:
 	node --test tests/test_tasfa_adaptation.cjs tests/test_tasfa_download.cjs
 
-test: check-tasfa check-render check-multipart $(TARGET)
+# Native TASFA dispatcher/crypto regression tests, independent of CWIST.
+# Requires zlib, Zstd, Brotli and OpenSSL development packages plus pkg-config.
+PKG_CONFIG ?= pkg-config
+TASFA_COMPRESSION_TEST_CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
+TASFA_COMPRESSION_TEST_PACKAGES = libbrotlienc libbrotlidec libzstd openssl zlib
+.PHONY: check-tasfa-compression
+check-tasfa-compression:
+	@set -eu; \
+	$(PKG_CONFIG) --exists $(TASFA_COMPRESSION_TEST_PACKAGES); \
+	bin=$$(mktemp "$${TMPDIR:-/tmp}/tasfa-compression.XXXXXX"); \
+	trap 'rm -f "$$bin"' EXIT HUP INT TERM; \
+	$(CC) $(TASFA_COMPRESSION_TEST_CFLAGS) \
+	  $$($(PKG_CONFIG) --cflags $(TASFA_COMPRESSION_TEST_PACKAGES)) \
+	  tests/test_tasfa_compression.c -o "$$bin" \
+	  $$($(PKG_CONFIG) --libs $(TASFA_COMPRESSION_TEST_PACKAGES)); \
+	"$$bin"
+
+# Loopback adapter for the real slice-response function; not full CWIST routing.
+PYTHON ?= python3
+.PHONY: check-tasfa-endpoint
+check-tasfa-endpoint:
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest discover -s tests -p test_tasfa_benchmark.py
+	@set -eu; \
+	out=$$(mktemp "$${TMPDIR:-/tmp}/tasfa-endpoint.XXXXXX"); \
+	trap 'rm -f "$$out"' EXIT HUP INT TERM; \
+	CC="$(CC)" PKG_CONFIG="$(PKG_CONFIG)" $(PYTHON) tools/benchmark_tasfa_compression.py \
+	  --verify-only --sizes 1 --output "$$out"
+
+test: check-tasfa check-tasfa-compression check-tasfa-endpoint check-render check-multipart $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
