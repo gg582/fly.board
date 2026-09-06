@@ -113,7 +113,17 @@
                 clone.querySelectorAll('code, .math-inline, .katex').forEach(function(el) { el.remove(); });
                 var text = (clone.innerText || clone.textContent || '').trim();
                 if (text.length > 0) {
-                    blocks.push({ element: node, originalHtml: node.innerHTML, text: text });
+                    var tocLink = null;
+                    if (/^h[1-6]$/.test(tag) && node.id) {
+                        tocLink = document.querySelector('.post-toc-list a[href="#' + node.id + '"]');
+                    }
+                    blocks.push({
+                        element: node,
+                        originalHtml: node.innerHTML,
+                        text: text,
+                        tocLink: tocLink,
+                        tocLinkHtml: tocLink ? tocLink.innerHTML : ''
+                    });
                 }
                 return;
             }
@@ -134,6 +144,7 @@
         originalBlocks.forEach(function(item) {
             item.element.innerHTML = item.originalHtml;
             item.element.style.opacity = '1';
+            if (item.tocLink) item.tocLink.innerHTML = item.tocLinkHtml;
         });
     }
 
@@ -220,6 +231,7 @@
                         var targetNode = blocks[idx].element;
                         targetNode.textContent = parts[j];
                         targetNode.style.opacity = '1';
+                        if (blocks[idx].tocLink) blocks[idx].tocLink.textContent = parts[j];
                     }
                 }
             }
