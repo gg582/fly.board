@@ -16,6 +16,7 @@ import hashlib
 import http.server
 import io
 import json
+import math
 import os
 import platform
 from pathlib import Path
@@ -152,8 +153,62 @@ def cpu_seconds():
     return r.ru_utime + r.ru_stime
 
 
-def run_server(lib, fixtures):
+class PayloadPacer:
+    """Shared payload-byte budget; an application pacer, not a WAN emulator."""
+    def __init__(self, rate_mbps, clock=time.monotonic):
+        if not math.isfinite(rate_mbps) or rate_mbps <= 0:
+            raise ValueError("rate_mbps must be positive and finite")
+        self.bytes_per_second = rate_mbps * 1000000 / 8
+        self.clock = clock
+        self.deadline = 0.0
+        self.lock = threading.Lock()
+        self.active = 0
+
+    def begin(self):
+        with self.lock:
+            if self.active == 0:
+                self.deadline = self.clock()
+            self.active += 1
+
+    def end(self):
+        with self.lock:
+            self.active -= 1
+
+    def reserve(self, n):
+        if n < 0:
+            raise ValueError("negative payload size")
+        if n == 0:
+            return 0.0
+        with self.lock:
+            now = self.clock()
+            if self.active == 0:
+                self.deadline = max(now, self.deadline)
+            self.deadline += n / self.bytes_per_second
+            return max(0.0, self.deadline - now)
+
+
+def write_paced(stream, body, pacer, sleep=time.sleep):
+    if pacer is None:
+        stream.write(body)
+        return
+    pacer.begin()
+    try:
+        for offset in range(0, len(body), 65536):
+            block = memoryview(body)[offset:offset + 65536]
+            delay = pacer.reserve(len(block))
+            if delay > 0:
+                sleep(delay)
+            stream.write(block)
+    finally:
+        pacer.end()
+
+
+def run_server(lib, fixtures, rate_mbps=None):
+    pacer = PayloadPacer(rate_mbps) if rate_mbps is not None else None
     class Handler(http.server.BaseHTTPRequestHandler):
+        # Avoid Nagle/delayed-ACK interactions with paced short writes.
+        # Leave the unpaced path unchanged.
+        disable_nagle_algorithm = pacer is not None
         protocol_version = "HTTP/1.0"
         def log_message(self, format, *args):
             pass
@@ -179,7 +234,7 @@ def run_server(lib, fixtures):
                 self.send_header("Content-Length", str(result.length))
                 self.send_header("X-Fixture-Metrics", json.dumps(metrics))
                 self.end_headers()
-                self.wfile.write(ctypes.string_at(result.body, result.length))
+                write_paced(self.wfile, ctypes.string_at(result.body, result.length), pacer)
             finally:
                 lib.fixture_free(result.body)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -197,8 +252,9 @@ def request(url):
     return body, metrics, (first - start) * 1000, (time.perf_counter() - start) * 1000
 
 
-def measure(lib, fixtures, sizes, concurrency, repeats, quick=False):
-    server, worker = run_server(lib, fixtures)
+def measure(lib, fixtures, sizes, concurrency, repeats, quick=False,
+            rate_mbps=None, capability_sets=("br, zstd, gzip", "gzip", "")):
+    server, worker = run_server(lib, fixtures, rate_mbps)
     results = []
     try:
         for name, (path, _) in fixtures.items():
@@ -206,7 +262,7 @@ def measure(lib, fixtures, sizes, concurrency, repeats, quick=False):
                 n = min(mib * 1024 * 1024, path.stat().st_size)
                 with path.open("rb") as f:
                     expected = f.read(n)
-                for caps in ("br, zstd, gzip", "gzip", ""):
+                for caps in capability_sets:
                     for encrypted in ((0,) if quick else (0, 1)):
                         for workers in concurrency:
                             url = f"http://127.0.0.1:{server.server_port}/chunk?" + urllib.parse.urlencode({
@@ -233,6 +289,7 @@ def measure(lib, fixtures, sizes, concurrency, repeats, quick=False):
                                         "codecs": [r[1] for r in responses]})
                             row = {"fixture": name, "bytes": n, "sha256": hashlib.sha256(expected).hexdigest(),
                                 "capabilities": caps, "encrypted": encrypted, "concurrency": workers,
+                                "payload_rate_mbps": rate_mbps,
                                 "median_wall_ms": statistics.median(b["wall_ms"] for b in batches),
                                 "median_cpu_ms": statistics.median(b["cpu_ms"] for b in batches),
                                 "median_ttfb_ms": statistics.median(t for b in batches for t in b["ttfb_ms"]),
@@ -256,7 +313,7 @@ def verify_endpoint(lib, fixtures):
                 with path.open("rb") as f:
                     f.seek(offset)
                     expected = f.read(n)
-                for caps in ("br, zstd, gzip", "gzip", ""):
+                for caps in ("br, zstd, gzip", "zstd", "br", "gzip", ""):
                     for encrypted in (0, 1):
                         # Existing zero-length AES-GCM output-length bug is outside
                         # this compression change; tracked in the benchmark docs.
@@ -283,6 +340,9 @@ def main():
     parser.add_argument("--concurrency", default="1,4")
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--fixture", action="append", default=[], metavar="NAME=PATH")
+    parser.add_argument("--only-fixtures", help="comma-separated fixture names to benchmark")
+    parser.add_argument("--capabilities", action="append", help="repeat for custom codec sets; empty string means raw")
+    parser.add_argument("--rate-mbps", type=float, help="shared application payload pacing rate (decimal Mbps), not a WAN emulator")
     parser.add_argument("--quick", action="store_true", help="unencrypted cases only")
     parser.add_argument("--verify-only", action="store_true", help="candidate-only byte/header regression checks, no benchmark")
     parser.add_argument("--output", type=Path, required=True)
@@ -291,17 +351,28 @@ def main():
     concurrency = [int(x) for x in args.concurrency.split(",")]
     if min(sizes + concurrency + [args.repeats]) < 1 or max(sizes) > 128 or max(concurrency) > 16:
         parser.error("positive sizes <=128 MiB and concurrency <=16 required")
+    if args.rate_mbps is not None and (not math.isfinite(args.rate_mbps) or args.rate_mbps <= 0):
+        parser.error("--rate-mbps must be positive and finite")
+    capability_sets = [", ".join(t.strip() for t in raw.split(",") if t.strip())
+                       for raw in (args.capabilities or ["br, zstd, gzip", "gzip", ""])]
+    if any(t not in ("br", "zstd", "gzip") for caps in capability_sets for t in caps.split(", ") if t):
+        parser.error("unsupported codec in --capabilities")
     base = None if args.verify_only else subprocess.check_output(["git", "rev-parse", "--verify", "--end-of-options", args.baseline_ref + "^{commit}"], cwd=ROOT, text=True).strip()
     report = {"boundary": "real production slice-response/codec/crypto, test CWIST adapters, loopback HTTP; no full-server/auth/TLS coverage", "runs": {}}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="tasfa-endpoint-") as tmp:
         tmp = Path(tmp)
         fixtures = fixture_files(tmp / "files", max(sizes), args.fixture)
+        selected = args.only_fixtures.split(",") if args.only_fixtures else list(fixtures)
+        if not selected or len(set(selected)) != len(selected) or any(name not in fixtures for name in selected):
+            parser.error("--only-fixtures must name unique known fixtures")
+        measured_fixtures = {name: fixtures[name] for name in selected}
         variants = (("candidate", None),) if args.verify_only else (("baseline", base), ("candidate", None))
         for name, revision in variants:
             lib, metadata = build(tmp / name, revision)
             checks = verify_endpoint(lib, fixtures)
-            results = [] if args.verify_only else measure(lib, fixtures, sizes, concurrency, args.repeats, args.quick)
+            results = [] if args.verify_only else measure(lib, measured_fixtures, sizes, concurrency,
+                args.repeats, args.quick, args.rate_mbps, capability_sets)
             report["runs"][name] = {"build": metadata, "integrity_checks": checks, "results": results}
             args.output.write_text(json.dumps(report, indent=2) + "\n")
             print(f"{name}: {checks} loopback header/byte integrity checks passed", flush=True)
