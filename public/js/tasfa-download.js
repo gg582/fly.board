@@ -233,10 +233,11 @@
             session.currentSpan = Math.min(session.currentSpan || 1, 1);
             session.targetParallel = Math.min(session.targetParallel || 1, isLikelyMobile() ? 3 : 4);
         } else if (session.currentSpan < session.maxSpan && session.successEvents % 2 === 0) {
-            session.currentSpan = Math.min(session.maxSpan, Math.max(1, Math.round(session.currentSpan * 1.2)));
+            // Integer rounding must not trap slow-start or recovering sessions at 1 or 2.
+            session.currentSpan = Math.min(session.maxSpan, Math.max(session.currentSpan + 1, Math.round(session.currentSpan * 1.2)));
         }
         if (session.targetParallel < session.maxParallel && session.successEvents % 3 === 0) {
-            session.targetParallel = Math.min(session.maxParallel, Math.max(1, Math.round(session.targetParallel * 1.2)));
+            session.targetParallel = Math.min(session.maxParallel, Math.max(session.targetParallel + 1, Math.round(session.targetParallel * 1.2)));
         }
     }
 
