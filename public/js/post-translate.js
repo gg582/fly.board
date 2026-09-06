@@ -148,6 +148,31 @@
         });
     }
 
+    /* Client memory cache for already translated texts: key is "source|target|text" -> translated text */
+    var clientTranslateCache = {};
+
+    function updateTargetOptions(srcLang) {
+        var options = targetSelect.options;
+        for (var i = 0; i < options.length; i++) {
+            var opt = options[i];
+            if (opt.value === srcLang) {
+                opt.disabled = true;
+                opt.hidden = true;
+            } else {
+                opt.disabled = false;
+                opt.hidden = false;
+            }
+        }
+        if (targetSelect.value === srcLang) {
+            for (var j = 0; j < options.length; j++) {
+                if (!options[j].disabled) {
+                    targetSelect.value = options[j].value;
+                    break;
+                }
+            }
+        }
+    }
+
     button.addEventListener('click', async function() {
         if (state === 'loading' || state === 'translating') return;
         var target = targetSelect.value;
@@ -168,6 +193,8 @@
 
         var fullText = blocks.map(function(b) { return b.text; }).join(' ');
         var sourceLanguage = detectSourceLanguage(fullText);
+        updateTargetOptions(sourceLanguage);
+        target = targetSelect.value;
         if (sourceLanguage === target) {
             setState('idle');
             status.textContent = 'The post already appears to be in the selected language.';
@@ -190,48 +217,79 @@
         });
 
         var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        var timeout = controller ? setTimeout(function() { controller.abort(); }, 60000) : null;
+        var timeout = controller ? setTimeout(function() { controller.abort(); }, 90000) : null;
         try {
-            var batchSize = 6;
+            var batchSize = 12;
             var wasmMode = false;
             for (var i = 0; i < blocks.length; i += batchSize) {
                 if (activeRequestId !== currentRequestId) return;
                 var batchBlocks = blocks.slice(i, i + batchSize);
-                var chunks = batchBlocks.map(function(b) { return b.text; });
-                var parts = null;
-                if (!wasmMode) {
-                    try {
-                        var response = await fetch('/api/translate', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            signal: controller ? controller.signal : undefined,
-                            body: JSON.stringify({source: sourceLanguage, target: target, chunks: chunks})
-                        });
-                        var result = await response.json();
-                        if (!response.ok || !result.ok || !Array.isArray(result.parts)) {
-                            throw new Error(result.error || 'Translation request failed (' + response.status + ')');
-                        }
-                        parts = result.parts;
-                    } catch (serverError) {
-                        if (controller && controller.signal.aborted) throw serverError;
-                        /* Server providers are rate-limited/down: switch the
-                         * rest of the job to the on-device WASM translator. */
-                        console.warn('Server translation failed, falling back to WASM:', serverError);
-                        wasmMode = true;
+
+                /* Reuse already-translated chunks from client cache */
+                var parts = new Array(batchBlocks.length);
+                var missingIndices = [];
+                var missingChunks = [];
+
+                for (var bIdx = 0; bIdx < batchBlocks.length; bIdx++) {
+                    var chunkText = batchBlocks[bIdx].text;
+                    var cacheKey = sourceLanguage + '|' + target + '|' + chunkText;
+                    if (Object.prototype.hasOwnProperty.call(clientTranslateCache, cacheKey)) {
+                        parts[bIdx] = clientTranslateCache[cacheKey];
+                    } else {
+                        missingIndices.push(bIdx);
+                        missingChunks.push(chunkText);
                     }
                 }
-                if (wasmMode) {
-                    status.textContent = 'Server unavailable — translating on your device (first run downloads a model)…';
-                    parts = await translateChunksWasm(chunks, sourceLanguage, target);
+
+                if (missingChunks.length > 0) {
+                    var fetchedParts = null;
+                    if (!wasmMode) {
+                        try {
+                            var response = await fetch('/api/translate', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                signal: controller ? controller.signal : undefined,
+                                body: JSON.stringify({source: sourceLanguage, target: target, chunks: missingChunks})
+                            });
+                            var result = await response.json();
+                            if (result && Array.isArray(result.parts)) {
+                                fetchedParts = result.parts;
+                            }
+                        } catch (serverError) {
+                            if (controller && controller.signal.aborted) throw serverError;
+                            console.warn('Server translation request encountered error, trying fallback:', serverError);
+                        }
+                    }
+
+                    if (!fetchedParts && !wasmUnavailable[sourceLanguage + '|' + target]) {
+                        try {
+                            status.textContent = 'Translating on device…';
+                            fetchedParts = await translateChunksWasm(missingChunks, sourceLanguage, target);
+                            wasmMode = true;
+                        } catch (wasmErr) {
+                            console.warn('WASM translation fallback failed:', wasmErr);
+                        }
+                    }
+
+                    for (var mIdx = 0; mIdx < missingIndices.length; mIdx++) {
+                        var origIdx = missingIndices[mIdx];
+                        var translatedText = (fetchedParts && fetchedParts[mIdx]) ? fetchedParts[mIdx] : missingChunks[mIdx];
+                        parts[origIdx] = translatedText;
+                        if (translatedText && translatedText !== missingChunks[mIdx]) {
+                            var saveKey = sourceLanguage + '|' + target + '|' + missingChunks[mIdx];
+                            clientTranslateCache[saveKey] = translatedText;
+                        }
+                    }
                 }
+
                 if (activeRequestId !== currentRequestId) return;
                 for (var j = 0; j < parts.length; j++) {
                     var idx = i + j;
                     if (blocks[idx]) {
                         var targetNode = blocks[idx].element;
-                        targetNode.textContent = parts[j];
+                        targetNode.textContent = parts[j] || blocks[idx].text;
                         targetNode.style.opacity = '1';
-                        if (blocks[idx].tocLink) blocks[idx].tocLink.textContent = parts[j];
+                        if (blocks[idx].tocLink) blocks[idx].tocLink.textContent = parts[j] || blocks[idx].text;
                     }
                 }
             }
@@ -269,7 +327,9 @@
     var firstBlocks = getTranslatableBlocks();
     if (firstBlocks.length > 0) {
         var sampleText = firstBlocks.map(function(b) { return b.text; }).join(' ');
-        targetSelect.value = detectSourceLanguage(sampleText) === 'ko' ? 'en' : 'ko';
+        var detected = detectSourceLanguage(sampleText);
+        updateTargetOptions(detected);
+        targetSelect.value = detected === 'ko' ? 'en' : 'ko';
     }
     setState('idle');
 })();

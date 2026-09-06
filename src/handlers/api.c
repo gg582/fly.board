@@ -93,20 +93,26 @@ static char *translate_text_via_api(CURL *curl, const char *text, const char *so
     const char *src = (source && strcmp(source, "auto") != 0 && strlen(source) > 0) ? source : "auto";
     const char *tgt = (target && strlen(target) > 0) ? target : "ko";
 
-    char url[2048];
+    char url[512];
     snprintf(url, sizeof(url),
-             "https://translate.googleapis.com/translate_a/single?client=gtx&sl=%s&tl=%s&dt=t&q=%s",
-             src, tgt, escaped);
+             "https://translate.googleapis.com/translate_a/single?client=gtx&sl=%s&tl=%s&dt=t",
+             src, tgt);
+
+    cwist_sstring *post_fields = cwist_sstring_create();
+    cwist_sstring_append(post_fields, "q=");
+    cwist_sstring_append(post_fields, escaped);
     curl_free(escaped);
 
     translation_response_buffer buffer = {cwist_sstring_create(), false};
     struct curl_slist *headers = curl_slist_append(NULL, "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded;charset=utf-8");
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 15000L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_fields->data ? post_fields->data : "");
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)post_fields->size);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 20000L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, translation_write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
@@ -127,6 +133,7 @@ static char *translate_text_via_api(CURL *curl, const char *text, const char *so
         if (result == CURLE_OK && status != 429) break;
     }
     curl_slist_free_all(headers);
+    cwist_sstring_destroy(post_fields);
 
     if (result != CURLE_OK || buffer.overflow || status < 200 || status >= 300 || buffer.body->size == 0) {
         CWIST_LOG_WARN("Google translate API error: curl_res=%d status=%ld size=%zu overflow=%d",
@@ -260,11 +267,12 @@ void handler_api_translate(cwist_http_request *req, cwist_http_response *res) {
     cJSON *out_array = cJSON_CreateArray();
     const char *src_str = source->valuestring;
     const char *tgt_str = target->valuestring;
+    int success_count = 0;
 
     for (int i = 0; i < count; i++) {
         if (i > 0) {
             /* space out upstream calls to stay under Google's per-IP rate limit */
-            struct timespec ts = {0, 120 * 1000 * 1000};
+            struct timespec ts = {0, 100 * 1000 * 1000};
             nanosleep(&ts, NULL);
         }
         cJSON *chunk = cJSON_GetArrayItem(chunks, i);
@@ -288,16 +296,12 @@ void handler_api_translate(cwist_http_request *req, cwist_http_response *res) {
             }
             cJSON_AddItemToArray(out_array, cJSON_CreateString(trans));
             free(trans);
+            success_count++;
         } else {
-            /* All upstreams failed: report an honest failure so the client can
-             * fall back to its on-device WASM translator instead of rendering
-             * untranslated text mixed into the page. */
-            CWIST_LOG_WARN("Translation failed for chunk %d/%d (src=%s tgt=%s)", i + 1, count, src_str, tgt_str);
-            curl_easy_cleanup(curl);
-            cJSON_Delete(input);
-            cJSON_Delete(out_array);
-            translation_json_error(res, CWIST_HTTP_SERVICE_UNAVAILABLE, "translation upstream unavailable");
-            return;
+            /* Partial failure tolerance: keep the original text rather than failing the whole batch */
+            CWIST_LOG_WARN("Translation failed for chunk %d/%d (src=%s tgt=%s), falling back to original",
+                           i + 1, count, src_str, tgt_str);
+            cJSON_AddItemToArray(out_array, cJSON_CreateString(chunk->valuestring));
         }
     }
 
@@ -307,6 +311,7 @@ void handler_api_translate(cwist_http_request *req, cwist_http_response *res) {
     cJSON *resp_obj = cJSON_CreateObject();
     cJSON_AddBoolToObject(resp_obj, "ok", true);
     cJSON_AddItemToObject(resp_obj, "parts", out_array);
+    cJSON_AddNumberToObject(resp_obj, "translated_count", success_count);
     char *json = cJSON_PrintUnformatted(resp_obj);
     cJSON_Delete(resp_obj);
 
