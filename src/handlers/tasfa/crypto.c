@@ -116,9 +116,10 @@ char *ensure_read_buf(size_t need) {
 /* --- zstd compression --- */
 static bool tasfa_zstd_compress_alloc(const unsigned char *input, size_t input_len,
                                       unsigned char **out, size_t *out_len) {
-    if (!input || input_len == 0 || !out || !out_len) return false;
+    if (!out || !out_len) return false;
     *out = NULL;
     *out_len = 0;
+    if (!input || input_len == 0) return false;
 
     size_t cap = ZSTD_compressBound(input_len);
     if (ZSTD_isError(cap)) return false;
@@ -126,7 +127,7 @@ static bool tasfa_zstd_compress_alloc(const unsigned char *input, size_t input_l
     unsigned char *buf = (unsigned char *)cwist_alloc(cap);
     if (!buf) return false;
 
-    size_t rc = ZSTD_compress(buf, cap, input, input_len, 3); /* level 3: good balance */
+    size_t rc = ZSTD_compress(buf, cap, input, input_len, 1);
     if (ZSTD_isError(rc)) {
         cwist_free(buf);
         return false;
@@ -147,18 +148,19 @@ static bool tasfa_zstd_decompress_to(const unsigned char *input, size_t input_le
 /* --- brotli compression --- */
 static bool tasfa_brotli_compress_alloc(const unsigned char *input, size_t input_len,
                                         unsigned char **out, size_t *out_len) {
-    if (!input || input_len == 0 || !out || !out_len) return false;
+    if (!out || !out_len) return false;
     *out = NULL;
     *out_len = 0;
+    if (!input || input_len == 0) return false;
 
     size_t cap = BrotliEncoderMaxCompressedSize(input_len);
-    if (cap == 0) cap = input_len + 1024;
+    if (cap == 0) return false;
 
     unsigned char *buf = (unsigned char *)cwist_alloc(cap);
     if (!buf) return false;
 
     size_t encoded_size = cap;
-    if (!BrotliEncoderCompress(4, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_GENERIC,
+    if (!BrotliEncoderCompress(1, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_GENERIC,
                                input_len, input, &encoded_size, buf)) {
         cwist_free(buf);
         return false;
@@ -177,16 +179,17 @@ static bool tasfa_brotli_decompress_to(const unsigned char *input, size_t input_
     return result == BROTLI_DECODER_RESULT_SUCCESS && decoded_size == expected_len;
 }
 
-/* --- gzip compression (fallback) --- */
+/* --- gzip compression --- */
 static bool tasfa_gzip_compress_alloc(const unsigned char *input, size_t input_len,
                                       unsigned char **out, size_t *out_len) {
-    if (!input || input_len == 0 || !out || !out_len) return false;
+    if (!out || !out_len) return false;
     *out = NULL;
     *out_len = 0;
+    if (!input || input_len == 0) return false;
 
     z_stream zs;
     memset(&zs, 0, sizeof(zs));
-    if (deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+    if (deflateInit2(&zs, Z_BEST_SPEED, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
         return false;
     }
 
@@ -232,83 +235,42 @@ static bool tasfa_gzip_decompress_to(const unsigned char *input, size_t input_le
     return ok;
 }
 
-/* Probe three independent windows, not their concatenation (which can invent
- * redundancy). This is only a content hint, never a wire encoding: zstd level 1
- * is used even for gzip-only clients. At most 48 KiB enters the probe codec,
- * independent of request size. Small tails retain the existing codec policy.
- * Any promising window, or a probe error, keeps the full compression path.
- * See docs/tasfa-compression.md for the deliberate false-negative trade-off. */
-#define TASFA_COMPRESS_PROBE_MIN_BYTES (128 * 1024)
-#define TASFA_COMPRESS_PROBE_WINDOW_BYTES (16 * 1024)
-
-static bool tasfa_compression_worth_trying(const unsigned char *input, size_t input_len) {
-    if (input_len < TASFA_COMPRESS_PROBE_MIN_BYTES) return true;
-    const size_t window = TASFA_COMPRESS_PROBE_WINDOW_BYTES;
-    const size_t offsets[] = {0, (input_len - window) / 2, input_len - window};
-    unsigned char encoded[ZSTD_COMPRESSBOUND(TASFA_COMPRESS_PROBE_WINDOW_BYTES)];
-    for (size_t i = 0; i < sizeof(offsets) / sizeof(offsets[0]); i++) {
-        size_t len = ZSTD_compress(encoded, sizeof(encoded), input + offsets[i], window, 1);
-        if (ZSTD_isError(len) || len + 32 < window) return true;
-    }
-    return false;
-}
-
-/* --- Unified compression with fallback: brotli -> zstd -> gzip (ordered by compression efficiency) --- */
+/* One full-input attempt with the fastest preferred advertised codec.
+ * No sampling or codec fallback: actual encoded size alone decides savings. */
 bool tasfa_compress_alloc(const unsigned char *input, size_t input_len,
                           unsigned char **out, size_t *out_len, tasfa_compress_type_t *out_type,
                           bool allow_zstd, bool allow_brotli, bool allow_gzip) {
-    if (!input || input_len == 0 || !out || !out_len || !out_type) return false;
+    if (!out || !out_len || !out_type) return false;
     *out = NULL;
     *out_len = 0;
     *out_type = TASFA_COMPRESS_NONE;
 
-    if (input_len <= TASFA_COMPRESS_MIN_GAIN_BYTES ||
+    if (!input || input_len <= TASFA_COMPRESS_MIN_GAIN_BYTES ||
         (!allow_brotli && !allow_zstd && !allow_gzip)) return false;
-    if (!tasfa_compression_worth_trying(input, input_len)) return false;
 
-    /* Try brotli first (highest compression ratio) */
-    if (allow_brotli) {
-        unsigned char *brotli_buf = NULL;
-        size_t brotli_len = 0;
-        if (tasfa_brotli_compress_alloc(input, input_len, &brotli_buf, &brotli_len) &&
-            brotli_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
-            *out = brotli_buf;
-            *out_len = brotli_len;
-            *out_type = TASFA_COMPRESS_BROTLI;
-            return true;
-        }
-        if (brotli_buf) { cwist_free(brotli_buf); brotli_buf = NULL; }
-    }
-
-    /* Fallback to zstd (fast, good compression ratio) */
+    unsigned char *buf = NULL;
+    size_t len = 0;
+    tasfa_compress_type_t type;
+    bool ok;
     if (allow_zstd) {
-        unsigned char *zstd_buf = NULL;
-        size_t zstd_len = 0;
-        if (tasfa_zstd_compress_alloc(input, input_len, &zstd_buf, &zstd_len) &&
-            zstd_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
-            *out = zstd_buf;
-            *out_len = zstd_len;
-            *out_type = TASFA_COMPRESS_ZSTD;
-            return true;
-        }
-        if (zstd_buf) { cwist_free(zstd_buf); zstd_buf = NULL; }
+        type = TASFA_COMPRESS_ZSTD;
+        ok = tasfa_zstd_compress_alloc(input, input_len, &buf, &len);
+    } else if (allow_brotli) {
+        type = TASFA_COMPRESS_BROTLI;
+        ok = tasfa_brotli_compress_alloc(input, input_len, &buf, &len);
+    } else {
+        type = TASFA_COMPRESS_GZIP;
+        ok = tasfa_gzip_compress_alloc(input, input_len, &buf, &len);
     }
-
-    /* Final fallback to gzip (universal compatibility) */
-    if (allow_gzip) {
-        unsigned char *gzip_buf = NULL;
-        size_t gzip_len = 0;
-        if (tasfa_gzip_compress_alloc(input, input_len, &gzip_buf, &gzip_len) &&
-            gzip_len + TASFA_COMPRESS_MIN_GAIN_BYTES < input_len) {
-            *out = gzip_buf;
-            *out_len = gzip_len;
-            *out_type = TASFA_COMPRESS_GZIP;
-            return true;
-        }
-        if (gzip_buf) { cwist_free(gzip_buf); gzip_buf = NULL; }
+    /* Subtraction preserves the strict existing gain check without overflow. */
+    if (!ok || len >= input_len - TASFA_COMPRESS_MIN_GAIN_BYTES) {
+        if (buf) cwist_free(buf);
+        return false;
     }
-
-    return false;
+    *out = buf;
+    *out_len = len;
+    *out_type = type;
+    return true;
 }
 
 bool tasfa_decompress_to(const unsigned char *input, size_t input_len,

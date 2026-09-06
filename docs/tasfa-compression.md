@@ -1,165 +1,206 @@
 # TASFA chunk compression policy
 
-`tasfa_compress_alloc` uses a bounded content probe before compressing buffers
-of **128 KiB or larger**. This addresses issue #25's redundant whole-buffer
-codec passes without changing the download/session or encryption APIs.
+This follow-up replaces the sampling policy merged in PR #26 with one fast,
+full-chunk compression attempt. It addresses issue #25's redundant codec passes
+without making sampling decisions that can miss useful compression elsewhere
+in a chunk.
 
-## Work and wire guarantees
+## Selection, work and wire contract
 
-- If no codec is advertised, or the input is at most the 1,024-byte minimum
-  gain, no codec work is done.
-- Large inputs are probed with Zstd level 1 using independent 16 KiB windows
-  at the beginning, middle and end. Sampling stops at the first window whose
-  encoded size plus 32 bytes is smaller than the window, or on a probe error.
-  An error retains the old full-compression path rather than deciding that the
-  content is incompressible.
-- If all three windows fail that savings test, the dispatcher returns the
-  original-data outcome: `false`, NULL output, zero output length and
-  `TASFA_COMPRESS_NONE`. **At most three codec calls and 48 KiB of codec input**
-  are used for these rejected large buffers, regardless of chunk/span size.
-  The output scratch buffer is fixed-size (`ZSTD_COMPRESSBOUND(16 KiB)`);
-  the probe does not allocate a request-sized buffer or concatenate samples.
-- The Zstd probe is an internal heuristic, **not a transmitted encoding**.
-  It also runs for gzip-only and Brotli-only clients; Zstd is already a required
-  server dependency. Full-buffer/wire selection remains advertised
-  **Brotli → Zstd → gzip**, with the unchanged strict 1,024-byte savings check.
-- Smaller tails retain the old full-codec fallback policy. They can still
-  incur up to three full passes, but each input is smaller than 128 KiB.
-- A promising probe does **not** bound subsequent full-buffer work. It adds
-  up to 48 KiB of probe work to the old policy. File reads, response copying,
-  encryption and other request work are not covered by the compression bound.
+For each buffer passed to `tasfa_compress_alloc`:
 
-There is no MIME denylist, session cache, mutable global policy state or
-change to authentication, AES-GCM, HTP or scheduling. `session.c` still selects
-encoding and uncompressed-length headers only on successful compression and
-sets Content-Length from the actual plaintext/compressed/encrypted payload.
+1. With valid output arguments, initialize the output pointer to NULL, output
+   length to zero and type to `TASFA_COMPRESS_NONE`, including on empty or invalid
+   input. Missing output arguments are rejected without dereferencing them.
+2. Null input, input of at most 1,024 bytes, or no advertised codec returns the
+   raw outcome without any codec work.
+3. Select exactly one advertised codec: **Zstd level 1 → Brotli quality 1 → gzip
+   `Z_BEST_SPEED`**. The order is a preference, not a fallback chain.
+4. Compress the **entire eligible input once**, with no samples and no retry.
+   Successful allocation/initialization leads to exactly one codec call consuming
+   the original input pointer and its complete length. Random/incompressible and
+   compressible data have the same one-call/full-input budget. Allocation or
+   initialization failure can prevent that call entirely.
+5. Accept only if the actual encoded length plus `TASFA_COMPRESS_MIN_GAIN_BYTES`
+   (1,024) is **strictly less** than the input length. Exactly 1,024 bytes of
+   savings is insufficient. The implementation uses subtraction to avoid adding
+   to an encoded length near the size limit.
+6. Insufficient gain, allocation failure, or codec error frees temporary output
+   and returns the raw outcome. **Never try a different codec**, even when more
+   codecs were advertised.
 
-## False negatives and costs
+The budget concerns application-level compression calls and codec input bytes,
+not internal algorithm scans or total request CPU. Compression output capacity
+and codec workspace scale with input size; this is not the former fixed 48 KiB
+probe budget. Tails and large buffers use the same policy.
 
-Sampling is not proof of incompressibility. A file with random sampled windows
-and a large compressible region elsewhere will be sent raw; repetition that
-requires a dictionary larger than a sample, or that another codec exploits but
-Zstd does not, can also be missed. Even savings smaller than 33 bytes per sample
-can be worthwhile over a large file. Conversely, a compressible header/padding
-window can admit a mostly incompressible buffer and all old full passes still
-run. Any promising window is enough to favor preserving compression rather than
-requiring every window to pass. Independent windows avoid manufacturing repeated
-content by stitching samples together.
+Wire enum values, decoder implementations, AES-GCM, HTTP headers and the caller
+are unchanged. `session.c` still selects encoding and uncompressed-length headers
+only on successful compression and derives Content-Length from the actual
+raw/compressed/encrypted payload. No MIME denylist, session cache, mutable policy
+state, authentication or scheduling change is introduced.
 
-The selected constants trade a small fixed probe cost for avoiding full passes
-on sampled high-entropy content. They are not a universal CPU/latency optimum.
-Fast links may favor skipping more compression, while slow links may make false
-negatives expensive. Endpoint timing is supporting evidence under its measured
-transport and concurrency, not a claim of production or WAN throughput gains.
+## Trade-offs and limits
 
-## Regression tests
+Full-input evaluation fixes the old deterministic missed-sampling fixture:
+random bytes in the former prefix/middle/tail windows no longer hide large
+compressible regions outside those windows. It does **not** promise that every
+codec would agree about compressibility. A selected codec may fail the gain test
+where an untried codec or a higher level would succeed.
 
-```sh
-make check-tasfa-compression
-# Apple Silicon with Homebrew dependencies:
-make check-tasfa-compression CC=/usr/bin/clang PKG_CONFIG=/opt/homebrew/bin/pkgconf
-# Optional memory/undefined-behavior checks:
-make check-tasfa-compression CC=/usr/bin/clang PKG_CONFIG=/opt/homebrew/bin/pkgconf \
-  TASFA_COMPRESSION_TEST_CFLAGS='-std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined'
-```
+**There is no guarantee that output bytes are less than or equal to the old
+Brotli output.** Faster levels and Zstd-first negotiation can produce larger
+payloads than the old Brotli-quality-4-first policy. Incompressible inputs now
+receive a full pass instead of bounded probing. Those are explicit trade-offs,
+not claims of universally lower CPU, latency, wire cost or faster transfers.
+Slow-link performance depends on both encoding cost and transmitted bytes.
 
-The standalone test includes the actual production `crypto.c`, substitutes only
-its CWIST umbrella declarations/allocator, and wraps codec entry points to count
-calls and input bytes while executing the real codec libraries. The small test
-shim mirrors the compression enum/minimum-gain constant from `tasfa_internal.h`;
-it must stay aligned if those declarations change. No server/CWIST archive is
-needed. Deterministic assertions cover sample/tail boundaries, 8/32 MiB inputs,
-all eight capability combinations (including none, gzip-only and all-codec),
-byte-exact compress/decompress and AES-GCM encrypt/decrypt paths. Unit assertions
-use work counts, not flaky timing thresholds. This is not a full native-server
-integration test; response-header and endpoint measurements use the separate
-loopback adapter below or a running CWIST server.
+Previously recorded sampling-policy performance numbers are superseded and have
+been removed from this document; they are not evidence for this follow-up.
+Current benchmark results must identify the measured source hashes and explicit
+baseline revision before drawing performance conclusions.
 
-## Loopback response tests and reproducible benchmark
+## Native regression tests
 
 ```sh
-make check-tasfa-endpoint CC=/usr/bin/clang PKG_CONFIG=/opt/homebrew/bin/pkgconf
-CC=/usr/bin/clang PKG_CONFIG=/opt/homebrew/bin/pkgconf \
-  python3 tools/benchmark_tasfa_compression.py --baseline-ref HEAD \
-  --sizes 8,32 --concurrency 1,4 --repeats 3 --output /tmp/tasfa-comparison.json
+CC=/usr/bin/clang PKG_CONFIG=/opt/homebrew/bin/pkgconf make check-tasfa-compression
+CC=/usr/bin/clang PKG_CONFIG=/opt/homebrew/bin/pkgconf make check-tasfa-compression \
+  TASFA_COMPRESSION_TEST_CFLAGS='-std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer'
 ```
 
-Use an explicit pre-fix commit for `--baseline-ref` after the change is committed.
-Additional real media can be supplied as `--fixture jpeg=/path/to/image.jpg`
-(and similarly WebP/video); the report records the actual sliced size and SHA-256,
-not a padded/repeated nominal size. Default controls are deterministic random
-bytes, repeated text, valid generated ZIP/PNG data, and an adversarial mixed
-buffer with compressible content outside the sampled windows. Codec versions,
-compile flags, and source hashes are included in the JSON output.
+The standalone test includes production `crypto.c` with a CWIST declaration shim.
+It preserves real codec and AES calls except for explicit fault-injection cases.
+Wrappers record codec calls, complete input bytes/pointers, requested levels,
+allocation attempts and ownership cleanup. The shim's enum/minimum-gain constant
+must remain aligned with `tasfa_internal.h`.
 
-Use only public/non-sensitive fixtures: `--fixture` exposes the selected file
-slices on an unauthenticated loopback listener. Synthetic fixed keys/nonces are
-public test constants and provide no confidentiality; never use real session
-credentials or private files. The adversarial mixed fixture is arranged for the
-largest requested size, so in the default 8/32 MiB matrix only its 32 MiB row is
-the deliberate missed-compression case.
+Deterministic checks cover all eight capability masks on random and compressible
+inputs, zero/tiny/tail and former probe boundaries, 8/32 MiB buffers, actual
+already-compressed content, and useful compression inside/outside the former
+sample windows. A real-codec boundary sweep verifies equality rejection and
+acceptance beyond the exact minimum gain. Compression/decompression and nonempty
+AES-GCM roundtrips are byte-exact. Injected errors for every selected codec,
+output allocation and gzip initialization assert clean raw results and no
+fallback; counters also detect leaked/double-freed application output buffers.
 
-The harness compiles the complete production `crypto.c` and the unmodified
-`send_file_slice_response` function body from each revision. Only CWIST request,
-response, session metadata and allocation dependencies are test substitutes.
-The function serves real file slices over loopback HTTP, with optional real
-AES-GCM. It checks encoding negotiation, compressed/encrypted Content-Length,
-uncompressed-length headers and exact bytes after decryption/decompression.
-Small chunks, threshold boundaries, nonzero offsets and partial tails are
-covered by `--verify-only` / `make check-tasfa-endpoint` (102 cases).
+Encrypted zero-length responses are deliberately excluded: the pre-existing
+AES helper retains the AAD update output length when it skips an empty plaintext
+update. This follow-up neither changes that helper nor claims to fix the defect.
+Empty compression dispatch itself is tested.
 
-One existing boundary is deliberately excluded: encrypted zero-length responses.
-The pre-existing encryption helper retains the AAD update's output-length value
-when it skips the empty plaintext update. The compression change does not alter
-that helper. Empty **unencrypted** responses are tested; this harness does not
-claim coverage or a fix for encrypted empty files.
+## Endpoint and performance validation
 
-Each benchmark cell has a warm-up and configurable repeated batches. It reports
-request TTFB/completion, process CPU time, codec calls/input bytes/timing,
-logical throughput and response byte counts (payload-wire throughput is derivable
-from bytes/elapsed time and excludes HTTP/TCP overhead). Process CPU includes both the adapter and local client;
-cryptographic round-trip validation occurs outside the timed batch. This is a
-measurement of the actual response/codec path behind test adapters, **not a full
-CWIST server, real authentication/routing, TLS, browser, or WAN benchmark**.
-Tests assert byte/work contracts rather than wall-clock thresholds. Read timing
-medians alongside output sizes, particularly for the deliberately unfavorable
-mixed-data control; sampling can trade higher wire cost for lower codec CPU.
+The separate loopback adapter and `tools/benchmark_tasfa_compression.py` exercise
+the production response/codec path with substituted CWIST request/response and
+session plumbing. They are not a full CWIST server, authenticated routing, TLS,
+browser or WAN benchmark. Endpoint/rate-limited measurements and publication are
+separate from the native policy change.
 
-### Recorded comparison (2026-09-06)
+Use an explicit baseline revision and record codec versions, compile flags,
+source hashes, fixture hashes/actual lengths, capabilities, encryption mode and
+concurrency. Compare CPU and completion/TTFB with actual response bytes, including
+slow-link runs: unconstrained loopback latency alone cannot establish a transfer
+improvement. Timing is supporting evidence, not a flaky native-test threshold.
 
-macOS ARM64, Clang `-O2`, Brotli 1.2.0, Zstd 1.5.7, OpenSSL 3.6.3, zlib 1.2.12.
-Base `3810f05afd24c51bfb96e8e0c43e46cfe1f450e1`; candidate crypto source SHA-256
-`7b8c86edd7b0bb2ff6a5176a33806ccbd2c130180c50c6f3b9628b784e687ee7`.
-The complete run had **192 configurations per revision**: eight fixtures,
-two requested sizes, three capability sets, encryption off/on, concurrency 1/4.
-Each cell had one warm-up and three measured batches. Both revisions also passed
-102 response-header/byte checks. Baseline cells ran first; do not interpret small
-percentage differences as statistically established gains. This run preceded
-reporting-metadata/validation-guard additions to the harness; its production
-crypto and response source hashes match the final candidate.
+Use only public/non-sensitive fixtures: the adapter exposes file slices on an
+unauthenticated loopback listener and uses public synthetic keys/nonces. Never
+supply private files, real session credentials or sensitive data.
 
-Representative all-codec, AES-GCM, concurrency-1 cells (medians, milliseconds):
+### Application-level pacing
 
-| Fixture | Size | CPU before → after | TTFB before → after | Payload bytes before → after |
-| --- | --- | --- | --- | --- |
-| Random | 32 MiB | 454.47 → 14.80 | 445.41 → 6.83 | 33,554,448 → 33,554,448 |
-| ZIP | 32 MiB | 457.79 → 13.64 | 448.03 → 6.29 | 33,554,448 → 33,554,448 |
-| PNG | 32 MiB | 461.37 → 14.16 | 452.00 → 6.44 | 33,554,448 → 33,554,448 |
-| WebP | 32 MiB | 469.01 → 13.38 | 459.72 → 6.19 | 33,554,448 → 33,554,448 |
-| Text | 32 MiB | 20.79 → 20.75 | 20.73 → 20.70 | 123 → 123 |
-| JPEG | 33,163,096 bytes | 135.67 → 134.23 | 127.06 → 125.48 | 32,041,654 → 32,041,654 |
-| MP4 | 32 MiB | 198.82 → 184.45 | 191.06 → 176.28 | 30,050,024 → 30,050,024 |
-| Adversarial mixed | 32 MiB | 20.61 → 14.06 | 20.57 → 6.40 | **49,278 → 33,554,448** |
+`--rate-mbps` shares one payload-byte budget across the server's concurrent
+responses. It uses scheduled deadlines while responses are active, so scheduler
+sleep overshoot is recovered rather than accumulated at every 64 KiB write.
+When all responses finish, idle time does not create credit for the next request.
+Paced connections disable Nagle; the unpaced path retains its existing behavior.
+This is **not** packet shaping or a WAN emulator: HTTP/TCP overhead, RTT, packet
+loss and the full production server are outside this measurement boundary.
 
-Random/ZIP/PNG/WebP avoided three 32 MiB codec inputs (96 MiB total), using only
-48 KiB of Zstd probe input. Text, JPEG and MP4 still selected Brotli and retained
-identical output sizes. The actual JPEG/WebP/MP4 files were generated from a
-4096×4096 deterministic noise PPM (Python `random.Random(2500).randbytes`):
-`cjpeg -quality 100`, `cwebp -lossless -z 0`, and one-frame FFmpeg/libx264
-`-preset ultrafast -qp 0`, respectively. These are synthetic encoded media, not
-a representative media corpus.
+```sh
+CC=/usr/bin/clang python3 tools/benchmark_tasfa_compression.py \
+  --baseline-ref 490571bff6ead50c53305734ee8581b516f90ac7 \
+  --sizes 32 --concurrency 1 --repeats 3 \
+  --only-fixtures mixed,text,random --capabilities 'br, zstd, gzip' \
+  --rate-mbps 100 --output /tmp/tasfa-paced.json
+```
 
-**The mixed cell is an important regression in wire cost**, despite looking
-faster on an unconstrained loopback connection. A slow real link can perform
-much worse on such data. The policy is a measured heuristic, not a guarantee
-that every compressible file retains compression or every transfer is faster.
+Use repeated `--capabilities` flags to compare client capability sets, including
+`--capabilities gzip`. The production browser probes its own
+`DecompressionStream` support; **the all-codec results are not representative of
+every browser**. A gzip-only client must not be assigned the Zstd speedup.
+The native gate checks 236 cases; the endpoint gate checks 170 responses, and
+9 Python tests cover optimized-execution failure guards and pacing behavior.
+
+### Local measurements (2026-09-06)
+
+macOS 26.5.1 ARM64, `/usr/bin/clang -O2`, Brotli 1.2.0, Zstd 1.5.7,
+OpenSSL 3.6.3 and zlib 1.2.12. The unpaced measurements predate the pacing-only
+timer fixes; the unpaced writer/socket behavior and native source hashes were
+unchanged. The corrected pacing runs below were measured separately.
+
+The candidate production source SHA-256 is
+`7d06dcdb7f093983afcd3b77995cbcf58142048ef5b311ebc8a87f18f54b968e`.
+The pre-sampling baseline is
+`b336c1c8eb4a5655d19e1c76c341647817c5ce31`; the merged-sampling baseline is
+`490571bff6ead50c53305734ee8581b516f90ac7`.
+
+The unpaced comparison covers **192 configurations per revision**: requested
+8/32 MiB, concurrency 1/4, encryption off/on, all-codec/gzip-only/no-codec, and
+noise, repeated text, mixed, generated ZIP/PNG and supplied generated
+JPEG/WebP/MP4 fixtures. Each configuration has one warmup and three measured
+batches. Below are encrypted, concurrency-one cases at requested 32 MiB.
+Payload bytes include the 16-byte AES-GCM tag; CPU times are median process CPU
+milliseconds per request. These are adapter measurements, not production claims.
+
+| Fixture / accepted codecs | Old → new CPU ms | Old → new payload bytes |
+| --- | ---: | ---: |
+| Noise / all | 450.78 → 16.66 | 33,554,448 → 33,554,448 |
+| Mixed / all | 20.56 → 4.52 | 49,278 → 50,453 |
+| Text / all | 20.96 → 3.27 | 123 → 3,163 |
+| MP4 / all | 181.47 → 34.30 | 30,050,024 → 30,235,540 |
+| Noise / gzip only | 441.35 → 421.26 | 33,554,448 → 33,554,448 |
+| Text / gzip only | 51.52 → 25.96 | 97,754 → 227,821 |
+| MP4 / gzip only | 1,425.46 → 527.22 | 29,713,592 → 30,509,037 |
+
+The full-pass policy avoids the sampled mixed-data miss, but is not a
+wire-nonincreasing replacement for the older compressor settings. In particular,
+the text and MP4 rows show why CPU savings alone cannot establish a slow-link
+win. Full native-server integration remains unverified: CWIST is not available
+through pkg-config and the required vendor submodules are uninitialized here.
+
+#### Corrected paced comparisons
+
+An 8 MiB raw control at the 100 Mbps setting achieved approximately 96–99 Mbps
+including request overhead. Earlier runs that accumulated sleep overshoot were
+rejected. These timings still include local scheduler jitter, especially for
+small compressed responses; no statistical-significance or universal-speedup
+claim is made.
+
+Against merged sampling, requested 32 MiB, all codecs, encrypted, one worker,
+100 Mbps payload budget, one warmup and three measured requests per configuration:
+
+| Fixture | Sampling → full-pass payload bytes | Median batch wall ms (one worker) |
+| --- | ---: | ---: |
+| Mixed | 33,554,448 → 50,453 | 2,722.78 → 17.20 |
+| Noise | 33,554,448 → 33,554,448 | 2,717.88 → 2,715.91 |
+| MP4 | 30,050,024 → 30,235,540 | 2,593.33 → 2,459.20 |
+
+This matrix contains eight configurations per revision: four fixtures and both
+encryption modes. It demonstrates recovery of the sampled mixed-data miss,
+**not** that a full pass is cheaper than sampling on truly incompressible data.
+
+Against the pre-sampling policy, requested 8 MiB, encrypted, one worker,
+20 Mbps payload budget, one warmup and two measured requests per configuration:
+
+| Fixture / accepted codecs | Old → new payload bytes | Median batch wall ms (one worker) |
+| --- | ---: | ---: |
+| Mixed / all | 16,437 → 49,685 | 46.00 → 165.63 |
+| Text / gzip only | 24,517 → 57,042 | 98.27 → 190.34 |
+| MP4 / gzip only | 7,428,573 → 7,627,400 | 3,421.84 → 3,225.13 |
+
+This matrix contains 16 configurations per revision: four fixtures, two
+capability sets and both encryption modes. The mixed fixture has repeated noisy
+windows that a stronger/larger-window codec can exploit: whole-input inspection
+does not imply the same compression ratio. The slower mixed/text observations
+are retained rather than selecting only wins. They show the remaining trade-off;
+their small-response timing deltas should not be extrapolated to a real WAN.
