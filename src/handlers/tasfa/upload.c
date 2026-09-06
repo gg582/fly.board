@@ -783,35 +783,55 @@ static bool tasfa_finalize_session_process(cwist_db *db,
     }
 
     if (suspect_count > 0) {
-        /* === XOR Reconstruction for corrupted chunks detected by HTP === */
-        for (int g = 0; g < parity_chunks; g++) {
-            int group_start = g * 6;
-            int group_end = group_start + 6;
-            if (group_end > data_chunks) group_end = data_chunks;
+        /* === Full HTP Peeling Decoder: Iterative XOR Reconstruction for corrupted chunks === */
+        bool progress = true;
+        int max_peel_passes = 6; /* Bounded iterations */
+        while (progress && suspect_count > 0 && max_peel_passes-- > 0) {
+            progress = false;
+            for (int g = 0; g < parity_chunks; g++) {
+                int group_start = g * 6;
+                int group_end = group_start + 6;
+                if (group_end > data_chunks) group_end = data_chunks;
 
-            int suspect_in_group_idx = -1;
-            int suspect_in_group_count = 0;
-            int suspect_array_pos = -1;
+                /* Count suspects in this group and locate candidate with highest suspicion */
+                int suspect_in_group_count = 0;
+                int best_suspect_idx = -1;
+                int best_suspect_pos = -1;
+                double max_score = -1.0;
 
-            for (int i = 0; i < suspect_count; i++) {
-                int ci = suspects[i].chunk_index;
-                if (ci >= group_start && ci < group_end) {
-                    suspect_in_group_count++;
-                    suspect_in_group_idx = ci;
-                    suspect_array_pos = i;
-                }
-            }
-
-            int parity_idx = data_chunks + g;
-            bool parity_received = is_chunk_already_received(upload_id, parity_idx);
-
-            if (suspect_in_group_count == 1 && parity_received) {
-                if (perform_xor_recovery(upload_id, temp_path, chunk_size, group_start, group_end, suspect_in_group_idx, parity_idx, data_chunks, total_size)) {
-                    for (int j = suspect_array_pos; j < suspect_count - 1; j++) {
-                        suspects[j] = suspects[j + 1];
+                for (int i = 0; i < suspect_count; i++) {
+                    int ci = suspects[i].chunk_index;
+                    if (ci >= group_start && ci < group_end) {
+                        suspect_in_group_count++;
+                        if (suspects[i].suspicion_score > max_score) {
+                            max_score = suspects[i].suspicion_score;
+                            best_suspect_idx = ci;
+                            best_suspect_pos = i;
+                        }
                     }
-                    suspect_count--;
-                    FLY_LOG_DEBUG("[TASFA] Successfully recovered HTP-suspect chunk %d in group %d using XOR", suspect_in_group_idx, g);
+                }
+
+                int parity_idx = data_chunks + g;
+                bool parity_received = is_chunk_already_received(upload_id, parity_idx);
+
+                /* If exactly 1 suspect, or 2 candidates where top candidate has 1.0 (dominant syndrome),
+                 * recover the dominant suspect chunk using XOR parity */
+                if (parity_received && best_suspect_idx >= 0 &&
+                    (suspect_in_group_count == 1 || (suspect_in_group_count == 2 && max_score >= 1.0))) {
+                    if (perform_xor_recovery(upload_id, temp_path, chunk_size, group_start, group_end, best_suspect_idx, parity_idx, data_chunks, total_size)) {
+                        /* Remove all suspects belonging to this group since XOR parity has restored group consistency */
+                        for (int i = suspect_count - 1; i >= 0; i--) {
+                            if (suspects[i].chunk_index >= group_start && suspects[i].chunk_index < group_end) {
+                                for (int j = i; j < suspect_count - 1; j++) {
+                                    suspects[j] = suspects[j + 1];
+                                }
+                                suspect_count--;
+                            }
+                        }
+                        FLY_LOG_DEBUG("[TASFA] Full HTP Peeling recovered chunk %d in group %d using XOR parity (cleared group suspects)", best_suspect_idx, g);
+                        progress = true;
+                        break; /* restart scan over groups */
+                    }
                 }
             }
         }

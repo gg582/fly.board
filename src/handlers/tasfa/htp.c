@@ -134,37 +134,85 @@ void htp_analyze_group(uint64_t v[6], uint64_t modulus_M, int group_start,
     uint64_t L2 = sums.l2;
     uint64_t L3 = sums.l3;
 
-    bool all_equal = (L1 == L2 && L2 == L3);
-    if (all_equal) {
+    if (L1 == L2 && L2 == L3) {
         *out_count = 0;
         return;
     }
 
-    bool e1_fail = false, e2_fail = false, e3_fail = false;
-    if (L1 != L2) { e1_fail = true; e2_fail = true; }
-    if (L2 != L3) { e2_fail = true; e3_fail = true; }
-    if (L1 != L3) { e1_fail = true; e3_fail = true; }
+    /* Single error syndrome analysis:
+     * When exactly 2 lines agree and 1 differs (La == Lb != Lc):
+     * - If L2 == L3 != L1: Error is on L1.
+     *   Candidates: exclusive side slot v1 (participates only in L1) or corner slot v4 (opposite vertex shared by L2, L3).
+     *   Since L2 and L3 agree, the base sum is S = L2 = L3.
+     *   If v4 were corrupted by Delta, L2 = S + Delta and L3 = S + Delta while L1 = S,
+     *   which would make L1 the differing line. But here v1 directly explains Delta in L1.
+     *   Therefore v1 has the highest probability (1.0) and v4 has secondary probability (0.5).
+     *   v0, v2, v3, v5 are completely uninvolved in this failure pattern and scored 0.0.
+     *
+     * - If L1 == L3 != L2: Error is on L2.
+     *   Candidates: exclusive side slot v3 (score 1.0) or corner slot v0 (score 0.5).
+     *   v1, v2, v4, v5 scored 0.0.
+     *
+     * - If L1 == L2 != L3: Error is on L3.
+     *   Candidates: exclusive side slot v5 (score 1.0) or corner slot v2 (score 0.5).
+     *   v0, v1, v3, v4 scored 0.0.
+     */
+    if (L2 == L3 && L1 != L2) {
+        out[*out_count].chunk_index = group_start + 1; /* v1 */
+        out[*out_count].suspicion_score = 1.0;
+        (*out_count)++;
 
-    int total_fail = (e1_fail ? 1 : 0) + (e2_fail ? 1 : 0) + (e3_fail ? 1 : 0);
-    if (total_fail == 0) total_fail = 1;
+        out[*out_count].chunk_index = group_start + 4; /* v4 */
+        out[*out_count].suspicion_score = 0.5;
+        (*out_count)++;
+        return;
+    }
+
+    if (L1 == L3 && L2 != L1) {
+        out[*out_count].chunk_index = group_start + 3; /* v3 */
+        out[*out_count].suspicion_score = 1.0;
+        (*out_count)++;
+
+        out[*out_count].chunk_index = group_start + 0; /* v0 */
+        out[*out_count].suspicion_score = 0.5;
+        (*out_count)++;
+        return;
+    }
+
+    if (L1 == L2 && L3 != L1) {
+        out[*out_count].chunk_index = group_start + 5; /* v5 */
+        out[*out_count].suspicion_score = 1.0;
+        (*out_count)++;
+
+        out[*out_count].chunk_index = group_start + 2; /* v2 */
+        out[*out_count].suspicion_score = 0.5;
+        (*out_count)++;
+        return;
+    }
+
+    /* All 3 lines differ (L1 != L2, L2 != L3, L1 != L3):
+     * Multiple errors occurred. Weigh by participation in pairwise residual magnitudes. */
+    uint64_t diff12 = (L1 > L2) ? (L1 - L2) : (L2 - L1);
+    uint64_t diff23 = (L2 > L3) ? (L2 - L3) : (L3 - L2);
+    uint64_t diff31 = (L3 > L1) ? (L3 - L1) : (L1 - L3);
+
+    double d12 = (double)diff12;
+    double d23 = (double)diff23;
+    double d31 = (double)diff31;
+    double d_total = d12 + d23 + d31;
+    if (d_total <= 0.0) d_total = 1.0;
+
+    double slot_weights[6];
+    slot_weights[0] = (d31 + d12) / (2.0 * d_total); /* v0 in L1, L3 */
+    slot_weights[1] = d12 / (2.0 * d_total);         /* v1 in L1 */
+    slot_weights[2] = (d12 + d23) / (2.0 * d_total); /* v2 in L1, L2 */
+    slot_weights[3] = d23 / (2.0 * d_total);         /* v3 in L2 */
+    slot_weights[4] = (d23 + d31) / (2.0 * d_total); /* v4 in L2, L3 */
+    slot_weights[5] = d31 / (2.0 * d_total);         /* v5 in L3 */
 
     for (int i = 0; i < 6; i++) {
-        int in_fail = 0;
-        if (i == 0) { if (e1_fail) in_fail++; if (e3_fail) in_fail++; }
-        if (i == 1) { if (e1_fail) in_fail++; }
-        if (i == 2) { if (e1_fail) in_fail++; if (e2_fail) in_fail++; }
-        if (i == 3) { if (e2_fail) in_fail++; }
-        if (i == 4) { if (e2_fail) in_fail++; if (e3_fail) in_fail++; }
-        if (i == 5) { if (e3_fail) in_fail++; }
-
-        if (in_fail == 0) continue;
-
-        /* Deterministic score derived directly from topology:
-         * fraction of failed equations this slot participates in. */
-        double score = (double)in_fail / (double)total_fail;
-
         out[*out_count].chunk_index = group_start + i;
-        out[*out_count].suspicion_score = score;
+        out[*out_count].suspicion_score = slot_weights[i];
         (*out_count)++;
     }
 }
