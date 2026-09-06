@@ -171,38 +171,25 @@ else All chunks received
         Queue -> Uploader: start next queued file
 
     else One or more groups fail
-        HTP -> HTP: hybrid HTP-XOR recovery\nlocate suspect via topology scores\nreconstruct single missing chunk via parity P\nmulti-erasure falls back to ARQ
-        HTP -> HTP: derive per-slot suspicion scores\nscore = in_fail / total_fail
-        note right of HTP
-        Slot line coverage:
-        v0: L1,L3
-        v1: L1
-        v2: L1,L2
-        v3: L2
-        v4: L2,L3
-        v5: L3
+        HTP -> HTP: Full HTP Syndrome Analysis (htp_analyze_group)\ndetect single-divergence: La == Lb != Lc\nscore 1.0 for independent side, 0.5 for corner\nclear 4 uninvolved slots to 0.0
 
-        Slots that only appear in passing equations
-        are cleared from the suspect list.
-        end note
-
-        HTP -> HTP: evaluate repair_worthwhile\nat least 3 suspects and retry_cost exceeds repair_cost
-
-        alt Direct retry is cheaper
-            HTP --> UploadAPI: retry_targets = all suspects\ncontraction_level = 0
-        else Repair is worthwhile
-            HTP -> HTP: contract each level-0 group to\naggregate = (r12 * r23) % M
-            HTP -> HTP: form higher-level 6-slot groups\nand re-evaluate line invariants
-
-            alt Contraction narrows suspects
-                HTP --> UploadAPI: narrowed retry_targets\ncontraction_level += 1
-            else Contraction inconclusive
-                HTP --> UploadAPI: original suspects\ncontraction_level += 1
+        loop Iterative Peeling Decoder (up to 6 passes)
+            alt Group has exactly 1 suspect OR dominant candidate (score 1.0)
+                HTP -> HTP: recover chunk via XOR parity P = XOR(chunks)\nclear all suspects in recovered group\npropagate recovered value to adjacent constraints
             end
         end
 
-        UploadAPI -> Storage: persist retry_targets,\nsuspicion_scores, contraction_level
-        UploadAPI --> Uploader: 409 needs_retry\nretry_targets, suspicion_scores,\ncontraction_level, retry_reason
+        alt All suspects resolved by Peeling Decoder
+            HTP --> UploadAPI: validation OK (0-RTT in-line recovery)
+            UploadAPI -> Storage: SHA-256 finalization\ncommit file and store delete PIN hash
+            UploadAPI --> Uploader: 200 OK\nfile_id, url, checksum, delete_pin
+            Uploader -> Queue: mark active file complete
+            Queue -> Uploader: start next queued file
+        else Stopping Set or unresolved suspects remain
+            HTP --> UploadAPI: unresolved htp_retry_targets\n(ranked by suspicion_score)
+            UploadAPI -> Storage: persist retry_targets, suspicion_scores
+            UploadAPI --> Uploader: 409 needs_retry (Selective ARQ)\nretry_targets, suspicion_scores, retry_reason
+        end
     end
 end
 
