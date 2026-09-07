@@ -89,7 +89,7 @@
 
     function getTranslatableBlocks() {
         var blocks = [];
-        var skipTags = ['pre', 'script', 'style', 'table', 'blockquote', 'details'];
+        var skipTags = ['pre', 'script', 'style'];
 
         if (postTitleNode) {
             var titleClone = postTitleNode.cloneNode(true);
@@ -108,7 +108,9 @@
                 return;
             }
 
-            if (/^h[1-6]$/.test(tag) || tag === 'p' || tag === 'li') {
+            if (/^h[1-6]$/.test(tag) || tag === 'p' || tag === 'li' ||
+                tag === 'td' || tag === 'th' || tag === 'caption' ||
+                tag === 'summary' || tag === 'figcaption' || tag === 'dt' || tag === 'dd') {
                 var clone = node.cloneNode(true);
                 clone.querySelectorAll('code, .math-inline, .katex').forEach(function(el) { el.remove(); });
                 var text = (clone.innerText || clone.textContent || '').trim();
@@ -231,7 +233,7 @@
         });
 
         var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        var timeout = controller ? setTimeout(function() { controller.abort(); }, 90000) : null;
+        var timeout = controller ? setTimeout(function() { controller.abort(); }, 300000) : null;
         try {
             var batchSize = 12;
             var wasmMode = false;
@@ -257,36 +259,50 @@
 
                 if (missingChunks.length > 0) {
                     var fetchedParts = null;
-                    if (!wasmMode) {
-                        try {
-                            var response = await fetch('/api/translate', {
-                                method: 'POST',
-                                headers: {'Content-Type': 'application/json'},
-                                signal: controller ? controller.signal : undefined,
-                                body: JSON.stringify({source: sourceLanguage, target: target, chunks: missingChunks})
-                            });
-                            var result = await response.json();
-                            if (result && Array.isArray(result.parts)) {
-                                fetchedParts = result.parts;
-                            }
-                        } catch (serverError) {
-                            if (controller && controller.signal.aborted) throw serverError;
-                            console.warn('Server translation request encountered error, trying fallback:', serverError);
+                    var maxAttempts = 8;
+                    for (var attempt = 0; attempt < maxAttempts && !fetchedParts; attempt++) {
+                        if (activeRequestId !== currentRequestId) return;
+                        if (attempt > 0) {
+                            status.textContent = 'Retrying translation… (' + (attempt + 1) + '/' + maxAttempts + ')';
+                            await new Promise(function(resolve) { setTimeout(resolve, Math.min(1500 * attempt, 8000)); });
+                            if (activeRequestId !== currentRequestId) return;
                         }
-                    }
-
-                    if (!fetchedParts && !wasmUnavailable[sourceLanguage + '|' + target]) {
-                        try {
-                            status.textContent = 'Translating on device…';
-                            fetchedParts = await translateChunksWasm(missingChunks, sourceLanguage, target);
-                            wasmMode = true;
-                        } catch (wasmErr) {
-                            console.warn('WASM translation fallback failed:', wasmErr);
+                        if (!wasmMode) {
+                            try {
+                                var response = await fetch('/api/translate', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    signal: controller ? controller.signal : undefined,
+                                    body: JSON.stringify({source: sourceLanguage, target: target, chunks: missingChunks})
+                                });
+                                var result = await response.json();
+                                if (response.ok && result && result.ok && Array.isArray(result.parts) &&
+                                    result.parts.length === missingChunks.length &&
+                                    result.parts.every(function(p) { return p && !isInvalidTranslationText(p); })) {
+                                    fetchedParts = result.parts;
+                                }
+                            } catch (serverError) {
+                                if (controller && controller.signal.aborted) throw serverError;
+                                console.warn('Server translation attempt failed:', serverError);
+                            }
+                        }
+                        if (!fetchedParts && !wasmUnavailable[sourceLanguage + '|' + target]) {
+                            try {
+                                status.textContent = 'Translating on device…';
+                                var wasmParts = await translateChunksWasm(missingChunks, sourceLanguage, target);
+                                if (Array.isArray(wasmParts) && wasmParts.length === missingChunks.length &&
+                                    wasmParts.every(function(p) { return p && !isInvalidTranslationText(p); })) {
+                                    fetchedParts = wasmParts;
+                                    wasmMode = true;
+                                }
+                            } catch (wasmErr) {
+                                console.warn('WASM translation attempt failed:', wasmErr);
+                            }
                         }
                     }
 
                     if (!fetchedParts) {
-                        throw new Error('All translation backends unavailable');
+                        throw new Error('All translation backends unavailable after ' + maxAttempts + ' attempts');
                     }
 
                     for (var mIdx = 0; mIdx < missingIndices.length; mIdx++) {
