@@ -1060,7 +1060,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         cwist_sstring_append(b, "<div class='markdown-body'>");
     }
     cwist_sstring_append(b, "</div>");
-    cwist_sstring_append(b, "<script src='/assets/js/post-translate.js?v=9' defer></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/post-translate.js?v=10' defer></script>");
 
     /* Files */
     if (files && cJSON_GetArraySize(files) > 0) {
