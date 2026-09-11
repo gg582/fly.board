@@ -34,8 +34,21 @@ void fly_db_conn_forget(void) {
     tls_main_conn = NULL;
 }
 
-bool db_exec_sql(cwist_db *db, const char *sql) {    cwist_error_t err = cwist_db_exec(db, sql);
-    return err.errtype == CWIST_ERR_INT16 && err.error.err_i16 == 0;
+bool db_exec_sql(cwist_db *db, const char *sql) {
+    cwist_error_t err = cwist_db_exec(db, sql);
+    /* On failure cwist_db_exec() switches channel to CWIST_ERR_JSON and
+     * hands back a heap-allocated cJSON object (see make_sqlite_error());
+     * checking only the INT16 channel silently leaked that object on every
+     * failed statement (e.g. the "ALTER TABLE ... ADD COLUMN" migrations in
+     * db_migrate(), which fail with "duplicate column" on every restart
+     * after the first). cwist_error_is_ok() is the channel-agnostic check;
+     * free the JSON error payload ourselves since we don't need its detail
+     * here (failures are non-fatal by design - db_migrate() keeps going). */
+    bool ok = cwist_error_is_ok(&err);
+    if (err.errtype == CWIST_ERR_JSON && err.error.err_json) {
+        cJSON_Delete(err.error.err_json);
+    }
+    return ok;
 }
 
 cJSON *db_sqlite3_rows_to_json(sqlite3_stmt *stmt) {
