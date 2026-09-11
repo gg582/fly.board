@@ -1,0 +1,181 @@
+name: memory-checks
+
+# Two memory-integrity checks that don't require watching production
+# traffic for hours:
+#
+#  1. asan-leak-stress: build fly_board with AddressSanitizer/LeakSanitizer,
+#     hammer the main read endpoints, shut the server down gracefully and
+#     let LSan report anything still allocated at exit.
+#  2. leak-loop-regression: call the markdown renderer (the hot path shared
+#     by post/comment/file rendering) 10 vs 100,000+ times and fail if the
+#     process's peak RSS keeps climbing beyond a small per-call tolerance.
+#
+# Both need the full CWIST toolchain (lsquic/boringssl/etc.), so they build
+# it the same way Dockerfile does. That build is the expensive part of this
+# workflow; see the actions/cache step in each job if it needs speeding up.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: memory-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  asan-leak-stress:
+    name: "1) ASan/LSan leak stress"
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    timeout-minutes: 60
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --needed --noconfirm \
+            git cmake ninja gcc make pkgconf \
+            openssl libnghttp3 libngtcp2 zlib \
+            sqlite cjson uriparser \
+            curl wget coreutils python
+
+      - uses: actions/checkout@v4
+
+      # The cwist build (lsquic + boringssl in particular) is the slow part
+      # of this job. cwist isn't pinned to a commit in this repo, so this
+      # cache is best-effort: it's keyed by ISO week and falls back to the
+      # most recent previous week's cache, which is usually still valid
+      # since cwist doesn't change every day.
+      - name: Cache cwist build
+        uses: actions/cache@v4
+        with:
+          path: /usr/local
+          key: cwist-${{ runner.os }}-${{ steps.week.outputs.week }}
+          restore-keys: |
+            cwist-${{ runner.os }}-
+        id: cwist-cache
+
+      - name: Compute cache week key
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and install cwist
+        if: steps.cwist-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          for i in 1 2 3; do
+            git clone --depth 1 --recursive https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break
+            echo "cwist clone attempt $i failed, retrying..."
+            rm -rf /tmp/cwist
+            sleep 5
+          done
+          cd /tmp/cwist
+          sed -i 's|FIND_PATH(ZLIB_INCLUDE_DIR NAMES zlib.h)|SET(ZLIB_INCLUDE_DIR /usr/include)|' lib/lsquic/CMakeLists.txt
+          sed -i 's|FIND_LIBRARY(ZLIB_LIB libz${LIB_SUFFIX})|SET(ZLIB_LIB /usr/lib/libz.so)|' lib/lsquic/CMakeLists.txt
+          make -j"$(nproc)"
+          make install
+          rm -rf /tmp/cwist
+
+      - name: Rebuild libttak against this toolchain
+        run: |
+          if [ -f third_party/libttak/Makefile ]; then make -C third_party/libttak clean || true; fi
+          rm -f third_party/libttak/lib/libttak.a
+        env:
+          EXTRA_CFLAGS: -I${{ github.workspace }}/third_party/libttak/include
+
+        # -O0 -g gives accurate ASan stack traces; it overrides the
+        # Makefile's default -Ofast because EXTRA_CFLAGS is appended last.
+        # detect_leaks=1 is already the Linux default; set explicitly below.
+      - name: Build fly_board with ASan
+        run: make deps && make -j"$(nproc)"
+        env:
+          EXTRA_CFLAGS: >-
+            -I${{ github.workspace }}/third_party/libttak/include
+            -fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer -O0 -g
+
+      - name: Run ASan leak stress test
+        run: ./tools/asan_leak_stress.sh
+        env:
+          ASAN_STRESS_REQUESTS: 3000
+          ASAN_STRESS_CONCURRENCY: 16
+
+      - name: Upload server log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asan-server-log
+          path: /tmp/flyboard_asan.*/server.log
+          if-no-files-found: ignore
+
+  leak-loop-regression:
+    name: "3) Deterministic RSS-growth loop test"
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    timeout-minutes: 60
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --needed --noconfirm \
+            git cmake ninja gcc make pkgconf \
+            openssl libnghttp3 libngtcp2 zlib \
+            sqlite cjson uriparser \
+            curl wget coreutils python
+
+      - uses: actions/checkout@v4
+
+      - name: Compute cache week key
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache cwist build
+        uses: actions/cache@v4
+        with:
+          path: /usr/local
+          key: cwist-${{ runner.os }}-${{ steps.week.outputs.week }}
+          restore-keys: |
+            cwist-${{ runner.os }}-
+        id: cwist-cache
+
+      - name: Build and install cwist
+        if: steps.cwist-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          for i in 1 2 3; do
+            git clone --depth 1 --recursive https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break
+            echo "cwist clone attempt $i failed, retrying..."
+            rm -rf /tmp/cwist
+            sleep 5
+          done
+          cd /tmp/cwist
+          sed -i 's|FIND_PATH(ZLIB_INCLUDE_DIR NAMES zlib.h)|SET(ZLIB_INCLUDE_DIR /usr/include)|' lib/lsquic/CMakeLists.txt
+          sed -i 's|FIND_LIBRARY(ZLIB_LIB libz${LIB_SUFFIX})|SET(ZLIB_LIB /usr/lib/libz.so)|' lib/lsquic/CMakeLists.txt
+          make -j"$(nproc)"
+          make install
+          rm -rf /tmp/cwist
+
+      - name: Rebuild libttak against this toolchain
+        run: |
+          if [ -f third_party/libttak/Makefile ]; then make -C third_party/libttak clean || true; fi
+          rm -f third_party/libttak/lib/libttak.a
+        env:
+          EXTRA_CFLAGS: -I${{ github.workspace }}/third_party/libttak/include
+
+      - name: Fetch prepare_assets/render dependencies
+        run: make deps
+        env:
+          EXTRA_CFLAGS: -I${{ github.workspace }}/third_party/libttak/include
+
+        # Plain optimized build (no ASan) so the RSS numbers reflect the
+        # allocator behavior real traffic would see, not sanitizer overhead.
+      - name: Run RSS-growth loop test
+        run: make check-leak-loop
+        env:
+          EXTRA_CFLAGS: -I${{ github.workspace }}/third_party/libttak/include
+          # 200,000 calls after a 2,000-call warm-up; fail if peak RSS grows
+          # by more than 16KB per 1,000 calls after warm-up. Tune this if it
+          # proves noisy in practice.
+          LEAK_LOOP_WARMUP_ITERS: 2000
+          LEAK_LOOP_MAIN_ITERS: 200000
+          LEAK_LOOP_MAX_KB_PER_1K: 16

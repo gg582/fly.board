@@ -219,6 +219,20 @@ tests/render_file: tests/render_file.c $(RENDER_TEST_SRCS) $(MD4C_OBJS)
 check-render: $(RENDER_TESTS)
 	@for t in $(RENDER_TESTS); do $$t || exit 1; done
 
+# Deterministic RSS-growth regression test: calls render_markdown_to_html()
+# in a short warm-up batch then a much larger batch and fails if RSS keeps
+# climbing beyond a small per-call tolerance. See tests/test_leak_loop.c.
+tests/test_leak_loop: tests/test_leak_loop.c $(RENDER_TEST_SRCS) $(MD4C_OBJS)
+	$(CC) $(CFLAGS) -Ithird_party/stb -o $@ $^ $(LDFLAGS) $(LIBS)
+
+LEAK_LOOP_WARMUP_ITERS ?= 2000
+LEAK_LOOP_MAIN_ITERS ?= 200000
+LEAK_LOOP_MAX_KB_PER_1K ?= 16
+
+.PHONY: check-leak-loop
+check-leak-loop: tests/test_leak_loop
+	./tests/test_leak_loop $(LEAK_LOOP_WARMUP_ITERS) $(LEAK_LOOP_MAIN_ITERS) $(LEAK_LOOP_MAX_KB_PER_1K)
+
 # Multipart parser regression tests.
 # Excluded:
 #  - tests/test_mp_init.c    dereferences the multipart_parser struct, which
@@ -282,7 +296,7 @@ test: check-tasfa check-tasfa-compression check-tasfa-endpoint check-render chec
 	./tools/smoke_test.sh
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(RENDER_TESTS) $(MP_TESTS) tests/render_file
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop
 
 distclean: clean
 	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true
