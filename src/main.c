@@ -25,6 +25,7 @@
 #include <cwist/sys/app/compress.h>
 #include <ttak/async/task.h>
 #include <ttak/timing/timing.h>
+#include <curl/curl.h>
 #include <signal.h>
 #if defined __has_include
 #  if __has_include (<cwist/security/tls/ech.h>)
@@ -226,6 +227,16 @@ int main(void) {
      * loop. The environment can still force the legacy pool path. */
     setenv("CWIST_C1M_MODE", "1", 0);
     signal(SIGPIPE, SIG_IGN);
+    /* libcurl requires curl_global_init() to run once, before any thread
+     * calls curl_easy_init(), and explicitly forbids relying on the
+     * implicit lazy init inside curl_easy_init() in a multi-threaded
+     * program (src/handlers/api.c and src/utils/s3_client.c both call
+     * libcurl from worker-pool threads). Without this, concurrent
+     * first-use races reinitialize global state (OpenSSL engines, NSS,
+     * etc.) repeatedly instead of once, which is UB and leaks - and the
+     * more concurrent curl traffic (e.g. translation requests), the
+     * worse it gets. Do this before engine_pool_init() spawns workers. */
+    curl_global_init(CURL_GLOBAL_DEFAULT);
     fly_log_init();
     if (!ensure_asset_workdir()) {
         FLY_LOG_ERROR("Public assets not found; set BLOG_ROOT or run from project root");
@@ -418,5 +429,6 @@ int main(void) {
     db_board_tree_close();
     cwist_app_destroy(app);
     fly_crypto_cleanup();
+    curl_global_cleanup();
     return rc;
 }
