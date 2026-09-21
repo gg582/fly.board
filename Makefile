@@ -399,6 +399,20 @@ wasm-brotli-test: wasm-brotli
 
 .PHONY: wasm-brotli wasm-brotli-test
 
+# --- WASM: sandboxed string utilities ---------------------------------------
+# src/utils/strutil_pure.h is the single implementation behind utils.c and
+# sql_escape.c; the module compiles it with plain malloc and exposes the
+# framed protocol from wasm/strutil_module.c.
+wasm-strutil:
+	@mkdir -p build-wasm
+	$(WASI_SDK)/bin/clang --target=wasm32-wasi -std=c17 -O2 -Wall -I. \
+	  -o build-wasm/strutil.wasm wasm/strutil_module.c -Wl,--gc-sections
+
+wasm-strutil-test: wasm-strutil
+	WASMTIME=$(WASMTIME) python3 wasm/test_strutil_diff.py
+
+.PHONY: wasm-strutil wasm-strutil-test
+
 distclean: clean
 	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true
 	rm -rf third_party/md4c/build $(MD4C_LIB)
