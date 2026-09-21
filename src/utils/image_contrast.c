@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "stb_image.h"
 #include "cwist/image_contrast.h"
+#include "image_contrast_core.h"
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -14,53 +15,9 @@
 
 /* ---------- Color space conversions: sRGB -> XYZ -> Lab -> LCH ---------- */
 
-static void srgb_to_linear(double c, double *out)
-{
-    c /= 255.0;
-    *out = (c <= 0.04045) ? (c / 12.92) : pow((c + 0.055) / 1.055, 2.4);
-}
-
-static void rgb_to_xyz(double r, double g, double b, double *X, double *Y, double *Z)
-{
-    double lr, lg, lb;
-    srgb_to_linear(r, &lr);
-    srgb_to_linear(g, &lg);
-    srgb_to_linear(b, &lb);
-    *X = 0.4124564 * lr + 0.3575761 * lg + 0.1804375 * lb;
-    *Y = 0.2126729 * lr + 0.7151522 * lg + 0.0721750 * lb;
-    *Z = 0.0193339 * lr + 0.1191920 * lg + 0.9503041 * lb;
-}
-
-static double lab_f(double t)
-{
-    return (t > 0.008856) ? pow(t, 1.0 / 3.0) : (7.787 * t + 16.0 / 116.0);
-}
-
-static void xyz_to_lab(double X, double Y, double Z, double *L, double *a, double *b)
-{
-    const double Xn = 0.95047, Yn = 1.00000, Zn = 1.08883;
-    double fx = lab_f(X / Xn);
-    double fy = lab_f(Y / Yn);
-    double fz = lab_f(Z / Zn);
-    *L = 116.0 * fy - 16.0;
-    *a = 500.0 * (fx - fy);
-    *b = 200.0 * (fy - fz);
-}
-
-static void rgb_to_lch(double r, double g, double b, double *L, double *C, double *H)
-{
-    double X, Y, Z, a, bb;
-    rgb_to_xyz(r, g, b, &X, &Y, &Z);
-    xyz_to_lab(X, Y, Z, L, &a, &bb);
-    *C = sqrt(a * a + bb * bb);
-    *H = atan2(bb, a) * 180.0 / M_PI;
-    if (*H < 0.0) *H += 360.0;
-}
-
 /* ---------- Image sampling ---------- */
 
-static int analyze_image(const char *path, double *L_left, double *L_center, double *L_right)
-{
+static int analyze_image(const char *path, double *L_left, double *L_center, double *L_right){
     int w, h, channels;
     unsigned char *data = stbi_load(path, &w, &h, &channels, 3);
     if (!data || w < 1 || h < 1) {
@@ -68,37 +25,14 @@ static int analyze_image(const char *path, double *L_left, double *L_center, dou
         return -1;
     }
 
-    /* Sample the top 60 % of the image where text is expected to sit. */
-    int top = h * 6 / 10;
-    if (top < 1) top = h;
-
-    int x1 = w / 3;
-    int x2 = w * 2 / 3;
-
-    double sum_r[3] = {0.0}, sum_g[3] = {0.0}, sum_b[3] = {0.0};
-    long count[3] = {0};
-
-    for (int y = 0; y < top; y++) {
-        for (int x = 0; x < w; x++) {
-            unsigned char *p = data + (y * w + x) * 3;
-            int idx = (x < x1) ? 0 : (x < x2) ? 1 : 2;
-            sum_r[idx] += p[0];
-            sum_g[idx] += p[1];
-            sum_b[idx] += p[2];
-            count[idx]++;
-        }
-    }
-
+    double L[3];
+    bool ok = fb_contrast_sample_rgb(data, w, h, L);
     stbi_image_free(data);
+    if (!ok) return -1;
 
-    for (int i = 0; i < 3; i++) {
-        if (count[i] == 0) count[i] = 1;
-        double L, C, H;
-        rgb_to_lch(sum_r[i] / count[i], sum_g[i] / count[i], sum_b[i] / count[i], &L, &C, &H);
-        if (i == 0)      *L_left   = L;
-        else if (i == 1) *L_center = L;
-        else             *L_right  = L;
-    }
+    *L_left = L[0];
+    *L_center = L[1];
+    *L_right = L[2];
     return 0;
 }
 
