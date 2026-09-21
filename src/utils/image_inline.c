@@ -409,6 +409,7 @@ void image_inline_build_responsive_bg(void) {
     const char *const names[] = {
         g_config.home_img, g_config.boards_img, g_config.files_img,
         g_config.home_img_dark, g_config.boards_img_dark, g_config.files_img_dark,
+        g_config.bg_full_light, g_config.bg_full_dark,
     };
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         if (!names[i][0]) continue;
