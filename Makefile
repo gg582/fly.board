@@ -126,6 +126,7 @@ SRCS := src/main.c \
         src/db/db.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/notification.c src/db/vote.c src/db/tag.c src/db/sql_escape.c src/db/orm.c \
         src/auth/auth.c \
         src/crypto/fly_crypto.c \
+        src/wasm_host/tasfa_crypto_wasm.c \
         src/render/theme/theme.c src/render/theme/rules.c src/render/theme/json.c src/render/theme/css.c \
         src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/render/render_notifications.c \
         src/handlers/handlers.c src/handlers/home.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/notifications.c src/handlers/file.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c \
@@ -277,7 +278,7 @@ check-tasfa-compression:
 	trap 'rm -f "$$bin"' EXIT HUP INT TERM; \
 	$(CC) $(TASFA_COMPRESSION_TEST_CFLAGS) \
 	  $$($(PKG_CONFIG) --cflags $(TASFA_COMPRESSION_TEST_PACKAGES)) \
-	  tests/test_tasfa_compression.c -o "$$bin" \
+	  tests/test_tasfa_compression.c src/wasm_host/tasfa_crypto_wasm.c -o "$$bin" \
 	  $$($(PKG_CONFIG) --libs $(TASFA_COMPRESSION_TEST_PACKAGES)); \
 	"$$bin"
 
@@ -297,6 +298,29 @@ test: check-tasfa check-tasfa-compression check-tasfa-endpoint check-render chec
 
 clean:
 	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop
+	rm -rf build-wasm
+
+# --- WASM: sandboxed TASFA crypto (opt-in, experimental) -------------------
+# The module is a WASI preview1 binary; enabling it at runtime is done via the
+# TASFA_CRYPTO_WASM environment variable, so nothing here is on the default
+# build path.
+WASI_SDK ?= $(HOME)/toolchains/wasi-sdk-25.0-x86_64-linux
+WASMTIME ?= $(shell command -v wasmtime 2>/dev/null || echo $(HOME)/toolchains/wasmtime-v25.0.2-x86_64-linux/wasmtime)
+
+wasm-tasfa-crypto:
+	@mkdir -p build-wasm
+	$(WASI_SDK)/bin/clang --target=wasm32-wasi -std=c17 -O2 -Wall -Wextra \
+	    -o build-wasm/tasfa_crypto.wasm wasm/tasfa_crypto_module.c -Wl,--gc-sections
+
+wasm-tasfa-crypto-test: wasm-tasfa-crypto
+	$(CC) -O2 -Wall -o build-wasm/tasfa_crypto_ref wasm/tasfa_crypto_ref.c -lcrypto
+	WASMTIME=$(WASMTIME) python3 wasm/test_parity.py
+	$(CC) -O2 -Wall -I. -o build-wasm/test_wasm_host tests/test_wasm_host.c \
+	    src/wasm_host/tasfa_crypto_wasm.c
+	TASFA_CRYPTO_WASM=$(CURDIR)/build-wasm/tasfa_crypto.wasm \
+	    TASFA_WASMTIME=$(WASMTIME) ./build-wasm/test_wasm_host
+
+.PHONY: wasm-tasfa-crypto wasm-tasfa-crypto-test
 
 distclean: clean
 	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true

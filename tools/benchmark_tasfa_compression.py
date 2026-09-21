@@ -85,7 +85,8 @@ def build(directory, revision):
     library = directory / "fixture.so"
     command = compiler + ["-std=c11", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-shared", "-fPIC",
         "-I" + str(directory), "-I" + str(ROOT / "src/handlers/tasfa"),
-        str(ROOT / "tests/tasfa_endpoint_fixture.c"), "-o", str(library)] + flags
+        str(ROOT / "tests/tasfa_endpoint_fixture.c"),
+        str(ROOT / "src/wasm_host/tasfa_crypto_wasm.c"), "-o", str(library)] + flags
     subprocess.run(command, check=True)
     lib = ctypes.CDLL(str(library))
     lib.fixture_serve.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_size_t,
