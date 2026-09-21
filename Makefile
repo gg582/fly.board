@@ -322,6 +322,37 @@ wasm-tasfa-crypto-test: wasm-tasfa-crypto
 
 .PHONY: wasm-tasfa-crypto wasm-tasfa-crypto-test
 
+# --- WASM: client-side markdown renderer (browser offload) ------------------
+# Compiles the production render_markdown_to_html pipeline (render_md.c +
+# md4c) with Emscripten against CWIST's libcwist_wasm.a.  Byte-parity with
+# the server is enforced by wasm-client/test_md_diff.py.
+EMCC ?= emcc
+CWIST_WASM_LIB ?= $(CWIST_ROOT)/libcwist_wasm.a
+
+wasm-md:
+	@mkdir -p build-wasm
+	$(EMCC) -O2 -std=c17 -I include -I src/render $(CWIST_INCLUDES) -I third_party/md4c/src \
+	  wasm-client/markdown_module.c src/render/render_md.c \
+	  third_party/md4c/src/md4c.c third_party/md4c/src/md4c-html.c third_party/md4c/src/entity.c \
+	  $(CWIST_WASM_LIB) \
+	  -sEXPORTED_FUNCTIONS=_fb_md_render,_fb_md_free,_malloc,_free \
+	  -sEXPORTED_RUNTIME_METHODS=stringToUTF8,UTF8ToString \
+	  -sMODULARIZE -sEXPORT_NAME=createMdModule \
+	  -o build-wasm/md_render.js
+
+wasm-md-test: wasm-md
+	$(CC) -O2 -std=c17 -Wall -D_GNU_SOURCE -I include -I src/render $(CWIST_INCLUDES) \
+	  -I third_party/md4c/src -I third_party/stb \
+	  wasm-client/md_native_ref.c src/render/render_md.c src/utils/image_size.c \
+	  src/utils/stb_image_impl.c \
+	  third_party/md4c/src/md4c.c third_party/md4c/src/md4c-html.c third_party/md4c/src/entity.c \
+	  $(CWIST_LIB) $(CWIST_ROOT)/lib/libttak/lib/libttak.a \
+	  $(CWIST_ROOT)/lib/cjson/libcjson.a \
+	  -lz -lm -lpthread -lstdc++ -o build-wasm/md_native_ref
+	python3 wasm-client/test_md_diff.py
+
+.PHONY: wasm-md wasm-md-test
+
 distclean: clean
 	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true
 	rm -rf third_party/md4c/build $(MD4C_LIB)
