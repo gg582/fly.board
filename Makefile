@@ -353,6 +353,24 @@ wasm-md-test: wasm-md
 
 .PHONY: wasm-md wasm-md-test
 
+# --- WASM: client-side image inversion (browser dark-mode offload) ---------
+# image_invert_core.h extracted from image_invert.c is compiled standalone;
+# parity with the server pixel math is enforced by test_invert_diff.py.
+wasm-img:
+	@mkdir -p build-wasm
+	$(EMCC) -O2 -std=c17 -Wall -I src/utils wasm-client/invert_module.c \
+	  -sEXPORTED_FUNCTIONS=_fb_invert_rgba,_fb_invert_free,_malloc,_free \
+	  -sEXPORTED_RUNTIME_METHODS=writeArrayToMemory,HEAPU8 \
+	  -sMODULARIZE -sEXPORT_NAME=createInvertModule \
+	  -o build-wasm/invert.js
+
+wasm-img-test: wasm-img
+	$(CC) -O2 -std=c17 -Wall -I src/utils -o build-wasm/invert_ref \
+	  wasm-client/invert_module.c -lm
+	python3 wasm-client/test_invert_diff.py
+
+.PHONY: wasm-img wasm-img-test
+
 distclean: clean
 	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true
 	rm -rf third_party/md4c/build $(MD4C_LIB)
