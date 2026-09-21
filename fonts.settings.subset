@@ -1,0 +1,46 @@
+# Lightweight font stack template: local Pretendard subset instead of the
+# full variable font and gstatic Korean families.  Copy to fonts.settings to
+# use; the shipped fonts.settings keeps the full font stack by default.
+#
+# The subset faces are served from this repo (public/css/pretendard-subset.css
+# + public/fonts/*.subset.woff2): each used weight costs ~267 KiB instead of
+# the ~13 MiB PretendardVariable file.  Latin text still resolves through the
+# locally cached google-fonts.css (Inter etc., small unicode-range chunks).
+font_import_url=@import url("/assets/css/pretendard-subset.css");
+font_face_family=JetBrains Mono
+font_face_src=
+font_body='Inter', 'Pretendard', sans-serif
+font_heading='Inter', 'Pretendard', sans-serif
+font_ui='Inter', 'Pretendard', sans-serif
+font_code='Fira Code', 'JetBrains Mono', 'D2Coding', 'Pretendard', monospace
+font_blockquote='Pretendard', serif
+font_display='Inter', 'Pretendard', sans-serif
+letter_spacing_body=0em
+letter_spacing_h1=-0.02em
+letter_spacing_h2=-0.02em
+letter_spacing_h3=-0.01em
+letter_spacing_h4=0em
+letter_spacing_h5h6=0em
+letter_spacing_topbar_title=-0.02em
+letter_spacing_btn=0.04em
+letter_spacing_board_line_title=-0.02em
+letter_spacing_hero_h1=-0.02em
+letter_spacing_hero_p=0em
+letter_spacing_md_h1=-0.01em
+letter_spacing_md_h2=0em
+letter_spacing_md_h3=0em
+letter_spacing_post_h1=-0.01em
+font_weight_body=400
+font_weight_h1=600
+font_weight_h2=550
+font_weight_h3=500
+font_weight_h4=450
+font_weight_h5h6=400
+font_weight_topbar_title=600
+font_weight_btn=500
+font_weight_board_line_title=800
+font_weight_hero_h1=650
+font_weight_md_h1=600
+font_weight_md_h2=550
+font_weight_md_h3=500
+font_weight_post_h1=800
