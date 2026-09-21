@@ -371,6 +371,34 @@ wasm-img-test: wasm-img
 
 .PHONY: wasm-img wasm-img-test
 
+# --- WASM: sandboxed brotli (offline precompression jobs) -------------------
+# Vendored brotli 1.2 (third_party/brotli, MIT) compiled to wasm32-wasi; the
+# module streams decompression so hosts never size the output buffer up
+# front.  Interop with the system libbrotli used in production is enforced
+# by wasm/test_brotli_diff.py in both directions.
+wasm-brotli:
+	@mkdir -p build-wasm/brotli-obj
+	@set -eu; for f in third_party/brotli/c/common/*.c third_party/brotli/c/dec/*.c third_party/brotli/c/enc/*.c; do \
+	  o=build-wasm/brotli-obj/$${f#third_party/brotli/c/}; o=$${o%.c}.o; \
+	  mkdir -p $$(dirname $$o); \
+	  if [ ! -f $$o ]; then \
+	    $(WASI_SDK)/bin/clang --target=wasm32-wasi -std=c17 -O2 \
+	      -I third_party/brotli/c/include -c $$f -o $$o; \
+	  fi; \
+	done
+	$(WASI_SDK)/bin/clang --target=wasm32-wasi -std=c17 -O2 -Wall \
+	  -I third_party/brotli/c/include -o build-wasm/brotli.wasm \
+	  wasm/brotli_module.c $$(find build-wasm/brotli-obj -name '*.o') -Wl,--gc-sections
+
+wasm-brotli-test: wasm-brotli
+	$(CC) -O2 -std=c17 -Wall \
+	  $$(pkg-config --cflags libbrotlienc libbrotlidec) \
+	  -o build-wasm/brotli_sys_ref wasm/brotli_module.c \
+	  $$(pkg-config --libs libbrotlienc libbrotlidec libbrotlicommon)
+	WASMTIME=$(WASMTIME) python3 wasm/test_brotli_diff.py
+
+.PHONY: wasm-brotli wasm-brotli-test
+
 distclean: clean
 	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true
 	rm -rf third_party/md4c/build $(MD4C_LIB)
