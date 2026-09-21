@@ -600,12 +600,20 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         
         /* Inject the actual body_html by replacing the placeholder */
         const char *placeholder = "<!--CWIST_BODY_PLACEHOLDER-->";
+        const char *escaped_placeholder = "&lt;!--CWIST_BODY_PLACEHOLDER--&gt;";
         char *pos = strstr(out->data, placeholder);
+        const char *matched = placeholder;
+        if (!pos) {
+            /* The CWIST HTML builder escapes element text, so the marker
+             * may appear in escaped form in the rendered output. */
+            pos = strstr(out->data, escaped_placeholder);
+            matched = escaped_placeholder;
+        }
         if (pos) {
             size_t head_len = (size_t)(pos - out->data);
             cwist_sstring_append_len(doc, out->data, head_len);
             cwist_sstring_append(doc, body_html ? body_html : "");
-            cwist_sstring_append(doc, pos + strlen(placeholder));
+            cwist_sstring_append(doc, pos + strlen(matched));
         } else {
             cwist_sstring_append_sstring(doc, out);
         }
