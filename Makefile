@@ -413,6 +413,35 @@ wasm-strutil-test: wasm-strutil
 
 .PHONY: wasm-strutil wasm-strutil-test
 
+# --- WASM: client-side theme generation (admin preview offload) -------------
+# Compiles the production theme pipeline (src/render/theme/*.c) with
+# Emscripten against libcwist_wasm.a; server-only globals (g_config pieces,
+# font settings, image variants) are stubbed in wasm-client/theme_module.c.
+# Byte-parity with the native build is enforced by test_theme_diff.py.
+wasm-theme:
+	@mkdir -p build-wasm
+	$(EMCC) -O2 -std=c17 -Wall -D_GNU_SOURCE -I. -Isrc $(CWIST_INCLUDES) \
+	  wasm-client/theme_module.c \
+	  src/render/theme/theme.c src/render/theme/rules.c src/render/theme/css.c \
+	  src/render/theme/json.c \
+	  $(CWIST_WASM_LIB) \
+	  -sEXPORTED_FUNCTIONS=_fb_theme_css,_fb_theme_json,_fb_theme_all_json,_fb_theme_free,_malloc,_free \
+	  -sEXPORTED_RUNTIME_METHODS=stringToUTF8,UTF8ToString \
+	  -sMODULARIZE -sEXPORT_NAME=createThemeModule \
+	  -o build-wasm/theme.js
+
+wasm-theme-test: wasm-theme
+	$(CC) -O2 -std=c17 -Wall -D_GNU_SOURCE -I. -Isrc $(CWIST_INCLUDES) \
+	  wasm-client/theme_module.c \
+	  src/render/theme/theme.c src/render/theme/rules.c src/render/theme/css.c \
+	  src/render/theme/json.c \
+	  $(CWIST_LIB) $(CWIST_ROOT)/lib/libttak/lib/libttak.a \
+	  $(CWIST_ROOT)/lib/cjson/libcjson.a \
+	  -lz -lm -lpthread -lstdc++ -o build-wasm/theme_ref
+	python3 wasm-client/test_theme_diff.py
+
+.PHONY: wasm-theme wasm-theme-test
+
 distclean: clean
 	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true
 	rm -rf third_party/md4c/build $(MD4C_LIB)
