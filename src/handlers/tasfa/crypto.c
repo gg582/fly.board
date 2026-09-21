@@ -2,6 +2,8 @@
 #define _DEFAULT_SOURCE
 #include "tasfa_internal.h"
 
+#include "../../wasm_host/tasfa_crypto_wasm.h"
+
 static void derive_stream_iv(unsigned char out[12], const unsigned char seed[12], int chunk_index) {
     memcpy(out, seed, 12);
     out[8] ^= (unsigned char)((chunk_index >> 24) & 0xff);
@@ -21,6 +23,10 @@ bool encrypt_stream_block(const unsigned char *key, const unsigned char *iv_seed
                           unsigned char *ciphertext, size_t *ciphertext_len_out) {
     if (!key || !iv_seed || !ciphertext || !ciphertext_len_out) return false;
     if (plaintext_len > 0 && !plaintext) return false;
+    /* Opt-in sandboxed backend: TASFA_CRYPTO_WASM=<module.wasm>. */
+    if (tasfa_wasm_crypto_available())
+        return tasfa_wasm_encrypt_block(key, iv_seed, chunk_index, session_id, plaintext,
+                                        plaintext_len, ciphertext, ciphertext_len_out);
     unsigned char iv[12];
     unsigned char aad[512];
     int aad_len = build_stream_aad(aad, sizeof(aad), session_id, chunk_index);
@@ -56,6 +62,10 @@ bool decrypt_stream_block(const unsigned char *key, const unsigned char *iv_seed
     if (!key || !iv_seed || !ciphertext || ciphertext_len < 16) return false;
     if (plaintext_len + 16 != ciphertext_len) return false;
     if (plaintext_len > 0 && !plaintext) return false;
+    /* Opt-in sandboxed backend: TASFA_CRYPTO_WASM=<module.wasm>. */
+    if (tasfa_wasm_crypto_available())
+        return tasfa_wasm_decrypt_block(key, iv_seed, chunk_index, upload_id, ciphertext,
+                                        ciphertext_len, plaintext, plaintext_len);
     unsigned char iv[12];
     unsigned char aad[512];
     int aad_len = build_stream_aad(aad, sizeof(aad), upload_id, chunk_index);
