@@ -371,6 +371,38 @@ wasm-img-test: wasm-img
 
 .PHONY: wasm-img wasm-img-test
 
+# --- WASM: client-side contrast sampling and image size probing -------------
+# image_contrast_core.h extracted from image_contrast.c is compiled into the
+# contrast module; the size module wraps stb_info_from_memory for pre-upload
+# dimension reads.  Both are pinned to their native builds by diff tests.
+wasm-contrast:
+	@mkdir -p build-wasm
+	$(EMCC) -O2 -std=c17 -Wall -I src/utils wasm-client/contrast_module.c \
+	  -sEXPORTED_FUNCTIONS=_fb_contrast_sample,_malloc,_free \
+	  -sEXPORTED_RUNTIME_METHODS=writeArrayToMemory,HEAPU8 \
+	  -sMODULARIZE -sEXPORT_NAME=createContrastModule \
+	  -o build-wasm/contrast.js
+
+wasm-contrast-test: wasm-contrast
+	$(CC) -O2 -std=c17 -Wall -I src/utils -o build-wasm/contrast_ref \
+	  wasm-client/contrast_module.c -lm
+	python3 wasm-client/test_contrast_diff.py
+
+wasm-size:
+	@mkdir -p build-wasm
+	$(EMCC) -O2 -std=c17 -Wall -I third_party/stb wasm-client/size_module.c \
+	  -sEXPORTED_FUNCTIONS=_fb_image_size,_malloc,_free \
+	  -sEXPORTED_RUNTIME_METHODS=writeArrayToMemory,HEAPU8 \
+	  -sMODULARIZE -sEXPORT_NAME=createSizeModule \
+	  -o build-wasm/size.js
+
+wasm-size-test: wasm-size
+	$(CC) -O2 -std=c17 -Wall -I third_party/stb -o build-wasm/size_ref \
+	  wasm-client/size_module.c -lm
+	python3 wasm-client/test_size_diff.py
+
+.PHONY: wasm-contrast wasm-contrast-test wasm-size wasm-size-test
+
 # --- WASM: sandboxed brotli (offline precompression jobs) -------------------
 # Vendored brotli 1.2 (third_party/brotli, MIT) compiled to wasm32-wasi; the
 # module streams decompression so hosts never size the output buffer up
