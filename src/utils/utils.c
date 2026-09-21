@@ -5,6 +5,10 @@
 #include "db/db.h"
 #include "config/config.h"
 #include <cwist/core/mem/alloc.h>
+
+#define FB_STRUTIL_ALLOC cwist_alloc
+#define FB_STRUTIL_FREE cwist_free
+#include "utils/strutil_pure.h"
 #include <cwist/core/log.h>
 #include <ctype.h>
 #include <errno.h>
@@ -121,22 +125,7 @@ const char *mime_type(const char *filename) {
 }
 
 char *generate_slug(const char *title) {
-    size_t len = strlen(title);
-    char *slug = (char *)cwist_alloc(len * 3 + 1);
-    if (!slug) return NULL;
-    size_t j = 0;
-    for (size_t i = 0; i < len && j < len * 3; i++) {
-        unsigned char c = (unsigned char)title[i];
-        if (isalnum(c)) {
-            slug[j++] = (char)tolower(c);
-        } else if (c == ' ' || c == '-' || c == '_') {
-            if (j == 0 || slug[j-1] != '-') slug[j++] = '-';
-        }
-    }
-    if (j > 0 && slug[j-1] == '-') j--;
-    slug[j] = '\0';
-    if (j == 0) { slug[0] = 'p'; slug[1] = 'o'; slug[2] = 's'; slug[3] = 't'; slug[4] = '\0'; }
-    return slug;
+    return fb_generate_slug(title);
 }
 
 /* ---- Multipart parser (via multipart-parser-c) ---- */
@@ -531,74 +520,15 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
 }
 
 size_t utf8_truncate_len(const char *str, size_t max_bytes) {
-    if (!str) return 0;
-    size_t len = strlen(str);
-    if (len <= max_bytes) return len;
-    size_t i = max_bytes;
-    while (i > 0 && ((unsigned char)str[i] & 0xC0) == 0x80) {
-        i--;
-    }
-    return i;
+    return fb_utf8_truncate_len(str, max_bytes);
 }
 
 bool is_safe_public_path(const char *path) {
-    if (!path || path[0] == '\0') return false;
-    if (path[0] == '/') return false;
-    if (path[0] == '.' && path[1] == '.') return false;
-
-    static const char *allowed_prefixes[] = {
-        "public/uploads/",
-        "public/profile/",
-        "public/img/",
-        "public/media/",
-        "data/tasfa/"
-    };
-    bool has_allowed_prefix = false;
-    for (size_t i = 0; i < sizeof(allowed_prefixes) / sizeof(allowed_prefixes[0]); i++) {
-        size_t plen = strlen(allowed_prefixes[i]);
-        if (strncmp(path, allowed_prefixes[i], plen) == 0) {
-            has_allowed_prefix = true;
-            break;
-        }
-    }
-    if (!has_allowed_prefix) return false;
-
-    /* Reject any ".." segment anywhere in the path. */
-    const char *p = path;
-    while (*p) {
-        if (p[0] == '.' && p[1] == '.' && (p[2] == '/' || p[2] == '\0')) return false;
-        const char *slash = strchr(p, '/');
-        if (!slash) break;
-        p = slash + 1;
-    }
-    return true;
+    return fb_is_safe_public_path(path);
 }
 
 char *sanitize_filename(const char *filename) {
-    if (!filename) return NULL;
-    const char *base = strrchr(filename, '/');
-    if (base) base++;
-    else base = filename;
-    const char *base2 = strrchr(base, '\\');
-    if (base2) base = base2 + 1;
-    if (!base[0]) return NULL;
-
-    size_t len = strlen(base);
-    if (len > 255) len = 255;
-    char *out = (char *)cwist_alloc(len + 1);
-    if (!out) return NULL;
-    size_t j = 0;
-    for (size_t i = 0; i < len; i++) {
-        unsigned char c = (unsigned char)base[i];
-        if (c == '\0' || c == '/' || c == '\\' || c == '\r' || c == '\n' || c < 0x20) continue;
-        out[j++] = (char)c;
-    }
-    out[j] = '\0';
-    if (j == 0) {
-        cwist_free(out);
-        return NULL;
-    }
-    return out;
+    return fb_sanitize_filename(filename);
 }
 
 void get_file_timestamp_str(const char *file_path, char *out_ts, size_t max_len) {
