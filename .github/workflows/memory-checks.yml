@@ -41,6 +41,10 @@ jobs:
             curl wget coreutils python
 
       - uses: actions/checkout@v4
+        # make deps builds third_party/file (libmagic) from the submodule;
+        # without this the tree is empty and autoreconf fails on configure.ac.
+        with:
+          submodules: recursive
 
       # The cwist build (lsquic + boringssl in particular) is the slow part
       # of this job. cwist isn't pinned to a commit in this repo, so this
@@ -124,6 +128,8 @@ jobs:
             curl wget coreutils python
 
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Compute cache week key
         id: week
