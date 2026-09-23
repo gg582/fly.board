@@ -9,6 +9,7 @@
 #include "nats/fly_nats.h"
 #include "config/config.h"
 #include "engine/pool.h"
+#include "engine/forkgate.h"
 #include "engine/nats.h"
 #include "engine/db.h"
 #include "engine/settings.h"
@@ -39,6 +40,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <strings.h>
 #include <stdbool.h>
 #include <stdatomic.h>
@@ -156,16 +158,27 @@ static void *cleanup_worker(void *arg) {
     (void)arg;
     /* Never share the request-serving connection with this long-lived worker.
      * A dedicated WAL connection keeps its statements and busy state isolated
-     * from HTTP handlers. */
+     * from HTTP handlers. The fork gate brackets every sqlite section: this
+     * thread can race cwist_app_listen()'s worker fork() at startup, and a
+     * child inheriting a locked sqlite static mutex deadlocks on its first
+     * DB access (src/engine/forkgate.h). */
+    fly_forkgate_enter();
     sqlite3 *conn = NULL;
     if (sqlite3_open_v2("data/blog.db", &conn, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK ||
         !db_configure_connection(conn)) {
         FLY_LOG_ERROR("Failed to open cleanup database connection");
+        fly_forkgate_leave();
         if (conn) sqlite3_close(conn);
         return NULL;
     }
+    fly_forkgate_leave();
     cwist_db db = { .conn = conn };
+    /* localtime() inside the timer setup is a fork hazard while cwist forks
+     * workers; tzset() in main() makes it a cached fast path, and the gate
+     * covers the residual window. */
+    fly_forkgate_enter();
     int tfd = create_daily_3am_timer();
+    fly_forkgate_leave();
     if (tfd < 0) {
         CWIST_LOG_ERROR("Failed to create cleanup timerfd");
         sqlite3_close(conn);
@@ -208,11 +221,15 @@ static void *cleanup_worker(void *arg) {
         if (ready_event.data.fd != tfd) continue;
         ssize_t s = read(tfd, &exp, sizeof(exp));
         if (s != sizeof(exp)) continue;
+        fly_forkgate_enter();
         db_cleanup_orphaned_files(&db);
+        fly_forkgate_leave();
     }
     close(epfd);
     close(tfd);
+    fly_forkgate_enter();
     sqlite3_close(conn);
+    fly_forkgate_leave();
     return NULL;
 }
 
@@ -238,6 +255,15 @@ int main(void) {
      * worse it gets. Do this before engine_pool_init() spawns workers. */
     curl_global_init(CURL_GLOBAL_DEFAULT);
     fly_log_init();
+    /* Initialize the process timezone before any thread is created. The
+     * first localtime()/gmtime() call reads /etc/localtime while holding
+     * glibc's tzset_lock, and that slow path is a fork hazard: a worker
+     * forked while another thread sits inside it inherits the locked
+     * tzset_lock and every later date-header render in the child deadlocks
+     * (observed as a worker wedged on g_date_lock/tzset_lock, hanging the
+     * supervisor's shutdown waitpid). After this call the per-call lock
+     * hold is a cached microsecond path. */
+    tzset();
     if (!ensure_asset_workdir()) {
         FLY_LOG_ERROR("Public assets not found; set BLOG_ROOT or run from project root");
         return 1;

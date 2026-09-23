@@ -1,4 +1,5 @@
 #include "engine/db.h"
+#include "engine/forkgate.h"
 #include "db/db.h"
 #include "db/db_internal.h"
 #include "cwist/board_tree.h"
@@ -70,6 +71,10 @@ bool engine_db_init(cwist_app *app, cwist_db **db_out) {
     CWIST_LOG_INFO("Board tree database initialized");
 
     g_app = app;
+    /* The fork gate must be registered before the child handler that runs
+     * sqlite3_open: its prepare handler drains fork-unsafe sections so the
+     * child handler never inherits a locked sqlite static mutex. */
+    fly_forkgate_install();
     pthread_atfork(NULL, NULL, reopen_databases_after_fork);
 
     *db_out = db;
