@@ -2,6 +2,7 @@
 #define BLOG_CONFIG_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef struct {
     char title[128];
@@ -72,6 +73,10 @@ void config_resolve_bg(const char *light_img, const char *dark_img, const char *
  * according to the vote_only setting. */
 bool config_vote_allowed(bool logged_in, const char *role);
 
+#define FONT_FILE_MAX 16
+#define FONT_FILE_NAME_LEN 64
+#define FONT_FILE_URL_LEN 512
+
 typedef struct {
     char import_url[512];
     char face_family[64];
@@ -111,6 +116,11 @@ typedef struct {
     char font_weight_md_h2[8];
     char font_weight_md_h3[8];
     char font_weight_post_h1[8];
+    /* font_file=<filename> <url> entries: font files the server downloads
+     * into public/fonts/ at startup when they are missing locally. */
+    char download_name[FONT_FILE_MAX][FONT_FILE_NAME_LEN];
+    char download_url[FONT_FILE_MAX][FONT_FILE_URL_LEN];
+    size_t download_count;
 } font_settings_t;
 
 extern font_settings_t g_font_settings;
