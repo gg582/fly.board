@@ -1239,6 +1239,14 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
 }
 
 void handler_file_upload_cancel(cwist_http_request *req, cwist_http_response *res) {
+    /* Cancelling deletes the session directory and evicts the upload from
+     * the queue, so it must be owner-only: require a login and verify the
+     * session's uid before touching anything.  Without this, anyone who
+     * learns an upload_id (it is returned to the client and visible in
+     * status responses) could delete another user's in-flight upload. */
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     cwist_query_map *kv = cwist_query_map_create();
     cwist_query_map_parse(kv, req->body->data);
     const char *upload_ids = cwist_query_map_get(kv, "upload_ids");
@@ -1247,10 +1255,18 @@ void handler_file_upload_cancel(cwist_http_request *req, cwist_http_response *re
         if (arr && cJSON_IsArray(arr)) {
             cJSON *item = NULL;
             cJSON_ArrayForEach(item, arr) {
-                if (cJSON_IsString(item) && is_safe_segment(item->valuestring)) {
-                    cleanup_upload_session(item->valuestring);
-                    tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), item->valuestring);
-                }
+                if (!cJSON_IsString(item) || !is_safe_segment(item->valuestring)) continue;
+                const char *upload_id = item->valuestring;
+                tasfa_meta_bin_t mbin;
+                memset(&mbin, 0, sizeof(mbin));
+                if (!load_upload_session_meta_bin(upload_id, &mbin)) continue;
+                if (mbin.uid != uid) continue;
+                /* Take the session lock so a queued/running finalize worker
+                 * cannot observe a half-deleted session. */
+                int lock_fd = open_upload_session_lock(upload_id);
+                cleanup_upload_session(upload_id);
+                tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), upload_id);
+                close_upload_session_lock(lock_fd);
             }
         }
         if (arr) cJSON_Delete(arr);
