@@ -38,6 +38,10 @@ The server writes each chunk directly to the preallocated temp file at `chunk_in
 
 If a normal chunk repeatedly fails, the browser sends that failed chunk through an AES-256-GCM fallback request with `X-TASFA-Stream-Mode: aes-256-gcm`. The server accepts the ciphertext plus the GCM authentication tag, and fallback chunks remain inside the adaptive parallel window. The fallback still carries the same HTP hash tag and balanced scalar headers.
 
+### XOR parity chunks
+
+Upload sessions carry one extra **parity chunk per group of up to 6 data chunks**: `chunk_count = data_chunks + ceil(data_chunks / 6)`. The parity chunk holds `P = C_0 xor ... xor C_n` for its group and is stored separately as `parity_<k>.bin` in the session directory instead of at `chunk_index * chunk_size`. Parity chunks count toward the received-chunk bitmap but are excluded from HTP line validation; they feed the server-side peeling recovery described below.
+
 ### Remainder (last partial chunk)
 
 If the file size is not a multiple of the chunk size, the last chunk is a **remainder**. It is sent as a single blob with its exact byte range; the server writes it at the correct offset. No padding or splitting is performed.
@@ -56,7 +60,7 @@ The `init` endpoint returns, among other fields:
 - `group_count` — number of complete 6-slot HTP groups
 - `client_stripes` — fixed value `32`, used by the client worker scheduler
 
-The client treats `chunk_size` as a session contract because it defines each chunk's file offset. During an active upload it tunes concurrency and retry behavior, while the learned chunk-size hint is applied to the next TASFA session: good links multiply the next hint by `2`, and degraded links halve it (`/2`).
+The client treats `chunk_size` as a session contract because it defines each chunk's file offset. During an active upload it tunes concurrency and retry behavior, while the learned chunk-size hint is applied to the next TASFA session: after a sustained fast streak (3 clean chunks at `>= 8 Mbps` EWMA or sub-30-second chunk times) the next hint is doubled, and after failures it is reduced by a quarter (`* 0.75`, rounded to `1 MiB` steps, `8 MiB` floor).
 
 ### Upload chunk response
 
@@ -157,9 +161,10 @@ Scores are aggregated across all failed groups; if a chunk appears in multiple g
 ### Full HTP-XOR Peeling Decoder
 
 To resolve chunk corruption or loss without expensive Galois Field $GF(2^8)$ matrix inversions, TASFA combines topological syndrome localization with an iterative peeling XOR decoder:
-- **XOR Parity Generation**: Every 6-chunk group contains a 7th parity chunk $P = C_0 \oplus C_1 \oplus C_2 \oplus C_3 \oplus C_4 \oplus C_5$.
+- **XOR Parity Generation**: Every group of up to 6 data chunks has a parity chunk $P = C_0 \oplus C_1 \oplus C_2 \oplus C_3 \oplus C_4 \oplus C_5$ uploaded with the session.
 - **Zero-Cost Suspect Localization**: When a group fails integrity checks, HTP's line sums pinpoint the single corrupted chunk index $i$ in $O(1)$ integer operations.
-- **Iterative Peeling Recovery**: The server reconstructs $C_i = P \oplus \bigoplus_{j \neq i} C_j$ using SIMD bitwise XOR at memory bus bandwidth (20~40 GB/s). Groups are resolved sequentially, clearing restored chunks across the lattice until convergence.
+- **Bounded Iterative Peeling Recovery**: The server reconstructs $C_i = P \oplus \bigoplus_{j \neq i} C_j$ using SIMD bitwise XOR. A group is recovered when it has exactly one suspect, or two suspects where the top score is `1.0` (dominant single-error syndrome); all suspects of a recovered group are then cleared. The scan repeats until no group makes progress, with at most 6 passes.
+- **Missing-Chunk Reconstruction**: Independently of suspicion analysis, if the completion bitmap shows exactly one missing data chunk in a group and that group's parity chunk has been received, the server reconstructs the missing chunk the same way before validating HTP lines.
 - **Multi-Erasure Fallback**: If two or more independent chunks in the same group cannot be isolated, the server falls back to ARQ retransmission via `retry_targets`.
 
 ### Repair cost threshold
@@ -168,7 +173,7 @@ Before requesting any repair, the server evaluates whether contraction is cheape
 
 ```
 repair_worthwhile(suspect_count, total_chunks, chunk_size, rtt_ms):
-    if suspect_count < 3                → false  (too few for topology)
+    if suspect_count < 12               → false  (too few for topology)
     retry_cost  = suspect_count * chunk_size * rtt_factor(rtt_ms)
     repair_cost = metadata_bytes + server_cpu_cost + extra_rtt_cost
     return retry_cost > repair_cost
@@ -224,26 +229,26 @@ This prevents browser connection pool exhaustion and keeps stall detection relia
 ## Runtime Settings
 
 - upload chunk size: `16 MiB` desktop, `8 MiB` mobile
-- adaptive upload chunk-size hint: `8 MiB` minimum, up to `32 MiB` desktop / `16 MiB` mobile; success `*2`, failure `/2`
-- download chunk size: `8 MiB` desktop, `4 MiB` mobile, up to `32 MiB` when the client hints a larger session
-- default browser upload parallelism: `16`, success `*1.15`, failure `*0.85`
+- adaptive upload chunk-size hint: `8 MiB` minimum, up to `32 MiB` desktop / `16 MiB` mobile at the server negotiation (client preference may reach `64 MiB` / `32 MiB`); success doubles the hint after a fast streak, failure reduces it by `* 0.75` in `1 MiB` steps
+- download chunk size: `8 MiB` desktop, `6 MiB` mobile, up to `32 MiB` when the client hints a larger session
+- default browser upload parallelism: `8`, success `*1.15` (`*1.3` during a fast-recovery window), failure `*0.85`
 - max browser upload parallelism: `max_upload_parallel_chunks` in `blog.settings`, capped at `40`
-- max concurrent upload sessions: `max_total_parallel_uploads` in `blog.settings`, capped at `64`
+- max concurrent upload sessions: `max_total_parallel_uploads` in `blog.settings`, capped at `512`
 - max upload size: `max_upload_size` in `blog.settings`
 - max browser download sessions: server-defined, currently up to `48` chunk requests per session
-- download coalesce (span group size): success `*1.2`, failure `*0.8`, up to `16` chunks
+- download coalesce (span group size): success `*1.2`, failure `*0.8`; the server profile hints up to `16` chunks, and the client span may grow to `64` chunks bounded by a `128 MiB` per-request cap
 - image previews: request a DPR-aware 128px size bucket (minimum `256px`, maximum `1920px`) so image transfers do not inflate to a desktop-sized preview when rendered small
 - video/audio playback: prewarm only the TASFA session handshake on pointer/focus intent, then retain native range-request playback; no media payload is fetched early and the progressive scheduler remains unchanged
-- upload xhr timeout: adaptive by chunk size, at least `180 s`
-- upload session fetch timeout: `30 s`
+- upload xhr timeout: adaptive idle watchdog scaled by transfer size, `30-120 s`
+- upload session fetch timeout: `120 s`
 
 TASFA is tuned for general high-bandwidth server deployments, not an embedded/aerospace low-bandwidth profile. The browser's per-origin HTTP connection limit is still respected naturally by the worker pool.
 
 ### Client adaptation
 
-The upload client measures chunk completion time, retries, timeouts, and Network Information API hints when available. It sends those inputs to `/file/upload/init` and `/file/upload/renegotiate`; the server answers with a current parallel window and max window. Clean completions increase the active window by `*1.15` up to the negotiated max, while transient failures reduce it by `*0.85`. AES-GCM fallback also runs inside the adaptive window.
+The upload client measures chunk completion time, retries, timeouts, and Network Information API hints when available. It sends those inputs to `/file/upload/init` and `/file/upload/renegotiate`; the server answers with a current parallel window and max window. Clean completions increase the active window by `*1.15` up to the negotiated max (`*1.3` inside a 5-second fast-recovery window right after a drop), while repeated, predictable failure patterns reduce it by `*0.85` down to a floor of `4` mobile / `8` desktop on good links. AES-GCM fallback also runs inside the adaptive window.
 
-A per-chunk absolute timeout prevents stalls caused by connections that receive partial data but never close. If a watchdog detects a stalled upload (no chunk completion within the timeout), the client performs an **aggressive restart**: `targetParallel` is reset to `maxParallel`, `dispatchPacingMs` is set to `0`, and the upload resumes from the server bitmap. The learned chunk-size hint is kept **session-local** and is not immediately persisted to `localStorage`; it is only applied to the next TASFA session.
+A per-chunk absolute timeout prevents stalls caused by connections that receive partial data but never close. A watchdog samples upload activity every 2 seconds: at a soft stall (`30 s` without chunk progress) it performs **soft recovery** — renegotiation, a parallelism bump, and a 5-second fast-recovery window — without tearing down live connections; at a hard stall (`90 s`) it performs an **aggressive restart**: in-flight XHRs are aborted and the upload resumes from the server bitmap, renegotiating from the full `maxParallel` window (high-performance transfer profiles also reset `targetParallel` to `maxParallel` and `dispatchPacingMs` to `0`). The learned chunk-size hint is kept **session-local** and is not immediately persisted to `localStorage`; it is only applied to the next TASFA session.
 
 Download uses the same high-throughput bias: the handshake carries the client's preferred chunk-size hint, and active downloads grow `span` and parallelism by `*1.2` after successful chunk groups. On failure both are reduced by `*0.8`. Short reads, timeouts, and network errors are requeued by chunk index; a failed group does not fail the whole download until the same chunk has exhausted a high retry budget.
 
@@ -281,6 +286,10 @@ Each upload session preallocates one temporary file:
 
 The server no longer maintains `blocks.bin` or `chunk_counts.bin`. Chunk completion is a single bitmap write.
 
+### Optional S3-Compatible Object Storage
+
+Completed files can additionally be stored in an S3-compatible bucket configured through the optional `s3.settings` file (all-empty means disabled and local disk storage is unchanged). In `mode=mirror` (default) the local file is kept and also PUT to the bucket; downloads keep serving from disk. In `mode=offload` the bytes are moved to S3 after upload, the file row is marked `s3://<key>`, and downloads are answered with a `302` redirect to a 1-hour presigned GET URL. Failed S3 PUTs fall back to local storage, and all delete paths clean both copies. See `S3.md` for the full key reference.
+
 Session metadata also stores per-vertex arrays:
 
 - `hash_tags` — array of SHA-512 hex strings, one per chunk
@@ -302,8 +311,12 @@ Completed uploads receive a one-time delete PIN. The clear PIN is a 12-character
 3. Client fetches chunk groups with an adaptive `span=...`. All chunks are encrypted with **AES-256-GCM** when session keys are present.
 4. Client decrypts chunks in the browser using the **Web Crypto API** and the session keys.
 5. Browser assembles the response into one contiguous buffer.
-6. **Payload Compression (Brotli/Zstd/Gzip Fallback)**:
-   During downlinks, the client advertises supported decompression algorithms using the `X-TASFA-Accept-Encoding` header (e.g. `br, zstd, gzip`). The server evaluates this header and applies compression **before** GCM encryption using the highest-priority supported algorithm (ordered Brotli -> Zstd -> Gzip). This avoids double-compression and ensures clients only receive payloads they can decompress natively (using `DecompressionStream`). If compression does not yield enough gains (`TASFA_COMPRESS_MIN_GAIN_BYTES`), the server skips compression and serves the raw binary payload directly.
+6. **Payload Compression (Zstd/Brotli/Gzip Fallback)**:
+   During downlinks, the client advertises supported decompression algorithms using the `X-TASFA-Accept-Encoding` header (e.g. `br, zstd, gzip`; the server falls back to `Accept-Encoding` when the TASFA header is absent). The header is a capability list, not a priority order: the server applies compression **before** GCM encryption using exactly one full-buffer pass of the supported codec it prefers most, ordered **Zstd (level 1) → Brotli (quality 1) → gzip (best speed)**; it is a preference order, not a fallback chain — if the selected codec does not save enough bytes, the raw payload is served and no other codec is tried. This avoids double-compression and ensures clients only receive payloads they can decompress natively (using `DecompressionStream`). If compression does not yield enough gains (`TASFA_COMPRESS_MIN_GAIN_BYTES`, 1,024 bytes; strictly less is required), the server skips compression and serves the raw binary payload directly. Compressed chunk responses carry `X-TASFA-Content-Encoding` and `X-TASFA-Uncompressed-Length` so the client can decompress before decryption.
+
+## Optional WASM-Sandboxed Block Crypto
+
+Block AES-256-GCM (chunk encrypt/decrypt) normally runs through the native OpenSSL EVP path. When the `TASFA_CRYPTO_WASM` environment variable points at a built WASI module (`make wasm-tasfa-crypto` produces `build-wasm/tasfa_crypto.wasm`), the server instead runs each block operation inside a sandbox: it spawns `wasmtime run <module>` as a subprocess and exchanges one framed request/response (protocol in `wasm/tasfa_crypto_protocol.h`) over stdin/stdout. The module performs the same IV derivation and AAD layout as the native path, and byte parity with OpenSSL EVP is enforced by `wasm/test_parity.py`. The backend is strictly opt-in: if `TASFA_CRYPTO_WASM` is unset or the module is unreadable, `tasfa_wasm_crypto_available()` returns false and the native path is used. The `wasmtime` binary can be overridden with `TASFA_WASMTIME`. This changes only where chunk crypto executes, never the wire format.
 
 ## DoS Mitigation via Bitmap
 
@@ -326,15 +339,15 @@ The server uses a sticky round-robin worker scheduler. The number of workers equ
 
 ## Asynchronous Finalization
 
-`POST /file/upload/complete` is processed asynchronously. The first call returns `202 Accepted` with `{"processing": true}` and starts a background finalize worker. Subsequent calls poll the finalize cache; when the worker finishes, the cached status and body are returned immediately. This prevents long-running finalization work from blocking the HTTP connection.
+`POST /file/upload/complete` is processed asynchronously. The first call returns `202 Accepted` with `{"processing": true}` and schedules a background finalize worker on the engine pool, in an isolated `TTAK_TASK_DOMAIN_THREAD` scheduling domain so finalize work (media transcodes, SHA-256 checksum, database writes) never shares workers with the HTTP service loops. If the pool rejects the job (e.g. it is shutting down), the finalize record is marked `503` and the client retries instead of pinning an HTTP worker. Subsequent `complete` calls poll the finalize cache; when the worker finishes, the cached status and body are returned immediately. This prevents long-running finalization work from blocking the HTTP connection.
 
 ## Self-Review Checklist
 
 | Question | Answer |
 |----------|--------|
 | Q1: Does the client compute any repair algebra? | **No.** The client is a dumb retransmission agent. All suspect derivation, confidence scoring, cost thresholds, and contraction logic are server-side only. |
-| Q2: Is repair cost threshold explicitly evaluated before contraction? | **Yes.** `htp_repair_worthwhile` compares `retry_cost_estimate` (bytes × RTT) against `repair_cost_estimate` (server analysis overhead). It rejects repair when `suspect_count < 3` or retry is cheaper, falling back to direct retry. |
-| Q3: Are partial groups ever zero-padded? | **No.** Only complete 6-slot groups (`chunk_count / 6`) are validated. Incomplete final groups are excluded entirely. |
+| Q2: Is repair cost threshold explicitly evaluated before contraction? | **Yes.** `htp_repair_worthwhile` compares `retry_cost_estimate` (bytes × RTT) against `repair_cost_estimate` (server analysis overhead). It rejects repair when `suspect_count < 12` or retry is cheaper, falling back to direct retry. |
+| Q3: Are partial groups ever zero-padded? | **No.** Only complete 6-slot groups (`data_chunks / 6`) are validated. Incomplete final groups are excluded entirely. |
 | Q4: Does the response contain suspicion scores, not just binary flags? | **Yes.** Every `needs_retry` response includes `suspicion_scores` as `{chunk_index, score}` objects. |
 | Q5: Does contraction preserve original group topology? | **Yes.** `htp_contract_groups` treats each original complete group as a single higher-level vertex; suspects are never reshuffled across groups. |
 | Q6: Are retry targets cleared on successful retransmission? | **Yes.** `handler_file_upload` removes the chunk from `htp_retry_targets` after accepting a retry retransmission. |

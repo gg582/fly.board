@@ -52,7 +52,8 @@ Download chunk responses include:
 
 Server-generated media (thumbnails, audio previews) are first-class TASFA assets:
 
+- **GIF Upload Transcoding**: At upload finalization an `image/gif` upload is forcibly transcoded to WebM (`720p`, `video/webm`) and stored under a `.webm` name; the original GIF temp file is removed. If transcoding fails, the file falls back to being stored as a GIF, and its poster thumbnail is generated as WebP (`%d_gif_poster.webp`) with a WebM preview (`%d.webm`) instead of a GIF thumbnail and MP4 preview.
 - **HTP Metadata Pre-calculation**: When the server generates a thumbnail or preview, it immediately computes HTP scalars and SHA-256 tags for its chunks and stores them in `data/tasfa/media_htp`. Note: the server-side media generator uses **SHA-256** for this purpose, while the upload client still uses **SHA-512** for user-uploaded chunks.
 - **Reliable Media Transfer**: Media is served via the `/assets/tasfa/...` routes, which support the full TASFA protocol including chunk-level integrity verification using the pre-calculated HTP metadata.
-- **Concurrency Control**: Media generation (`ffmpeg`) is limited to 4 concurrent processes to protect server resources.
+- **Concurrency Control**: Media generation (`ffmpeg`) during finalization is limited to 4 concurrent processes to protect server resources; a finalize worker waits for a free slot.
 - **Unified Media Insertion**: Both auto-insert and file-browser insertion use native HTML `<video>` or `<audio>` tags with `controls` and `playsinline` attributes. The client detects media type by MIME type or file extension and falls back to extension-based detection when the MIME type is generic (`application/octet-stream`).

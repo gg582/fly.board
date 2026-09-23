@@ -5,12 +5,12 @@ This document keeps only TASFA upload-improvement items that remain debatable or
 ## Remaining Policy Choices
 
 - [ ] `pending` queue order: the current implementation uses FIFO to reduce perceived progress stalls. Compare 50 MB, 100 MB, and 1 GB logs to determine whether LIFO is better for cache locality or retry responsiveness.
-- [ ] Soft recovery strength: the current policy performs renegotiation and a parallelism bump after `25 s` of inactivity, then hard abort/resume after `90 s`. Compare `15 s`, `20 s`, and `30 s` candidates on mobile networks.
+- [ ] Soft recovery strength: the current policy performs renegotiation and a parallelism bump after `30 s` of inactivity (soft stall), then hard abort/resume after `90 s`. Compare `15 s`, `20 s`, and `30 s` candidates on mobile networks.
 - [x] Parallelism floor on good 4G/5G links: the current floor is mobile 4 and desktop 8. Verify whether this is too aggressive on low-end devices or under thermal pressure.
-- [ ] Fast recovery after renegotiation: after a drop, successful chunks currently recover by `+2` or `+4` for about `5 s`. Validate this against HTTP 429 frequency, since it may be too aggressive when the server is genuinely congested.
+- [ ] Fast recovery after renegotiation: after a drop, successful chunks currently ramp multiplicatively at `*1.3` inside a 5-second fast-recovery window (`*1.15` otherwise, always at least `+1`). Validate this against HTTP 429 frequency, since it may be too aggressive when the server is genuinely congested.
 - [ ] Aitken confidence model: the current confidence uses variance over the latest four quality samples. Compare it with a model that also includes progress event silence, inflight delta, and retry-free streak.
 - [ ] `dispatch_pacing_ms`: on good links, the client ignores pacing by forcing it to 0. Decide whether any deployment environment needs the server to enforce this value.
-- [ ] Tier 1/Tier 2 threshold: the current policy slows down only after a failure pattern around five repeats. Verify whether Tier 2 starts too late on genuinely bad 5G/Wi-Fi links.
+- [ ] Tier 1/Tier 2 threshold: the current policy slows down only after a predictable failure pattern — 3 consecutive failures, 3 repeats of the same failure kind, or 2 timeouts (and then only on every 3rd failure event or at 4+ consecutive failures). Verify whether Tier 2 starts too late on genuinely bad 5G/Wi-Fi links.
 - [x] SIMD: HTP line-sum has a SIMD path plus simple scalar fallback. AVX2 (256-bit) implementation is complete, providing significant performance gains for server-side lattice verification.
 - [x] Media TASFA Integration: Thumbnails and previews are now integrated into the TASFA lifecycle, including HTP metadata pre-calculation and reliable chunked delivery.
 
