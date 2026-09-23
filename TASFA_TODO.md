@@ -25,7 +25,7 @@ The goal is to reliably achieve one of the following outcomes:
 - [x] Align client/server logs around owned metrics such as inflight bytes, encrypted fallback cache bytes, HTP group cache activity, chunk timing, and metadata save latency instead of using process RSS deltas as a heuristic.
 - [x] Check whether the previous `pending.pop()` LIFO order hurt progress display, then pin the upload queue to FIFO.
 - [x] Measure how much parallelism drops immediately after `/file/upload/renegotiate`, and how many successful chunks are needed for recovery.
-- [x] Reflect that the watchdog's `90 s` inactivity threshold is too late for UX by splitting recovery into `25 s` soft recovery and `90 s` hard recovery.
+- [x] Reflect that the watchdog's `90 s` inactivity threshold is too late for UX by splitting recovery into `30 s` soft recovery and `90 s` hard recovery.
 
 ## Instrumentation TODO
 
@@ -40,13 +40,13 @@ The goal is to reliably achieve one of the following outcomes:
 
 - [x] Add hysteresis so one or two transient failures cannot cause a large parallelism drop.
 - [x] On good 5G/4G links, do not sharply reduce `targetParallel` for short throughput drops unless a timeout occurs.
-- [x] Reduce parallelism slowly and recover quickly. For example, experiment with `-1` on failure and `+2` or `+4` after clean successes.
+- [x] Reduce parallelism slowly and recover quickly. For example, experiment with `-1` on failure and `+2` or `+4` after clean successes. (Resolved: parallelism now moves multiplicatively — `*0.85` on predictable failure patterns only, `*1.15` per clean success and `*1.3` inside the 5-second fast-recovery window, always at least `+1` on success.)
 - [x] If `current_parallel_chunks` drops below the previous value after renegotiation, give it a chance to rise again within at least `5 s`.
 - [x] Since `dispatch_pacing_ms` can create long stalls, keep it at 0 on high-quality links and cap it tightly on low-quality links.
 - [x] Make Tier 1 a send-as-much-as-possible strategy, and move to Tier 2 slowdown/guarded mode only after repeated and predictable error patterns are confirmed.
 - [x] Set failure tolerance aggressively so parallelism is not reduced until the same chunk or same failure type repeats several times.
 - [x] Run fallback prefetch only within a budget that does not harm parallel throughput. If encryption preparation blocks upload sending, apply a separate budget.
-- [x] Add `15-30 s` soft recovery separately from the 90-second hard recovery. Soft recovery performs renegotiation, target parallel bump, and status refresh before aborting all XHRs.
+- [x] Add `30 s` soft recovery separately from the 90-second hard recovery. Soft recovery performs renegotiation, target parallel bump, and status refresh before aborting all XHRs.
 
 ## Aitken/Wynn Prediction TODO
 

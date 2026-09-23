@@ -14,7 +14,9 @@ A connection is treated as fast-link only when the browser reports:
 - `navigator.connection.downlink >= 500`
 - `saveData` is not enabled
 - `effectiveType` is not `slow-2g`, `2g`, or `3g`
-- reported RTT is absent or `<= 80ms`
+- reported RTT is absent or `<= 500ms`
+
+The `500ms` RTT ceiling is deliberate: it approximates a globe-spanning baseline (raw speed-of-light RTT plus routing and TLS overhead), so intercontinental high-bandwidth links still qualify. Only paths slower than the globe baseline itself (satellite, heavily congested) are excluded.
 
 The server applies the same guard to the handshake parameters:
 
@@ -22,6 +24,8 @@ The server applies the same guard to the handshake parameters:
 - `link_save_data != 1`
 - `link_effective_type` is not `slow-2g`, `2g`, or `3g`
 - `link_rtt_ms` is absent or `<= 80`
+
+Note the server still enforces the stricter `80ms` RTT ceiling, so a client that only qualifies via the `80-500ms` RTT window is capped at the normal 32 MiB maximum even though the client considers the link fast.
 
 This prevents an unstable wireless client that merely advertises a high physical link from being forced into the fast-link strategy.
 
