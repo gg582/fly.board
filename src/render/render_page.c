@@ -637,14 +637,38 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                  * critical theme CSS above already covers the page chrome. */
                 cwist_sstring_append(head_shell, "<link rel=\"preload\" as=\"style\" href=\"/assets/css/google-fonts.css?v=2\" onload=\"this.onload=null;this.rel='stylesheet'\">");
                 cwist_sstring_append(head_shell, "<noscript><link rel=\"stylesheet\" href=\"/assets/css/google-fonts.css?v=2\"></noscript>");
+                /* Admin-configured font CSS (fonts.settings font_import_url /
+                 * font_face_*) replaces the built-in Pretendard sheet, so a
+                 * lightweight or subset stack can be used instead of the full
+                 * variable font. */
+                const bool custom_font_css = g_font_settings.import_url[0] != '\0' ||
+                                             g_font_settings.face_src[0] != '\0';
+                if (g_font_settings.import_url[0]) {
+                    cwist_sstring_append(head_shell, "<style>");
+                    cwist_sstring_append(head_shell, g_font_settings.import_url);
+                    cwist_sstring_append(head_shell, "</style>");
+                }
+                if (g_font_settings.face_src[0]) {
+                    cwist_sstring_append(head_shell, "<style>@font-face{font-family:'");
+                    cwist_sstring_append(head_shell, g_font_settings.face_family);
+                    cwist_sstring_append(head_shell, "';font-display:swap;src:");
+                    cwist_sstring_append(head_shell, g_font_settings.face_src);
+                    cwist_sstring_append(head_shell, ";}</style>");
+                }
                 if (inline_shell_enabled() && inline_asset_fits(a->font_css_small)) {
                     cwist_sstring_append(head_shell, "<style>");
                     cwist_sstring_append(head_shell, a->font_css_small);
                     cwist_sstring_append(head_shell, "</style>");
                 } else {
-                    cwist_sstring_append(head_shell, "<link rel=\"preload\" as=\"style\" href=\"/assets/css/pretendard.css\" onload=\"this.onload=null;this.rel='stylesheet'\">");
+                    if (!custom_font_css) {
+                        cwist_sstring_append(head_shell, "<link rel=\"preload\" as=\"style\" href=\"/assets/css/pretendard.css\" onload=\"this.onload=null;this.rel='stylesheet'\">");
+                    }
                     cwist_sstring_append(head_shell, "<link rel=\"preload\" as=\"style\" href=\"/assets/css/d2coding.css\" onload=\"this.onload=null;this.rel='stylesheet'\">");
-                    cwist_sstring_append(head_shell, "<noscript><link rel=\"stylesheet\" href=\"/assets/css/pretendard.css\"><link rel=\"stylesheet\" href=\"/assets/css/d2coding.css\"></noscript>");
+                    cwist_sstring_append(head_shell, "<noscript>");
+                    if (!custom_font_css) {
+                        cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/pretendard.css\">");
+                    }
+                    cwist_sstring_append(head_shell, "<link rel=\"stylesheet\" href=\"/assets/css/d2coding.css\"></noscript>");
                 }
 
                 if (inline_shell_enabled()) {

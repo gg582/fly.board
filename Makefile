@@ -144,6 +144,7 @@ SRCS := src/main.c \
         src/utils/cert_renewal.c \
         src/utils/email.c \
         src/utils/s3_client.c \
+        src/utils/font_fetch.c \
         src/nats/fly_nats.c \
         src/core/log.c \
         src/config/config.c \

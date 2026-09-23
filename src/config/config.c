@@ -427,6 +427,7 @@ static void font_set_default(void) {
     g_font_settings.import_url[0] = '\0';
     snprintf(g_font_settings.face_family, sizeof(g_font_settings.face_family), "JetBrains Mono");
     g_font_settings.face_src[0] = '\0';
+    g_font_settings.download_count = 0;
     snprintf(g_font_settings.body, sizeof(g_font_settings.body),
              "'Space Grotesk', 'IBM Plex Sans KR', 'Pretendard Variable', 'Pretendard', sans-serif");
     snprintf(g_font_settings.heading, sizeof(g_font_settings.heading), "'Outfit', sans-serif");
@@ -531,6 +532,27 @@ bool font_settings_load(const char *path) {
             snprintf(g_font_settings.face_family, sizeof(g_font_settings.face_family), "%s", val);
         } else if (strcmp(key, "font_face_src") == 0) {
             snprintf(g_font_settings.face_src, sizeof(g_font_settings.face_src), "%s", val);
+        } else if (strcmp(key, "font_file") == 0) {
+            /* format: font_file=<filename> <url>. The server downloads the
+             * file into public/fonts/<filename> at startup when it is
+             * missing locally. The filename must be a plain basename. */
+            const char *sp = strchr(val, ' ');
+            if (sp && g_font_settings.download_count < FONT_FILE_MAX) {
+                size_t name_len = (size_t)(sp - val);
+                const char *url = sp + 1;
+                while (*url == ' ') url++;
+                bool name_ok = name_len > 0 && name_len < FONT_FILE_NAME_LEN && val[0] != '.';
+                for (size_t i = 0; name_ok && i < name_len; i++) {
+                    if (val[i] == '/' || val[i] == '\\') name_ok = false;
+                }
+                bool url_ok = (strncmp(url, "https://", 8) == 0 || strncmp(url, "http://", 7) == 0) &&
+                              strlen(url) < FONT_FILE_URL_LEN;
+                if (name_ok && url_ok) {
+                    size_t i = g_font_settings.download_count++;
+                    snprintf(g_font_settings.download_name[i], FONT_FILE_NAME_LEN, "%.*s", (int)name_len, val);
+                    snprintf(g_font_settings.download_url[i], FONT_FILE_URL_LEN, "%s", url);
+                }
+            }
         } else if (strcmp(key, "font_body") == 0) {
             snprintf(g_font_settings.body, sizeof(g_font_settings.body), "%s", val);
         } else if (strcmp(key, "font_heading") == 0) {
