@@ -150,6 +150,7 @@ SRCS := src/main.c \
         src/engine/pool.c \
         src/engine/nats.c \
         src/engine/db.c \
+        src/engine/forkgate.c \
         src/engine/settings.c \
         src/engine/routes.c \
         src/engine/warmup.c

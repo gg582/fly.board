@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "engine/warmup.h"
 #include "engine/pool.h"
+#include "engine/forkgate.h"
 #include "utils/cache.h"
 #include "render/render.h"
 #include "db/db.h"
@@ -20,20 +21,33 @@
 
 static void *gif_warmup_thread_func(void *arg) {
     (void)arg;
+    /* Every sqlite section is bracketed with the fork gate: this pool task
+     * overlaps cwist_app_listen()'s worker fork() at startup, and a child
+     * inheriting a locked sqlite static mutex deadlocks on its first DB
+     * access. ffmpeg conversions between sections take no gate. */
+    fly_forkgate_enter();
     sqlite3 *conn = NULL;
     if (sqlite3_open(FLY_DB_MAIN_PATH, &conn) != SQLITE_OK) {
         if (conn) sqlite3_close(conn);
+        fly_forkgate_leave();
         return NULL;
     }
     if (!db_configure_connection(conn)) {
         sqlite3_close(conn);
+        fly_forkgate_leave();
         return NULL;
     }
+    fly_forkgate_leave();
 
     const char *sql_select = "SELECT id, file_path, preview_path FROM files WHERE mime_type = 'image/gif'";
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(conn, sql_select, -1, &stmt, NULL) != SQLITE_OK) {
+    fly_forkgate_enter();
+    int prep_rc = sqlite3_prepare_v2(conn, sql_select, -1, &stmt, NULL);
+    fly_forkgate_leave();
+    if (prep_rc != SQLITE_OK) {
+        fly_forkgate_enter();
         sqlite3_close(conn);
+        fly_forkgate_leave();
         return NULL;
     }
 
@@ -47,6 +61,7 @@ static void *gif_warmup_thread_func(void *arg) {
     int task_count = 0;
     int task_cap = 0;
 
+    fly_forkgate_enter();
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         int id = sqlite3_column_int(stmt, 0);
         const char *fpath = (const char *)sqlite3_column_text(stmt, 1);
@@ -73,8 +88,9 @@ static void *gif_warmup_thread_func(void *arg) {
                 if (!new_tasks) {
                     CWIST_LOG_ERROR("GIF Warmup: failed to allocate task buffer");
                     sqlite3_finalize(stmt);
-                    free(tasks);
                     sqlite3_close(conn);
+                    fly_forkgate_leave();
+                    free(tasks);
                     return NULL;
                 }
                 tasks = new_tasks;
@@ -90,6 +106,7 @@ static void *gif_warmup_thread_func(void *arg) {
         }
     }
     sqlite3_finalize(stmt);
+    fly_forkgate_leave();
 
     if (task_count > 0) {
         CWIST_LOG_INFO("GIF Warmup: Found %d GIFs needing MP4 conversion.", task_count);
@@ -108,6 +125,7 @@ static void *gif_warmup_thread_func(void *arg) {
             if (generate_webm_preview(orig_path, webm_path, 720)) {
                 const char *sql_update = "UPDATE files SET preview_path = ? WHERE id = ?";
                 sqlite3_stmt *up_stmt = NULL;
+                fly_forkgate_enter();
                 if (sqlite3_prepare_v2(conn, sql_update, -1, &up_stmt, NULL) == SQLITE_OK) {
                     sqlite3_bind_text(up_stmt, 1, webm_path, -1, SQLITE_STATIC);
                     sqlite3_bind_int(up_stmt, 2, id);
@@ -118,6 +136,7 @@ static void *gif_warmup_thread_func(void *arg) {
                     }
                     sqlite3_finalize(up_stmt);
                 }
+                fly_forkgate_leave();
             } else {
                 CWIST_LOG_ERROR("GIF Warmup: Failed to convert file %d to WebM.", id);
             }
@@ -125,7 +144,9 @@ static void *gif_warmup_thread_func(void *arg) {
     }
 
     free(tasks);
+    fly_forkgate_enter();
     sqlite3_close(conn);
+    fly_forkgate_leave();
     CWIST_LOG_INFO("GIF Warmup thread finished.");
     return NULL;
 }
