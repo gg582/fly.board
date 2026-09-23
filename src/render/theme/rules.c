@@ -1005,6 +1005,11 @@ void rule_components(cJSON *rules) {
     add_decl(mlw, "margin", "24px auto");
     add_decl(mlw, "background", "var(--hover)");
     add_decl(mlw, "min-height", "120px");
+    add_decl(mlw, "flex-direction", "column");
+    add_decl(mlw, "align-items", "center");
+    add_decl(mlw, "justify-content", "center");
+    add_decl(mlw, "overflow", "hidden");
+    add_decl(mlw, "border", "1px solid var(--border)");
     cJSON_AddItemToArray(rules, mlw);
 
     cJSON *tml = create_rule(".tasfa-media-loader");
@@ -1051,13 +1056,6 @@ void rule_components(cJSON *rules) {
     add_decl(tmls, "border-radius", radius_str(50));
     add_decl(tmls, "animation", "tasfa-spin 0.8s linear infinite");
     cJSON_AddItemToArray(rules, tmls);
-
-    add_decl(mlw, "flex-direction", "column");
-    add_decl(mlw, "align-items", "center");
-    add_decl(mlw, "justify-content", "center");
-    add_decl(mlw, "overflow", "hidden");
-    add_decl(mlw, "border", "1px solid var(--border)");
-    cJSON_AddItemToArray(rules, mlw);
 
     cJSON *mlp = create_rule(".media-loading-progress");
     add_decl(mlp, "position", "absolute");

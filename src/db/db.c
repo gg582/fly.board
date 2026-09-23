@@ -3,14 +3,31 @@
 #include "db_internal.h"
 #include <cwist/core/log.h>
 #include <cwist/core/mem/alloc.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static _Thread_local sqlite3 *tls_main_conn = NULL;
+/* Per-thread connections are closed automatically when their thread exits
+ * (HTTP pool workers are joined at shutdown): a plain _Thread_local pointer
+ * leaked the whole connection - pager, schema cache, statements - past the
+ * LeakSanitizer end-of-process check.  pthread TLS destructors run on thread
+ * exit, so no explicit close call is needed on any path. */
+static pthread_key_t tls_main_conn_key;
+static pthread_once_t tls_main_conn_once = PTHREAD_ONCE_INIT;
+
+static void tls_main_conn_destroy(void *ptr) {
+    if (ptr) sqlite3_close_v2((sqlite3 *)ptr);
+}
+
+static void tls_main_conn_init(void) {
+    pthread_key_create(&tls_main_conn_key, tls_main_conn_destroy);
+}
 
 sqlite3 *fly_db_conn(cwist_db *db) {
-    if (tls_main_conn) return tls_main_conn;
+    pthread_once(&tls_main_conn_once, tls_main_conn_init);
+    sqlite3 *cached = pthread_getspecific(tls_main_conn_key);
+    if (cached) return cached;
     /* Derive the path from the app's template connection so deployments with
      * a custom DB location keep working. */
     const char *path = (db && db->conn) ? sqlite3_db_filename(db->conn, "main") : NULL;
@@ -26,12 +43,30 @@ sqlite3 *fly_db_conn(cwist_db *db) {
         sqlite3_close(conn);
         return db ? db->conn : NULL;
     }
-    tls_main_conn = conn;
-    return tls_main_conn;
+    pthread_setspecific(tls_main_conn_key, conn);
+    return conn;
 }
 
 void fly_db_conn_forget(void) {
-    tls_main_conn = NULL;
+    /* Called in the child after fork(): the TLS pointer refers to the
+     * parent's connection copy. Drop it without running the destructor -
+     * the copy must never be closed here. */
+    pthread_setspecific(tls_main_conn_key, NULL);
+}
+
+static void fly_db_close_main_thread_conn(void) {
+    pthread_once(&tls_main_conn_once, tls_main_conn_init);
+    sqlite3 *conn = pthread_getspecific(tls_main_conn_key);
+    if (conn) {
+        pthread_setspecific(tls_main_conn_key, NULL);
+        sqlite3_close_v2(conn);
+    }
+}
+
+void fly_db_close_thread_conns(void) {
+    fly_db_close_main_thread_conn();
+    db_comment_close_thread();
+    db_board_tree_close_thread();
 }
 
 bool db_exec_sql(cwist_db *db, const char *sql) {
