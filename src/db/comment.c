@@ -2,6 +2,7 @@
 #include "db.h"
 #include "db_internal.h"
 #include <cwist/core/mem/alloc.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,11 +12,25 @@ static char g_comments_path[512] = "data/comments.db";
 /* Request-serving threads use their own connection so comment reads/writes
  * do not serialize behind a single shared sqlite3* (same rationale as
  * fly_db_conn in db.c).  g_comments_db remains the startup/template
- * connection used for schema setup. */
-static _Thread_local sqlite3 *tls_comments_db = NULL;
+ * connection used for schema setup.  The per-thread connection rides a
+ * pthread TLS key whose destructor closes it on thread exit; a plain
+ * _Thread_local pointer leaked the whole connection past the exit-time
+ * leak check. */
+static pthread_key_t tls_comments_key;
+static pthread_once_t tls_comments_once = PTHREAD_ONCE_INIT;
+
+static void tls_comments_destroy(void *ptr) {
+    if (ptr) sqlite3_close_v2((sqlite3 *)ptr);
+}
+
+static void tls_comments_init(void) {
+    pthread_key_create(&tls_comments_key, tls_comments_destroy);
+}
 
 static sqlite3 *comments_db_conn(void) {
-    if (tls_comments_db) return tls_comments_db;
+    pthread_once(&tls_comments_once, tls_comments_init);
+    sqlite3 *cached = pthread_getspecific(tls_comments_key);
+    if (cached) return cached;
     sqlite3 *conn = NULL;
     if (sqlite3_open(g_comments_path, &conn) != SQLITE_OK) {
         sqlite3_close(conn);
@@ -25,8 +40,8 @@ static sqlite3 *comments_db_conn(void) {
         sqlite3_close(conn);
         return g_comments_db;
     }
-    tls_comments_db = conn;
-    return tls_comments_db;
+    pthread_setspecific(tls_comments_key, conn);
+    return conn;
 }
 
 bool db_comment_init(const char *path) {
@@ -63,10 +78,20 @@ void db_comment_close(void) {
     if (g_comments_db) { sqlite3_close(g_comments_db); g_comments_db = NULL; }
 }
 
+void db_comment_close_thread(void) {
+    pthread_once(&tls_comments_once, tls_comments_init);
+    sqlite3 *conn = pthread_getspecific(tls_comments_key);
+    if (conn) {
+        pthread_setspecific(tls_comments_key, NULL);
+        sqlite3_close_v2(conn);
+    }
+}
+
 void db_comment_reopen(void) {
     /* Called in the child after fork(): the TLS pointer refers to the
      * parent's connection copy and must be forgotten, never closed. */
-    tls_comments_db = NULL;
+    pthread_once(&tls_comments_once, tls_comments_init);
+    pthread_setspecific(tls_comments_key, NULL);
     if (g_comments_db) {
         sqlite3_close(g_comments_db);
         g_comments_db = NULL;

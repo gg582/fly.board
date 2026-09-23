@@ -3,6 +3,7 @@
 #include "db/db_internal.h"
 #include <cwist/core/log.h>
 #include <sqlite3.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -10,11 +11,23 @@ static sqlite3 *g_board_tree_db = NULL;
 static char g_board_tree_path[512] = "data/board_tree.db";
 /* Same per-thread rationale as fly_db_conn/comments_db_conn: request threads
  * open their own connection; g_board_tree_db stays the startup/template
- * connection used for schema setup. */
-static _Thread_local sqlite3 *tls_board_tree_db = NULL;
+ * connection used for schema setup.  The per-thread connection rides a
+ * pthread TLS key whose destructor closes it on thread exit (see db.c). */
+static pthread_key_t tls_board_tree_key;
+static pthread_once_t tls_board_tree_once = PTHREAD_ONCE_INIT;
+
+static void tls_board_tree_destroy(void *ptr) {
+    if (ptr) sqlite3_close_v2((sqlite3 *)ptr);
+}
+
+static void tls_board_tree_init(void) {
+    pthread_key_create(&tls_board_tree_key, tls_board_tree_destroy);
+}
 
 static sqlite3 *board_tree_db_conn(void) {
-    if (tls_board_tree_db) return tls_board_tree_db;
+    pthread_once(&tls_board_tree_once, tls_board_tree_init);
+    sqlite3 *cached = pthread_getspecific(tls_board_tree_key);
+    if (cached) return cached;
     sqlite3 *conn = NULL;
     if (sqlite3_open(g_board_tree_path, &conn) != SQLITE_OK) {
         sqlite3_close(conn);
@@ -24,8 +37,8 @@ static sqlite3 *board_tree_db_conn(void) {
         sqlite3_close(conn);
         return g_board_tree_db;
     }
-    tls_board_tree_db = conn;
-    return tls_board_tree_db;
+    pthread_setspecific(tls_board_tree_key, conn);
+    return conn;
 }
 
 bool db_board_tree_init(const char *path) {
@@ -67,10 +80,20 @@ void db_board_tree_close(void) {
     }
 }
 
+void db_board_tree_close_thread(void) {
+    pthread_once(&tls_board_tree_once, tls_board_tree_init);
+    sqlite3 *conn = pthread_getspecific(tls_board_tree_key);
+    if (conn) {
+        pthread_setspecific(tls_board_tree_key, NULL);
+        sqlite3_close_v2(conn);
+    }
+}
+
 void db_board_tree_reopen(void) {
     /* After fork(): forget the child's inherited TLS pointer (never close
      * the parent's connection copy), then reopen the template. */
-    tls_board_tree_db = NULL;
+    pthread_once(&tls_board_tree_once, tls_board_tree_init);
+    pthread_setspecific(tls_board_tree_key, NULL);
     if (g_board_tree_db) {
         sqlite3_close(g_board_tree_db);
         g_board_tree_db = NULL;

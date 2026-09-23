@@ -19,12 +19,29 @@
 #include <stdio.h>
 #include <pthread.h>
 
-static void *gif_warmup_thread_func(void *arg) {
-    (void)arg;
-    /* Every sqlite section is bracketed with the fork gate: this pool task
-     * overlaps cwist_app_listen()'s worker fork() at startup, and a child
-     * inheriting a locked sqlite static mutex deadlocks on its first DB
-     * access. ffmpeg conversions between sections take no gate. */
+typedef struct {
+    int id;
+    char file_path[PATH_MAX];
+    char preview_path[PATH_MAX];
+} gif_task_t;
+
+typedef struct {
+    gif_task_t *tasks;
+    int count;
+} gif_warmup_job_t;
+
+/* Collect the GIFs that still need a preview conversion.  This runs
+ * synchronously on the main thread inside page_cache_warmup(), i.e. before
+ * cwist_app_listen() forks the worker children.  That ordering matters: a
+ * sqlite connection left open by a background task across the fork is
+ * inherited by every child as a dead copy of the parent's connection state
+ * (the child must never close it - the WAL file descriptors are shared with
+ * the parent - so LeakSanitizer reports the whole connection in every
+ * child).  Here the connection is opened and closed before the fork window.
+ * Every sqlite section is bracketed with the fork gate anyway, so a fork
+ * can never land inside a call. */
+static gif_task_t *gif_warmup_collect(int *out_count) {
+    *out_count = 0;
     fly_forkgate_enter();
     sqlite3 *conn = NULL;
     if (sqlite3_open(FLY_DB_MAIN_PATH, &conn) != SQLITE_OK) {
@@ -50,12 +67,6 @@ static void *gif_warmup_thread_func(void *arg) {
         fly_forkgate_leave();
         return NULL;
     }
-
-    typedef struct {
-        int id;
-        char file_path[PATH_MAX];
-        char preview_path[PATH_MAX];
-    } gif_task_t;
 
     gif_task_t *tasks = NULL;
     int task_count = 0;
@@ -106,16 +117,26 @@ static void *gif_warmup_thread_func(void *arg) {
         }
     }
     sqlite3_finalize(stmt);
+    sqlite3_close(conn);
     fly_forkgate_leave();
 
     if (task_count > 0) {
         CWIST_LOG_INFO("GIF Warmup: Found %d GIFs needing MP4 conversion.", task_count);
     }
+    *out_count = task_count;
+    return tasks;
+}
 
-    for (int i = 0; i < task_count; i++) {
-        int id = tasks[i].id;
-        const char *orig_path = tasks[i].file_path;
-        
+static void *gif_warmup_thread_func(void *arg) {
+    gif_warmup_job_t *job = arg;
+    /* Conversions run first and hold no connection, so the sqlite handle
+     * only opens after the first ffmpeg run - long past the worker fork
+     * window - and lives just for the final UPDATE batch. */
+    bool any_converted = false;
+    for (int i = 0; i < job->count; i++) {
+        int id = job->tasks[i].id;
+        const char *orig_path = job->tasks[i].file_path;
+
         char webm_path[PATH_MAX];
         snprintf(webm_path, sizeof(webm_path), "public/uploads/.previews/%d.webm", id);
 
@@ -123,7 +144,26 @@ static void *gif_warmup_thread_func(void *arg) {
         if (stat(webm_path, &st) != 0 || st.st_size <= 0) {
             CWIST_LOG_INFO("GIF Warmup: Converting file %d (%s) to WebM...", id, orig_path);
             if (generate_webm_preview(orig_path, webm_path, 720)) {
-                const char *sql_update = "UPDATE files SET preview_path = ? WHERE id = ?";
+                any_converted = true;
+            } else {
+                CWIST_LOG_ERROR("GIF Warmup: Failed to convert file %d to WebM.", id);
+            }
+        }
+    }
+
+    if (any_converted) {
+        fly_forkgate_enter();
+        sqlite3 *conn = NULL;
+        bool ok = sqlite3_open(FLY_DB_MAIN_PATH, &conn) == SQLITE_OK && db_configure_connection(conn);
+        fly_forkgate_leave();
+        if (ok) {
+            const char *sql_update = "UPDATE files SET preview_path = ? WHERE id = ?";
+            for (int i = 0; i < job->count; i++) {
+                int id = job->tasks[i].id;
+                char webm_path[PATH_MAX];
+                snprintf(webm_path, sizeof(webm_path), "public/uploads/.previews/%d.webm", id);
+                struct stat st;
+                if (stat(webm_path, &st) != 0 || st.st_size <= 0) continue;
                 sqlite3_stmt *up_stmt = NULL;
                 fly_forkgate_enter();
                 if (sqlite3_prepare_v2(conn, sql_update, -1, &up_stmt, NULL) == SQLITE_OK) {
@@ -137,26 +177,42 @@ static void *gif_warmup_thread_func(void *arg) {
                     sqlite3_finalize(up_stmt);
                 }
                 fly_forkgate_leave();
-            } else {
-                CWIST_LOG_ERROR("GIF Warmup: Failed to convert file %d to WebM.", id);
             }
+            fly_forkgate_enter();
+            sqlite3_close(conn);
+            fly_forkgate_leave();
+        } else {
+            if (conn) sqlite3_close(conn);
         }
     }
 
-    free(tasks);
-    fly_forkgate_enter();
-    sqlite3_close(conn);
-    fly_forkgate_leave();
+    free(job->tasks);
+    free(job);
     CWIST_LOG_INFO("GIF Warmup thread finished.");
     return NULL;
 }
 
 static void gif_warmup_start(void) {
-    if (engine_pool_schedule(gif_warmup_thread_func, NULL, 0x4749465741524d55ULL,
+    int count = 0;
+    gif_task_t *tasks = gif_warmup_collect(&count);
+    if (!tasks || count == 0) {
+        free(tasks);
+        return;
+    }
+    gif_warmup_job_t *job = malloc(sizeof(*job));
+    if (!job) {
+        free(tasks);
+        return;
+    }
+    job->tasks = tasks;
+    job->count = count;
+    if (engine_pool_schedule(gif_warmup_thread_func, job, 0x4749465741524d55ULL,
                              TTAK_TASK_DOMAIN_IO, 5)) {
         CWIST_LOG_INFO("Started GIF to MP4 warmup thread successfully.");
     } else {
         CWIST_LOG_ERROR("Failed to schedule GIF to MP4 warmup task.");
+        free(tasks);
+        free(job);
     }
 }
 

@@ -156,23 +156,13 @@ static int create_daily_3am_timer(void) {
 
 static void *cleanup_worker(void *arg) {
     (void)arg;
-    /* Never share the request-serving connection with this long-lived worker.
-     * A dedicated WAL connection keeps its statements and busy state isolated
-     * from HTTP handlers. The fork gate brackets every sqlite section: this
-     * thread can race cwist_app_listen()'s worker fork() at startup, and a
-     * child inheriting a locked sqlite static mutex deadlocks on its first
-     * DB access (src/engine/forkgate.h). */
-    fly_forkgate_enter();
-    sqlite3 *conn = NULL;
-    if (sqlite3_open_v2("data/blog.db", &conn, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK ||
-        !db_configure_connection(conn)) {
-        FLY_LOG_ERROR("Failed to open cleanup database connection");
-        fly_forkgate_leave();
-        if (conn) sqlite3_close(conn);
-        return NULL;
-    }
-    fly_forkgate_leave();
-    cwist_db db = { .conn = conn };
+    /* The connection is opened lazily per daily job and closed right after,
+     * never held across cwist_app_listen()'s worker fork(): a connection
+     * left open by a parent thread at fork time is inherited by every child
+     * as a dead copy of the parent's sqlite state (the child must never
+     * close it, so LeakSanitizer reports the whole connection in every
+     * child).  The fork gate brackets every sqlite section so a fork can
+     * never land inside a call either (src/engine/forkgate.h). */
     /* localtime() inside the timer setup is a fork hazard while cwist forks
      * workers; tzset() in main() makes it a cached fast path, and the gate
      * covers the residual window. */
@@ -181,14 +171,12 @@ static void *cleanup_worker(void *arg) {
     fly_forkgate_leave();
     if (tfd < 0) {
         CWIST_LOG_ERROR("Failed to create cleanup timerfd");
-        sqlite3_close(conn);
         return NULL;
     }
     int epfd = epoll_create1(EPOLL_CLOEXEC);
     if (epfd < 0) {
         FLY_LOG_ERROR("Failed to create cleanup epoll instance");
         close(tfd);
-        sqlite3_close(conn);
         return NULL;
     }
     struct epoll_event event = { .events = EPOLLIN };
@@ -197,7 +185,6 @@ static void *cleanup_worker(void *arg) {
         FLY_LOG_ERROR("Failed to register cleanup timer");
         close(epfd);
         close(tfd);
-        sqlite3_close(conn);
         return NULL;
     }
     event.data.fd = g_cleanup_wake_fd;
@@ -205,7 +192,6 @@ static void *cleanup_worker(void *arg) {
         FLY_LOG_ERROR("Failed to register cleanup wake event");
         close(epfd);
         close(tfd);
-        sqlite3_close(conn);
         return NULL;
     }
 
@@ -221,15 +207,29 @@ static void *cleanup_worker(void *arg) {
         if (ready_event.data.fd != tfd) continue;
         ssize_t s = read(tfd, &exp, sizeof(exp));
         if (s != sizeof(exp)) continue;
+        /* Never share the request-serving connection with this worker.
+         * A dedicated WAL connection keeps its statements and busy state
+         * isolated from HTTP handlers. */
         fly_forkgate_enter();
-        db_cleanup_orphaned_files(&db);
-        fly_forkgate_leave();
+        sqlite3 *conn = NULL;
+        if (sqlite3_open_v2("data/blog.db", &conn, SQLITE_OPEN_READWRITE, NULL) == SQLITE_OK &&
+            db_configure_connection(conn)) {
+            fly_forkgate_leave();
+            cwist_db db = { .conn = conn };
+            fly_forkgate_enter();
+            db_cleanup_orphaned_files(&db);
+            fly_forkgate_leave();
+            fly_forkgate_enter();
+            sqlite3_close(conn);
+            fly_forkgate_leave();
+        } else {
+            FLY_LOG_ERROR("Failed to open cleanup database connection");
+            fly_forkgate_leave();
+            if (conn) sqlite3_close(conn);
+        }
     }
     close(epfd);
     close(tfd);
-    fly_forkgate_enter();
-    sqlite3_close(conn);
-    fly_forkgate_leave();
     return NULL;
 }
 
@@ -420,6 +420,12 @@ int main(void) {
     CWIST_LOG_INFO("Compression middleware registered (brotli > zstd > gzip, min 1 KiB)");
 
     engine_routes_register(app);
+
+    /* cwist_app_listen() forks worker children from this thread, and pthread
+     * TLS values survive fork for the forking thread. Close this thread's
+     * per-thread DB connections so children inherit no sqlite state copies
+     * (see fly_db_close_thread_conns). */
+    fly_db_close_thread_conns();
 
 
 

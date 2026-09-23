@@ -1,0 +1,8 @@
+# LeakSanitizer suppressions for tools/asan_leak_stress.sh.
+#
+# libttak keeps a small amount of one-time global allocator/epoch state
+# (24-byte blocks allocated once per process via ttak_dangerous_alloc) that
+# has no process-exit teardown path. These are process-lifetime singletons,
+# not traffic-driven leaks; everything allocated on top of them still shows
+# up under its own allocation stack and is not suppressed.
+leak:ttak_dangerous_alloc

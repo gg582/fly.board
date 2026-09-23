@@ -56,8 +56,11 @@ cd "$TMP" || exit 1
 
 # detect_leaks=1 is the Linux default already, set explicitly for clarity.
 # abort_on_error=0 + exitcode=1 so a detected leak/error produces a normal
-# non-zero exit this script can observe instead of a core dump.
+# non-zero exit this script can observe instead of a core dump. The
+# suppressions file covers only libttak's one-time global allocator state
+# (24-byte process-lifetime singletons); see the file for details.
 export ASAN_OPTIONS="detect_leaks=1:abort_on_error=0:exitcode=1:${ASAN_OPTIONS:-}"
+export LSAN_OPTIONS="suppressions=$ROOT/tools/lsan_suppressions.txt:${LSAN_OPTIONS:-}"
 
 setsid "$ROOT/fly_board" > server.log 2>&1 &
 PID=$!

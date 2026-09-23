@@ -29,6 +29,16 @@ sqlite3 *fly_db_conn(cwist_db *db);
  * connection copy and must never be used or closed there. */
 void fly_db_conn_forget(void);
 
+/* Close the calling thread's per-thread connections (main/comments/
+ * board_tree) if it holds any.  cwist forks worker children from the main
+ * thread inside cwist_app_listen(); pthread TLS values survive fork for the
+ * forking thread, so an open per-thread connection here would be inherited
+ * by every child as a dead copy of the parent's sqlite state that the child
+ * must never close (it shares the parent's WAL file descriptors) and
+ * LeakSanitizer then reports in every child.  Shutting them down just
+ * before the fork keeps the inherited TLS state empty. */
+void fly_db_close_thread_conns(void);
+
 /* Request a passive WAL checkpoint on the main database.  Safe to call after
  * large writes or before shutdown; failures are logged but not fatal. */
 bool db_checkpoint(cwist_db *db);
@@ -37,6 +47,8 @@ bool db_checkpoint(cwist_db *db);
  * SQLite file descriptor and page cache. */
 void db_comment_reopen(void);
 void db_board_tree_reopen(void);
+void db_comment_close_thread(void);
+void db_board_tree_close_thread(void);
 
 cJSON *db_sqlite3_rows_to_json(sqlite3_stmt *stmt);
 cJSON *db_sqlite3_row_to_json(sqlite3_stmt *stmt);
