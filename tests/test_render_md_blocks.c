@@ -134,16 +134,32 @@ int main(void) {
           "<span class=\"math-block\">\\binom{n}{k}</span>", NULL);
 
     check("bare inline frac formula in text becomes inline math",
-          "3. 왜 좌표 (a,b)의 값이 \\frac{n!}{a!b!}인가\n",
-          "<li>왜 좌표 (a,b)의 값이 <span class=\"math-inline\">\\frac{n!}{a!b!}</span>인가</li>", NULL);
+          "3. 항목 \\frac{n!}{a!b!}의 값\n",
+          "<li>항목 <span class=\"math-inline\">\\frac{n!}{a!b!}</span>의 값</li>", NULL);
 
     check("bare inline frac formula inside heading becomes inline math",
-          "## 3. 왜 좌표 (a,b)의 값이 \\frac{n!}{a!b!}인가\n",
-          "<h2>3. 왜 좌표 (a,b)의 값이 <span class=\"math-inline\">\\frac{n!}{a!b!}</span>인가</h2>", NULL);
+          "## 3. 항목 \\frac{n!}{a!b!}의 값\n",
+          "<h2>3. 항목 <span class=\"math-inline\">\\frac{n!}{a!b!}</span>의 값</h2>", NULL);
 
     check("bare inline sqrt and binom formulas inside heading",
           "### Formula \\sqrt{x^2+y^2} and \\binom{n}{k}\n",
           "<h3>Formula <span class=\"math-inline\">\\sqrt{x^2+y^2}</span> and <span class=\"math-inline\">\\binom{n}{k}</span></h3>", NULL);
+
+    check("multi-line blockquote keeps each source line on its own line",
+          "> alpha line\n> beta line\n> **gamma** line\n",
+          "<blockquote>\n<p>alpha line<br>\nbeta line<br>\n<strong>gamma</strong> line</p>\n</blockquote>", NULL);
+
+    check("blockquote hard break is not doubled",
+          "> first  \n> second\n",
+          "<p>first<br>\nsecond</p>", "<br><br>");
+
+    check("paragraph soft breaks outside blockquotes stay soft",
+          "line one\nline two\n\n> quoted\n",
+          "<p>line one\nline two</p>", NULL);
+
+    check("code block inside blockquote keeps raw newlines",
+          "> ```\n> a\n> b\n> ```\n",
+          "<pre><code>a\nb\n</code></pre>", "<br>");
 
     if (failures == 0) printf("ALL TESTS PASSED\n");
     return failures ? 1 : 0;

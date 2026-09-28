@@ -62,7 +62,7 @@ int main(void) {
           "math-block", NULL);
 
     check("dollar inline math with Korean text",
-          "$(x+M)^N$에서 $M$은 미지수이다.\n",
+          "$x$에서 $y$는 변수이다.\n",
           "class=\"math-inline\"", NULL);
 
     check("dollar display math",
