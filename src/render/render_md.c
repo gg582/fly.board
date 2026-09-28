@@ -1383,6 +1383,44 @@ static void md_output_cb(const MD_CHAR *data, MD_SIZE size, void *userdata) {
     }
 }
 
+/* md4c emits a soft line break as a bare "\n", which the browser collapses
+ * into a space. Inside a blockquote each source line is usually meant to stand
+ * on its own (verse, lyrics, quoted passages), so promote soft breaks inside
+ * blockquote paragraphs to <br>. Runs before the placeholders are restored, so
+ * the only newlines inside <p> are md4c's own soft/hard breaks. */
+static void hard_break_blockquotes(cwist_sstring *html) {
+    const char *data = html->data;
+    size_t len = html->size;
+    if (!data || !strstr(data, "<blockquote>")) return;
+
+    cwist_sstring *out = cwist_sstring_create();
+    if (!out) return;
+    cwist_sstring_assign(out, "");
+
+    int quote_depth = 0;
+    bool in_p = false;
+    bool in_code = false;
+    size_t i = 0;
+    while (i < len) {
+        if (data[i] == '<') {
+            if (strncmp(data + i, "<blockquote>", 12) == 0) quote_depth++;
+            else if (strncmp(data + i, "</blockquote>", 13) == 0 && quote_depth > 0) quote_depth--;
+            else if (strncmp(data + i, "<p>", 3) == 0 || strncmp(data + i, "<p ", 3) == 0) in_p = true;
+            else if (strncmp(data + i, "</p>", 4) == 0) in_p = false;
+            else if (strncmp(data + i, "<code", 5) == 0) in_code = true;
+            else if (strncmp(data + i, "</code>", 7) == 0) in_code = false;
+        } else if (data[i] == '\n' && quote_depth > 0 && in_p && !in_code) {
+            bool after_br = i >= 4 && strncmp(data + i - 4, "<br>", 4) == 0;
+            if (!after_br) cwist_sstring_append(out, "<br>");
+        }
+        cwist_sstring_append_len(out, data + i, 1);
+        i++;
+    }
+
+    cwist_sstring_assign(html, out->data);
+    cwist_sstring_destroy(out);
+}
+
 static void rewrite_tasfa_bootstrap(cwist_sstring *html) {
     const char *data = html->data;
     size_t len = strlen(data);
@@ -1686,6 +1724,7 @@ cwist_sstring *render_markdown_to_html(const char *md) {
         math_registry_free(&tikz);
         return NULL;
     }
+    hard_break_blockquotes(html);
     restore_math(html, &blocks, &inlines);
     restore_media(html, &media);
     restore_tikz(html, &tikz);
