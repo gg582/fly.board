@@ -233,7 +233,7 @@ Three different things, which earlier versions of this section mixed up:
 | RAM | 62 GiB |
 | GCC | 14.2.0 (Debian 14.2.0-19) |
 | Load generators | h2load nghttp2/1.64.0, wrk, `tools/connhold` (BoringSSL) |
-| CWIST | `main` at `11f3518d` (v3.7.1, 2026-09-29) |
+| CWIST | `main` at `11f3518d` (2026-09-29; the same TLS fix is released as v3.7.1, but fly.board needs `main` for the `_ex` route API) |
 | TLS certificate | ECDSA P-256 (`keygen.sh` default) |
 | Serving mode | `CWIST_C1M_MODE=1` (event-driven reactor) |
 
@@ -269,7 +269,7 @@ Client and server run on the same host.
 | Server memory at peak (PSS, all workers) | 24.0 GB | 19.9 GB | 30.1 GB |
 
 - **All three modes hold and serve 1,000,000 concurrent connections with zero failures.**
-- TLS needs CWIST v3.7.1 (`11f3518d`). Before it, a pool thread waited on each idle TLS connection, so only as many TLS connections as pool threads were served at once: the same run held 395,729 TLS connections but served at most 25. v3.7.1 parks idle TLS connections in an epoll set and hands them back to the pool when bytes arrive.
+- TLS needs CWIST v3.7.1 or `main` from `11f3518d` on. Before it, a pool thread waited on each idle TLS connection, so only as many TLS connections as pool threads were served at once: the same run held 395,729 TLS connections but served at most 25. v3.7.1 parks idle TLS connections in an epoll set and hands them back to the pool when bytes arrive.
 - The TLS connect rate is limited by full handshakes: at 20,000 new connections/s, ~37% of handshakes missed the 45 s handshake budget (523,654 HTTP/1.1 and 510,023 HTTP/2 connections served); at 8,000/s none did.
 - Load-shape pitfall: Linux `connect()` hands out even ephemeral ports first and then falls back to a slow odd-port search, so each destination address gives ~32k fast connections. With 24 addresses every run stalled near 774k; use at least `connections / 32,000` addresses.
 
