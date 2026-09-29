@@ -54,7 +54,16 @@ fly.board
 ```
 
 The password is hashed in memory at load; change it by editing the file and
-restarting, or via the admin profile page.
+restarting, or via the admin profile page. Files written by older versions
+(`id=...` / `pw=...` lines) still load, and the prefixes are dropped.
+
+This account has its own row in `users` (role `admin`, no usable password
+hash), created on first start and recorded in `site_settings` as
+`site_admin_user_id`, so its posts, comments and notifications never mix
+with a registered member's. The row takes the admin username, or
+`<username>-admin` when a member already holds that name, and it cannot be
+demoted or unregistered. Sessions issued before this change (which used
+user id 1) must sign in again.
 
 ## robots.settings
 

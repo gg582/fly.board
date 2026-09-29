@@ -359,10 +359,10 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
             cJSON *pic = cJSON_GetObjectItem(author_user, "profile_pic");
             if (pic && pic->valuestring && pic->valuestring[0]) {
                 author_pp = strdup(pic->valuestring);
+            } else if (auth_is_site_admin(author_id)) {
+                author_pp = get_admin_logo();
             }
             cJSON_Delete(author_user);
-        } else if (author_id == 1) {
-            author_pp = get_admin_logo();
         }
     }
     const char *ephemeral_delete_pin = cwist_query_map_get(req->query_params, "delete_pin");

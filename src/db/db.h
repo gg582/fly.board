@@ -20,6 +20,9 @@ bool db_site_setting_set(cwist_db *db, const char *key, const char *value);
 cJSON *db_user_get_by_username(cwist_db *db, const char *username);
 cJSON *db_user_get_by_id(cwist_db *db, int id);
 bool db_user_create(cwist_db *db, const char *username, const char *email, const char *password_hash);
+/* users.id of the admin.settings account, creating its row on first run and
+ * keeping its name in step with admin.settings. 0 on failure. */
+int db_user_ensure_site_admin(cwist_db *db, const char *username);
 bool db_user_delete(cwist_db *db, int id);
 bool db_user_update_role(cwist_db *db, int id, const char *role);
 bool db_user_update_profile_pic(cwist_db *db, int id, const char *profile_pic);
