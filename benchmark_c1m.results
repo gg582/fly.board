@@ -1,32 +1,50 @@
-C1M Benchmark Result - 2026. 08. 29. (토) 04:49:01 KST
+C1M Benchmark Result - 2026. 09. 29. (화) 11:59:52 KST
 Total Requests: 1000000
 Total Succeeded: 1000000
 Total Failed: 0
-Approx Total RPS: 11998.47
+Approx Total RPS: 21811.60
 Success Rate: 100.00%
 
 SERVER RESOURCE REPORT
 ========================================
 	Command being timed: "./fly_board"
-	User time (seconds): 706.00
-	System time (seconds): 65.88
-	Percent of CPU this job got: 802%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:36.23
+	User time (seconds): 9.02
+	System time (seconds): 10.65
+	Percent of CPU this job got: 39%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:49.65
 	Average shared text size (kbytes): 0
 	Average unshared data size (kbytes): 0
 	Average stack size (kbytes): 0
 	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 149816
+	Maximum resident set size (kbytes): 171296
 	Average resident set size (kbytes): 0
 	Major (requiring I/O) page faults: 0
-	Minor (reclaiming a frame) page faults: 76637
-	Voluntary context switches: 1229242
-	Involuntary context switches: 1093963
+	Minor (reclaiming a frame) page faults: 15031
+	Voluntary context switches: 258874
+	Involuntary context switches: 171376
 	Swaps: 0
 	File system inputs: 0
-	File system outputs: 304
+	File system outputs: 208
 	Socket messages sent: 0
 	Socket messages received: 0
 	Signals delivered: 0
 	Page size (bytes): 4096
 	Exit status: 0
+Docker Blog: https://localhost:8888 (HTTP/3 on UDP 8888)
+[CWIST] Open file soft limit: 1050000
+Server Memory Initialized: 1158 used / 536870912 total bytes (2 files)
+CWIST App running on port 8888 (SSL: On) [Event-driven, workers=12, pid=44265]
+[io_uring/SQPOLL] Kernel submission poller verified (0-syscall I/O enabled).
+[io_uring/kqueue/epoll] Reactor started for C1M scale.
+[CWIST] Draining connections for 5 seconds...
+[CWIST] Shutdown complete.
+Docker Blog: https://localhost:8888 (HTTP/3 on UDP 8888)
+[CWIST] Open file soft limit: 1050000
+Server Memory Initialized: 1158 used / 536870912 total bytes (2 files)
+CWIST App running on port 8888 (SSL: On) [Event-driven, workers=12, pid=44271]
+[io_uring/SQPOLL] Kernel submission poller verified (0-syscall I/O enabled).
+[io_uring/kqueue/epoll] Reactor started for C1M scale.
+[CWIST] Draining connections for 5 seconds...
+[CWIST] Shutdown complete.
+Docker Blog: https://localhost:8888 (HTTP/3 on UDP 8888)
+[CWIST] Open file soft limit: 1050000

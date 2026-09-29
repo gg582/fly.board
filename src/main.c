@@ -14,6 +14,8 @@
 #include "engine/db.h"
 #include "engine/settings.h"
 #include "engine/routes.h"
+#include "engine/async_route.h"
+#include "engine/bdr.h"
 #include "engine/warmup.h"
 #include "utils/cache.h"
 #include "utils/reqshare.h"
@@ -351,6 +353,7 @@ int main(void) {
 
     cwist_app_set_max_memspace(app, CWIST_MIB(512));
     cwist_app_configure_bdr(app, CWIST_MIB(256), 600, 250000);
+    engine_bdr_init(app);
 
     if (g_config.use_http2) {
         cwist_app_use_https2(app, true);
@@ -416,7 +419,12 @@ int main(void) {
     cwist_compress_register_backend(cwist_compress_backend_brotli());
     cwist_compress_register_backend(cwist_compress_backend_zstd());
     cwist_compress_register_backend(cwist_compress_backend_gzip());
-    cwist_app_use(app, cwist_mw_compress(1024));
+    /* The async gate must be the outermost middleware (see
+     * engine/async_route.c); deferred responses are compressed on the
+     * request worker instead of in the chain. */
+    cwist_middleware_func compress_mw = cwist_mw_compress(1024);
+    engine_async_init(app, compress_mw, global_middleware_finish);
+    cwist_app_use(app, compress_mw);
     CWIST_LOG_INFO("Compression middleware registered (brotli > zstd > gzip, min 1 KiB)");
 
     engine_routes_register(app);

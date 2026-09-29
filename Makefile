@@ -154,6 +154,8 @@ SRCS := src/main.c \
         src/engine/forkgate.c \
         src/engine/settings.c \
         src/engine/routes.c \
+        src/engine/async_route.c \
+        src/engine/bdr.c \
         src/engine/warmup.c
 
 OBJS := $(SRCS:.c=.o)
@@ -295,11 +297,18 @@ check-tasfa-endpoint:
 	CC="$(CC)" PKG_CONFIG="$(PKG_CONFIG)" $(PYTHON) tools/benchmark_tasfa_compression.py \
 	  --verify-only --sizes 1 --output "$$out"
 
+# Held-connection load generator for the C1M runs (run_c1m_held_bench.sh).
+# Links the same BoringSSL build cwist uses.
+tools/connhold: tools/connhold.c
+	$(CC) -O2 -Wall -Wextra -I$(CWIST_ROOT)/lib/boringssl/include -o $@ $< \
+		$(CWIST_ROOT)/lib/boringssl/build/libssl.a $(CWIST_ROOT)/lib/boringssl/build/libcrypto.a \
+		-lstdc++ -pthread
+
 test: check-tasfa check-tasfa-compression check-tasfa-endpoint check-render check-multipart $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tools/connhold
 	rm -rf build-wasm
 
 # --- WASM: sandboxed TASFA crypto (opt-in, experimental) -------------------
