@@ -1,14 +1,19 @@
-C1M Held-Connection Benchmark - 2026. 09. 29. (화) 13:10:33 KST
+C1M Held-Connection Benchmark - 2026. 09. 29. (화) 13:50:21 KST
 live = connections open and past TLS (if any); served = got at least one full
 response; responses = total responses including keep-alive pings.
 
-== plain (port 18080, 12 workers, 40000 conn/s, 48 VIPs, ping 120s)
-t=146 opened=1000000 connecting=0 handshaking=0 live=1000000 served=1000000 responses=1124246 connect_fail=0 tls_fail=0 closed=0 timeouts=0 memavail=22488MiB
+== plain (port 18080, 12 workers, 40000 conn/s, 48 VIPs, ping 120s, cwist 11f3518d)
+t=146 opened=1000000 connecting=0 handshaking=0 live=1000000 served=1000000 responses=2124089 connect_fail=0 tls_fail=0 closed=0 timeouts=0 memavail=22231MiB
 peak_live=1000000 peak_served=1000000
-peak_server_established=1000000 server_pss_kB=24008518
+peak_server_established=1000000 server_pss_kB=24006186
 
-== tls (port 8888, 12 workers, 20000 conn/s, 48 VIPs, ping 120s)
-t=248 opened=1000000 connecting=0 handshaking=0 live=0 served=0 responses=52 connect_fail=0 tls_fail=311647 closed=101183 timeouts=587170 memavail=35739MiB
-peak_live=395729 peak_served=25
-peak_server_established=997832 server_pss_kB=7149114
+== tls (port 8888, 12 workers, 8000 conn/s, 48 VIPs, ping 120s, cwist 11f3518d)
+t=246 opened=1000000 connecting=0 handshaking=0 live=1000000 served=1000000 responses=2632665 connect_fail=0 tls_fail=0 closed=0 timeouts=0 memavail=19320MiB
+peak_live=1000000 peak_served=1000000
+peak_server_established=1000000 server_pss_kB=19858101
+
+== h2 (port 8888, 12 workers, 8000 conn/s, 48 VIPs, ping 120s, cwist 11f3518d)
+t=246 opened=1000000 connecting=0 handshaking=0 live=1000000 served=1000000 responses=2052855 connect_fail=0 tls_fail=0 closed=0 timeouts=0 memavail=8709MiB
+peak_live=1000000 peak_served=1000000
+peak_server_established=1000000 server_pss_kB=30094828
 

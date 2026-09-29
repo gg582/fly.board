@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> One of the few simple blog engines that holds **1,000,000 concurrent connections** on a single desktop-class host (cleartext HTTP/1.1, measured), and runs the C10k/C100k TLS load suites at 100% success.
+> One of the few simple blog engines that holds **1,000,000 concurrent connections** on a single desktop-class host (measured over cleartext HTTP/1.1, TLS HTTP/1.1 and TLS HTTP/2), and runs the C10k/C100k TLS load suites at 100% success.
 > A lightweight board-and-blog engine built on the C-based CWIST web framework, supporting HTTPS/3, Argon2id, PQC signatures, and NATS messaging.
 
 ## Features
 
-- **Connection-Scalable** – Stack+heap C implementation on cwist's event-driven reactor. **1,000,000 concurrent cleartext HTTP/1.1 connections** held and served in one measured run; anonymous public pages are served from a Big Dumb Reply cache.
+- **Connection-Scalable** – Stack+heap C implementation on cwist's event-driven reactor. **1,000,000 concurrent connections** held and served in measured runs over cleartext HTTP/1.1, TLS HTTP/1.1 and TLS HTTP/2; anonymous public pages are served from a Big Dumb Reply cache.
 - **Modern Transport** – TLS 1.3 + HTTP/3 (QUIC) by default. Optional ECH (Encrypted Client Hello).
 - **Secure Auth** – Client-side SHA-512 prehash + server-side **Argon2id** (OpenSSL 3 KDF). JWT session cookies.
 - **Board / Blog Hybrid** – Slug-based markdown posts + multiple boards + nested comments.
@@ -218,10 +218,11 @@ MIT License
 
 ### What These Benchmarks Measure
 
-Two different things, which earlier versions of this section mixed up:
+Three different things, which earlier versions of this section mixed up:
 
 - **Concurrent connections** (the classic C10K/C1M meaning): how many connections the server holds open and serves at the same time. Measured with `tools/connhold` via `run_c1m_held_bench.sh`.
 - **Request churn over held connections**: the `h2load` suite (`run_c10k_bench.sh`, `run_c100k_bench.sh`, `run_c1m_bench.sh`). `h2load` runs with `-r` (rate limit), so the RPS figures reflect the configured load, not a throughput ceiling. `run_c1m_bench.sh` is C100K concurrency with 1,000,000 requests; the name is historical.
+- **Throughput**: unbounded `h2load` and `wrk` runs against the front page.
 
 ### Host Environment
 
@@ -231,10 +232,12 @@ Two different things, which earlier versions of this section mixed up:
 | CPU | AMD Ryzen 5 5600X (6 cores / 12 threads) |
 | RAM | 62 GiB |
 | GCC | 14.2.0 (Debian 14.2.0-19) |
-| Load generators | h2load nghttp2/1.64.0, `tools/connhold` (BoringSSL) |
-| CWIST | `main` at `468a94d7` (2026-09-29) |
+| Load generators | h2load nghttp2/1.64.0, wrk, `tools/connhold` (BoringSSL) |
+| CWIST | `main` at `11f3518d` (v3.7.1, 2026-09-29) |
 | TLS certificate | ECDSA P-256 (`keygen.sh` default) |
 | Serving mode | `CWIST_C1M_MODE=1` (event-driven reactor) |
+
+Client and server run on the same host.
 
 ### System Tuning
 
@@ -253,81 +256,65 @@ Two different things, which earlier versions of this section mixed up:
 
 ### C1M: 1,000,000 Concurrent Connections (2026-09-29)
 
-`run_c1m_held_bench.sh`: 12 workers, client and server on the same host, 1,000,000 connections spread over 48 loopback addresses. Each connection sends `GET /robots.txt`, then repeats it every 120 s so the keep-alive timer never fires. Failed connections are counted, never retried.
+`run_c1m_held_bench.sh`: 12 workers, 1,000,000 connections spread over 48 loopback addresses. Each connection sends `GET /robots.txt`, then repeats it every 60–120 s so the keep-alive timer never fires (HTTP/2: a new stream each time). Failed connections are counted, never retried.
 
-| | Cleartext HTTP/1.1 | TLS 1.3 + HTTP/1.1 |
-|---|---|---|
-| Connections opened | 1,000,000 | 1,000,000 |
-| Connect rate | 40,000 / s | 20,000 / s |
-| Peak held (open, past TLS) | **1,000,000** | 395,729 |
-| Peak served at the same time | **1,000,000** | **25** |
-| Responses (incl. keep-alive GETs) | 1,124,246 | 52 |
-| Failed connections | 0 | 1,000,000 |
-| Server memory at peak (PSS, all workers) | 24.0 GB | 7.1 GB |
+| | Cleartext HTTP/1.1 | TLS 1.3 + HTTP/1.1 | TLS 1.3 + HTTP/2 |
+|---|---|---|---|
+| Connections opened | 1,000,000 | 1,000,000 | 1,000,000 |
+| Connect rate | 40,000 / s | 8,000 / s | 8,000 / s |
+| Peak held | **1,000,000** | **1,000,000** | **1,000,000** |
+| Peak served at the same time | **1,000,000** | **1,000,000** | **1,000,000** |
+| Responses (incl. keep-alive GETs) | 2,124,089 | 2,632,665 | 2,052,855 |
+| Failed connections | 0 | 0 | 0 |
+| Server memory at peak (PSS, all workers) | 24.0 GB | 19.9 GB | 30.1 GB |
 
-- **Cleartext HTTP/1.1 holds and serves all 1,000,000 connections.** cwist's cleartext path is event-driven, so an idle connection costs memory (about 24 KB each here) but no thread.
-- **TLS connections are held but not served concurrently.** The handshake runs on non-blocking shepherd threads, but a connection past the handshake is served on an HTTPS pool thread for its whole lifetime (HTTP/1.1 keep-alive waits there for the next request, HTTP/2 until the connection goes idle). Only about as many TLS connections as there are pool threads are served at once; the rest wait, and are closed by the server's 45 s handshake budget or the client's 60 s response deadline.
+- **All three modes hold and serve 1,000,000 concurrent connections with zero failures.**
+- TLS needs CWIST v3.7.1 (`11f3518d`). Before it, a pool thread waited on each idle TLS connection, so only as many TLS connections as pool threads were served at once: the same run held 395,729 TLS connections but served at most 25. v3.7.1 parks idle TLS connections in an epoll set and hands them back to the pool when bytes arrive.
+- The TLS connect rate is limited by full handshakes: at 20,000 new connections/s, ~37% of handshakes missed the 45 s handshake budget (523,654 HTTP/1.1 and 510,023 HTTP/2 connections served); at 8,000/s none did.
 - Load-shape pitfall: Linux `connect()` hands out even ephemeral ports first and then falls back to a slow odd-port search, so each destination address gives ~32k fast connections. With 24 addresses every run stalled near 774k; use at least `connections / 32,000` addresses.
 
-### Memory per Connection
+### Memory
 
-Measured on 2026-09-29 by summing PSS over all server worker processes (not the master alone).
+PSS summed over every server process (master and forked workers).
 
-| Case | Server | Kernel (slab + TCP buffers) | Client |
-|---|---|---|---|
-| 100k held TLS/HTTP/2 conns, h2load C100k | ~6.7 KB (1.11 GB warm idle → 1.77 GB) | ~12.7 KB | h2load ~60 KB |
-| 1M held cleartext HTTP/1.1 conns, connhold | ~24 KB (24.0 GB total) | — | connhold ~0.06 KB |
+| Case | Server total | Per connection |
+|---|---|---|
+| Idle, 1 worker | 115 MB | — |
+| Idle, 4 workers | 406 MB | — |
+| 100k TLS/HTTP/2 connections (h2load C100k) | 1.77 GB (1.11 GB warm idle) | ~6.7 KB |
+| 1M cleartext HTTP/1.1 connections (connhold) | 24.0 GB | ~24 KB |
+| 1M TLS HTTP/1.1 connections (connhold) | 19.9 GB | ~20 KB |
+| 1M TLS HTTP/2 connections (connhold) | 30.1 GB | ~30 KB |
 
-> **Correction:** earlier versions of this README claimed RSS stayed at ~110–146 MB from C10k through C1m. Those figures were `/usr/bin/time -v` maximum RSS of the master process only; `cwist_app_listen()` forks the serving workers, and their memory was never counted. The totals above replace them.
+Client-side costs for planning same-host runs: h2load ~60 KB per connection, connhold ~0.06 KB plus kernel socket memory (~12.7 KB per connection pair at C100k).
 
-### h2load Suite: Request Churn (2026-09-29)
+> **Correction:** earlier versions of this README claimed ~102–108 MB idle and ~110–146 MB from C10k through C1m. Those were `/usr/bin/time -v` maximum RSS of the master process only; `cwist_app_listen()` forks the serving workers, and their memory was never counted. The totals above replace them.
+
+### h2load Suite: Request Churn (2026-09-29, CWIST `11f3518d`)
 
 | Test | Concurrent conns | Requests | Succeeded | Wall time | RPS (sum of processes) |
 |---|---|---|---|---|---|
-| C10k (4 workers) | 10,000 | 20,000 | **100%** | 4.56 s | 7,445 |
-| C100k (12 workers) | 100,000 | 200,000 | **100%** | 24.31 s | 9,254 |
-| C1m churn (12 workers) | 100,000 | 1,000,000 | **100%** | 49.65 s | 21,812 |
+| C10k (4 workers) | 10,000 | 20,000 | **100%** | 8.50 s | 9,253 |
+| C100k (12 workers) | 100,000 | 200,000 | **100%** | 29.83 s | 8,958 |
+| C1m churn (12 workers) | 100,000 | 1,000,000 | **100%** | 57.28 s | 19,754 |
 
-Wall time is the server process lifetime (startup and the 5 s drain included). Responses are the full 79 KB front page; h2load does not ask for compression.
+Wall time is the server process lifetime, including startup and the 5 s shutdown drain. Responses are the full 79 KB front page; h2load does not ask for compression.
 
 Earlier the same day, with an RSA-4096 certificate, C100k fell to 72.6% and C1m churn to 65.2%: nearly all busy CPU went into the RSA CertificateVerify signature of each full TLS 1.3 handshake, so queued handshakes hit the 45 s budget. Switching to ECDSA P-256 (`keygen.sh` default), running route handlers on request workers, and serving anonymous public pages from the route Big Dumb Reply cache restored 100%.
 
+### Throughput Benchmark (2026-09-29, CWIST `11f3518d`)
+
+Unbounded load (no `-r`) against the front page, 12 workers.
+
+| Tool | Command | Result |
+|---|---|---|
+| h2load (HTTP/2) | `h2load -c512 -n100000 https://127.0.0.1:8888/` | **12,337 req/s**, 970.71 MB/s, 100,000/100,000 succeeded, 8.11 s; request time min 410 µs, mean 20.69 ms, max 205.85 ms |
+| wrk (HTTP/1.1) | `wrk -t12 -c512 -d60s https://127.0.0.1:8888/` | **48,829 req/s**, 3.76 GB/s; latency avg 9.50 ms, stdev 4.15 ms, max 132.20 ms; no socket errors |
+
+The two tools use different protocols and are not directly comparable. In 2026-08 the same commands gave 7,167 req/s (h2load) and 1,282 req/s with 77,027 read errors (wrk); anonymous front-page requests are now answered from the route Big Dumb Reply cache.
+
 **Key Takeaways**
 
-- **C1M, cleartext:** 1,000,000 concurrent HTTP/1.1 connections held and served on one desktop-class host, zero failures.
-- **C1M, TLS:** connections are accepted and pass the handshake, but concurrent *service* of TLS connections is bounded by the HTTPS pool threads. TLS C100k churn (h2load) is at 100%.
-- **Per-connection memory is real:** ~7 KB (TLS/HTTP/2, h2load C100k) to ~24 KB (cleartext, 1M held) on the server; plan RAM accordingly.
-- **Handshake cost dominates TLS churn:** use an ECDSA certificate.
-
-### Throughput Benchmark
-
-> Measured in 2026-08, before the 2026-09 changes (async routes, route BDR cache, ECDSA certificate); not re-run.
-
-The benchmark above measures **connection scalability**, not absolute **request throughput**. To measure the server's raw throughput ceiling, an unbounded test was run with `h2load` (no `-r` rate limit) over HTTP/2.
-
-| Item | Value |
-|------|-------|
-| Command | `h2load -c512 -n100000 https://127.0.0.1:8888/` |
-| Workers | 12 |
-| Concurrent connections | 512 |
-| Total requests | 100,000 |
-| Succeeded | 100,000 |
-| Failed / Errored / Timeout | 0 |
-| Duration | 13.95 s |
-| Mean RPS | **7167.28** |
-| Mean throughput | **290.51 MB/s** |
-| Request latency (h2load `time for request`) | min 183 µs, mean 30.69 ms, max 209.00 ms, sd 11.18 ms |
-
-#### HTTP/1.1 comparison with `wrk`
-
-For comparison, the same endpoint was tested with `wrk` over HTTP/1.1. These are different protocols and different tools, so the numbers below are **not directly comparable** to the HTTP/2 h2load results above.
-
-| Item | Value |
-|------|-------|
-| Command | `wrk -t12 -c512 -d60s https://127.0.0.1:8888/` |
-| Duration | 60 s |
-| Requests/sec | **1282.49** |
-| Transfer/sec | 52.29 MB |
-| Latency | Avg 138.61 ms, Stdev 39.26 ms, Max 311.70 ms |
-
-These numbers show the engine's absolute throughput ceiling under a focused, non-rate-limited load. They are separate from the connection-scalability tests above.
+- **C1M:** 1,000,000 concurrent connections held and served on one desktop-class host over cleartext HTTP/1.1, TLS HTTP/1.1 and TLS HTTP/2, zero failures.
+- **Per-connection memory is real:** ~20–30 KB per held connection on the server; plan RAM accordingly.
+- **TLS connect rate is bounded by handshakes:** use an ECDSA certificate; on this host ~8,000 full handshakes/s completed without misses.
