@@ -20,6 +20,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# fly.board builds against this cwist release; bump it together with any
+# code that needs newer cwist API.
+env:
+  CWIST_REF: v3.7.1
+
 concurrency:
   group: memory-checks-${{ github.ref }}
   cancel-in-progress: true
@@ -47,29 +52,22 @@ jobs:
           submodules: recursive
 
       # The cwist build (lsquic + boringssl in particular) is the slow part
-      # of this job. cwist isn't pinned to a commit in this repo, so this
-      # cache is best-effort: it's keyed by ISO week and falls back to the
-      # most recent previous week's cache, which is usually still valid
-      # since cwist doesn't change every day.
+      # of this job. The cache is keyed by CWIST_REF, so bumping the pin
+      # invalidates it; there are no restore-keys on purpose, a stale
+      # /usr/local from another cwist version must never be reused.
       - name: Cache cwist build
         uses: actions/cache@v4
         with:
           path: /usr/local
-          key: cwist-${{ runner.os }}-${{ steps.week.outputs.week }}
-          restore-keys: |
-            cwist-${{ runner.os }}-
+          key: cwist-${{ env.CWIST_REF }}-${{ runner.os }}
         id: cwist-cache
-
-      - name: Compute cache week key
-        id: week
-        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
 
       - name: Build and install cwist
         if: steps.cwist-cache.outputs.cache-hit != 'true'
         run: |
           set -eux
           for i in 1 2 3; do
-            git clone --depth 1 --recursive https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break
+            git clone --depth 1 --recursive --branch "$CWIST_REF" https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break
             echo "cwist clone attempt $i failed, retrying..."
             rm -rf /tmp/cwist
             sleep 5
@@ -131,17 +129,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Compute cache week key
-        id: week
-        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
-
       - name: Cache cwist build
         uses: actions/cache@v4
         with:
           path: /usr/local
-          key: cwist-${{ runner.os }}-${{ steps.week.outputs.week }}
-          restore-keys: |
-            cwist-${{ runner.os }}-
+          key: cwist-${{ env.CWIST_REF }}-${{ runner.os }}
         id: cwist-cache
 
       - name: Build and install cwist
@@ -149,7 +141,7 @@ jobs:
         run: |
           set -eux
           for i in 1 2 3; do
-            git clone --depth 1 --recursive https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break
+            git clone --depth 1 --recursive --branch "$CWIST_REF" https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break
             echo "cwist clone attempt $i failed, retrying..."
             rm -rf /tmp/cwist
             sleep 5
