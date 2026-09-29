@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "cache.h"
+#include "engine/bdr.h"
 #include <cwist/core/log.h>
 #include <pthread.h>
 #include <string.h>
@@ -232,6 +233,8 @@ void page_cache_delete(const char *key) {
         prev = &(*prev)->next;
     }
     pthread_mutex_unlock(&g_mutex);
+    /* Every invalidation is a content change for the route BDR too. */
+    engine_bdr_bump();
 }
 
 void page_cache_clear(void) {
@@ -258,6 +261,8 @@ void page_cache_clear(void) {
     }
     g_total_bytes = remaining;
     pthread_mutex_unlock(&g_mutex);
+    /* Every invalidation is a content change for the route BDR too. */
+    engine_bdr_bump();
 }
 
 void page_cache_clear_prefix(const char *prefix) {
@@ -282,6 +287,8 @@ void page_cache_clear_prefix(const char *prefix) {
         }
     }
     pthread_mutex_unlock(&g_mutex);
+    /* Every invalidation is a content change for the route BDR too. */
+    engine_bdr_bump();
 }
 
 void page_cache_key_home(char *out, size_t out_len, bool dark, bool mobile, const char *role, int uid) {

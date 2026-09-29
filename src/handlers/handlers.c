@@ -492,7 +492,17 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
 
     next(req, res);
 
-    if (head_rewrite) req->method = CWIST_HTTP_HEAD;
+    /* A deferred response has no body yet; the request worker runs the
+     * post-processing below once the handler has filled it in. */
+    if (res->deferred) return;
+    global_middleware_finish(req, res);
+}
+
+void global_middleware_finish(cwist_http_request *req, cwist_http_response *res) {
+    const char *path = (req->path && req->path->data) ? req->path->data : "";
+    bool is_static_asset = (strncmp(path, "/assets/", 8) == 0) || strcmp(path, "/sw.js") == 0;
+
+    if (cwist_http_header_get(req->headers, "X-Fly-Head-Rewrite")) req->method = CWIST_HTTP_HEAD;
 
     strip_html_binary_prefix(res);
 
