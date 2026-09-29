@@ -55,11 +55,17 @@ jobs:
       # of this job. The cache is keyed by CWIST_REF, so bumping the pin
       # invalidates it; there are no restore-keys on purpose, a stale
       # /usr/local from another cwist version must never be reused.
+      # cwist builds with -march=native, so a build from another runner CPU
+      # can die with SIGILL here; key the cache on the CPU model as well.
+      - name: Compute CPU cache key
+        id: cpu
+        run: echo "model=$(grep -m1 '^model name' /proc/cpuinfo | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
       - name: Cache cwist build
         uses: actions/cache@v4
         with:
           path: /usr/local
-          key: cwist-${{ env.CWIST_REF }}-${{ runner.os }}
+          key: cwist-${{ env.CWIST_REF }}-${{ runner.os }}-${{ steps.cpu.outputs.model }}
         id: cwist-cache
 
       - name: Build and install cwist
@@ -129,11 +135,17 @@ jobs:
         with:
           submodules: recursive
 
+      # cwist builds with -march=native, so a build from another runner CPU
+      # can die with SIGILL here; key the cache on the CPU model as well.
+      - name: Compute CPU cache key
+        id: cpu
+        run: echo "model=$(grep -m1 '^model name' /proc/cpuinfo | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
       - name: Cache cwist build
         uses: actions/cache@v4
         with:
           path: /usr/local
-          key: cwist-${{ env.CWIST_REF }}-${{ runner.os }}
+          key: cwist-${{ env.CWIST_REF }}-${{ runner.os }}-${{ steps.cpu.outputs.model }}
         id: cwist-cache
 
       - name: Build and install cwist
