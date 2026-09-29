@@ -1,13 +1,11 @@
-Idle Benchmark Result - 2026-08-29 (KST)
-No client connections; server started and shut down cleanly (SIGINT, exit 0).
-RSS values are "Maximum resident set size (kbytes)" from /usr/bin/time -v.
+Idle Benchmark Result - 2026. 09. 29. (화) 14:05:51 KST
+No client connections. Memory is PSS summed over every fly_board process (master + forked workers), 15 s after start.
 
 === Idle, CWIST_WORKERS=1 ===
-Command being timed: "./fly_board"
-Maximum resident set size (kbytes): 110196
-Exit status: 0
+processes: 1
+total PSS (kB): 117718
 
 === Idle, CWIST_WORKERS=4 ===
-Command being timed: "./fly_board"
-Maximum resident set size (kbytes): 104940
-Exit status: 0
+processes: 4
+total PSS (kB): 416090
+
