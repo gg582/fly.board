@@ -203,6 +203,35 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     free(pp);
 }
 
+/* Route BDR hit on /post/:slug: the page came from the cache, but the view
+ * still counts (see engine_async_set_hit_hook). */
+void post_bdr_hit(cwist_db *db, const char *path) {
+    if (!db || !path || strncmp(path, "/post/", 6) != 0) return;
+    const char *slug = path + 6;
+    if (!slug[0] || strchr(slug, '/')) return;
+    cJSON *post = db_post_get_by_slug(db, slug);
+    if (!post && strchr(slug, '%')) {
+        char decoded[512];
+        size_t j = 0;
+        for (size_t i = 0; slug[i] && j + 1 < sizeof(decoded); i++) {
+            if (slug[i] == '%' && isxdigit((unsigned char)slug[i + 1]) &&
+                isxdigit((unsigned char)slug[i + 2])) {
+                char hex[3] = {slug[i + 1], slug[i + 2], '\0'};
+                decoded[j++] = (char)strtol(hex, NULL, 16);
+                i += 2;
+            } else {
+                decoded[j++] = slug[i];
+            }
+        }
+        decoded[j] = '\0';
+        post = db_post_get_by_slug(db, decoded);
+    }
+    if (!post) return;
+    int post_id = json_int(post, "id", 0);
+    if (post_id > 0) db_post_increment_view(db, post_id);
+    cJSON_Delete(post);
+}
+
 void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     const char *slug = cwist_query_map_get(req->path_params, "slug");
     if (!slug) { redirect(res, "/"); return; }

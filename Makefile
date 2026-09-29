@@ -154,6 +154,8 @@ SRCS := src/main.c \
         src/engine/forkgate.c \
         src/engine/settings.c \
         src/engine/routes.c \
+        src/engine/async_route.c \
+        src/engine/bdr.c \
         src/engine/warmup.c
 
 OBJS := $(SRCS:.c=.o)

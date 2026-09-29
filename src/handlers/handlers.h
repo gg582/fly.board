@@ -41,6 +41,7 @@ void handler_board_perms_revoke_post(cwist_http_request *req, cwist_http_respons
 
 void handler_post_list(cwist_http_request *req, cwist_http_response *res);
 void handler_post_get(cwist_http_request *req, cwist_http_response *res);
+void post_bdr_hit(cwist_db *db, const char *path);
 void handler_post_new_get(cwist_http_request *req, cwist_http_response *res);
 void handler_post_new_post(cwist_http_request *req, cwist_http_response *res);
 void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res);
@@ -98,6 +99,9 @@ void handler_static_css(cwist_http_request *req, cwist_http_response *res);
 void handler_static_font(cwist_http_request *req, cwist_http_response *res);
 
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next);
+/* Post-next() half of global_middleware, replayed by the request worker for
+ * deferred responses (see engine/async_route.c). */
+void global_middleware_finish(cwist_http_request *req, cwist_http_response *res);
 void handler_not_found(cwist_http_request *req, cwist_http_response *res, cwist_http_status_t status);
 
 #endif
