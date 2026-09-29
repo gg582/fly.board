@@ -151,6 +151,7 @@ SRCS := src/main.c \
         src/nats/fly_nats.c \
         src/core/log.c \
         src/config/config.c \
+        src/config/write_policy.c \
         src/engine/pool.c \
         src/engine/nats.c \
         src/engine/db.c \

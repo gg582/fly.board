@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 #include "db/sql_escape.h"
+#include "config/write_policy.h"
 #include <openssl/rand.h>
 
 #define MAX_POST_TITLE_LEN   200
@@ -74,6 +75,46 @@ static void rewrite_content_legacy_urls(cwist_db *db, char **content) {
         *content = rewritten;
     }
     cwist_sstring_destroy(out);
+}
+
+/* Write-policy gate for creating posts: guests are sent to log in, members
+ * held back by an admin-only scope get a 403. */
+static bool require_post_scope(cwist_http_request *req, cwist_http_response *res, const char *role) {
+    if (write_policy_can_post(role)) return true;
+    if (!role || !role[0]) {
+        int uid = 0;
+        char login_role[32] = {0};
+        auth_require_login(req, res, &uid, login_role, sizeof(login_role));
+        return false;
+    }
+    res->status_code = CWIST_HTTP_FORBIDDEN;
+    cwist_sstring_assign(res->body, "Forbidden: only admins may write posts");
+    return false;
+}
+
+/* With require_board on, a post must name a board that exists. */
+static bool post_board_ok(cwist_db *db, int board_id) {
+    if (!write_policy_get().require_board) return true;
+    if (board_id <= 0) return false;
+    cJSON *board = db_board_get_by_id(db, board_id);
+    if (!board) return false;
+    cJSON_Delete(board);
+    return true;
+}
+
+static void send_post_editor_error(cwist_http_request *req, cwist_http_response *res, int uid,
+                                   const char *role, int initial_board_id, const char *error) {
+    cJSON *boards = db_board_list(req->db);
+    cJSON *tree = db_board_tree_get_all();
+    cJSON *ordered = cJSON_CreateArray();
+    append_boards_flat(ordered, boards, tree, 0, 4);
+    char *pp = get_profile_pic(req->db, uid, role);
+    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, error, pp, is_mobile_request(req));
+    if (ordered) cJSON_Delete(ordered);
+    if (tree) cJSON_Delete(tree);
+    if (boards) cJSON_Delete(boards);
+    send_html_res(res, page);
+    free(pp);
 }
 
 static void attach_media_meta_to_post(cwist_db *db, const char *media_meta_json, int post_id, int uid, const char *role) {
@@ -331,6 +372,7 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
+    if (!require_post_scope(req, res, role)) return;
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *boards = db_board_list(req->db);
     cJSON *tree = db_board_tree_get_all();
@@ -365,6 +407,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         auth_require_login(req, res, &uid, role, sizeof(role));
         return;
     }
+    if (!require_post_scope(req, res, role)) return;
 
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
     char *title = NULL, *content = NULL, *summary = NULL, *board_id_str = NULL, *media_meta = NULL;
@@ -418,18 +461,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
 
     if (!title || !content || !title[0] || !content[0]) {
         CWIST_LOG_WARN("Post creation failed: missing title or content uid=%d", uid);
-        cJSON *boards = db_board_list(req->db);
-        cJSON *tree = db_board_tree_get_all();
-        cJSON *ordered = cJSON_CreateArray();
-        append_boards_flat(ordered, boards, tree, 0, 4);
-        char *pp = get_profile_pic(req->db, uid, role);
-        int initial_board_id = board_id_str ? atoi(board_id_str) : 0;
-        cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, "Title and content required", pp, is_mobile_request(req));
-        if (ordered) cJSON_Delete(ordered);
-        if (tree) cJSON_Delete(tree);
-        if (boards) cJSON_Delete(boards);
-        send_html_res(res, page);
-        free(pp);
+        send_post_editor_error(req, res, uid, role, board_id_str ? atoi(board_id_str) : 0, "Title and content required");
         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
         multipart_free(files);
         return;
@@ -439,24 +471,20 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         (summary && strlen(summary) > MAX_POST_SUMMARY_LEN) ||
         strlen(content) > MAX_POST_CONTENT_LEN) {
         CWIST_LOG_WARN("Post creation failed: input too long uid=%d", uid);
-        cJSON *boards = db_board_list(req->db);
-        cJSON *tree = db_board_tree_get_all();
-        cJSON *ordered = cJSON_CreateArray();
-        append_boards_flat(ordered, boards, tree, 0, 4);
-        char *pp = get_profile_pic(req->db, uid, role);
-        int initial_board_id = board_id_str ? atoi(board_id_str) : 0;
-        cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, "Title, summary, or content is too long", pp, is_mobile_request(req));
-        if (ordered) cJSON_Delete(ordered);
-        if (tree) cJSON_Delete(tree);
-        if (boards) cJSON_Delete(boards);
-        send_html_res(res, page);
-        free(pp);
+        send_post_editor_error(req, res, uid, role, board_id_str ? atoi(board_id_str) : 0, "Title, summary, or content is too long");
         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
         multipart_free(files);
         return;
     }
 
     int board_id = board_id_str ? atoi(board_id_str) : 0;
+    if (!post_board_ok(req->db, board_id)) {
+        CWIST_LOG_WARN("Post creation failed: board required uid=%d board_id=%d", uid, board_id);
+        send_post_editor_error(req, res, uid, role, 0, "Choose a board for this post");
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
+        multipart_free(files);
+        return;
+    }
     rewrite_content_legacy_urls(req->db, &content);
     char *sl = generate_slug(title);
 
@@ -539,7 +567,9 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res) {
     char *pp = get_profile_pic(req->db, uid, role);
     int post_id_val = json_int(post, "id", 0);
     cJSON *files = db_file_list_by_post(req->db, post_id_val);
-    cwist_sstring *page = render_post_editor(ordered, post, files, 0, is_dark(req), role, NULL, pp, is_mobile_request(req));
+    const char *error = cwist_query_map_get(req->query_params, "error");
+    const char *error_msg = (error && strcmp(error, "board") == 0) ? "Choose a board for this post" : NULL;
+    cwist_sstring *page = render_post_editor(ordered, post, files, 0, is_dark(req), role, error_msg, pp, is_mobile_request(req));
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
     if (ordered) cJSON_Delete(ordered);
@@ -655,11 +685,22 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         multipart_free(files);
         return;
     }
+    int board_id = board_id_str ? atoi(board_id_str) : 0;
+    if (!post_board_ok(req->db, board_id)) {
+        CWIST_LOG_WARN("Post edit failed: board required id=%s uid=%d board_id=%d", id_str, uid, board_id);
+        char edit_url[96];
+        snprintf(edit_url, sizeof(edit_url), "/post/%d/edit?error=board", json_int(post, "id", 0));
+        cJSON_Delete(post);
+        reqshare_write_lock_release(wl_key);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
+        multipart_free(files);
+        redirect(res, edit_url);
+        return;
+    }
     cJSON *slug_obj = cJSON_GetObjectItem(post, "slug");
     char *post_slug = (slug_obj && slug_obj->valuestring) ? strdup(slug_obj->valuestring) : NULL;
     cJSON_Delete(post);
 
-    int board_id = board_id_str ? atoi(board_id_str) : 0;
     rewrite_content_legacy_urls(req->db, &content);
     size_t msg_len2 = (title ? strlen(title) : 0) + 1 + (content ? strlen(content) : 0);
     char *msg2 = (char *)cwist_alloc(msg_len2 + 1);

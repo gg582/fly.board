@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "render.h"
 #include "render_internal.h"
+#include "config/write_policy.h"
 #include "config/config.h"
 #include "utils/utils.h"
 #include "utils/image_inline.h"
@@ -61,17 +62,21 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
         cwist_sstring_append(b, "<p style='color:var(--muted)'>No comments yet.</p>");
     }
     char fid_buf2[32]; snprintf(fid_buf2, sizeof(fid_buf2), "%d", file_id_val);
-    cwist_sstring_append(b, "<form action='/comment/new' method='post' style='margin-top:18px'>");
-    cwist_sstring_append(b, "<input type='hidden' name='target_type' value='file'>");
-    cwist_sstring_append(b, "<input type='hidden' name='target_id' value='");
-    cwist_sstring_append(b, fid_buf2);
-    cwist_sstring_append(b, "'>");
-    if (!user_role || !user_role[0]) {
-        cwist_sstring_append(b, "<input type='text' name='author_name' placeholder='Your name' style='width:100%;font-family:inherit;font-size:14px;margin-bottom:8px' required>");
+    if (write_policy_can_comment(user_role)) {
+        cwist_sstring_append(b, "<form action='/comment/new' method='post' style='margin-top:18px'>");
+        cwist_sstring_append(b, "<input type='hidden' name='target_type' value='file'>");
+        cwist_sstring_append(b, "<input type='hidden' name='target_id' value='");
+        cwist_sstring_append(b, fid_buf2);
+        cwist_sstring_append(b, "'>");
+        if (!user_role || !user_role[0]) {
+            cwist_sstring_append(b, "<input type='text' name='author_name' placeholder='Your name' style='width:100%;font-family:inherit;font-size:14px;margin-bottom:8px' required>");
+        }
+        cwist_sstring_append(b, "<textarea name='content' rows='3' placeholder='Write a comment...' required></textarea>");
+        cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div>");
+        cwist_sstring_append(b, "</form>");
+    } else {
+        render_comment_closed_note(b, user_role);
     }
-    cwist_sstring_append(b, "<textarea name='content' rows='3' placeholder='Write a comment...' required></textarea>");
-    cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div>");
-    cwist_sstring_append(b, "</form>");
     cwist_sstring_append(b, "</div>");
 
     cwist_sstring *page = render_page(fname && fname->valuestring ? fname->valuestring : "File Detail", b->data, dark, user_role, profile_pic, is_mobile);
@@ -107,7 +112,7 @@ cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, 
     cwist_sstring_append(b, "<div class='file-repo-upload-actions' style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px'>");
     cwist_sstring_append(b, "<button id='file-repo-upload-btn' type='button' class='btn'>Upload queued files</button>");
     cwist_sstring_append(b, "</div></div>");
-    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=3' defer></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=4' defer></script>");
 
     if (files && cJSON_GetArraySize(files) > 0) {
         int n_files = cJSON_GetArraySize(files);

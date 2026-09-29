@@ -8,6 +8,7 @@
 #include "cwist/board_tree.h"
 #include "nats/fly_nats.h"
 #include "config/config.h"
+#include "config/write_policy.h"
 #include "engine/pool.h"
 #include "engine/forkgate.h"
 #include "engine/nats.h"
@@ -322,6 +323,7 @@ int main(void) {
         return 1;
     }
 
+    write_policy_init(db);
     db_file_cleanup_duplicates(db);
     if (startup_media_backfill_enabled()) {
         media_preview_backfill(db);

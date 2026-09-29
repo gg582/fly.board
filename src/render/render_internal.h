@@ -12,6 +12,8 @@ char *format_join_date(const char *iso_date);
 extern const char *login_register_script;
 extern const char *code_copy_script;
 int json_int(cJSON *obj, const char *key, int def);
+/* Shown in place of the comment form when the write policy excludes the viewer. */
+void render_comment_closed_note(cwist_sstring *b, const char *user_role);
 void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, int depth, int current_user_id, const char *user_role, int target_id);
 
 #endif

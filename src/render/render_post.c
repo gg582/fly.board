@@ -2,6 +2,7 @@
 #include "render.h"
 #include "render_internal.h"
 #include "config/config.h"
+#include "config/write_policy.h"
 #include "utils/utils.h"
 #include "utils/image_inline.h"
 #include "utils/image_invert.h"
@@ -267,6 +268,16 @@ static void upgrade_markdown_file_links_to_media(cwist_sstring *html, cJSON *fil
     cwist_sstring_destroy(out);
 }
 
+void render_comment_closed_note(cwist_sstring *b, const char *user_role) {
+    cwist_sstring_append(b, "<p style='margin-top:18px;color:var(--muted)'>");
+    if (!user_role || !user_role[0]) {
+        cwist_sstring_append(b, "<a href='/login'>Log in</a> to leave a comment.");
+    } else {
+        cwist_sstring_append(b, "Comments are limited to admins.");
+    }
+    cwist_sstring_append(b, "</p>");
+}
+
 void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, int depth, int current_user_id, const char *user_role, int target_id) {
     int cid = json_int(comment, "id", 0);
     int comment_user_id = json_int(comment, "user_id", 0);
@@ -346,7 +357,7 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
         cwist_sstring_append(b, "</div>");
     }
 
-    if (!(deleted && deleted->valueint)) {
+    if (!(deleted && deleted->valueint) && write_policy_can_comment(user_role)) {
         cwist_sstring_append(b, "<div style='margin-top:8px'>");
         cwist_sstring_append(b, "<button type='button' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-toggle-target='reply-");
         cwist_sstring_append(b, cid_buf);
@@ -516,12 +527,14 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         }
     }
 
-    cwist_sstring_append(b, "<div style='margin-bottom:18px;text-align:center'><a href='/post/new");
-    if (board_slug && board_slug[0]) {
-        cwist_sstring_append(b, "?board=");
-        cwist_sstring_append_escaped(b, board_slug);
+    if (write_policy_can_post(user_role)) {
+        cwist_sstring_append(b, "<div style='margin-bottom:18px;text-align:center'><a href='/post/new");
+        if (board_slug && board_slug[0]) {
+            cwist_sstring_append(b, "?board=");
+            cwist_sstring_append_escaped(b, board_slug);
+        }
+        cwist_sstring_append(b, "' class='btn'>New Post</a></div>");
     }
-    cwist_sstring_append(b, "' class='btn'>New Post</a></div>");
 
     /* Search */
     const char *search_label = "Global search";
@@ -1189,17 +1202,21 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     } else {
         cwist_sstring_append(b, "<p style='color:var(--muted)'>No comments yet.</p>");
     }
-    cwist_sstring_append(b, "<form action='/comment/new' method='post' style='margin-top:18px'>");
-    cwist_sstring_append(b, "<input type='hidden' name='target_type' value='post'>");
-    cwist_sstring_append(b, "<input type='hidden' name='target_id' value='");
-    cwist_sstring_append(b, pid_buf);
-    cwist_sstring_append(b, "'>");
-    if (!user_role || !user_role[0]) {
-        cwist_sstring_append(b, "<input type='text' name='author_name' placeholder='Your name' style='width:100%;font-family:inherit;font-size:14px;margin-bottom:8px' required>");
+    if (write_policy_can_comment(user_role)) {
+        cwist_sstring_append(b, "<form action='/comment/new' method='post' style='margin-top:18px'>");
+        cwist_sstring_append(b, "<input type='hidden' name='target_type' value='post'>");
+        cwist_sstring_append(b, "<input type='hidden' name='target_id' value='");
+        cwist_sstring_append(b, pid_buf);
+        cwist_sstring_append(b, "'>");
+        if (!user_role || !user_role[0]) {
+            cwist_sstring_append(b, "<input type='text' name='author_name' placeholder='Your name' style='width:100%;font-family:inherit;font-size:14px;margin-bottom:8px' required>");
+        }
+        cwist_sstring_append(b, "<textarea name='content' rows='3' placeholder='Write a comment...' required></textarea>");
+        cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div>");
+        cwist_sstring_append(b, "</form>");
+    } else {
+        render_comment_closed_note(b, user_role);
     }
-    cwist_sstring_append(b, "<textarea name='content' rows='3' placeholder='Write a comment...' required></textarea>");
-    cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div>");
-    cwist_sstring_append(b, "</form>");
     cwist_sstring_append(b, "</div>");
     cwist_sstring_append(b, "<script src='/assets/js/lightbox.js?v=1' defer></script>");
 
@@ -1251,8 +1268,10 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
         }
     }
 
-    cwist_sstring_append(b, "<label>Board</label>");
-    cwist_sstring_append(b, "<div class='styled-dropdown' id='board-dropdown'>");
+    bool board_required = write_policy_get().require_board;
+    cwist_sstring_append(b, board_required ? "<label>Board (required)</label>" : "<label>Board</label>");
+    cwist_sstring_append(b, board_required ? "<div class='styled-dropdown' id='board-dropdown' data-required>"
+                                           : "<div class='styled-dropdown' id='board-dropdown'>");
     cwist_sstring_append(b, "<button type='button' class='styled-dropdown-trigger' aria-haspopup='listbox' aria-expanded='false'>");
     cwist_sstring_append(b, "<span class='styled-dropdown-label' id='board-dropdown-label'>");
     char *tmp_label = sql_escape(selected_label);
@@ -1304,6 +1323,9 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
     }
     cwist_sstring_append(b, "'>");
     cwist_sstring_append(b, "</div>");
+    if (board_required) {
+        cwist_sstring_append(b, "<div id='board-required-msg' class='alert' hidden>Choose a board for this post.</div>");
+    }
 
     cwist_sstring_append(b, "<label>Summary</label><input id='summary-input' name='summary' value='");
     if (post) {
@@ -1420,7 +1442,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
     cwist_sstring_append(b, "<div style='margin-top:12px;display:flex;gap:10px'><button type='submit' class='btn'>Save</button>");
     cwist_sstring_append(b, "<a href='/' class='btn btn-outline'>Cancel</a></div>");
     cwist_sstring_append(b, "</form></div>");
-    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=3' defer></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=4' defer></script>");
 
     cwist_sstring *page = render_page(post ? "Edit Post" : "New Post", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);

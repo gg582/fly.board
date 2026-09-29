@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#include "config/write_policy.h"
 
 static void invalidate_comment_target(cwist_db *db, const char *target_type, int target_id) {
     if (!target_type || !target_type[0] || target_id <= 0) return;
@@ -76,6 +77,17 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
+    if (!write_policy_can_comment(role)) {
+        CWIST_LOG_WARN("Comment creation refused by write policy: uid=%d", uid);
+        if (!role[0]) {
+            /* /comment/new has no GET page to come back to after login. */
+            redirect(res, "/login");
+        } else {
+            res->status_code = CWIST_HTTP_FORBIDDEN;
+            cwist_sstring_assign(res->body, "Forbidden: only admins may comment");
+        }
+        return;
+    }
     cwist_query_map *kv = cwist_query_map_create();
     if (req->body && req->body->data) cwist_query_map_parse(kv, req->body->data);
     const char *target_type = cwist_query_map_get(kv, "target_type");
