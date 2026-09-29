@@ -233,7 +233,7 @@ Tres cosas distintas, que las versiones anteriores de esta sección mezclaban:
 | RAM | 62 GiB |
 | GCC | 14.2.0 (Debian 14.2.0-19) |
 | Generadores de carga | h2load nghttp2/1.64.0, wrk, `tools/connhold` (BoringSSL) |
-| CWIST | `main` en `11f3518d` (v3.7.1, 2026-09-29) |
+| CWIST | `main` en `11f3518d` (2026-09-29; la misma corrección TLS se publicó como v3.7.1, pero fly.board necesita `main` por la API de rutas `_ex`) |
 | Certificado TLS | ECDSA P-256 (predeterminado de `keygen.sh`) |
 | Modo de servicio | `CWIST_C1M_MODE=1` (reactor basado en eventos) |
 
@@ -269,7 +269,7 @@ Cliente y servidor se ejecutan en el mismo host.
 | Memoria del servidor en el pico (PSS, todos los workers) | 24,0 GB | 19,9 GB | 30,1 GB |
 
 - **Los tres modos mantienen y atienden 1.000.000 de conexiones concurrentes sin ningún fallo.**
-- TLS necesita CWIST v3.7.1 (`11f3518d`). Antes, un hilo del pool esperaba en cada conexión TLS inactiva, así que solo se atendían a la vez tantas conexiones TLS como hilos tenía el pool: la misma ejecución mantuvo 395.729 conexiones TLS pero atendió como máximo 25. v3.7.1 aparca las conexiones TLS inactivas en un conjunto epoll y las devuelve al pool cuando llegan datos.
+- TLS necesita CWIST v3.7.1 o `main` desde `11f3518d`. Antes, un hilo del pool esperaba en cada conexión TLS inactiva, así que solo se atendían a la vez tantas conexiones TLS como hilos tenía el pool: la misma ejecución mantuvo 395.729 conexiones TLS pero atendió como máximo 25. v3.7.1 aparca las conexiones TLS inactivas en un conjunto epoll y las devuelve al pool cuando llegan datos.
 - La tasa de conexión TLS la limitan los handshakes completos: a 20.000 conexiones nuevas por segundo, ~37% de los handshakes agotaron el presupuesto de 45 s (523.654 conexiones HTTP/1.1 y 510.023 HTTP/2 atendidas); a 8.000/s ninguno.
 - Trampa de la carga: `connect()` de Linux reparte primero los puertos efímeros pares y luego pasa a una búsqueda lenta de impares, así que cada dirección de destino da unas 32k conexiones rápidas. Con 24 direcciones todas las ejecuciones se atascaron cerca de 774k; usa al menos `conexiones / 32.000` direcciones.
 
