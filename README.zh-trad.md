@@ -233,7 +233,7 @@ MIT License
 | RAM | 62 GiB |
 | GCC | 14.2.0 (Debian 14.2.0-19) |
 | 負載產生器 | h2load nghttp2/1.64.0、wrk、`tools/connhold`（BoringSSL） |
-| CWIST | `main` `11f3518d`（2026-09-29；同一 TLS 修正也已作為 v3.7.1 發佈，但 fly.board 因 `_ex` 路由 API 需要 `main`） |
+| CWIST | `main` `11f3518d`（2026-09-29，已包含在 v3.7.1 中） |
 | TLS 憑證 | ECDSA P-256（`keygen.sh` 預設） |
 | 服務模式 | `CWIST_C1M_MODE=1`（事件驅動 reactor） |
 
