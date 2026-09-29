@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> 연결이 증가할 때 메모리를 거의 일정하게 유지하는 몇 안 되는 심플한 블로그 엔진입니다: single worker로도 idle 시 **~108 MB RSS**(4 workers 시 **~102 MB**), 그리고 C10k, C100k, 심지어 C1m에서도 **~110–146 MB**를 유지합니다.
+> 데스크톱급 호스트 한 대에서 **동시 연결 100만 개**(평문 HTTP/1.1, 실측)를 유지하고, C10k/C100k TLS 부하 테스트를 100% 성공으로 통과하는 몇 안 되는 심플한 블로그 엔진입니다.
 > C 기반 CWIST 웹 프레임워크 위에 구축된 가벼운 게시판 겸 블로그 엔진으로, HTTPS/3, Argon2id, PQC 서명, NATS 메시징을 지원합니다.
 
 ## 특징
 
-- **메모리 효율 및 연결 확장성** – 스택+힙 C 구현. idle 시 **~102–108 MB RSS**(1–4 workers); C10k부터 C1m 동시 연결까지 RSS가 **~110–146 MB**를 유지합니다.
+- **연결 확장성** – cwist 이벤트 기반 reactor 위의 스택+힙 C 구현. 실측에서 **평문 HTTP/1.1 동시 연결 100만 개**를 유지하고 서비스했습니다. 비로그인 공개 페이지는 Big Dumb Reply 캐시에서 서빙합니다.
 - **최신 전송 계층** – 기본적으로 TLS 1.3 + HTTP/3 (QUIC). 선택적 ECH(Encrypted Client Hello).
 - **안전한 인증** – 클라이언트 측 SHA-512 프리해시 + 서버 측 **Argon2id** (OpenSSL 3 KDF). JWT 세션 쿠키.
 - **게시판 / 블로그 하이브리드** – 슬러그 기반 마크다운 포스트 + 다중 게시판 + 계층형 댓글.
@@ -218,35 +218,32 @@ MIT License
 
 ### 이 벤치마크가 측정하는 것
 
-이 테스트는 `h2load`의 **`-r` (rate-limit) 옵션**을 사용합니다. 의도적으로 **최대 처리량 테스트가 아닙니다**. 대신 제어된 프로세스별 요청률을 처리하면서 서버가 다수의 동시 HTTP/2 연결을 유지할 수 있는지 측정합니다.
+서로 다른 두 가지를 잽니다. 이 섹션의 예전 버전은 둘을 섞어 썼습니다.
 
-부하가 rate-limited이기 때문에:
-
-- 보고된 **RPS는 설정된 요청률**을 반영하며, 서버의 절대 처리량 한계는 아닙니다.
-- 핵심 지표는 연결이 10,000개에서 1,000,000개로 증가할 때의 **resident-set-size(RSS) 안정성**입니다.
-
-각 테스트를 현실적으로 유지하기 위해 worker 수를 부하에 맞게 조정했습니다: C10k는 **4 workers**, C100k는 **12 workers**, C1m은 **12 workers**입니다. 이는 세 번의 실행에서 다른 CPU 사용률 수치를 보이는 이유이기도 합니다.
+- **동시 연결** (전통적인 C10K/C1M의 의미): 서버가 동시에 열어 두고 서비스하는 연결 수. `run_c1m_held_bench.sh`에서 `tools/connhold`로 측정합니다.
+- **유지된 연결 위의 요청 처리(churn)**: `h2load` 묶음(`run_c10k_bench.sh`, `run_c100k_bench.sh`, `run_c1m_bench.sh`). `h2load`는 `-r`(속도 제한)로 돌기 때문에 RPS는 설정한 부하를 반영할 뿐 처리량 상한이 아닙니다. `run_c1m_bench.sh`는 동시 연결 10만 개에 요청 100만 건이며, 이름은 예전 것을 그대로 쓰고 있습니다.
 
 ### 호스트 환경
 
 | 항목 | 값 |
 |------|-------|
-| OS | Linux 7.1.0-mountain-rc6+ |
-| 아키텍처 | x86_64 |
-| CPU | 12 logical cores |
+| OS | Linux 6.12.107+deb13-amd64 (Debian 13) |
+| CPU | AMD Ryzen 5 5600X (6코어 / 12스레드) |
 | RAM | 62 GiB |
 | GCC | 14.2.0 (Debian 14.2.0-19) |
-| OpenSSL | 3.5.6 |
-| 벤치마크 도구 | h2load nghttp2/1.64.0 |
-| CWIST | 형제 cwist 체크아웃의 `libcwist.a` (2026-08-29, arena bump allocator, 공유 req/res arena, 256KB worker 스택, HTTP/3 hardening, sharded TLS handshake shepherd) |
+| 부하 발생기 | h2load nghttp2/1.64.0, `tools/connhold` (BoringSSL) |
+| CWIST | `main` `468a94d7` (2026-09-29) |
+| TLS 인증서 | ECDSA P-256 (`keygen.sh` 기본값) |
+| 서빙 모드 | `CWIST_C1M_MODE=1` (이벤트 기반 reactor) |
 
 ### 시스템 튜닝
 
 | 파라미터 | 값 |
 |-----------|-------|
 | ulimit -n | 1,050,000 |
-| fs.file-max | 2,097,152 |
+| fs.file-max | 8,388,608 (연결 100만 개는 클라이언트와 서버를 합쳐 fd 200만 개 필요) |
 | fs.nr_open | 1,050,000 |
+| net.netfilter.nf_conntrack_max | 4,194,304 (loopback 연결도 추적됨) |
 | net.core.somaxconn | 1,050,000 |
 | net.ipv4.tcp_max_syn_backlog | 1,050,000 |
 | net.ipv4.ip_local_port_range | 1024 65535 |
@@ -254,107 +251,57 @@ MIT License
 | kernel.pid_max | 4,194,304 |
 | CPU governor | ecodemand |
 
-### 메모리 사용량
+### C1M: 동시 연결 100만 개 (2026-09-29)
 
-| 상태 | RSS | 이전 대비 변화 | 비고 |
-|-------|-----|----------------|-------|
-| Idle (1 worker) | **~108 MB** (110,196 KB) | — | 1 worker, no connections |
-| Idle (4 workers) | **~102 MB** (104,940 KB) | — | 4 workers, no connections |
-| C10k | **~110 MB** (112,436 KB) | +7,496 KB (idle 4 workers 대비) | 10,000 concurrent connections |
-| C100k | **~146 MB** (148,848 KB) | +36,412 KB | 100,000 concurrent connections |
-| C1m churn | **~146 MB** (149,816 KB) | +968 KB | 100k held TLS conns, 1M-request churn |
+`run_c1m_held_bench.sh`: 워커 12개, 클라이언트와 서버는 같은 호스트, 연결 100만 개를 loopback 주소 48개에 나눠 엽니다. 각 연결은 `GET /robots.txt`를 보낸 뒤 keep-alive 타이머가 만료되지 않도록 120초마다 다시 보냅니다. 실패한 연결은 재시도하지 않고 그대로 셉니다.
 
-C100k에서 C1m churn 실행까지의 총 RSS 변화량은 **+968 KB**입니다 — 사실상 측정 노이즈 수준입니다. 이것이 이 벤치마크에서 가장 중요한 결과입니다.
+| | 평문 HTTP/1.1 | TLS 1.3 + HTTP/1.1 |
+|---|---|---|
+| 연 연결 | 1,000,000 | 1,000,000 |
+| 연결 속도 | 초당 40,000 | 초당 20,000 |
+| 최대 유지 연결 (열려 있고 TLS 통과) | **1,000,000** | 395,729 |
+| 동시에 서비스된 최대 연결 | **1,000,000** | **25** |
+| 응답 수 (keep-alive GET 포함) | 1,124,246 | 52 |
+| 실패한 연결 | 0 | 1,000,000 |
+| 최대 시점 서버 메모리 (PSS, 전체 워커) | 24.0 GB | 7.1 GB |
 
-RSS 값은 서버 프로세스에 대해 `/usr/bin/time -v`가 보고한 **Maximum resident set size (kbytes)**입니다.
+- **평문 HTTP/1.1은 100만 연결을 모두 유지하고 서비스합니다.** cwist의 평문 경로는 이벤트 기반이라, idle 연결은 메모리(여기서는 연결당 약 24 KB)만 쓰고 스레드는 쓰지 않습니다.
+- **TLS 연결은 유지되지만 동시에 서비스되지는 않습니다.** 핸드셰이크는 논블로킹 shepherd 스레드에서 끝나지만, 핸드셰이크를 마친 연결은 수명 내내 HTTPS 풀 스레드 하나에서 서비스됩니다(HTTP/1.1 keep-alive는 다음 요청을, HTTP/2는 idle이 될 때까지 거기서 기다립니다). 그래서 동시에 서비스되는 TLS 연결은 풀 스레드 수 정도뿐이고, 나머지는 기다리다가 서버의 45초 핸드셰이크 한도나 클라이언트의 60초 응답 기한에 걸려 닫힙니다.
+- 부하 구성 주의: Linux `connect()`는 짝수 임시 포트를 먼저 쓰고, 다 떨어지면 느린 홀수 포트 탐색으로 넘어갑니다. 그래서 목적지 주소 하나당 빠르게 열 수 있는 연결은 약 3.2만 개입니다. 주소 24개로는 매번 약 77.4만에서 멈췄습니다. 주소는 `연결 수 / 32,000`개 이상 쓰세요.
 
-### 메모리 비용
+### 연결당 메모리
 
-| 전환 | Δ RSS | Δ 연결 수 | 연결당 대략적 비용 |
+2026-09-29, 마스터만이 아니라 서버 워커 프로세스 전체의 PSS를 합산해 측정했습니다.
+
+| 경우 | 서버 | 커널 (slab + TCP 버퍼) | 클라이언트 |
 |---|---|---|---|
-| Idle → C10k | +7,496 KB | 10,000 | 연결당 ~0.75 KB |
-| C10k → C1m churn | +37,380 KB | — | 추가 유지 연결당 ~0.4 KB; C100k → C1m은 +968 KB(노이즈) |
+| TLS/HTTP/2 연결 10만 개, h2load C100k | 약 6.7 KB (워밍업 후 idle 1.11 GB → 1.77 GB) | 약 12.7 KB | h2load 약 60 KB |
+| 평문 HTTP/1.1 연결 100만 개, connhold | 약 24 KB (합계 24.0 GB) | — | connhold 약 0.06 KB |
 
-Idle에서 C10k로의 초기 증가는 TLS 상태, 연결 버퍼, worker 오버헤드를 미리 지불하는 비용입니다. C10k에서 C100k까지는 추가 유지 연결당 약 ~0.4 KB에 그치고, C100k에서 C1m까지의 RSS 변화(+968 KB)는 측정 노이즈 범위입니다 — 연결당 메모리 비용은 사실상 일정합니다.
+> **정정:** 이 README의 예전 버전은 C10k부터 C1m까지 RSS가 약 110–146 MB로 유지된다고 했습니다. 그 값은 `/usr/bin/time -v`가 잰 마스터 프로세스 하나의 최대 RSS였습니다. `cwist_app_listen()`은 서빙 워커를 fork하는데, 그 워커들의 메모리는 한 번도 세지 않았습니다. 위의 합계가 그 값을 대신합니다.
 
-### C10k 동시 연결 테스트
+### h2load 묶음: 요청 처리 (2026-09-29)
 
-`h2load`로 10,000 동시 연결을 유지하며 측정했습니다.
+| 테스트 | 동시 연결 | 요청 | 성공 | 소요 시간 | RPS (프로세스 합) |
+|---|---|---|---|---|---|
+| C10k (워커 4) | 10,000 | 20,000 | **100%** | 4.56초 | 7,445 |
+| C100k (워커 12) | 100,000 | 200,000 | **100%** | 24.31초 | 9,254 |
+| C1m churn (워커 12) | 100,000 | 1,000,000 | **100%** | 49.65초 | 21,812 |
 
-| 항목 | 값 |
-|------|-------|
-| Workers | 4 |
-| Concurrent connections | 10,000 |
-| Duration | 12.05 s |
-| Max RSS | **~110 MB** (112,436 KB) |
-| CPU usage | ~365% |
-| User time | 41.05 s |
-| System time | 3.04 s |
-| Major page faults | 2 |
-| Minor page faults | 16,948 |
-| Voluntary context switches | 58,050 |
-| Involuntary context switches | 14,828 |
-| File system outputs | 256 |
-| Total requests | 20000 |
-| Total succeeded | 20000 |
-| Total failed | 0 |
-| Approx total RPS | **2285.22** |
-| Success rate | **100.00%** |
-| Exit status | **0** |
+소요 시간은 서버 프로세스의 수명입니다(시작과 5초 drain 포함). 응답은 79 KB짜리 첫 페이지 전체이고, h2load는 압축을 요청하지 않습니다.
 
-### C100k 동시 연결 테스트
+같은 날 앞서 RSA-4096 인증서로는 C100k가 72.6%, C1m churn이 65.2%로 떨어졌습니다. 바쁜 CPU 거의 전부가 TLS 1.3 풀 핸드셰이크마다 하는 RSA CertificateVerify 서명에 쓰여서, 대기 중인 핸드셰이크가 45초 한도에 걸렸습니다. ECDSA P-256(`keygen.sh` 기본값)으로 바꾸고, 라우트 핸들러를 요청 워커에서 돌리고, 비로그인 공개 페이지를 라우트 Big Dumb Reply 캐시로 서빙해서 100%로 돌아왔습니다.
 
-`h2load`로 100,000 동시 연결을 유지하며 측정했습니다.
+**핵심 요약**
 
-| 항목 | 값 |
-|------|-------|
-| Workers | 12 |
-| Concurrent connections | 100,000 |
-| Duration | 1:23.49 |
-| Max RSS | **~146 MB** (148,848 KB) |
-| CPU usage | ~815% |
-| User time | 653.83 s |
-| System time | 26.78 s |
-| Major page faults | 0 |
-| Minor page faults | 76,332 |
-| Voluntary context switches | 446,557 |
-| Involuntary context switches | 617,777 |
-| File system outputs | 336 |
-| Total requests | 200000 |
-| Total succeeded | 200000 |
-| Total failed | 0 |
-| Approx total RPS | **2785.16** |
-| Success rate | **100.00%** |
-| Exit status | **0** |
-
-### C1m Churn 테스트 (2026-08-23 재설계, 2026-08-24 수정)
-
-기존 "1,000,000개의 동시 TLS 연결" 목표는 폐기되었습니다: HTTPS 경로는 활성 연결마다 worker 스레드 하나를 점유하므로, 유지 가능한 동시 연결 수는 workers x threads 수준으로 1M에 훨씬 못 미칩니다. (cwist의 **평문** HTTP/1.x 경로는 이벤트 기반이며 1,000,000/1,000,000개의 유지 연결에 도달했습니다 — cwist README 참조.) C1m 테스트는 churn을 측정합니다: 100,000개의 동시 유지 TLS 연결 위에서 20개의 h2load 프로세스 x 50,000 요청을 수행하며, watchdog으로 실행 시간이 제한됩니다.
-
-| 항목 | 값 |
-|------|-------|
-| Workers | 12 |
-| 부하 형태 | 20 x (-c 5000 -n 50000 -r 1000 -T 30) |
-| 총량 | 100,000개 유지 연결 위 1,000,000 요청 |
-| 결과 | **완료 — 스톨 없음** |
-| 총 성공 | **1,000,000 / 1,000,000 (100.0%)** |
-| 에러 | 0 |
-| 소요 시간 | ~1:36 (프로세스당 h2load "finished in" 63.7-89.3 s) |
-| Phantom connections | 0 (클라이언트/서버 ESTABLISHED 수 일치) |
-| 서버 종료 | 정상, exit 0 |
-
-이력: 2026-08-23에 동일한 부하의 실행은 ~85k 연결에서 데드락에 빠졌습니다. 근본 원인(cwist `perf(https): non-blocking TLS handshake shepherd`에서 수정): TLS 핸드셰이크가 30초 poll 대기와 함께 worker 스레드 내부에서 동기적으로 실행되어, 수백 개의 느린 클라이언트가 전체 풀을 점유하고 accept 큐가 넘치면서 초과된 핸드셰이크가 조용히 드롭되었고, 클라이언트는 서버 측 소켓 없이 ESTABLISHED 상태로 남았습니다. 이제 핸드셰이크는 non-blocking shepherd 스레드에서 실행되며, 수립된 세션만 풀 worker를 점유합니다.
-
-> 참고: HTTP/2(TLS 1.3) 상에서 실제 클라이언트 연결을 유지하며 측정한 값입니다. 테스트별 worker 수는 다르며, 자세한 내용은 "이 벤치마크가 측정하는 것"을 참조하세요.
-
-**핵심 결론**
-
-- **연결 확장성**: 10,000개부터 1,000,000개의 동시 연결까지 RSS가 **~110–146 MB**를 유지합니다. 연결당 메모리 비용은 사실상 일정합니다.
-- **현실적인 부하 하에서 안정적**: C10k는 **100% 성공**, C100k는 **100.00% 성공**으로 완료되었으며 동일한 메모리 범위 내에 머물렀습니다.
-- **C1m 규모에서도 메모리 범위 유지**: C1m churn 실행(100k 유지 TLS 연결 위 1M 요청)은 **100% 성공**으로 스톨 없이 완료되었고 RSS는 ~146 MB를 유지했습니다 — 메모리 폭주도 크래시도 없었습니다.
-- **데이터 안전성**: SQLite가 SIGINT 시 모든 데이터를 안전하게 저장했습니다(C10k에서 256 FS outputs).
+- **C1M, 평문:** 데스크톱급 호스트 한 대에서 HTTP/1.1 동시 연결 100만 개를 유지하고 서비스했으며, 실패는 0입니다.
+- **C1M, TLS:** 연결은 받아들여지고 핸드셰이크도 통과하지만, TLS 연결의 동시 *서비스*는 HTTPS 풀 스레드 수로 제한됩니다. TLS C100k churn(h2load)은 100%입니다.
+- **연결당 메모리는 실제로 듭니다:** 서버 기준 약 7 KB(TLS/HTTP/2, h2load C100k)에서 약 24 KB(평문, 100만 유지)까지입니다. RAM을 그에 맞게 잡으세요.
+- **TLS churn은 핸드셰이크 비용이 좌우합니다:** ECDSA 인증서를 쓰세요.
 
 ### 처리량 벤치마크
+
+> 2026-08에 측정한 값으로, 2026-09 변경(비동기 라우트, 라우트 BDR 캐시, ECDSA 인증서) 이전 결과이며 다시 측정하지 않았습니다.
 
 위의 벤치마크는 **연결 확장성**을 측정한 것이며, 절대적인 **요청 처리량**을 측정한 것은 아닙니다. 서버의 순수 처리량 상한을 측정하기 위해 HTTP/2 위에서 `h2load`로 `-r` rate limit 없이 제한 없는 테스트를 실행했습니다.
 

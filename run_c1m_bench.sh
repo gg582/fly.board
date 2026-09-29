@@ -1,16 +1,19 @@
 #!/bin/bash
 
-# C1M Benchmark Script for fly_board
+# C1M churn benchmark for fly_board: C100K concurrency, 1,000,000 requests.
+#
+# The name is historical. In the classic C10K/C1M sense this is a C100K
+# test; the true 1,000,000-concurrent-connection run is
+# run_c1m_held_bench.sh (tools/connhold client).
 #
 # NOTE (2026-08-23 redesign): "1,000,000 simultaneously held TLS connections"
-# is architecturally impossible for this server today, and pretending
-# otherwise made this script hang forever.  fly_board terminates TLS inside
-# cwist's thread-pool HTTPS path, where every live connection parks one
-# worker thread for its whole lifetime.  Held-connection concurrency is
-# therefore capped at (CWIST_WORKERS x threads-per-worker), i.e. hundreds to
-# ~1.5k, not 1M.  (The cleartext HTTP/1.x path in cwist is event-driven and
-# did reach 999,872/1,000,000 held connections; TLS has not been ported to
-# that model yet.)
+# cannot be *served* by this server today, and pretending otherwise made
+# this script hang forever.  fly_board terminates TLS inside cwist's
+# thread-pool HTTPS path, where every live connection occupies one pool
+# thread while it is being served.  run_c1m_held_bench.sh measured it on
+# 2026-09-29: 1M TLS connects, peak ~420k past the handshake and held, but
+# only ~19 served at a time.  The cleartext HTTP/1.1 path is event-driven
+# and held and served 1,000,000/1,000,000 in the same run.
 #
 # What this script measures instead: C1M-scale CHURN — 1,000,000 requests
 # (20 processes x 50k) over 100,000 concurrently held TLS connections.
