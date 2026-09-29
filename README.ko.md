@@ -233,7 +233,7 @@ MIT License
 | RAM | 62 GiB |
 | GCC | 14.2.0 (Debian 14.2.0-19) |
 | 부하 발생기 | h2load nghttp2/1.64.0, wrk, `tools/connhold` (BoringSSL) |
-| CWIST | `main` `11f3518d` (2026-09-29. 같은 TLS 수정이 v3.7.1로도 릴리스됐지만, fly.board는 `_ex` 라우트 API 때문에 `main`이 필요) |
+| CWIST | `main` `11f3518d` (2026-09-29, v3.7.1에 포함) |
 | TLS 인증서 | ECDSA P-256 (`keygen.sh` 기본값) |
 | 서빙 모드 | `CWIST_C1M_MODE=1` (이벤트 기반 reactor) |
 

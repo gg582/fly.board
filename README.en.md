@@ -233,7 +233,7 @@ Three different things, which earlier versions of this section mixed up:
 | RAM | 62 GiB |
 | GCC | 14.2.0 (Debian 14.2.0-19) |
 | Load generators | h2load nghttp2/1.64.0, wrk, `tools/connhold` (BoringSSL) |
-| CWIST | `main` at `11f3518d` (2026-09-29; the same TLS fix is released as v3.7.1, but fly.board needs `main` for the `_ex` route API) |
+| CWIST | `main` at `11f3518d` (2026-09-29; released in v3.7.1) |
 | TLS certificate | ECDSA P-256 (`keygen.sh` default) |
 | Serving mode | `CWIST_C1M_MODE=1` (event-driven reactor) |
 
