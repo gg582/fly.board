@@ -7,7 +7,8 @@
  * VIPs (one source-port range per VIP), optionally completes a TLS
  * handshake (ALPN http/1.1), sends one GET, reads the response, then keeps
  * the socket open and re-sends the GET every --ping seconds so the server
- * keep-alive timer never fires. Everything is counted, nothing retried:
+ * keep-alive timer never fires. --h2 speaks HTTP/2 over TLS instead (ALPN
+ * h2): each ping is a new stream on the same connection. Everything is counted, nothing retried:
  * a connection the server closes stays closed and shows up in "closed".
  *
  *   connhold --conns 1000000 --procs 8 --rate 20000 --vips 24 \
@@ -54,6 +55,15 @@ typedef struct {
     uint32_t sent;
     uint32_t deadline; /* seconds since start: connect/handshake/response */
     uint32_t next_ping;
+    /* HTTP/2 frame reader state (--h2 only). */
+    uint32_t sid;      /* stream of the request in flight */
+    uint32_t f_left;   /* payload bytes left in the current frame */
+    uint32_t f_stream;
+    uint8_t fh[9];
+    uint8_t fh_got;
+    uint8_t f_type, f_flags;
+    uint8_t pb[8];     /* PING payload to echo */
+    uint8_t pb_got;
 } slot_t;
 
 typedef struct {
@@ -66,9 +76,10 @@ static struct {
     int procs, vips, port, ping, hold, mem_guard_mib;
     long rate;
     bool tls;
+    bool h2;
     const char *path;
     const char *base;
-} cfg = {1000, 1, 20, 8888, 60, 60, 2048, 1000, false, "/robots.txt", "127.0.0"};
+} cfg = {1000, 1, 20, 8888, 60, 60, 2048, 1000, false, false, "/robots.txt", "127.0.0"};
 
 static stats_t *g_stats; /* one per process, MAP_SHARED */
 static _Atomic int *g_stop_ramp;
@@ -142,10 +153,125 @@ static int io_write(slot_t *s, const char *buf, size_t len) {
 }
 
 static void start_send(int ep, slot_t *s, long idx) {
+    if (cfg.h2) s->sid = s->sid ? s->sid + 2 : 1;
     s->state = ST_SEND;
     s->sent = 0;
     s->deadline = now_s() + 60;
     set_mask(ep, s, idx, 2);
+}
+
+/* Bytes of the request for this slot's next send. HTTP/2: the connection
+ * preface and an empty SETTINGS precede the first HEADERS frame. The bytes
+ * are a pure function of the slot, so a partial write can be resumed. */
+static size_t build_req(const slot_t *s, char *out) {
+    if (!cfg.h2) {
+        memcpy(out, g_req, g_req_len);
+        return g_req_len;
+    }
+    size_t n = 0;
+    if (s->sid == 1) {
+        static const char preface[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+        memcpy(out, preface, 24);
+        n = 24;
+        static const unsigned char settings[9] = {0, 0, 0, 4, 0, 0, 0, 0, 0};
+        memcpy(out + n, settings, 9);
+        n += 9;
+    }
+    /* :method GET, :scheme https (static table), then :path and
+     * :authority as literals without indexing, no Huffman. */
+    unsigned char block[160];
+    size_t b = 0, plen = strlen(cfg.path);
+    block[b++] = 0x82;
+    block[b++] = 0x87;
+    block[b++] = 0x04;
+    block[b++] = (unsigned char)plen;
+    memcpy(block + b, cfg.path, plen);
+    b += plen;
+    block[b++] = 0x01;
+    block[b++] = 9;
+    memcpy(block + b, "localhost", 9);
+    b += 9;
+    unsigned char fh[9] = {0, (unsigned char)(b >> 8), (unsigned char)b, 1, 0x05,
+                           (unsigned char)(s->sid >> 24), (unsigned char)(s->sid >> 16),
+                           (unsigned char)(s->sid >> 8), (unsigned char)s->sid};
+    memcpy(out + n, fh, 9);
+    memcpy(out + n + 9, block, b);
+    return n + 9 + b;
+}
+
+static int io_write(slot_t *s, const char *buf, size_t len);
+
+static int send_all(slot_t *s, const unsigned char *buf, size_t len) {
+    return io_write(s, (const char *)buf, len) == (int)len ? 0 : -1;
+}
+
+/* HTTP/2 reader: answers SETTINGS and PING, returns connection window for
+ * DATA, and reports completion when our stream ends. Returns 1 when the
+ * response to s->sid completed, 0 otherwise, -1 on GOAWAY/RST/IO error. */
+static int consume_h2(slot_t *s, const unsigned char *data, size_t n) {
+    int done = 0;
+    while (n > 0) {
+        if (s->fh_got < 9) {
+            size_t need = 9u - s->fh_got;
+            size_t take = need < n ? need : n;
+            memcpy(s->fh + s->fh_got, data, take);
+            s->fh_got += (uint8_t)take;
+            data += take;
+            n -= take;
+            if (s->fh_got < 9) break;
+            s->f_left = ((uint32_t)s->fh[0] << 16) | ((uint32_t)s->fh[1] << 8) | s->fh[2];
+            s->f_type = s->fh[3];
+            s->f_flags = s->fh[4];
+            s->f_stream = (((uint32_t)s->fh[5] & 0x7f) << 24) | ((uint32_t)s->fh[6] << 16) |
+                          ((uint32_t)s->fh[7] << 8) | s->fh[8];
+            s->pb_got = 0;
+        } else {
+            size_t take = s->f_left < n ? s->f_left : n;
+            if (s->f_type == 6) {
+                for (size_t i = 0; i < take && s->pb_got < 8; i++) s->pb[s->pb_got++] = data[i];
+            }
+            s->f_left -= (uint32_t)take;
+            data += take;
+            n -= take;
+        }
+        if (s->fh_got < 9 || s->f_left > 0) continue;
+        /* Frame complete. */
+        uint32_t len = ((uint32_t)s->fh[0] << 16) | ((uint32_t)s->fh[1] << 8) | s->fh[2];
+        s->fh_got = 0;
+        switch (s->f_type) {
+            case 0: /* DATA */
+                if (len > 0) {
+                    unsigned char wu[13] = {0, 0, 4, 8, 0, 0, 0, 0, 0, (unsigned char)(len >> 24),
+                                            (unsigned char)(len >> 16), (unsigned char)(len >> 8),
+                                            (unsigned char)len};
+                    if (send_all(s, wu, sizeof(wu)) != 0) return -1;
+                }
+                break;
+            case 3: /* RST_STREAM */
+                if (s->f_stream == s->sid) return -1;
+                break;
+            case 4: /* SETTINGS */
+                if (!(s->f_flags & 1)) {
+                    static const unsigned char ack[9] = {0, 0, 0, 4, 1, 0, 0, 0, 0};
+                    if (send_all(s, ack, sizeof(ack)) != 0) return -1;
+                }
+                break;
+            case 6: /* PING */
+                if (!(s->f_flags & 1)) {
+                    unsigned char pong[17] = {0, 0, 8, 6, 1, 0, 0, 0, 0};
+                    memcpy(pong + 9, s->pb, 8);
+                    if (send_all(s, pong, sizeof(pong)) != 0) return -1;
+                }
+                break;
+            case 7: /* GOAWAY */
+                return -1;
+            default:
+                break;
+        }
+        if ((s->f_type == 0 || s->f_type == 1) && s->f_stream == s->sid && (s->f_flags & 1))
+            done = 1;
+    }
+    return done;
 }
 
 /* Consume response bytes; returns 1 when the response completed, 0 when more
@@ -245,8 +371,10 @@ static void on_event(int ep, stats_t *st, slot_t *s, long idx, uint32_t ev) {
         }
     }
     if (s->state == ST_SEND) {
-        while (s->sent < g_req_len) {
-            int w = io_write(s, g_req + s->sent, g_req_len - s->sent);
+        char req[1024];
+        size_t req_len = build_req(s, req);
+        while (s->sent < req_len) {
+            int w = io_write(s, req + s->sent, req_len - s->sent);
             if (w == -1) {
                 set_mask(ep, s, idx, 2);
                 return;
@@ -267,6 +395,24 @@ static void on_event(int ep, stats_t *st, slot_t *s, long idx, uint32_t ev) {
         for (;;) {
             int r = io_read(s, buf, sizeof(buf));
             if (r == -1) return;
+            if (cfg.h2 && r >= 0) {
+                /* Idle HTTP/2 connections still get SETTINGS/PING/GOAWAY. */
+                int c = consume_h2(s, (const unsigned char *)buf, (size_t)r);
+                if (c < 0) {
+                    atomic_fetch_add(&st->closed, 1);
+                    close_slot(ep, st, s);
+                    return;
+                }
+                if (s->state == ST_IDLE || c == 0) continue;
+                atomic_fetch_add(&st->responses, 1);
+                if (!s->served) {
+                    s->served = 1;
+                    atomic_fetch_add(&st->served_now, 1);
+                }
+                s->state = ST_IDLE;
+                s->next_ping = now_s() + (uint32_t)cfg.ping;
+                continue;
+            }
             if (r < 0 || s->state == ST_IDLE) {
                 /* Idle sockets only become readable on close (or a stray
                  * TLS record such as a session ticket, which SSL_read eats
@@ -289,7 +435,8 @@ static void on_event(int ep, stats_t *st, slot_t *s, long idx, uint32_t ev) {
                     atomic_fetch_add(&st->served_now, 1);
                 }
                 s->state = ST_IDLE;
-                s->next_ping = now_s() + (uint32_t)cfg.ping + (uint32_t)(idx % cfg.ping);
+                /* Spread pings over [ping/2, ping] so none exceeds --ping. */
+                s->next_ping = now_s() + (uint32_t)(cfg.ping - (idx % (cfg.ping / 2 + 1)));
                 return;
             }
         }
@@ -399,6 +546,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--path")) cfg.path = v, i++;
         else if (!strcmp(a, "--base")) cfg.base = v, i++;
         else if (!strcmp(a, "--tls")) cfg.tls = true;
+        else if (!strcmp(a, "--h2")) cfg.h2 = cfg.tls = true;
         else {
             fprintf(stderr, "unknown option %s\n", a);
             return 2;
@@ -417,8 +565,11 @@ int main(int argc, char **argv) {
         g_ctx = SSL_CTX_new(TLS_client_method());
         SSL_CTX_set_verify(g_ctx, SSL_VERIFY_NONE, NULL);
         SSL_CTX_set_session_cache_mode(g_ctx, SSL_SESS_CACHE_OFF);
-        static const unsigned char alpn[] = "\x08http/1.1";
-        SSL_CTX_set_alpn_protos(g_ctx, alpn, sizeof(alpn) - 1);
+        static const unsigned char alpn_h1[] = "\x08http/1.1";
+        static const unsigned char alpn_h2[] = "\x02h2";
+        if (cfg.h2) SSL_CTX_set_alpn_protos(g_ctx, alpn_h2, sizeof(alpn_h2) - 1);
+        else SSL_CTX_set_alpn_protos(g_ctx, alpn_h1, sizeof(alpn_h1) - 1);
+        SSL_CTX_set_mode(g_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
     }
 
     g_stats = mmap(NULL, sizeof(stats_t) * (size_t)cfg.procs, PROT_READ | PROT_WRITE,
