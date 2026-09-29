@@ -130,7 +130,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     /* Admin login via admin.settings */
     if (auth_admin_check(username, password)) {
         CWIST_LOG_INFO("Admin login success: username='%s'", username);
-        char *token = auth_jwt_issue(1, username, "admin");
+        char *token = auth_jwt_issue(auth_site_admin_uid(), username, "admin");
         if (!token) {
             CWIST_LOG_ERROR("Admin login failed: token issue error username='%s'", username);
             send_html_res(res, render_login(dark, "Server error", mobile, redirect_target));
@@ -307,7 +307,9 @@ void handler_unregister_post(cwist_http_request *req, cwist_http_response *res) 
     const char *id_str = cwist_query_map_get(kv, "id");
     if (id_str) {
         int target = atoi(id_str);
-        if (target > 0 && (target == uid || strcmp(role, "admin") == 0)) {
+        if (auth_is_site_admin(target)) {
+            CWIST_LOG_WARN("User unregister refused: target_uid=%d is the admin.settings account", target);
+        } else if (target > 0 && (target == uid || strcmp(role, "admin") == 0)) {
             const char *cascade = cwist_query_map_get(kv, "cascade");
             bool cascade_del = cascade && atoi(cascade) == 1;
             db_user_delete_with_cascade(req->db, target, cascade_del);
@@ -587,7 +589,9 @@ void handler_password_change_post(cwist_http_request *req, cwist_http_response *
         return;
     }
 
-    if (strcmp(role, "admin") == 0) {
+    /* Only the admin.settings account changes admin.settings; admins
+     * promoted from regular accounts keep their own password below. */
+    if (auth_is_site_admin(uid)) {
         if (!auth_admin_update_password(current, new_pw)) {
             CWIST_LOG_WARN("Admin password change failed: current password incorrect or write error");
             send_html_res(res, render_password_change(dark, role, pp, "Current password is incorrect", is_mobile_request(req)));

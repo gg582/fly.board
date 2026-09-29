@@ -29,5 +29,13 @@ bool auth_require_admin(cwist_http_request *req, cwist_http_response *res);
 bool auth_admin_load(const char *path);
 bool auth_admin_check(const char *username, const char *password);
 bool auth_admin_update_password(const char *current_pw, const char *new_pw);
+const char *auth_admin_username(void);
+
+/* The admin.settings account has its own users row so its posts, comments
+ * and notifications never mix with another user's. main() records the id
+ * before the workers fork. */
+void auth_site_admin_set_uid(int uid);
+int auth_site_admin_uid(void);
+bool auth_is_site_admin(int uid);
 
 #endif

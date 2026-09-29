@@ -195,3 +195,81 @@ bool db_user_delete_with_cascade(cwist_db *db, int id, bool delete_replies) {
         return rc == SQLITE_DONE;
     }
 }
+
+#define SITE_ADMIN_SETTING "site_admin_user_id"
+
+static int row_int(cJSON *row, const char *key) {
+    cJSON *item = cJSON_GetObjectItem(row, key);
+    if (cJSON_IsNumber(item)) return item->valueint;
+    if (cJSON_IsString(item) && item->valuestring) return atoi(item->valuestring);
+    return 0;
+}
+
+static bool username_taken(cwist_db *db, const char *username, int except_id) {
+    cJSON *u = db_user_get_by_username(db, username);
+    if (!u) return false;
+    bool taken = row_int(u, "id") != except_id;
+    cJSON_Delete(u);
+    return taken;
+}
+
+/* The account's name: the admin.settings id, or "<id>-admin", "<id>-admin2"...
+ * when a registered user already holds it. */
+static bool pick_site_admin_name(cwist_db *db, const char *wanted, int except_id,
+                                 char *out, size_t out_len) {
+    for (int n = 1; n <= 100; n++) {
+        if (n == 1) snprintf(out, out_len, "%s", wanted);
+        else if (n == 2) snprintf(out, out_len, "%s-admin", wanted);
+        else snprintf(out, out_len, "%s-admin%d", wanted, n - 1);
+        if (!username_taken(db, out, except_id)) return true;
+    }
+    return false;
+}
+
+int db_user_ensure_site_admin(cwist_db *db, const char *username) {
+    if (!username || !username[0]) return 0;
+    char value[32];
+    int id = db_site_setting_get(db, SITE_ADMIN_SETTING, value, sizeof(value)) ? atoi(value) : 0;
+    cJSON *existing = id > 0 ? db_user_get_by_id(db, id) : NULL;
+    char name[128];
+    if (existing) {
+        /* Follow a renamed admin.settings id and keep the row an admin. */
+        cJSON *current_item = cJSON_GetObjectItem(existing, "username");
+        const char *current = cJSON_IsString(current_item) && current_item->valuestring ? current_item->valuestring : "";
+        if (strcmp(current, username) != 0 && !username_taken(db, username, id)) {
+            snprintf(name, sizeof(name), "%s", username);
+        } else {
+            snprintf(name, sizeof(name), "%s", current);
+        }
+        cJSON_Delete(existing);
+        const char *sql = "UPDATE users SET username=?, role='admin', active=1 WHERE id=?";
+        sqlite3_stmt *stmt = NULL;
+        if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+        sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 2, id);
+        int rc = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        return rc == SQLITE_DONE ? id : 0;
+    }
+
+    if (!pick_site_admin_name(db, username, 0, name, sizeof(name))) return 0;
+    /* "!" is no valid hash, so the row never signs in through the users
+     * table; admin.settings stays the only way in. */
+    const char *sql = "INSERT INTO users (username, email, password_hash, role, email_verified) "
+                      "VALUES (?, ?, '!', 'admin', 1)";
+    char email[160];
+    snprintf(email, sizeof(email), "site-admin+%ld@localhost.invalid", (long)time(NULL));
+    sqlite3 *conn = fly_db_conn(db);
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, email, -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return 0;
+    id = (int)sqlite3_last_insert_rowid(conn);
+    snprintf(value, sizeof(value), "%d", id);
+    if (!db_site_setting_set(db, SITE_ADMIN_SETTING, value)) return 0;
+    return id;
+}
+

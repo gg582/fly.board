@@ -323,6 +323,17 @@ int main(void) {
         return 1;
     }
 
+    int site_admin_uid = db_user_ensure_site_admin(db, auth_admin_username());
+    if (site_admin_uid <= 0) {
+        FLY_LOG_ERROR("Failed to set up the admin.settings account in the users table");
+        engine_nats_stop();
+        engine_pool_shutdown();
+        cwist_app_destroy(app);
+        fly_crypto_cleanup();
+        return 1;
+    }
+    auth_site_admin_set_uid(site_admin_uid);
+    CWIST_LOG_INFO("Site admin account: users.id=%d", site_admin_uid);
     write_policy_init(db);
     db_file_cleanup_duplicates(db);
     if (startup_media_backfill_enabled()) {

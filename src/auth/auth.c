@@ -28,6 +28,9 @@ static char g_jwt_secret[65] = {0};
 static char g_admin_id[64] = {0};
 static char g_admin_pw[129] = {0};
 static char g_admin_plain_pw[128] = {0};
+/* users.id of the admin.settings account (db_user_ensure_site_admin). Set
+ * once before cwist forks; 0 until then. */
+static int g_site_admin_uid = 0;
 
 /* --------------------------------------------------------------------------
  * Constant-Time String Comparison
@@ -298,6 +301,10 @@ bool auth_admin_load(const char *path) {
         }
     }
     fclose(f);
+    /* Older auth_admin_update_password() wrote "id=..." / "pw=..." lines,
+     * which made the literal "id=admin" the login name. */
+    if (strncmp(g_admin_id, "id=", 3) == 0) memmove(g_admin_id, g_admin_id + 3, strlen(g_admin_id + 3) + 1);
+    if (strncmp(plain_pw, "pw=", 3) == 0) memmove(plain_pw, plain_pw + 3, strlen(plain_pw + 3) + 1);
     snprintf(g_admin_plain_pw, sizeof(g_admin_plain_pw), "%s", plain_pw);
     char combined[512];
     snprintf(combined, sizeof(combined), "%s%s", CLIENT_NONCE, plain_pw);
@@ -325,6 +332,22 @@ bool auth_admin_check(const char *username, const char *password) {
     return false;
 }
 
+const char *auth_admin_username(void) {
+    return g_admin_id[0] ? g_admin_id : "admin";
+}
+
+void auth_site_admin_set_uid(int uid) {
+    g_site_admin_uid = uid;
+}
+
+int auth_site_admin_uid(void) {
+    return g_site_admin_uid;
+}
+
+bool auth_is_site_admin(int uid) {
+    return uid > 0 && uid == g_site_admin_uid;
+}
+
 bool auth_admin_update_password(const char *current_pw, const char *new_pw) {
     if (!current_pw || !new_pw || strlen(new_pw) < 6) return false;
     const char *admin_user = g_admin_id[0] ? g_admin_id : "admin";
@@ -332,7 +355,7 @@ bool auth_admin_update_password(const char *current_pw, const char *new_pw) {
 
     FILE *f = fopen("admin.settings", "w");
     if (!f) return false;
-    fprintf(f, "id=%s\npw=%s\n", admin_user, new_pw);
+    fprintf(f, "%s\n%s\n", admin_user, new_pw);
     fclose(f);
     return auth_admin_load("admin.settings");
 }
@@ -416,7 +439,8 @@ char *auth_jwt_issue(int user_id, const char *username, const char *role) {
     cwist_sstring_append(payload, nbf_str);
     cwist_sstring_append(payload, ",\"exp\":");
     cwist_sstring_append(payload, exp_str);
-    cwist_sstring_append(payload, "}");
+    /* v2: the admin.settings account signs in with its own users.id. */
+    cwist_sstring_append(payload, ",\"v\":\"2\"}");
 
     char *token = cwist_jwt_sign(payload->data, secret, 0);
     cwist_sstring_destroy(payload);
@@ -432,10 +456,17 @@ static bool auth_verify_token(const char *token, const char *secret,
 
     const char *sub = cwist_jwt_claims_get(claims, "sub");
     const char *role = cwist_jwt_claims_get(claims, "role");
+    const char *username = cwist_jwt_claims_get(claims, "username");
     bool ok = false;
     if (sub && role) {
         int uid = atoi(sub);
-        if (uid > 0) {
+        /* Before v2 the admin.settings account was always issued sub 1,
+         * which belongs to whichever user registered first. Such a session
+         * must sign in again to get the account's own id. */
+        bool legacy_site_admin = !cwist_jwt_claims_get(claims, "v") && uid == 1 &&
+                                 g_site_admin_uid != 1 && strcmp(role, "admin") == 0 &&
+                                 username && strcmp(username, auth_admin_username()) == 0;
+        if (uid > 0 && !legacy_site_admin) {
             *out_user_id = uid;
             snprintf(out_role, role_len, "%s", role);
             ok = true;
