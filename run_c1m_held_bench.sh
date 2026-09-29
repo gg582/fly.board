@@ -10,9 +10,12 @@
 # server keep-alive timer never fires. Nothing is retried; a connection the
 # server closes stays closed and is counted.
 #
-# Two runs, each against a fresh server:
+# Three runs, each against a fresh server:
 #   plain  HTTP/1.1 cleartext (cwist event-driven reactor path)
 #   tls    TLS 1.3 + HTTP/1.1 (ALPN http/1.1) on the HTTPS path
+#   h2     TLS 1.3 + HTTP/2 (ALPN h2), one new stream per keep-alive ping
+# The TLS runs raise the idle budgets above PING (CWIST_HTTPS_IDLE_TIMEOUT_MS
+# for HTTP/1.1; HTTP/2's default idle timeout is already 300 s).
 #
 # Linux connect() hands out even ephemeral ports first and falls back to a
 # slow odd-port search once they run out, so each destination VIP gives
@@ -29,7 +32,8 @@ PROCS=8
 PLAIN_PORT=18080
 TLS_PORT=8888
 PLAIN_RATE=40000   # new connections per second
-TLS_RATE=20000
+TLS_RATE=8000     # full TLS handshakes per second; at 20000/s ~37% missed the
+                  # 45 s handshake budget, at 8000/s none did
 PING=120           # seconds between keep-alive GETs per connection
 HOLD=120           # seconds to hold after the ramp finishes
 MEM_GUARD_MIB=6144 # stop opening connections below this MemAvailable
@@ -94,7 +98,8 @@ run_one() {
             setsid "${SERVER_DIR}/fly_board" > "${WORK}/${mode}_server.log" 2>&1 &)
         until curl -sf -o /dev/null "http://127.0.0.1:${port}/robots.txt"; do sleep 0.5; done
     else
-        (cd "${SERVER_DIR}" && CWIST_WORKERS=${WORKERS} setsid ./fly_board > "${WORK}/${mode}_server.log" 2>&1 &)
+        (cd "${SERVER_DIR}" && CWIST_WORKERS=${WORKERS} CWIST_HTTPS_IDLE_TIMEOUT_MS=300000 \
+            setsid ./fly_board > "${WORK}/${mode}_server.log" 2>&1 &)
         until curl -sk -o /dev/null "https://127.0.0.1:${port}/robots.txt"; do sleep 0.5; done
     fi
 
@@ -122,7 +127,7 @@ run_one() {
     stop_server
 
     {
-        echo "== ${mode} (port ${port}, ${WORKERS} workers, ${rate} conn/s, ${VIPS} VIPs, ping ${PING}s)"
+        echo "== ${mode} (port ${port}, ${WORKERS} workers, ${rate} conn/s, ${VIPS} VIPs, ping ${PING}s, cwist $(git -C "${CWIST_ROOT:-/home/yjlee/cwist}" rev-parse --short HEAD 2>/dev/null))"
         tail -2 "${WORK}/${mode}.log"
         cat "${WORK}/${mode}_mem.log" 2>/dev/null || true
         echo
@@ -140,6 +145,7 @@ main() {
     } > "${RESULTS}"
     run_one plain "${PLAIN_PORT}" "${PLAIN_RATE}" ""
     run_one tls "${TLS_PORT}" "${TLS_RATE}" "--tls"
+    run_one h2 "${TLS_PORT}" "${TLS_RATE}" "--h2"
     log "results saved to ${RESULTS}"
     rm -rf "${WORK}"
 }
