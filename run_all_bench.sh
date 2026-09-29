@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-cd /home/yjlee/fly.board
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
 # Tunables used for the benchmark suite. These values aim to minimize
 # first-paint latency while keeping per-response overhead low:

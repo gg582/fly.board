@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-SERVER_DIR="/home/yjlee/fly.board"
+SERVER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKERS=12
 CONNS=1000000
 VIPS=48
@@ -127,7 +127,7 @@ run_one() {
     stop_server
 
     {
-        echo "== ${mode} (port ${port}, ${WORKERS} workers, ${rate} conn/s, ${VIPS} VIPs, ping ${PING}s, cwist $(git -C "${CWIST_ROOT:-/home/yjlee/cwist}" rev-parse --short HEAD 2>/dev/null))"
+        echo "== ${mode} (port ${port}, ${WORKERS} workers, ${rate} conn/s, ${VIPS} VIPs, ping ${PING}s, cwist $(git -C "${CWIST_ROOT:-${SERVER_DIR}/../cwist}" rev-parse --short HEAD 2>/dev/null))"
         tail -2 "${WORK}/${mode}.log"
         cat "${WORK}/${mode}_mem.log" 2>/dev/null || true
         echo

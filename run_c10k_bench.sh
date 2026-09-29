@@ -7,7 +7,7 @@ set -euo pipefail
 
 # Configuration
 WORKERS=4
-SERVER_DIR="/home/yjlee/fly.board"
+SERVER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 H2LOAD_CONN=1000
 H2LOAD_REQ=2000
 H2LOAD_RATE=500
