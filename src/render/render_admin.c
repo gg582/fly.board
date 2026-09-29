@@ -1,8 +1,10 @@
 #define _POSIX_C_SOURCE 200809L
 #include "render.h"
 #include "render_internal.h"
+#include "config/write_policy.h"
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
+#include <string.h>
 
 cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
@@ -52,7 +54,47 @@ cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pi
     return page;
 }
 
-cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile) {
+static void append_scope_select(cwist_sstring *b, const char *name, write_scope_t current) {
+    static const struct { write_scope_t scope; const char *label; } options[] = {
+        {WRITE_SCOPE_GUEST, "Guest: anyone, no account needed"},
+        {WRITE_SCOPE_MEMBER, "Member: registered members and admins"},
+        {WRITE_SCOPE_ADMIN, "Admin: admins only"},
+    };
+    cwist_sstring_append(b, "<select name='");
+    cwist_sstring_append(b, name);
+    cwist_sstring_append(b, "'>");
+    for (size_t i = 0; i < sizeof(options) / sizeof(options[0]); i++) {
+        cwist_sstring_append(b, "<option value='");
+        cwist_sstring_append(b, write_scope_name(options[i].scope));
+        cwist_sstring_append(b, options[i].scope == current ? "' selected>" : "'>");
+        cwist_sstring_append(b, options[i].label);
+        cwist_sstring_append(b, "</option>");
+    }
+    cwist_sstring_append(b, "</select>");
+}
+
+static void append_write_policy_section(cwist_sstring *b, const char *msg) {
+    write_policy_t policy = write_policy_get();
+    cwist_sstring_append(b, "<section class='board-line fade-in' style='animation-delay:0.15s'><div class='board-line-head'><h2 class='board-line-title'>Write Policy</h2></div>");
+    cwist_sstring_append(b, "<p class='board-card-desc'>Pick the lowest tier (Guest, Member, Admin) that may write posts and comments, and whether every post needs a board.</p>");
+    if (msg && strcmp(msg, "saved") == 0) {
+        cwist_sstring_append(b, "<div class='alert'>Write policy saved.</div>");
+    } else if (msg && strcmp(msg, "error") == 0) {
+        cwist_sstring_append(b, "<div class='alert'>Write policy could not be saved.</div>");
+    }
+    cwist_sstring_append(b, "<form action='/admin/write-policy' method='post'>");
+    cwist_sstring_append(b, "<label>Who can write posts</label>");
+    append_scope_select(b, "post_scope", policy.post);
+    cwist_sstring_append(b, "<label>Who can write comments</label>");
+    append_scope_select(b, "comment_scope", policy.comment);
+    cwist_sstring_append(b, "<label><input type='checkbox' name='require_board' value='1'");
+    if (policy.require_board) cwist_sstring_append(b, " checked");
+    cwist_sstring_append(b, "> Require a board for every post</label>");
+    cwist_sstring_append(b, "<div style='margin-top:12px'><button type='submit' class='btn'>Save Write Policy</button></div>");
+    cwist_sstring_append(b, "</form></section>");
+}
+
+cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile, const char *msg) {
     cwist_sstring *b = cwist_sstring_create();
     cwist_sstring_assign(b, "<div class='hero'><h1>Dashboard</h1></div>");
     cwist_sstring_append(b, "<div class='board-list stagger'>");
@@ -66,6 +108,7 @@ cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool i
     cwist_sstring_append(b, "<p class='board-card-desc'>Drop all uploaded files. This action cannot be undone.</p>");
     cwist_sstring_append(b, "<form action='/admin/files/drop' method='post' data-confirm='Drop ALL files? This cannot be undone.'>");
     cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Drop All Files</button></form></section>");
+    append_write_policy_section(b, msg);
     cwist_sstring_append(b, "</div>");
     cwist_sstring *page = render_page("Dashboard", b->data, dark, "admin", profile_pic, is_mobile);
     cwist_sstring_destroy(b);

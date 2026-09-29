@@ -3692,6 +3692,19 @@
 
     if (form) {
         form.addEventListener('submit', function(event) {
+            // The dashboard write policy can require a board (data-required).
+            var boardDropdown = document.getElementById('board-dropdown');
+            var boardInput = document.getElementById('board-id-input');
+            if (boardDropdown && boardInput && boardDropdown.hasAttribute('data-required') &&
+                !(parseInt(boardInput.value, 10) > 0)) {
+                event.preventDefault();
+                var boardMsg = document.getElementById('board-required-msg');
+                if (boardMsg) boardMsg.hidden = false;
+                var boardTrigger = boardDropdown.querySelector('.styled-dropdown-trigger');
+                if (boardTrigger) boardTrigger.focus();
+                boardDropdown.scrollIntoView({ block: 'center' });
+                return;
+            }
             if (hasActiveUploads()) {
                 event.preventDefault();
                 updateSubmitButtons();
@@ -4003,6 +4016,8 @@
             item.setAttribute('aria-selected', 'true');
             hiddenInput.value = item.getAttribute('data-value');
             label.textContent = item.textContent;
+            var boardMsg = document.getElementById('board-required-msg');
+            if (boardMsg) boardMsg.hidden = true;
             closeDropdown();
         }
 

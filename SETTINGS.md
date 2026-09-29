@@ -105,3 +105,18 @@ uploads stay on local disk. S3 is enabled only when `endpoint`, `bucket`,
 | `prefix` | string | Key prefix inside the bucket |
 | `use_path_style` | bool | Path-style (vs virtual-host) URLs |
 | `mode` | `mirror` \| `offload` | `mirror` keeps a local copy and also stores in S3; `offload` moves files to S3. Unknown values fall back to `mirror` |
+
+## Dashboard: Write Policy
+
+Not a file: an admin sets this under **Write Policy** on `/admin/dashboard`.
+It is stored in the `site_settings` table of `data/blog.db` and applies to
+every worker process immediately, no restart needed
+(`src/config/write_policy.c`).
+
+| Setting | Values | Default | Effect |
+| --- | --- | --- | --- |
+| Who can write posts | Guest \| Member \| Admin | Guest | Lowest tier allowed to post; each tier includes those above it. Gates `/post/new` and editor uploads (`/api/upload`); guests are sent to log in, members get 403 when only admins may post. The New Post button is hidden from anyone who may not post |
+| Who can write comments | Guest \| Member \| Admin | Guest | Gates `/comment/new` on posts and files; the comment and reply forms are replaced by a notice |
+| Require a board for every post | on \| off | off | New and edited posts must pick an existing board |
+
+Guests may comment but not post, for example: posts = Member, comments = Guest.

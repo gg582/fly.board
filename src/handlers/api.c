@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#include "config/write_policy.h"
 #include "../db/db_internal.h"
 #include "cwist/board_tree.h"
 #include <curl/curl.h>
@@ -365,6 +366,12 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
+    /* Editor attachments belong to a post, so they follow the post scope. */
+    if (!write_policy_can_post(role)) {
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "{\"ok\":false,\"error\":\"posting not allowed\"}");
+        return;
+    }
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
     if (!ctype || !strstr(ctype, "multipart/form-data")) {
         res->status_code = CWIST_HTTP_BAD_REQUEST;

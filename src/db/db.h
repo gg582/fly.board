@@ -12,6 +12,10 @@ bool db_transaction_begin(cwist_db *db);
 bool db_transaction_commit(cwist_db *db);
 bool db_transaction_rollback(cwist_db *db);
 
+/* Site settings: admin-editable key/value pairs (see config/write_policy.h) */
+bool db_site_setting_get(cwist_db *db, const char *key, char *out, size_t out_len);
+bool db_site_setting_set(cwist_db *db, const char *key, const char *value);
+
 /* Users */
 cJSON *db_user_get_by_username(cwist_db *db, const char *username);
 cJSON *db_user_get_by_id(cwist_db *db, int id);

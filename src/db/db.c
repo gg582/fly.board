@@ -373,6 +373,7 @@ bool db_migrate(cwist_db *db) {
      * so the new column defaults to verified=1; only rows created while the
      * flag is on are explicitly inserted as unverified. */
     db_exec_sql(db, "ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 1");
+    db_exec_sql(db, "CREATE TABLE IF NOT EXISTS site_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS email_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, token TEXT UNIQUE NOT NULL, expires_at INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
 
     /* Rebuild posts with nullable user_id so anonymous posts (user_id 0)
@@ -394,4 +395,33 @@ bool db_migrate(cwist_db *db) {
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_boards_slug ON boards(slug)");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_comments_target ON comments(target_type, target_id, created_at DESC)");
     return true;
+}
+
+bool db_site_setting_get(cwist_db *db, const char *key, char *out, size_t out_len) {
+    if (!key || !out || out_len == 0) return false;
+    const char *sql = "SELECT value FROM site_settings WHERE key=? LIMIT 1";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
+    bool found = false;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char *value = sqlite3_column_text(stmt, 0);
+        snprintf(out, out_len, "%s", value ? (const char *)value : "");
+        found = true;
+    }
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+bool db_site_setting_set(cwist_db *db, const char *key, const char *value) {
+    if (!key || !value) return false;
+    const char *sql = "INSERT INTO site_settings (key, value) VALUES (?,?) "
+                      "ON CONFLICT(key) DO UPDATE SET value=excluded.value";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, value, -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }

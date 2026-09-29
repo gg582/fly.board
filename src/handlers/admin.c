@@ -1,13 +1,15 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 #include "cwist/board_tree.h"
+#include "config/write_policy.h"
 
 void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
     int uid = 0; char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page = render_admin_dashboard(is_dark(req), pp, is_mobile_request(req));
+    const char *msg = cwist_query_map_get(req->query_params, "msg");
+    cwist_sstring *page = render_admin_dashboard(is_dark(req), pp, is_mobile_request(req), msg);
     send_html_res(res, page);
     free(pp);
 }
@@ -21,6 +23,33 @@ void handler_dashboard(cwist_http_request *req, cwist_http_response *res) {
     } else {
         redirect(res, "/profile");
     }
+}
+
+void handler_admin_write_policy_post(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    cwist_query_map *kv = cwist_query_map_create();
+    if (req->body && req->body->data) cwist_query_map_parse(kv, req->body->data);
+    write_policy_t policy = write_policy_get();
+    const char *post_scope = cwist_query_map_get(kv, "post_scope");
+    const char *comment_scope = cwist_query_map_get(kv, "comment_scope");
+    bool ok = write_scope_parse(post_scope, &policy.post) &&
+              write_scope_parse(comment_scope, &policy.comment);
+    /* An unchecked checkbox is simply absent from the form body. */
+    policy.require_board = cwist_query_map_get(kv, "require_board") != NULL;
+    cwist_query_map_destroy(kv);
+    if (ok) ok = write_policy_set(req->db, &policy);
+    if (ok) {
+        CWIST_LOG_INFO("Write policy updated: posts=%s comments=%s require_board=%s",
+                       write_scope_name(policy.post), write_scope_name(policy.comment),
+                       policy.require_board ? "yes" : "no");
+        /* Cached pages carry the New Post button and comment forms. This
+         * also bumps the shared route BDR; the other workers' page caches
+         * miss through the policy generation in their keys. */
+        page_cache_invalidate_all();
+    } else {
+        CWIST_LOG_ERROR("Write policy update failed");
+    }
+    redirect(res, ok ? "/admin/dashboard?msg=saved" : "/admin/dashboard?msg=error");
 }
 
 void handler_admin_users(cwist_http_request *req, cwist_http_response *res) {

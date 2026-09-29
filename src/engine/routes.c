@@ -105,6 +105,8 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/admin/files/drop", handler_file_repo);
     engine_async_post(app, "/admin/files/drop", handler_admin_files_drop);
     engine_async_get(app, "/admin/boards", handler_admin_boards_get);
+    engine_async_get(app, "/admin/write-policy", handler_admin_dashboard);
+    engine_async_post(app, "/admin/write-policy", handler_admin_write_policy_post);
 
     engine_async_post(app, "/api/preview", handler_api_preview);
     engine_async_post(app, "/api/upload", handler_api_upload);
