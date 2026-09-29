@@ -92,27 +92,40 @@ static bool require_post_scope(cwist_http_request *req, cwist_http_response *res
     return false;
 }
 
-/* With require_board on, a post must name a board that exists. */
-static bool post_board_ok(cwist_db *db, int board_id) {
-    if (!write_policy_get().require_board) return true;
-    if (board_id <= 0) return false;
-    cJSON *board = db_board_get_by_id(db, board_id);
-    if (!board) return false;
-    cJSON_Delete(board);
-    return true;
+#define BOARD_ERROR_REQUIRED "Choose a board for this post"
+#define BOARD_ERROR_DENIED   "You cannot post to this board"
+
+/* NULL when a post may go to board_id, else the editor error to show. A
+ * board must exist, and an admin_only board takes admins or users granted
+ * on /board/:id/perms; with require_board on, no board is an error too. */
+static const char *post_board_error(cwist_db *db, int board_id, int uid, const char *role) {
+    if (board_id <= 0) return write_policy_get().require_board ? BOARD_ERROR_REQUIRED : NULL;
+    if (!db_board_can_user_access(db, board_id, uid, strcmp(role, "admin") == 0)) return BOARD_ERROR_DENIED;
+    return NULL;
+}
+
+/* Boards the viewer may post to, flattened for the editor dropdown. */
+static cJSON *editor_boards(cwist_db *db, int uid, const char *role) {
+    cJSON *boards = db_board_list(db);
+    cJSON *tree = db_board_tree_get_all();
+    cJSON *ordered = cJSON_CreateArray();
+    append_boards_flat(ordered, boards, tree, 0, 4);
+    bool is_admin = strcmp(role, "admin") == 0;
+    for (int i = cJSON_GetArraySize(ordered) - 1; i >= 0; i--) {
+        int bid = json_int(cJSON_GetArrayItem(ordered, i), "id", 0);
+        if (!db_board_can_user_access(db, bid, uid, is_admin)) cJSON_DeleteItemFromArray(ordered, i);
+    }
+    if (tree) cJSON_Delete(tree);
+    if (boards) cJSON_Delete(boards);
+    return ordered;
 }
 
 static void send_post_editor_error(cwist_http_request *req, cwist_http_response *res, int uid,
                                    const char *role, int initial_board_id, const char *error) {
-    cJSON *boards = db_board_list(req->db);
-    cJSON *tree = db_board_tree_get_all();
-    cJSON *ordered = cJSON_CreateArray();
-    append_boards_flat(ordered, boards, tree, 0, 4);
+    cJSON *ordered = editor_boards(req->db, uid, role);
     char *pp = get_profile_pic(req->db, uid, role);
     cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, error, pp, is_mobile_request(req));
     if (ordered) cJSON_Delete(ordered);
-    if (tree) cJSON_Delete(tree);
-    if (boards) cJSON_Delete(boards);
     send_html_res(res, page);
     free(pp);
 }
@@ -374,10 +387,7 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     auth_is_logged_in(req, &uid, role, sizeof(role));
     if (!require_post_scope(req, res, role)) return;
     char *pp = get_profile_pic(req->db, uid, role);
-    cJSON *boards = db_board_list(req->db);
-    cJSON *tree = db_board_tree_get_all();
-    cJSON *ordered = cJSON_CreateArray();
-    append_boards_flat(ordered, boards, tree, 0, 4);
+    cJSON *ordered = editor_boards(req->db, uid, role);
     int initial_board_id = 0;
     const char *board_slug = cwist_query_map_get(req->query_params, "board");
     if (board_slug && board_slug[0]) {
@@ -389,8 +399,6 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     }
     cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, NULL, pp, is_mobile_request(req));
     if (ordered) cJSON_Delete(ordered);
-    if (tree) cJSON_Delete(tree);
-    if (boards) cJSON_Delete(boards);
     send_html_res(res, page);
     free(pp);
 }
@@ -478,9 +486,10 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     int board_id = board_id_str ? atoi(board_id_str) : 0;
-    if (!post_board_ok(req->db, board_id)) {
-        CWIST_LOG_WARN("Post creation failed: board required uid=%d board_id=%d", uid, board_id);
-        send_post_editor_error(req, res, uid, role, 0, "Choose a board for this post");
+    const char *board_error = post_board_error(req->db, board_id, uid, role);
+    if (board_error) {
+        CWIST_LOG_WARN("Post creation refused: %s uid=%d board_id=%d", board_error, uid, board_id);
+        send_post_editor_error(req, res, uid, role, 0, board_error);
         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
         multipart_free(files);
         return;
@@ -560,21 +569,18 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res) {
         cJSON_Delete(post);
         return;
     }
-    cJSON *boards = db_board_list(req->db);
-    cJSON *tree = db_board_tree_get_all();
-    cJSON *ordered = cJSON_CreateArray();
-    append_boards_flat(ordered, boards, tree, 0, 4);
+    cJSON *ordered = editor_boards(req->db, uid, role);
     char *pp = get_profile_pic(req->db, uid, role);
     int post_id_val = json_int(post, "id", 0);
     cJSON *files = db_file_list_by_post(req->db, post_id_val);
     const char *error = cwist_query_map_get(req->query_params, "error");
-    const char *error_msg = (error && strcmp(error, "board") == 0) ? "Choose a board for this post" : NULL;
+    const char *error_msg = NULL;
+    if (error && strcmp(error, "board") == 0) error_msg = BOARD_ERROR_REQUIRED;
+    else if (error && strcmp(error, "board_denied") == 0) error_msg = BOARD_ERROR_DENIED;
     cwist_sstring *page = render_post_editor(ordered, post, files, 0, is_dark(req), role, error_msg, pp, is_mobile_request(req));
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
     if (ordered) cJSON_Delete(ordered);
-    if (tree) cJSON_Delete(tree);
-    if (boards) cJSON_Delete(boards);
     send_html_res(res, page);
     free(pp);
 }
@@ -686,10 +692,12 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     int board_id = board_id_str ? atoi(board_id_str) : 0;
-    if (!post_board_ok(req->db, board_id)) {
-        CWIST_LOG_WARN("Post edit failed: board required id=%s uid=%d board_id=%d", id_str, uid, board_id);
+    const char *board_error = post_board_error(req->db, board_id, uid, role);
+    if (board_error) {
+        CWIST_LOG_WARN("Post edit refused: %s id=%s uid=%d board_id=%d", board_error, id_str, uid, board_id);
         char edit_url[96];
-        snprintf(edit_url, sizeof(edit_url), "/post/%d/edit?error=board", json_int(post, "id", 0));
+        snprintf(edit_url, sizeof(edit_url), "/post/%d/edit?error=%s", json_int(post, "id", 0),
+                 strcmp(board_error, BOARD_ERROR_DENIED) == 0 ? "board_denied" : "board");
         cJSON_Delete(post);
         reqshare_write_lock_release(wl_key);
         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
