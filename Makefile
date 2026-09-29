@@ -4,8 +4,11 @@ CC ?= gcc
 # Detect OS
 UNAME_S := $(shell uname -s)
 
-# CWIST Paths (Source root or Installed prefix)
-CWIST_ROOT ?= /home/yjlee/cwist
+# CWIST Paths (Source root or Installed prefix). The source root defaults to a
+# cwist checkout next to this repository; override with CWIST_ROOT=... or let
+# the installed-prefix fallback below take over when no built tree is found.
+FLYBOARD_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+CWIST_ROOT ?= $(abspath $(FLYBOARD_DIR)/../cwist)
 CWIST_PREFIX ?= /usr/local
 
 ifeq ($(wildcard $(CWIST_ROOT)/libcwist.a),)

@@ -35,7 +35,7 @@
 #     connections stuck pre-handshake). Keep per-process concurrency in the
 #     low thousands; scale by process count across distinct VIPs.
 WORKERS=12
-SERVER_DIR="/home/yjlee/fly.board"
+SERVER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 H2LOAD_CONN=5000        # concurrent conns per h2load process (100k held total)
 H2LOAD_REQ=50000        # per-process request budget (aggregate: 1M requests)
 H2LOAD_RATE=1000        # new conns/s per process (C100K-proven safe rate)
