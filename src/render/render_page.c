@@ -660,8 +660,33 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                 const bool custom_font_css = g_font_settings.import_url[0] != '\0' ||
                                              g_font_settings.face_src[0] != '\0';
                 if (g_font_settings.import_url[0]) {
+                    /* A local @import still costs a render-blocking round
+                     * trip; inline the file body when it points at one of
+                     * our own sheets (e.g. the Pretendard subset). */
+                    const char *import_body = g_font_settings.import_url;
+                    char import_buf[256];
+                    const char *p = strstr(g_font_settings.import_url, "url(\"");
+                    if (p) {
+                        p += 5;
+                        const char *end = strchr(p, '"');
+                        if (end && (size_t)(end - p) < sizeof(import_buf) &&
+                            p[0] == '/' && strncmp(p, "//", 2) != 0) {
+                            memcpy(import_buf, p, (size_t)(end - p));
+                            import_buf[end - p] = '\0';
+                            char fs_path[320];
+                            snprintf(fs_path, sizeof(fs_path), "public%s", import_buf);
+                            FILE *cssf = fopen(fs_path, "rb");
+                            if (cssf) {
+                                static char css_body[64 * 1024];
+                                size_t cssn = fread(css_body, 1, sizeof(css_body) - 1, cssf);
+                                fclose(cssf);
+                                css_body[cssn] = '\0';
+                                import_body = css_body;
+                            }
+                        }
+                    }
                     cwist_sstring_append(head_shell, "<style>");
-                    cwist_sstring_append(head_shell, g_font_settings.import_url);
+                    cwist_sstring_append(head_shell, import_body);
                     cwist_sstring_append(head_shell, "</style>");
                 }
                 if (g_font_settings.face_src[0]) {
