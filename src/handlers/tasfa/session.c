@@ -343,6 +343,9 @@ cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
     cJSON_AddNumberToObject(obj, "chunk_size", json_int(meta, "chunk_size", TASFA_UPLOAD_CHUNK_SIZE_DEFAULT));
     cJSON_AddNumberToObject(obj, "chunk_count", chunk_count);
     cJSON_AddStringToObject(obj, "fec_mode", json_string(meta, "fec_mode", "xor1"));
+    /* Async-finalize progress: pending/done/failed/skipped (absent for legacy sessions). */
+    cJSON *previews = cJSON_GetObjectItem(meta, "previews");
+    if (cJSON_IsString(previews)) cJSON_AddStringToObject(obj, "previews", previews->valuestring);
     cJSON_AddNumberToObject(obj, "total_size", (double)total_size);
     cJSON_AddStringToObject(obj, "received_bitmap", bitmap);
     cJSON_AddNumberToObject(obj, "received_chunks", received_chunks);

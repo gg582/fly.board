@@ -143,11 +143,14 @@ typedef struct {
     tasfa_compress_type_t compress_type;
     long long offset;
     long long expected_size;
+    long long total_size;
+    int session_chunk_size;
     int chunk_count;
     const char *hash_tag_hex;
     const char *magic_scalar_str;
     bool is_parity;
     int data_chunks;
+    bool force_hash_note;
     /* outputs */
     bool stored;
     bool state_ok;
@@ -171,7 +174,16 @@ typedef struct {
     cwist_db *db;
     char upload_id[33];
     char upload_token[49];
+    bool async_finalize;
 } upload_finalize_job_t;
+
+typedef struct {
+    cwist_db *db;
+    char upload_id[33];
+    int fid;
+    char final_path[PATH_MAX];
+    char mime_buf[128];
+} upload_media_job_t;
 
 /* --- Shared global variables (defined in one .c file each) --- */
 
@@ -221,6 +233,13 @@ bool is_client_connected(cwist_http_request *req);
 bool str_contains_ci_local(const char *haystack, const char *needle);
 int rename_fallback(const char *src, const char *dst);
 bool sha256_file(const char *path, unsigned char out[32]);
+void tasfa_rolling_hash_reset(const char *upload_id);
+void tasfa_rolling_hash_notify_rewrite(const char *upload_id, int chunk_index);
+bool tasfa_rolling_hash_note_chunk(const char *upload_id, const char *temp_path,
+                                   int chunk_index, int chunk_size, int data_chunks,
+                                   long long total_size);
+bool tasfa_rolling_hash_finish(const char *upload_id, const char *path, int chunk_size,
+                               int data_chunks, long long total_size, unsigned char out[32]);
 int clamp_int(int value, int min_value, int max_value);
 bool tasfa_media_concurrency_acquire(cwist_http_request *req);
 void tasfa_media_concurrency_release(void);
