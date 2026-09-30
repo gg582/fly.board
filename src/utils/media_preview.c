@@ -16,6 +16,11 @@
 #include <semaphore.h>
 #include <dirent.h>
 
+#include "stb_image.h"
+#ifdef HAVE_WEBP
+#include <webp/encode.h>
+#endif
+
 static char *escape_shell_arg(const char *src) {
     if (!src) return NULL;
     size_t len = strlen(src);
@@ -222,6 +227,84 @@ bool generate_gif_thumb(const char *src, const char *dst, int max_w, int max_h, 
     return ok;
 }
 
+/* In-process fallback for generate_static_asset_webp when the ffmpeg spawn
+ * fails (missing binary, restrictive PATH, or an input the CLI decoder
+ * rejects): decode with stb, bilinear-fit into the max_w x max_h box
+ * preserving the aspect ratio, and encode with the already-linked libwebp
+ * encoder. Keeps sized /assets/img/ requests from silently falling back to
+ * the full-size original. */
+static bool generate_static_asset_webp_inprocess(const char *src, const char *dst, int max_w, int max_h) {
+#ifdef HAVE_WEBP
+    int w = 0, h = 0, channels = 0;
+    unsigned char *pixels = stbi_load(src, &w, &h, &channels, 4);
+    if (!pixels) return false;
+    if (w <= 0 || h <= 0 || w > 16384 || h > 16384) { stbi_image_free(pixels); return false; }
+
+    int dw = w, dh = h;
+    if (w > max_w || h > max_h) {
+        if ((long long)w * max_h > (long long)h * max_w) {
+            dw = max_w;
+            dh = (int)(((long long)h * max_w + w / 2) / w);
+        } else {
+            dh = max_h;
+            dw = (int)(((long long)w * max_h + h / 2) / h);
+        }
+        if (dw < 1) dw = 1;
+        if (dh < 1) dh = 1;
+    }
+
+    const unsigned char *encode_src = pixels;
+    int encode_w = w, stride = w * 4;
+    unsigned char *resized = NULL;
+    if (dw != w || dh != h) {
+        resized = (unsigned char *)malloc((size_t)dw * dh * 4);
+        if (!resized) { stbi_image_free(pixels); return false; }
+        for (int y = 0; y < dh; y++) {
+            float sy = (dh == 1) ? 0.0f : ((float)y * (h - 1)) / (dh - 1);
+            int y0 = (int)sy;
+            int y1 = y0 + 1 < h ? y0 + 1 : y0;
+            float fy = sy - y0;
+            for (int x = 0; x < dw; x++) {
+                float sx = (dw == 1) ? 0.0f : ((float)x * (w - 1)) / (dw - 1);
+                int x0 = (int)sx;
+                int x1 = x0 + 1 < w ? x0 + 1 : x0;
+                float fx = sx - x0;
+                unsigned char *o = resized + ((size_t)y * dw + x) * 4;
+                for (int c = 0; c < 4; c++) {
+                    float p00 = pixels[((size_t)y0 * w + x0) * 4 + c];
+                    float p01 = pixels[((size_t)y0 * w + x1) * 4 + c];
+                    float p10 = pixels[((size_t)y1 * w + x0) * 4 + c];
+                    float p11 = pixels[((size_t)y1 * w + x1) * 4 + c];
+                    float top = p00 + (p01 - p00) * fx;
+                    float bot = p10 + (p11 - p10) * fx;
+                    int v = (int)(top + (bot - top) * fy + 0.5f);
+                    o[c] = v > 255 ? 255 : (unsigned char)v;
+                }
+            }
+        }
+        encode_src = resized;
+        encode_w = dw;
+        stride = dw * 4;
+    }
+
+    uint8_t *webp = NULL;
+    size_t webp_size = WebPEncodeRGBA(encode_src, encode_w, dh, stride, 80.0f, &webp);
+    free(resized);
+    stbi_image_free(pixels);
+    if (!webp || webp_size == 0) return false;
+
+    FILE *f = fopen(dst, "wb");
+    if (!f) { WebPFree(webp); return false; }
+    size_t written = fwrite(webp, 1, webp_size, f);
+    fclose(f);
+    WebPFree(webp);
+    return written == webp_size;
+#else
+    (void)src; (void)dst; (void)max_w; (void)max_h;
+    return false;
+#endif
+}
+
 bool generate_static_asset_webp(const char *src, const char *dst, int max_w, int max_h) {
     if (!src || !dst || max_w <= 0 || max_h <= 0) return false;
     if (!validate_media_path(src) || !validate_media_path(dst)) return false;
@@ -242,6 +325,10 @@ bool generate_static_asset_webp(const char *src, const char *dst, int max_w, int
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vf 'scale=%d:%d:force_original_aspect_ratio=decrease' -frames:v 1 -c:v libwebp -quality %d -compression_level %d -y '%s'",
         esc_src, max_w, max_h, quality, compression, esc_dst);
     bool ok = run_ffmpeg(cmd);
+    if (!ok) {
+        CWIST_LOG_WARN("generate_static_asset_webp: ffmpeg failed for %s; falling back to in-process libwebp", src);
+        ok = generate_static_asset_webp_inprocess(src, dst, max_w, max_h);
+    }
     free(esc_src);
     free(esc_dst);
     return ok;

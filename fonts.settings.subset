@@ -11,16 +11,17 @@
 # into public/fonts/ at startup when it is missing locally, so a fresh
 # deployment only needs this settings file.  URLs below point at the
 # official Pretendard v1.3.9 subset distribution (OFL-1.1).
+#
+# Only the weights the theme references are listed: the font_weight_* values
+# below resolve to faces 400/500/600/700/800 (450/550/650 fall to the
+# nearest face per CSS font matching). Thin/ExtraLight/Light/Black are
+# unused and cost ~267 KiB each.
 font_import_url=@import url("/assets/css/pretendard-subset.css");
-font_file=Pretendard-Thin.subset.woff2 https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/woff2-subset/Pretendard-Thin.subset.woff2
-font_file=Pretendard-ExtraLight.subset.woff2 https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/woff2-subset/Pretendard-ExtraLight.subset.woff2
-font_file=Pretendard-Light.subset.woff2 https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/woff2-subset/Pretendard-Light.subset.woff2
 font_file=Pretendard-Regular.subset.woff2 https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/woff2-subset/Pretendard-Regular.subset.woff2
 font_file=Pretendard-Medium.subset.woff2 https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/woff2-subset/Pretendard-Medium.subset.woff2
 font_file=Pretendard-SemiBold.subset.woff2 https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/woff2-subset/Pretendard-SemiBold.subset.woff2
 font_file=Pretendard-Bold.subset.woff2 https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/woff2-subset/Pretendard-Bold.subset.woff2
 font_file=Pretendard-ExtraBold.subset.woff2 https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/woff2-subset/Pretendard-ExtraBold.subset.woff2
-font_file=Pretendard-Black.subset.woff2 https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/woff2-subset/Pretendard-Black.subset.woff2
 font_face_family=JetBrains Mono
 font_face_src=
 font_body='Inter', 'Pretendard', sans-serif

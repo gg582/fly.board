@@ -551,14 +551,23 @@ static bool build_image_preview_variant(cwist_http_request *req, cJSON *file,
 }
 
 /* Serve a static image asset (img or profile scope) as a webp file with
-   aggressive compression. Falls back to the original file when the client does
-   not accept webp or when conversion fails. */
+   aggressive compression. PNG sources always take the webp path: every
+   browser since ~2020 decodes webp and png almost always shrinks. Other
+   image formats keep the Accept gate as a last-resort fallback for clients
+   without webp support. Falls back to the original file when conversion
+   fails. */
 static bool send_static_asset_webp_response(cwist_http_request *req, cwist_http_response *res,
                                             const char *scope, const char *path, const char *filename,
                                             int default_w, int default_h) {
     const char *orig_mime = mime_type(filename);
     bool is_image = orig_mime && strncmp(orig_mime, "image/", 6) == 0;
-    if (!is_image || !client_accepts_webp(req)) {
+    if (!is_image) {
+        return send_cached_file_response(req, res, path, orig_mime, IMAGE_CACHE_CONTROL, NULL);
+    }
+    bool is_png = false;
+    size_t fn_len = strlen(filename);
+    if (fn_len >= 4 && strcasecmp(filename + fn_len - 4, ".png") == 0) is_png = true;
+    if (!is_png && !client_accepts_webp(req)) {
         return send_cached_file_response(req, res, path, orig_mime, IMAGE_CACHE_CONTROL, NULL);
     }
 
