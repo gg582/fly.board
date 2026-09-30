@@ -63,7 +63,7 @@ static void validate_image_setting(char *filename, const char *setting_name) {
 static void set_default(void) {
     snprintf(g_config.title, sizeof(g_config.title), "CWIST Docker Blog");
     snprintf(g_config.subtitle, sizeof(g_config.subtitle), "Explore boards and read stories.");
-    snprintf(g_config.brand_footer, sizeof(g_config.brand_footer), "Built with CWIST C Framework");
+    snprintf(g_config.brand_footer, sizeof(g_config.brand_footer), "Built with c4punks/CWIST | Served in Finland, Helsinki 🇫🇮");
     snprintf(g_config.accent, sizeof(g_config.accent), "#3b82f6");
     g_config.port = 8443;
     g_config.use_tasfa = true;
@@ -211,7 +211,7 @@ bool blog_config_load(const char *path) {
     fclose(f);
     if (!g_config.title[0]) snprintf(g_config.title, sizeof(g_config.title), "CWIST Docker Blog");
     if (!g_config.subtitle[0]) snprintf(g_config.subtitle, sizeof(g_config.subtitle), "Explore boards and read stories.");
-    if (!g_config.brand_footer[0]) snprintf(g_config.brand_footer, sizeof(g_config.brand_footer), "Built with CWIST C Framework");
+    if (!g_config.brand_footer[0]) snprintf(g_config.brand_footer, sizeof(g_config.brand_footer), "Built with c4punks/CWIST | Served in Finland, Helsinki 🇫🇮");
     if (!g_config.accent[0]) snprintf(g_config.accent, sizeof(g_config.accent), "#3b82f6");
     if (g_config.port <= 0 || g_config.port > 65535) g_config.port = 8443;
     if (g_config.max_upload_size <= 0) g_config.max_upload_size = 1024LL * 1024LL * 1024LL;
