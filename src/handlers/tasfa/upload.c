@@ -1010,7 +1010,7 @@ static bool tasfa_finalize_session_process(cwist_db *db,
             tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
         } else thumb_path[0] = '\0';
         snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp4", fid);
-        if (generate_video_preview(final_path, preview_path, 1080)) {
+        if (generate_video_preview(final_path, preview_path, 720)) {
             char media_name[64]; snprintf(media_name, sizeof(media_name), "preview_%d", fid);
             tasfa_generate_htp_metadata_for_file(preview_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
         } else preview_path[0] = '\0';

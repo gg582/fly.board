@@ -290,10 +290,10 @@ void choose_upload_window(bool mobile, int score, int *initial_parallel, int *ma
     int initial_value = TASFA_UPLOAD_DEFAULT_PARALLEL;
     int max_value = TASFA_UPLOAD_MAX_PARALLEL;
     int pace = 0;
-    if (score >= 45) { initial_value = 32; max_value = 40; }
-    else if (score >= 25) { initial_value = 24; max_value = 32; pace = 1; }
-    else if (score >= 10) { initial_value = 16; max_value = 24; pace = 3; }
-    else { initial_value = 10; max_value = 16; pace = 6; }
+    if (score >= 45) { initial_value = 32; max_value = 48; }
+    else if (score >= 25) { initial_value = 24; max_value = 32; pace = 0; }
+    else if (score >= 10) { initial_value = 16; max_value = 24; pace = 1; }
+    else { initial_value = 10; max_value = 16; pace = 3; }
 
     int floor = mobile ? 4 : 8;
     if (initial_value < floor) initial_value = floor;
