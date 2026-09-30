@@ -1,6 +1,142 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE
 #include "tasfa_internal.h"
+#include <pthread.h>
+
+/* --- GF(2^8) arithmetic with reduction polynomial 0x11d, used by RS(6+2) FEC --- */
+
+static unsigned char gf_log_tbl[256];
+static unsigned char gf_exp_tbl[510]; /* doubled so log addition never needs a mod */
+static pthread_once_t gf_tables_once = PTHREAD_ONCE_INIT;
+
+static void gf_init_tables(void) {
+    int x = 1;
+    for (int i = 0; i < 255; i++) {
+        gf_exp_tbl[i] = (unsigned char)x;
+        gf_log_tbl[x] = (unsigned char)i;
+        x <<= 1;
+        if (x & 0x100) x ^= 0x11d;
+    }
+    for (int i = 255; i < 510; i++) gf_exp_tbl[i] = gf_exp_tbl[i - 255];
+}
+
+static unsigned char gf_mul(uint8_t a, uint8_t b) {
+    if (a == 0 || b == 0) return 0;
+    return gf_exp_tbl[gf_log_tbl[a] + gf_log_tbl[b]];
+}
+
+static unsigned char gf_div(uint8_t a, uint8_t b) {
+    if (a == 0) return 0;
+    /* Callers only divide by nonzero coefficients/determinants. */
+    return gf_exp_tbl[gf_log_tbl[a] + 255 - gf_log_tbl[b]];
+}
+
+/* RS(6+2) erasure recovery for one group of up to 6 data chunks.
+ * missing_b < 0 means a single erasure recovered from parity row 0 alone.
+ * Parity row k of group g lives in parity_<2g+k>.bin on disk. */
+bool perform_rs_recovery(const char *upload_id, const char *temp_path, int chunk_size,
+                         int group_start, int group_end, int missing_a, int missing_b,
+                         int parity0_idx, int parity1_idx, int data_chunks, long long total_size) {
+    pthread_once(&gf_tables_once, gf_init_tables);
+
+    unsigned char *p0 = (unsigned char *)cwist_alloc((size_t)chunk_size);
+    unsigned char *p1 = (unsigned char *)cwist_alloc((size_t)chunk_size);
+    unsigned char *chunk_buf = (unsigned char *)cwist_alloc((size_t)chunk_size);
+    if (!p0 || !p1 || !chunk_buf) {
+        cwist_free(p0); cwist_free(p1); cwist_free(chunk_buf);
+        return false;
+    }
+    memset(p0, 0, (size_t)chunk_size);
+    memset(p1, 0, (size_t)chunk_size);
+
+    char parity_path[PATH_MAX];
+    snprintf(parity_path, sizeof(parity_path), "%s/%s/parity_%d.bin", TASFA_UPLOAD_DIR, upload_id, parity0_idx - data_chunks);
+    FILE *pf = fopen(parity_path, "rb");
+    if (!pf) { cwist_free(p0); cwist_free(p1); cwist_free(chunk_buf); return false; }
+    size_t read_bytes = fread(p0, 1, (size_t)chunk_size, pf);
+    fclose(pf);
+    if (read_bytes == 0) { cwist_free(p0); cwist_free(p1); cwist_free(chunk_buf); return false; }
+
+    if (missing_b >= 0) {
+        snprintf(parity_path, sizeof(parity_path), "%s/%s/parity_%d.bin", TASFA_UPLOAD_DIR, upload_id, parity1_idx - data_chunks);
+        pf = fopen(parity_path, "rb");
+        if (!pf) { cwist_free(p0); cwist_free(p1); cwist_free(chunk_buf); return false; }
+        read_bytes = fread(p1, 1, (size_t)chunk_size, pf);
+        fclose(pf);
+        if (read_bytes == 0) { cwist_free(p0); cwist_free(p1); cwist_free(chunk_buf); return false; }
+    }
+
+    int fd = open(temp_path, O_RDWR);
+    if (fd < 0) { cwist_free(p0); cwist_free(p1); cwist_free(chunk_buf); return false; }
+
+    /* Subtract the contribution of every present data chunk from both parity rows. */
+    for (int ci = group_start; ci < group_end; ci++) {
+        if (ci == missing_a || ci == missing_b) continue;
+
+        long long offset = (long long)ci * (long long)chunk_size;
+        long long current_chunk_size = total_size - offset;
+        if (current_chunk_size > chunk_size) current_chunk_size = chunk_size;
+        if (current_chunk_size <= 0) continue;
+
+        memset(chunk_buf, 0, (size_t)chunk_size);
+        if (pread(fd, chunk_buf, (size_t)current_chunk_size, (off_t)offset) != (ssize_t)current_chunk_size) {
+            close(fd); cwist_free(p0); cwist_free(p1); cwist_free(chunk_buf);
+            return false;
+        }
+
+        unsigned char a = (unsigned char)((ci - group_start) + 1); /* x_i = i+1, nonzero distinct */
+        unsigned char b = gf_mul(a, a);
+        for (int i = 0; i < chunk_size; i++) {
+            unsigned char d = chunk_buf[i];
+            if (d) {
+                p0[i] ^= gf_mul(a, d);
+                p1[i] ^= gf_mul(b, d);
+            }
+        }
+    }
+
+    /* Now p0/p1 hold the parity contribution of the missing chunk(s) alone:
+     * 1 missing:  p0 = a_u * d_u                                    => d_u = p0 / a_u
+     * 2 missing:  a_u*d_u ^ a_v*d_v = p0 ; b_u*d_u ^ b_v*d_v = p1   (2x2 solve) */
+    bool write_ok = true;
+    if (missing_b < 0) {
+        unsigned char a_u = (unsigned char)((missing_a - group_start) + 1);
+        for (int i = 0; i < chunk_size; i++) p0[i] = gf_div(p0[i], a_u);
+        long long target_offset = (long long)missing_a * (long long)chunk_size;
+        long long target_size = total_size - target_offset;
+        if (target_size > chunk_size) target_size = chunk_size;
+        write_ok = pwrite_all(fd, p0, (size_t)target_size, (off_t)target_offset);
+    } else {
+        unsigned char a_u = (unsigned char)((missing_a - group_start) + 1);
+        unsigned char b_u = gf_mul(a_u, a_u);
+        unsigned char a_v = (unsigned char)((missing_b - group_start) + 1);
+        unsigned char b_v = gf_mul(a_v, a_v);
+        unsigned char det = gf_mul(a_u, b_v) ^ gf_mul(a_v, b_u); /* x_u*x_v*(x_u^x_v) != 0 */
+        for (int i = 0; i < chunk_size; i++) {
+            unsigned char P0 = p0[i];
+            unsigned char P1 = p1[i];
+            unsigned char d_u = gf_div(gf_mul(P0, b_v) ^ gf_mul(P1, a_v), det);
+            unsigned char d_v = gf_div(gf_mul(a_u, P1) ^ gf_mul(b_u, P0), det);
+            p0[i] = d_u;
+            p1[i] = d_v;
+        }
+        long long off_a = (long long)missing_a * (long long)chunk_size;
+        long long size_a = total_size - off_a;
+        if (size_a > chunk_size) size_a = chunk_size;
+        long long off_b = (long long)missing_b * (long long)chunk_size;
+        long long size_b = total_size - off_b;
+        if (size_b > chunk_size) size_b = chunk_size;
+        write_ok = pwrite_all(fd, p0, (size_t)size_a, (off_t)off_a) &&
+                   pwrite_all(fd, p1, (size_t)size_b, (off_t)off_b);
+    }
+
+    close(fd);
+    cwist_free(p0);
+    cwist_free(p1);
+    cwist_free(chunk_buf);
+    return write_ok;
+}
+
 
 /* --- Lagrange Extrapolation for RTT Prediction ---
  * For large files we collect per-chunk RTT samples and use

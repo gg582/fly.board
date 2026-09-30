@@ -342,6 +342,7 @@ cJSON *build_upload_status_json(cJSON *meta, const char *upload_id) {
     cJSON_AddStringToObject(obj, "stream_mode", "aes-256-gcm");
     cJSON_AddNumberToObject(obj, "chunk_size", json_int(meta, "chunk_size", TASFA_UPLOAD_CHUNK_SIZE_DEFAULT));
     cJSON_AddNumberToObject(obj, "chunk_count", chunk_count);
+    cJSON_AddStringToObject(obj, "fec_mode", json_string(meta, "fec_mode", "xor1"));
     cJSON_AddNumberToObject(obj, "total_size", (double)total_size);
     cJSON_AddStringToObject(obj, "received_bitmap", bitmap);
     cJSON_AddNumberToObject(obj, "received_chunks", received_chunks);

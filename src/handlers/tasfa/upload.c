@@ -33,7 +33,11 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     int chunk_size = choose_chunk_size_upload(mobile, requested_chunk_size);
     int data_chunks = (int)((total_size + chunk_size - 1) / chunk_size);
     if (data_chunks < 1) data_chunks = 1;
-    int parity_chunks = (data_chunks + 5) / 6;
+    /* Negotiated FEC: rs2 gives two GF(2^8) parity chunks per group of 6 data
+       chunks (recovers any 2 erasures); absent/unknown falls back to legacy xor1. */
+    const char *fec = cwist_query_map_get(kv, "fec");
+    bool fec_rs2 = fec && strcmp(fec, "rs2") == 0;
+    int parity_chunks = fec_rs2 ? 2 * ((data_chunks + 5) / 6) : (data_chunks + 5) / 6;
     chunk_count = data_chunks + parity_chunks;
     tasfa_queue_sweep(g_q_uploads, tasfa_upload_session_limit(), 600);
     char upload_id[33];
@@ -108,6 +112,7 @@ void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res)
     cJSON_AddStringToObject(meta, "temp_path", temp_path);
     cJSON_AddNumberToObject(meta, "chunk_size", chunk_size);
     cJSON_AddNumberToObject(meta, "chunk_count", chunk_count);
+    cJSON_AddStringToObject(meta, "fec_mode", fec_rs2 ? "rs2" : "xor1");
     cJSON_AddNumberToObject(meta, "total_size", (double)total_size);
     cJSON_AddStringToObject(meta, "received_bitmap", bitmap);
     cJSON_AddNumberToObject(meta, "received_chunks", 0);
@@ -584,36 +589,73 @@ static bool tasfa_finalize_session_process(cwist_db *db,
 
     const char *temp_path = json_string(meta, "temp_path", "");
 
-    /* === XOR Reconstruction for missing chunks === */
+    /* === FEC Reconstruction for missing chunks ===
+     * Mode is derived from the stored counts: rs2 sessions have
+     * chunk_count == data_chunks + 2*ceil(data_chunks/6). */
     if (received != chunk_count) {
         char *mutable_bitmap = (char *)cwist_alloc((size_t)chunk_count + 1);
         if (mutable_bitmap) {
             memcpy(mutable_bitmap, bitmap, (size_t)chunk_count + 1);
             bool recovered_any = false;
+            int groups = (data_chunks + 5) / 6;
+            bool fec_rs2 = (chunk_count == data_chunks + 2 * groups);
 
-            for (int g = 0; g < parity_chunks; g++) {
-                int missing_data_idx = -1;
-                int missing_data_count = 0;
+            for (int g = 0; g < groups; g++) {
                 int group_start = g * 6;
                 int group_end = group_start + 6;
                 if (group_end > data_chunks) group_end = data_chunks;
 
-                for (int ci = group_start; ci < group_end; ci++) {
-                    if (mutable_bitmap[ci] == '0') {
-                        missing_data_count++;
-                        missing_data_idx = ci;
+                if (fec_rs2) {
+                    int missing_idx[2] = { -1, -1 };
+                    int missing_data_count = 0;
+                    for (int ci = group_start; ci < group_end; ci++) {
+                        if (mutable_bitmap[ci] == '0') {
+                            if (missing_data_count < 2) missing_idx[missing_data_count] = ci;
+                            missing_data_count++;
+                        }
                     }
-                }
+                    int parity0_idx = data_chunks + 2 * g;
+                    int parity1_idx = data_chunks + 2 * g + 1;
+                    bool parity0_received = parity0_idx < chunk_count && mutable_bitmap[parity0_idx] == '1';
+                    bool parity1_received = parity1_idx < chunk_count && mutable_bitmap[parity1_idx] == '1';
+                    bool solvable = missing_data_count == 1 ? parity0_received
+                        : (missing_data_count == 2 && parity0_received && parity1_received);
+                    if (solvable) {
+                        if (perform_rs_recovery(upload_id, temp_path, chunk_size, group_start, group_end,
+                                                missing_idx[0], missing_data_count == 2 ? missing_idx[1] : -1,
+                                                parity0_idx, missing_data_count == 2 ? parity1_idx : -1,
+                                                data_chunks, total_size)) {
+                            mutable_bitmap[missing_idx[0]] = '1';
+                            mark_chunk_received_in_session_state(upload_id, missing_idx[0]);
+                            if (missing_data_count == 2) {
+                                mutable_bitmap[missing_idx[1]] = '1';
+                                mark_chunk_received_in_session_state(upload_id, missing_idx[1]);
+                            }
+                            recovered_any = true;
+                            FLY_LOG_DEBUG("[TASFA] RS(6+2) recovered %d missing chunk(s) in group %d",
+                                          missing_data_count, g);
+                        }
+                    }
+                } else {
+                    int missing_data_idx = -1;
+                    int missing_data_count = 0;
+                    for (int ci = group_start; ci < group_end; ci++) {
+                        if (mutable_bitmap[ci] == '0') {
+                            missing_data_count++;
+                            missing_data_idx = ci;
+                        }
+                    }
 
-                int parity_idx = data_chunks + g;
-                bool parity_received = (mutable_bitmap[parity_idx] == '1');
+                    int parity_idx = data_chunks + g;
+                    bool parity_received = (mutable_bitmap[parity_idx] == '1');
 
-                if (missing_data_count == 1 && parity_received) {
-                    if (perform_xor_recovery(upload_id, temp_path, chunk_size, group_start, group_end, missing_data_idx, parity_idx, data_chunks, total_size)) {
-                        mutable_bitmap[missing_data_idx] = '1';
-                        mark_chunk_received_in_session_state(upload_id, missing_data_idx);
-                        recovered_any = true;
-                        FLY_LOG_DEBUG("[TASFA] Successfully recovered missing chunk %d in group %d using XOR", missing_data_idx, g);
+                    if (missing_data_count == 1 && parity_received) {
+                        if (perform_xor_recovery(upload_id, temp_path, chunk_size, group_start, group_end, missing_data_idx, parity_idx, data_chunks, total_size)) {
+                            mutable_bitmap[missing_data_idx] = '1';
+                            mark_chunk_received_in_session_state(upload_id, missing_data_idx);
+                            recovered_any = true;
+                            FLY_LOG_DEBUG("[TASFA] Successfully recovered missing chunk %d in group %d using XOR", missing_data_idx, g);
+                        }
                     }
                 }
             }
