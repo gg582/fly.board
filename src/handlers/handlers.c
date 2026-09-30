@@ -439,18 +439,16 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
 
     /* Resource hints for the critical rendering path. Preconnect removes the
      * TCP+TLS handshake latency for third-party fonts and scripts on high-RTT
-     * links; dns-prefetch acts as a fallback for older browsers. Preloading the
-     * site logo lets the browser start the image fetch before the HTML parser
-     * reaches the footer. */
+     * links; dns-prefetch acts as a fallback for older browsers. Fonts are
+     * hosted locally now, so the googleapis/jsdelivr hints are gone; gstatic
+     * stays because google-fonts.css still pulls Inter/Outfit files from it.
+     * Preloading the site logo lets the browser start the image fetch before
+     * the HTML parser reaches the footer. */
     if (!is_static_asset) {
-        cwist_http_header_add(&res->headers, "Link", "<https://fonts.googleapis.com>; rel=preconnect");
-        cwist_http_header_add(&res->headers, "Link", "<https://fonts.googleapis.com>; rel=dns-prefetch");
         cwist_http_header_add(&res->headers, "Link", "<https://fonts.gstatic.com>; rel=preconnect; crossorigin");
         cwist_http_header_add(&res->headers, "Link", "<https://fonts.gstatic.com>; rel=dns-prefetch; crossorigin");
         cwist_http_header_add(&res->headers, "Link", "<https://cdnjs.cloudflare.com>; rel=preconnect");
         cwist_http_header_add(&res->headers, "Link", "<https://cdnjs.cloudflare.com>; rel=dns-prefetch");
-        cwist_http_header_add(&res->headers, "Link", "<https://cdn.jsdelivr.net>; rel=preconnect");
-        cwist_http_header_add(&res->headers, "Link", "<https://cdn.jsdelivr.net>; rel=dns-prefetch");
         const char *logo_url = image_inline_logo();
         if (!logo_url) logo_url = "/assets/img/logo.png";
         /* Only preload external logo URLs; data-URIs are already inline and

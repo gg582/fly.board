@@ -14,6 +14,18 @@
 #include <sys/stat.h>
 #include <pthread.h>
 
+/* The footer logo renders in a ~24x16 CSS slot; request a 64px variant so
+ * high-DPI clients do not download the full-resolution original. The theme
+ * toggle swaps src to the data-img-* URLs verbatim, so those get the same
+ * treatment. */
+static const char *footer_logo_sized(const char *url, char *buf, size_t buf_len) {
+    if (url && strncmp(url, "/assets/img/", 12) == 0 && !strchr(url, '?'))
+        snprintf(buf, buf_len, "%s?w=64&h=64", url);
+    else
+        snprintf(buf, buf_len, "%s", url ? url : "");
+    return buf;
+}
+
 /* Inlined static asset cache. Page-critical scripts, the current highlight
  * theme, and the font-face stylesheets are embedded directly so the first
  * render does not block on extra high-RTT round trips. Larger libraries
@@ -540,12 +552,16 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         const char *footer_logo_url = dark ? logo_d : logo_l;
         if (!footer_logo_url) footer_logo_url = image_inline_logo();
         if (!footer_logo_url) footer_logo_url = "/assets/img/logo.png";
-        cwist_html_element_add_attr(footer_logo, "src", footer_logo_url);
+        char sized_cur[384], sized_l[384], sized_d[384];
+        cwist_html_element_add_attr(footer_logo, "src",
+                                    footer_logo_sized(footer_logo_url, sized_cur, sizeof(sized_cur)));
         cwist_html_element_add_attr(footer_logo, "alt", "Logo");
         if (logo_l && logo_d && strcmp(logo_l, logo_d) != 0) {
             cwist_html_element_add_attr(footer_logo, "data-logo-img", "1");
-            cwist_html_element_add_attr(footer_logo, "data-img-light", logo_l);
-            cwist_html_element_add_attr(footer_logo, "data-img-dark", logo_d);
+            cwist_html_element_add_attr(footer_logo, "data-img-light",
+                                        footer_logo_sized(logo_l, sized_l, sizeof(sized_l)));
+            cwist_html_element_add_attr(footer_logo, "data-img-dark",
+                                        footer_logo_sized(logo_d, sized_d, sizeof(sized_d)));
             cwist_html_element_add_attr(footer_logo, "data-filter-light",
                                         logo_css_l ? "invert(1) hue-rotate(180deg) saturate(0.55)" : "");
             cwist_html_element_add_attr(footer_logo, "data-filter-dark",
