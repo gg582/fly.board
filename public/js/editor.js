@@ -32,6 +32,10 @@
     var UPLOAD_ENDPOINT = '/file/upload';
     var UPLOAD_CHUNK_SIZE = 32 * 1024 * 1024;
     var UPLOAD_DEFAULT_PARALLEL = 8;
+    /* Minimum interval between chunk dispatches once the BDP governor has
+       raised the window above the server-seeded initial window, so a raised
+       target does not burst-dispatch into router/peer buffers. */
+    var TASFA_BDP_PACE_INTERVAL_MS = 2;
     var TASFA_UPLOAD_CHUNK_MIN = 8 * 1024 * 1024;
     var TASFA_UPLOAD_CHUNK_MAX = 64 * 1024 * 1024;
     var TASFA_UPLOAD_CHUNK_MOBILE_MAX = 32 * 1024 * 1024;
@@ -2556,6 +2560,7 @@
                     (initDataChunks + tasfaParityChunkCount(initDataChunks, asset.fecMode)));
                 asset.maxParallel = Math.max(1, Math.min(Number(payload.max_parallel_chunks) || UPLOAD_DEFAULT_PARALLEL, asset.totalChunks));
                 asset.targetParallel = Math.max(1, Math.min(Number(payload.current_parallel_chunks || payload.initial_parallel_chunks) || asset.maxParallel, asset.maxParallel));
+                asset.initialWindowParallel = asset.targetParallel;
                 asset.dispatchPacingMs = Math.max(0, Number(payload.dispatch_pacing_ms || 0));
                 applyTasfaTransferProfile(asset);
                 asset.inflightBytes = new Array(asset.totalChunks).fill(0);
@@ -2640,6 +2645,7 @@
             asset.modulusM = payload.modulus_M || asset.modulusM || 1;
             asset.maxParallel = Math.max(1, Math.min(Number(payload.max_parallel_chunks) || UPLOAD_DEFAULT_PARALLEL, asset.totalChunks));
             asset.targetParallel = Math.max(1, Math.min(Number(payload.current_parallel_chunks || payload.initial_parallel_chunks) || asset.maxParallel, asset.maxParallel));
+            asset.initialWindowParallel = asset.targetParallel;
             asset.dispatchPacingMs = Math.max(0, Number(payload.dispatch_pacing_ms || 0));
             applyTasfaTransferProfile(asset);
             asset.inflightBytes = new Array(asset.totalChunks).fill(0);
@@ -3071,7 +3077,18 @@
                         setTimeout(next, 25);
                         return;
                     }
-	                    var chunkIndex = pending.shift();
+                    // Paced dispatch: only when the window exceeds the server-seeded
+                    // initial window (e.g. raised by the BDP governor), enforce a
+                    // minimum interval between dispatches instead of bursting.
+                    if ((asset.targetParallel || 1) > (asset.initialWindowParallel || 0) && asset.lastChunkDispatchAt) {
+                        var paceWaitMs = TASFA_BDP_PACE_INTERVAL_MS - (Date.now() - asset.lastChunkDispatchAt);
+                        if (paceWaitMs > 0) {
+                            setTimeout(next, paceWaitMs);
+                            return;
+                        }
+                    }
+                    asset.lastChunkDispatchAt = Date.now();
+                    var chunkIndex = pending.shift();
 	                    var prefetchCount = Math.max(4, (asset.targetParallel || 1) - (asset.activeChunkPosts || 0));
 	                    prefetchHtpGroups(prefetchCount);
 	                    var startedAt = Date.now();
@@ -3289,6 +3306,42 @@
         });
     }
 
+    function tasfaCompleteRequestBody(asset) {
+        return { upload_id: asset.uploadId, upload_token: asset.uploadToken, async_finalize: '1' };
+    }
+
+    function tasfaPreviewsTerminal(state) {
+        return state === 'done' || state === 'failed' || state === 'skipped';
+    }
+
+    /* Fire-and-forget poller for the async-finalize previews flag. Never
+       affects the success state; stops on terminal state, session expiry,
+       or after ~2 minutes. */
+    function pollTasfaPreviews(asset, round) {
+        if (!asset || asset.fid === null || asset.failed || asset.isCancelling) return;
+        if (round >= 24) return;
+        setTimeout(function() {
+            fetch(UPLOAD_STATUS_ENDPOINT, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: 'upload_id=' + encodeURIComponent(asset.uploadId) + '&upload_token=' + encodeURIComponent(asset.uploadToken)
+            }).then(function(response) {
+                if (!response.ok) return null;
+                return response.json();
+            }).then(function(payload) {
+                if (!payload) return;
+                var state = payload.previews;
+                if (tasfaPreviewsTerminal(state)) {
+                    asset.previewsState = state;
+                    tasfaTrace(asset, 'previews-done', { state: state });
+                    return;
+                }
+                pollTasfaPreviews(asset, round + 1);
+            }).catch(function() { /* best-effort only */ });
+        }, 5000);
+    }
+
     function completeTasfaUpload(asset, attempt) {
         attempt = attempt || 1;
         setTasfaStatus(asset, 'finalizing');
@@ -3307,6 +3360,9 @@
                 try { payload = JSON.parse(xhr.responseText); } catch (e) {}
                 if (payload && payload.ok && payload.url) {
                     finalizeUploadSuccess(asset, payload);
+                    if (payload.state === 'stored' && !tasfaPreviewsTerminal(payload.previews)) {
+                        pollTasfaPreviews(asset, 0);
+                    }
                     return;
                 }
             }
@@ -3415,7 +3471,7 @@
             }
             markUploadFailure(asset, 'Upload failed [' + (xhr._tasfaIdleTimeout ? 'timeout' : 'abort') + ']');
         };
-        xhr.send(encodeFormBody({ upload_id: asset.uploadId, upload_token: asset.uploadToken }));
+        xhr.send(encodeFormBody(tasfaCompleteRequestBody(asset)));
     }
 
     function startQueuedAssetUpload(asset) {

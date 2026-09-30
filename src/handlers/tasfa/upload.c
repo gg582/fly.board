@@ -339,6 +339,14 @@ static void upload_work_func(void *arg) {
     if (state_start_ms > 0 && state_end_ms >= state_start_ms) {
         w->state_ms = state_end_ms - state_start_ms;
     }
+
+    /* Feed the rolling SHA-256: data chunks only, and re-sent retry targets
+       even if the state bit was already set (their bytes changed). */
+    if (w->stored && w->state_ok && !w->is_parity &&
+        (!w->was_already_received || w->force_hash_note)) {
+        tasfa_rolling_hash_note_chunk(w->upload_id, w->temp_path, w->chunk_index,
+                                      w->session_chunk_size, w->data_chunks, w->total_size);
+    }
 }
 
 void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
@@ -467,9 +475,12 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     work.compress_type = compress_type;
     work.offset = offset;
     work.expected_size = expected_size;
+    work.total_size = mbin.total_size;
+    work.session_chunk_size = mbin.chunk_size;
     work.chunk_count = mbin.chunk_count;
     work.is_parity = is_parity;
     work.data_chunks = data_chunks;
+    work.force_hash_note = is_retry_target;
 
     upload_work_func(&work);
 
@@ -544,11 +555,120 @@ void handler_file_upload(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring_assign(res->body, "");
 }
 
+/* === Media phase 2: previews + S3 mirror + previews state ===
+ * Runs inline for legacy (sync) finalizes and as a follow-up pool job for
+ * async-finalized uploads. The media semaphore bounds ffmpeg concurrency in
+ * both modes. Preview failures never affect file availability: the DB row
+ * and the stored file are already in place, and a missing preview simply
+ * leaves the preview paths unset, exactly as in the legacy path. */
+static void tasfa_media_phase2(cwist_db *db, const char *upload_id, int fid,
+                               char *final_path, const char *mime_buf, bool sem_held,
+                               bool take_lock, char *thumb_path_out, char *preview_path_out) {
+    if (!sem_held) tasfa_media_concurrency_acquire(NULL);
+
+    /* Generate thumbnails/previews via ffmpeg */
+    char thumb_path[PATH_MAX] = {0};
+    char preview_path[PATH_MAX] = {0};
+    bool preview_expected = false;
+    bool preview_generated = false;
+    if (strncmp(mime_buf, "image/", 6) == 0) {
+        preview_expected = true;
+        if (strcmp(mime_buf, "image/gif") == 0) {
+            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d_gif_poster.webp", fid);
+            if (generate_image_thumb(final_path, thumb_path, 1024, 1024)) {
+                char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
+                tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
+            } else thumb_path[0] = '\0';
+            snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.webm", fid);
+            if (generate_webm_preview(final_path, preview_path, 720)) {
+                char media_name[64]; snprintf(media_name, sizeof(media_name), "preview_%d", fid);
+                tasfa_generate_htp_metadata_for_file(preview_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
+            } else preview_path[0] = '\0';
+        } else {
+            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
+            if (generate_image_thumb(final_path, thumb_path, 1280, 1280)) {
+                char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
+                tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
+            } else thumb_path[0] = '\0';
+        }
+        preview_generated = (thumb_path[0] || preview_path[0]);
+    } else if (strncmp(mime_buf, "video/", 6) == 0) {
+        preview_expected = true;
+        snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
+        if (generate_video_thumb(final_path, thumb_path, 480, 270)) {
+            char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
+            tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
+        } else thumb_path[0] = '\0';
+        snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp4", fid);
+        if (generate_video_preview(final_path, preview_path, 720)) {
+            char media_name[64]; snprintf(media_name, sizeof(media_name), "preview_%d", fid);
+            tasfa_generate_htp_metadata_for_file(preview_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
+        } else preview_path[0] = '\0';
+        preview_generated = (thumb_path[0] || preview_path[0]);
+    } else if (strncmp(mime_buf, "audio/", 6) == 0) {
+        preview_expected = true;
+        snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp3", fid);
+        if (generate_audio_preview(final_path, preview_path, 192)) {
+            char media_name[64]; snprintf(media_name, sizeof(media_name), "preview_%d", fid);
+            tasfa_generate_htp_metadata_for_file(preview_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
+        } else preview_path[0] = '\0';
+        preview_generated = preview_path[0];
+    }
+    tasfa_media_concurrency_release();
+
+    if (thumb_path[0] || preview_path[0]) {
+        db_file_set_preview_paths(db, fid, thumb_path[0] ? thumb_path : "", preview_path[0] ? preview_path : "");
+    }
+
+    /* Optional S3 object storage.  Mirror mode keeps the local copy and also
+     * stores the object; offload mode moves the bytes to the bucket, marks
+     * the row "s3://<key>", and drops the local file.  A failed PUT always
+     * falls back to plain local storage. */
+    if (s3_config_enabled()) {
+        char marker[800];
+        if (s3_store_upload(final_path, mime_buf, marker, sizeof(marker))) {
+            if (s3_config_offload() && db_file_update_file_path(db, fid, marker)) {
+                unlink(final_path);
+                snprintf(final_path, PATH_MAX, "%s", marker);
+            }
+        } else {
+            FLY_LOG_ERROR("S3 store failed for %s; keeping local copy", final_path);
+        }
+    }
+
+    /* Record the previews outcome for the status endpoint and release the
+     * upload session. Non-media uploads report "skipped". */
+    const char *previews_state = !preview_expected ? "skipped" : (preview_generated ? "done" : "failed");
+    if (thumb_path_out) snprintf(thumb_path_out, PATH_MAX, "%s", thumb_path);
+    if (preview_path_out) snprintf(preview_path_out, PATH_MAX, "%s", preview_path);
+    /* Inline callers already hold the exclusive session lock; a second flock
+       on another fd in the same thread would self-deadlock. */
+    int lock_fd = take_lock ? open_upload_session_lock(upload_id) : -1;
+    cJSON *meta = load_upload_session(upload_id);
+    if (meta) {
+        cJSON_ReplaceItemInObject(meta, "previews", cJSON_CreateString(previews_state));
+        save_upload_session(upload_id, meta);
+        cJSON_Delete(meta);
+    }
+    if (lock_fd >= 0) close_upload_session_lock(lock_fd);
+    cleanup_upload_session(upload_id);
+    tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), upload_id);
+}
+
+static void *upload_media_worker(void *arg) {
+    upload_media_job_t *job = (upload_media_job_t *)arg;
+    if (!job) return NULL;
+    tasfa_media_phase2(job->db, job->upload_id, job->fid, job->final_path, job->mime_buf, false, true, NULL, NULL);
+    free(job);
+    return NULL;
+}
+
 static bool tasfa_finalize_session_process(cwist_db *db,
                                            const char *upload_id,
                                            const char *upload_token,
                                            cwist_http_request *client_req,
                                            int auth_uid,
+                                           bool async_finalize,
                                            int *out_status,
                                            cJSON **out_response) {
     *out_status = 500;
@@ -797,6 +917,9 @@ static bool tasfa_finalize_session_process(cwist_db *db,
                             cJSON_ReplaceItemInObject(meta, "received_chunks", cJSON_CreateNumber(bitmap_count_set(mutable_bitmap, chunk_count)));
                             save_upload_session_state_bin(upload_id, chunk_count, mutable_bitmap);
                             save_upload_session_state(upload_id, meta);
+                            /* Reset chunks will be re-sent with new bytes; any
+                               prefix already fed to the rolling hash is stale. */
+                            tasfa_rolling_hash_reset(upload_id);
                             cwist_free(mutable_bitmap);
                         }
                         cJSON *obj = build_upload_status_json(meta, upload_id);
@@ -861,6 +984,8 @@ static bool tasfa_finalize_session_process(cwist_db *db,
                 if (parity_received && best_suspect_idx >= 0 &&
                     (suspect_in_group_count == 1 || (suspect_in_group_count == 2 && max_score >= 1.0))) {
                     if (perform_xor_recovery(upload_id, temp_path, chunk_size, group_start, group_end, best_suspect_idx, parity_idx, data_chunks, total_size)) {
+                        /* The rewritten chunk may already be inside the rolling hash prefix. */
+                        tasfa_rolling_hash_notify_rewrite(upload_id, best_suspect_idx);
                         /* Remove all suspects belonging to this group since XOR parity has restored group consistency */
                         for (int i = suspect_count - 1; i >= 0; i--) {
                             if (suspects[i].chunk_index >= group_start && suspects[i].chunk_index < group_end) {
@@ -972,7 +1097,12 @@ static bool tasfa_finalize_session_process(cwist_db *db,
 
     if (!is_client_connected(client_req)) goto client_disconnect;
     unsigned char checksum[32];
-    if (!sha256_file(final_path, checksum)) {
+    /* Prefer the rolling hash accumulated during chunk writes; identical
+       digest to sha256_file() when the whole file was consumed. */
+    bool have_rolling_checksum = !gif_converted &&
+        tasfa_rolling_hash_finish(upload_id, final_path, chunk_size, data_chunks, total_size, checksum);
+    if (gif_converted) tasfa_rolling_hash_reset(upload_id);
+    if (!have_rolling_checksum && !sha256_file(final_path, checksum)) {
         tasfa_media_concurrency_release();
         cJSON_Delete(meta);
         close_upload_session_lock(lock_fd);
@@ -1023,68 +1153,76 @@ static bool tasfa_finalize_session_process(cwist_db *db,
     }
     if (!is_client_connected(client_req)) goto client_disconnect;
 
-    /* Generate thumbnails/previews via ffmpeg */
+    if (async_finalize) {
+        /* The file is persisted, HTP-verified, and has a DB row: hand back
+           "stored" now. Previews + S3 mirror run in a follow-up pool job
+           (same code the sync path runs inline) and the status endpoint
+           reports their progress via the "previews" field. The session stays
+           alive until phase 2 finishes. */
+        tasfa_media_concurrency_release();
+        media_acquired = false;
+
+        char stored_filename[256];
+        snprintf(stored_filename, sizeof(stored_filename), "%s", filename);
+        cJSON_ReplaceItemInObject(meta, "previews", cJSON_CreateString("pending"));
+        save_upload_session(upload_id, meta);
+
+        upload_media_job_t *mjob = (upload_media_job_t *)calloc(1, sizeof(upload_media_job_t));
+        bool phase2_scheduled = false;
+        if (mjob) {
+            mjob->db = db;
+            mjob->fid = fid;
+            snprintf(mjob->upload_id, sizeof(mjob->upload_id), "%s", upload_id);
+            snprintf(mjob->final_path, sizeof(mjob->final_path), "%s", final_path);
+            snprintf(mjob->mime_buf, sizeof(mjob->mime_buf), "%s", mime_buf);
+            phase2_scheduled = engine_pool_schedule(upload_media_worker, mjob, 0x4d45444941ULL, TTAK_TASK_DOMAIN_THREAD, 30);
+            if (!phase2_scheduled) free(mjob);
+        }
+        if (!phase2_scheduled) {
+            /* Executor stopping: run phase 2 inline rather than skipping previews. */
+            FLY_LOG_ERROR("[TASFA] async phase2 schedule failed for %s; running inline", upload_id);
+            tasfa_media_phase2(db, upload_id, fid, final_path, mime_buf, false, false, NULL, NULL);
+        }
+
+        char delete_pin[13], delete_pin_hash[512];
+        delete_pin[0] = '\0';
+        if (random_hex(delete_pin, 6) && auth_hash_password(delete_pin, delete_pin_hash, sizeof(delete_pin_hash))) {
+            (void)db_file_set_delete_pin_hash(db, fid, delete_pin_hash);
+        } else {
+            delete_pin[0] = '\0';
+        }
+        cJSON_Delete(meta);
+        close_upload_session_lock(lock_fd);
+
+        cJSON *obj = cJSON_CreateObject();
+        cJSON_AddBoolToObject(obj, "ok", true);
+        cJSON_AddStringToObject(obj, "state", "stored");
+        cJSON_AddStringToObject(obj, "previews", "pending");
+        cJSON_AddBoolToObject(obj, "is_gif_converted", is_gif_upload && gif_converted);
+        cJSON_AddNumberToObject(obj, "id", fid);
+        cJSON_AddNumberToObject(obj, "fid", fid);
+        cJSON_AddStringToObject(obj, "filename", stored_filename);
+        char url[512], checksum_hex[65];
+        snprintf(url, sizeof(url), "/file/download/%d", fid);
+        cJSON_AddStringToObject(obj, "url", url);
+        cJSON_AddStringToObject(obj, "blob_url", url);
+        cJSON_AddStringToObject(obj, "file_path", final_path);
+        cJSON_AddStringToObject(obj, "delete_pin", delete_pin);
+        for (int i = 0; i < 32; i++) snprintf(checksum_hex + (i * 2), 3, "%02x", checksum[i]);
+        checksum_hex[64] = '\0';
+        cJSON_AddStringToObject(obj, "checksum", checksum_hex);
+
+        *out_status = CWIST_HTTP_OK;
+        *out_response = obj;
+        return true;
+    }
+
+    /* Legacy path: run phase 2 (previews + S3 mirror) inline, holding the
+       semaphore acquired above exactly as before. */
     char thumb_path[PATH_MAX] = {0};
     char preview_path[PATH_MAX] = {0};
-    if (strncmp(mime_buf, "image/", 6) == 0) {
-        if (strcmp(mime_buf, "image/gif") == 0) {
-            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d_gif_poster.webp", fid);
-            if (generate_image_thumb(final_path, thumb_path, 1024, 1024)) {
-                char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
-                tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
-            } else thumb_path[0] = '\0';
-            snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.webm", fid);
-            if (generate_webm_preview(final_path, preview_path, 720)) {
-                char media_name[64]; snprintf(media_name, sizeof(media_name), "preview_%d", fid);
-                tasfa_generate_htp_metadata_for_file(preview_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
-            } else preview_path[0] = '\0';
-        } else {
-            snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
-            if (generate_image_thumb(final_path, thumb_path, 1280, 1280)) {
-                char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
-                tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
-            } else thumb_path[0] = '\0';
-        }
-    } else if (strncmp(mime_buf, "video/", 6) == 0) {
-        snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
-        if (generate_video_thumb(final_path, thumb_path, 480, 270)) {
-            char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
-            tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
-        } else thumb_path[0] = '\0';
-        snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp4", fid);
-        if (generate_video_preview(final_path, preview_path, 720)) {
-            char media_name[64]; snprintf(media_name, sizeof(media_name), "preview_%d", fid);
-            tasfa_generate_htp_metadata_for_file(preview_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
-        } else preview_path[0] = '\0';
-    } else if (strncmp(mime_buf, "audio/", 6) == 0) {
-        snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp3", fid);
-        if (generate_audio_preview(final_path, preview_path, 192)) {
-            char media_name[64]; snprintf(media_name, sizeof(media_name), "preview_%d", fid);
-            tasfa_generate_htp_metadata_for_file(preview_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
-        } else preview_path[0] = '\0';
-    }
-    tasfa_media_concurrency_release();
+    tasfa_media_phase2(db, upload_id, fid, final_path, mime_buf, true, false, thumb_path, preview_path);
     media_acquired = false;
-
-    if (thumb_path[0] || preview_path[0]) {
-        db_file_set_preview_paths(db, fid, thumb_path[0] ? thumb_path : "", preview_path[0] ? preview_path : "");
-    }
-
-    /* Optional S3 object storage.  Mirror mode keeps the local copy and also
-     * stores the object; offload mode moves the bytes to the bucket, marks
-     * the row "s3://<key>", and drops the local file.  A failed PUT always
-     * falls back to plain local storage. */
-    if (s3_config_enabled()) {
-        char marker[800];
-        if (s3_store_upload(final_path, mime_buf, marker, sizeof(marker))) {
-            if (s3_config_offload() && db_file_update_file_path(db, fid, marker)) {
-                unlink(final_path);
-                snprintf(final_path, sizeof(final_path), "%s", marker);
-            }
-        } else {
-            FLY_LOG_ERROR("S3 store failed for %s; keeping local copy", final_path);
-        }
-    }
 
     char delete_pin[13], delete_pin_hash[512];
     delete_pin[0] = '\0';
@@ -1098,8 +1236,7 @@ static bool tasfa_finalize_session_process(cwist_db *db,
     snprintf(filename_buf, sizeof(filename_buf), "%s", filename);
     cJSON_Delete(meta);
     close_upload_session_lock(lock_fd);
-    cleanup_upload_session(upload_id);
-    tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), upload_id);
+    /* The upload session was already released by tasfa_media_phase2(). */
 
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddBoolToObject(obj, "ok", true);
@@ -1151,7 +1288,7 @@ static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_htt
 
     int status = 500;
     cJSON *response_obj = NULL;
-    tasfa_finalize_session_process(req->db, upload_id, upload_token, req, uid, &status, &response_obj);
+    tasfa_finalize_session_process(req->db, upload_id, upload_token, req, uid, false, &status, &response_obj);
     cwist_query_map_destroy(kv);
 
     send_json_response(res, response_obj ? response_obj : session_error_json("internal error"), (cwist_http_status_t)status);
@@ -1163,7 +1300,7 @@ static void *upload_finalize_worker(void *arg) {
 
     int status = 500;
     cJSON *response_obj = NULL;
-    tasfa_finalize_session_process(job->db, job->upload_id, job->upload_token, NULL, 0, &status, &response_obj);
+    tasfa_finalize_session_process(job->db, job->upload_id, job->upload_token, NULL, 0, job->async_finalize, &status, &response_obj);
 
     char *body = response_obj ? cJSON_PrintUnformatted(response_obj) : NULL;
     finalize_cache_mark_done(job->upload_id, status, body ? body : "{\"ok\":false,\"error\":\"finalize failed\"}");
@@ -1256,6 +1393,8 @@ void handler_file_upload_complete(cwist_http_request *req, cwist_http_response *
     job->db = req->db;
     snprintf(job->upload_id, sizeof(job->upload_id), "%s", upload_id);
     snprintf(job->upload_token, sizeof(job->upload_token), "%s", upload_token);
+    const char *async_finalize = cwist_query_map_get(kv, "async_finalize");
+    job->async_finalize = async_finalize && strcmp(async_finalize, "1") == 0;
 
     if (!engine_pool_schedule(upload_finalize_worker, job, 0x4d45444941ULL, TTAK_TASK_DOMAIN_THREAD, 30)) {
         /* A finalize can invoke transcoding and database writes.  Executing it
@@ -1308,6 +1447,7 @@ void handler_file_upload_cancel(cwist_http_request *req, cwist_http_response *re
                 int lock_fd = open_upload_session_lock(upload_id);
                 cleanup_upload_session(upload_id);
                 tasfa_queue_leave(g_q_uploads, tasfa_upload_session_limit(), upload_id);
+                tasfa_rolling_hash_reset(upload_id);
                 close_upload_session_lock(lock_fd);
             }
         }
