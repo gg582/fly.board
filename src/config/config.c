@@ -74,7 +74,7 @@ static void set_default(void) {
     g_config.roundness = 0.0f;
     g_config.max_upload_size = 1024LL * 1024LL * 1024LL;
     g_config.max_total_parallel_uploads = 8;
-    g_config.max_upload_parallel_chunks = 32;
+    g_config.max_upload_parallel_chunks = 48;
     g_config.max_concurrent_downloads = 128;
     g_config.use_special_modes[0] = '\0';
     g_config.vote_only[0] = '\0';
