@@ -49,6 +49,100 @@
     var FileUploadQueueSeq = 0;
     var isFileUploadRunning = false;
 
+    /* --- GF(2^8) arithmetic (poly 0x11d) for RS(6+2) FEC --- */
+    var tasfaGfLog = null;
+    var tasfaGfExp = null;
+    /* Per-group-position multiply tables: tasfaGfRowTables[pos] = {a, b} where
+       a = x, b = x^2 for x = pos + 1; each table maps a byte to its product. */
+    var tasfaGfRowTables = null;
+
+    function ensureTasfaGfTables() {
+        if (tasfaGfExp) return;
+        var log = new Uint8Array(256);
+        var exp = new Uint8Array(510);
+        var x = 1;
+        for (var i = 0; i < 255; i++) {
+            exp[i] = x;
+            log[x] = i;
+            x <<= 1;
+            if (x & 0x100) x ^= 0x11d;
+        }
+        for (var j = 255; j < 510; j++) exp[j] = exp[j - 255];
+        tasfaGfLog = log;
+        tasfaGfExp = exp;
+        var tables = [];
+        for (var pos = 0; pos < 6; pos++) {
+            var xv = pos + 1;
+            var a = gfMul(xv, 1);
+            var b = gfMul(xv, xv);
+            var ta = new Uint8Array(256);
+            var tb = new Uint8Array(256);
+            for (var v = 0; v < 256; v++) {
+                ta[v] = gfMul(a, v);
+                tb[v] = gfMul(b, v);
+            }
+            tables.push({ a: ta, b: tb });
+        }
+        tasfaGfRowTables = tables;
+    }
+
+    function gfMul(a, b) {
+        if (!a || !b) return 0;
+        return tasfaGfExp[tasfaGfLog[a] + tasfaGfLog[b]];
+    }
+
+    function gfDiv(a, b) {
+        if (!a) return 0;
+        return tasfaGfExp[tasfaGfLog[a] + 255 - tasfaGfLog[b]];
+    }
+
+    function tasfaParityChunkCount(dataChunks, fecMode) {
+        var groups = Math.ceil(dataChunks / 6);
+        return fecMode === 'rs2' ? 2 * groups : groups;
+    }
+
+    /* RS(6+2): two parity chunks per group of up to 6 data chunks.
+       Parity chunk global index for (group g, row k) is dataChunks + 2*g + k. */
+    async function generateRsParityBuffers(file, dataChunks, chunkSize, groupIndex) {
+        ensureTasfaGfTables();
+        var groupStart = groupIndex * 6;
+        var groupEnd = Math.min(groupStart + 6, dataChunks);
+        var p0 = new Uint8Array(chunkSize);
+        var p1 = new Uint8Array(chunkSize);
+        for (var ci = groupStart; ci < groupEnd; ci++) {
+            var start = ci * chunkSize;
+            var end = Math.min(start + chunkSize, file.size);
+            var data = new Uint8Array(await file.slice(start, end).arrayBuffer());
+            var row = tasfaGfRowTables[ci - groupStart];
+            var ta = row.a;
+            var tb = row.b;
+            for (var i = 0; i < data.length; i++) {
+                var v = data[i];
+                if (v) {
+                    p0[i] ^= ta[v];
+                    p1[i] ^= tb[v];
+                }
+            }
+        }
+        return [p0.buffer, p1.buffer];
+    }
+
+    /* Returns { group, row } for a parity chunk global index. */
+    function tasfaParityGroupRow(asset, chunkIndex, dataChunks) {
+        var off = chunkIndex - dataChunks;
+        if (asset.fecMode === 'rs2') return { group: Math.floor(off / 2), row: off % 2 };
+        return { group: off, row: 0 };
+    }
+
+    async function generateParityChunkBuffer(asset, file, dataChunks, chunkSize, chunkIndex) {
+        var pr = tasfaParityGroupRow(asset, chunkIndex, dataChunks);
+        if (asset.fecMode === 'rs2') {
+            var bufs = await generateRsParityBuffers(file, dataChunks, chunkSize, pr.group);
+            return bufs[pr.row];
+        }
+        return generateParityBuffer(file, dataChunks, chunkSize, pr.group);
+    }
+
     var draftKey = 'flyboard:draft:' + location.pathname;
     var draftTimer = null;
 
@@ -329,7 +423,11 @@
             throughputSlope: 0,
             lastProgressAt: 0,
             progressSilenceMs: 0,
-            retryFreeStreak: 0
+            retryFreeStreak: 0,
+            bdpSamples: [],
+            rttEmaSec: 0,
+            bdpCompleted: 0,
+            bdpParallel: 0
         };
         return asset.linkStats;
     }
@@ -583,8 +681,45 @@
         }, 0);
     }
 
+    /* Measured-BDP governor: after warmup, cap the AIMD window at the
+       bandwidth-delay product so a mis-seeded tier cannot hold parallelism
+       far below (or above) what the link actually sustains. */
+    function updateBdpGovernor(asset, bytes, durationMs) {
+        if (typeof performance === 'undefined' || typeof performance.now !== 'function') return;
+        if (!Number.isFinite(durationMs) || durationMs <= 0) return;
+        var stats = ensureTasfaStats(asset);
+        var rttSec = durationMs / 1000;
+        stats.rttEmaSec = stats.rttEmaSec ? (stats.rttEmaSec * 0.8 + rttSec * 0.2) : rttSec;
+        var now = performance.now();
+        if (!stats.bdpSamples) stats.bdpSamples = [];
+        stats.bdpSamples.push({ t: now, bytes: Math.max(0, bytes || 0) });
+        if (stats.bdpSamples.length > 4) stats.bdpSamples.shift();
+        stats.bdpCompleted = (stats.bdpCompleted || 0) + 1;
+        if (stats.bdpCompleted < 8 || stats.bdpSamples.length < 2) return;
+        var spanSec = (now - stats.bdpSamples[0].t) / 1000;
+        if (spanSec <= 0) return;
+        var acked = 0;
+        for (var i = 0; i < stats.bdpSamples.length; i++) acked += stats.bdpSamples[i].bytes;
+        var goodputBps = acked / spanSec;
+        var maxParallel = Math.max(1, asset.maxParallel || UPLOAD_DEFAULT_PARALLEL);
+        var chunkSize = Math.max(1, asset.chunkSize || UPLOAD_CHUNK_SIZE);
+        var bdpParallel = clampNumber(goodputBps * stats.rttEmaSec / chunkSize, 4, maxParallel);
+        stats.bdpParallel = bdpParallel;
+        if (stats.bdpCompleted % 4 !== 0) return;
+        var current = asset.targetParallel || 1;
+        if (bdpParallel > current) {
+            asset.targetParallel = Math.max(1, Math.min(maxParallel, Math.round(Math.min(current * 1.3, bdpParallel))));
+            tasfaTrace(asset, 'bdp-ramp', {
+                bdpParallel: Math.round(bdpParallel),
+                target: asset.targetParallel,
+                rttMs: Math.round(stats.rttEmaSec * 1000)
+            });
+        }
+    }
+
     function recordTasfaSuccess(asset, bytes, durationMs) {
         maybeTuneUploadChunkHint(asset, true, durationMs, bytes);
+        updateBdpGovernor(asset, bytes, durationMs);
         if (asset.maxParallel && (asset.targetParallel || 1) < asset.maxParallel) {
             var stats = ensureTasfaStats(asset);
             // Ramp up on every success after aggressive restart, taper gently
@@ -598,6 +733,9 @@
 
     function recordTasfaFailure(asset, kind) {
         var stats = ensureTasfaStats(asset);
+        // Failure invalidates the RTT baseline for the BDP governor; rebuild it from scratch.
+        stats.rttEmaSec = 0;
+        stats.bdpSamples = [];
         stats.failureEvents += 1;
         stats.retryEvents += 1;
         if (kind === 'timeout') stats.timeoutEvents += 1;
@@ -2359,15 +2497,15 @@
                 asset.chunkSize = asset._sessionChunkHint;
             }
             var dataChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
-            var parityChunks = Math.ceil(dataChunks / 6);
-            var chunkCount = dataChunks + parityChunks;
+            var chunkCount = dataChunks + tasfaParityChunkCount(dataChunks, 'rs2');
             var values = tasfaLinkFormValues(asset, {
                 filename: file.name,
                 total_size: String(file.size),
                 chunk_count: String(chunkCount),
                 chunk_size: String(asset.chunkSize),
                 post_id: String(window.POST_ID || 0),
-                session_id: asset.client_uuid || ''
+                session_id: asset.client_uuid || '',
+                fec: 'rs2'
             });
             fetch(UPLOAD_INIT_ENDPOINT, {
                 method: 'POST',
@@ -2412,7 +2550,10 @@
                 asset.streamIvSeedHex = payload.stream_iv_seed_hex || '';
                 asset.modulusM = payload.modulus_M || 1;
                 asset.chunkSize = Number(payload.chunk_size || asset.chunkSize || UPLOAD_CHUNK_SIZE);
-                asset.totalChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
+                asset.fecMode = payload.fec_mode === 'rs2' ? 'rs2' : 'xor1';
+                var initDataChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
+                asset.totalChunks = Math.max(1, Number(payload.chunk_count) ||
+                    (initDataChunks + tasfaParityChunkCount(initDataChunks, asset.fecMode)));
                 asset.maxParallel = Math.max(1, Math.min(Number(payload.max_parallel_chunks) || UPLOAD_DEFAULT_PARALLEL, asset.totalChunks));
                 asset.targetParallel = Math.max(1, Math.min(Number(payload.current_parallel_chunks || payload.initial_parallel_chunks) || asset.maxParallel, asset.maxParallel));
                 asset.dispatchPacingMs = Math.max(0, Number(payload.dispatch_pacing_ms || 0));
@@ -2479,7 +2620,11 @@
             }
             asset.chunkSize = newChunkSize;
             var dataChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
-            var parityChunks = Math.ceil(dataChunks / 6);
+            // Derive the FEC mode the same way the server does: compare the
+            // stored chunk count against the rs2 expectation.
+            var storedChunks = Number(payload.chunk_count || 0);
+            asset.fecMode = (storedChunks === dataChunks + tasfaParityChunkCount(dataChunks, 'rs2')) ? 'rs2' : 'xor1';
+            var parityChunks = tasfaParityChunkCount(dataChunks, asset.fecMode);
             asset.totalChunks = dataChunks + parityChunks;
             var newStreamKeyHex = payload.stream_key_hex || asset.streamKeyHex || '';
             if (newStreamKeyHex !== asset.streamKeyHex) {
@@ -2582,8 +2727,7 @@
                 var size;
                 if (isParity) {
                     try {
-                        var groupIndex = chunkIndex - dataChunks;
-                        var parityBuf = await generateParityBuffer(file, dataChunks, asset.chunkSize, groupIndex);
+                        var parityBuf = await generateParityChunkBuffer(asset, file, dataChunks, asset.chunkSize, chunkIndex);
                         blob = new Blob([parityBuf]);
                         size = parityBuf.byteLength;
                     } catch (e) {
@@ -2713,8 +2857,7 @@
                 var htp = isParity ? null : peekHtpHeaders(asset, chunkIndex);
                 var plain;
                 if (isParity) {
-                    var groupIndex = chunkIndex - dataChunks;
-                    plain = await generateParityBuffer(file, dataChunks, asset.chunkSize, groupIndex);
+                    plain = await generateParityChunkBuffer(asset, file, dataChunks, asset.chunkSize, chunkIndex);
                 } else {
                     var start = chunkIndex * asset.chunkSize;
                     var end = Math.min(start + asset.chunkSize, file.size);

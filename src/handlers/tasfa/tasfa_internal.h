@@ -321,6 +321,9 @@ bool load_htp_scalars(const char *upload_id, int chunk_count, char **hash_tags_o
 bool perform_xor_recovery(const char *upload_id, const char *temp_path, int chunk_size,
                           int group_start, int group_end, int target_chunk, int parity_chunk_idx,
                           int data_chunks, long long total_size);
+bool perform_rs_recovery(const char *upload_id, const char *temp_path, int chunk_size,
+                         int group_start, int group_end, int missing_a, int missing_b,
+                         int parity0_idx, int parity1_idx, int data_chunks, long long total_size);
 bool tasfa_generate_htp_metadata_for_file(const char *file_path, int chunk_size, uint64_t modulus_M,
                                           const char *media_name);
 
