@@ -11,6 +11,22 @@ FLYBOARD_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 CWIST_ROOT ?= $(abspath $(FLYBOARD_DIR)/../cwist)
 CWIST_PREFIX ?= /usr/local
 
+# Homebrew fallback: cwist ships an official c4punks/cwist/cwist formula whose
+# bottles install into the brew prefix (lib/libcwist.a + lib/cwist/*.a +
+# include/cwist). When neither a ../cwist source tree nor a /usr/local install
+# exists, detect brew --prefix and use it. An explicit CWIST_PREFIX from the
+# command line or environment always wins.
+ifeq ($(wildcard $(CWIST_ROOT)/libcwist.a),)
+    ifeq ($(filter command line environment environment-overridden,$(origin CWIST_PREFIX)),)
+        ifeq ($(wildcard $(CWIST_PREFIX)/lib/libcwist.a),)
+            BREW_PREFIX := $(shell command -v brew >/dev/null 2>&1 && brew --prefix 2>/dev/null)
+            ifneq ($(wildcard $(BREW_PREFIX)/lib/libcwist.a),)
+                CWIST_PREFIX := $(BREW_PREFIX)
+            endif
+        endif
+    endif
+endif
+
 ifeq ($(wildcard $(CWIST_ROOT)/libcwist.a),)
     CWIST_LIB = $(CWIST_PREFIX)/lib/libcwist.a
     CWIST_DEPS_DIR = $(CWIST_PREFIX)/lib/cwist
