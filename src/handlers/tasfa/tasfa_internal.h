@@ -33,11 +33,17 @@
 
 #define TASFA_UPLOAD_DIR "data/tasfa/uploads"
 #define TASFA_DOWNLOAD_DIR "data/tasfa/downloads"
-#define TASFA_UPLOAD_CHUNK_SIZE_DEFAULT (16 * 1024 * 1024)
+/* Chunk bodies ride a single HTTP request, so every chunk must fit cwist's
+ * request-body cap (CWIST_HTTP_MAX_BODY_SIZE = 10 MiB). Cap the chunk size
+ * just under it; the last chunk of a file is the remainder (e.g. a 36 MiB
+ * file at 10 MiB chunks is 10/10/10/6). Raising these above the body cap
+ * would 413 every chunk and stall the upload at received_chunks=0. */
+#define TASFA_UPLOAD_CHUNK_SIZE_BODY_LIMIT (9 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_DEFAULT TASFA_UPLOAD_CHUNK_SIZE_BODY_LIMIT
 #define TASFA_UPLOAD_CHUNK_SIZE_MOBILE  (8 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MIN     (8 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MAX     (32 * 1024 * 1024)
-#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE_MAX (16 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MIN     (2 * 1024 * 1024)
+#define TASFA_UPLOAD_CHUNK_SIZE_MAX     TASFA_UPLOAD_CHUNK_SIZE_BODY_LIMIT
+#define TASFA_UPLOAD_CHUNK_SIZE_MOBILE_MAX (8 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT (8 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_MOBILE  (6 * 1024 * 1024)
 #define TASFA_DOWNLOAD_CHUNK_SIZE_MIN     (2 * 1024 * 1024)
