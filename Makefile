@@ -14,12 +14,15 @@ CWIST_PREFIX ?= /usr/local
 # Homebrew fallback: cwist ships an official c4punks/cwist/cwist formula whose
 # bottles install into the brew prefix (lib/libcwist.a + lib/cwist/*.a +
 # include/cwist). When neither a ../cwist source tree nor a /usr/local install
-# exists, detect brew --prefix and use it. An explicit CWIST_PREFIX from the
-# command line or environment always wins.
+# exists, detect the Homebrew prefix and use it. brew is resolved from PATH
+# first, then from the standard install locations (Linuxbrew and macOS), so
+# non-interactive SSH shells without brew on PATH still work. An explicit
+# CWIST_PREFIX from the command line or environment always wins.
 ifeq ($(wildcard $(CWIST_ROOT)/libcwist.a),)
     ifeq ($(filter command line environment environment-overridden,$(origin CWIST_PREFIX)),)
         ifeq ($(wildcard $(CWIST_PREFIX)/lib/libcwist.a),)
-            BREW_PREFIX := $(shell command -v brew >/dev/null 2>&1 && brew --prefix 2>/dev/null)
+            BREW_BIN := $(shell command -v brew 2>/dev/null || { [ -x /home/linuxbrew/.linuxbrew/bin/brew ] && echo /home/linuxbrew/.linuxbrew/bin/brew; } || { [ -x /opt/homebrew/bin/brew ] && echo /opt/homebrew/bin/brew; } || { [ -x /usr/local/bin/brew ] && echo /usr/local/bin/brew; })
+            BREW_PREFIX := $(shell [ -n "$(BREW_BIN)" ] && "$(BREW_BIN)" --prefix 2>/dev/null)
             ifneq ($(wildcard $(BREW_PREFIX)/lib/libcwist.a),)
                 CWIST_PREFIX := $(BREW_PREFIX)
             endif
