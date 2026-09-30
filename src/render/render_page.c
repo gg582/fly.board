@@ -673,8 +673,16 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                             p[0] == '/' && strncmp(p, "//", 2) != 0) {
                             memcpy(import_buf, p, (size_t)(end - p));
                             import_buf[end - p] = '\0';
+                            /* /assets/<scope>/... is served from
+                             * public/<scope>/... (see routes.c static mounts). */
+                            const char *fs_rel = import_buf;
+                            char fs_mapped[320];
+                            if (strncmp(import_buf, "/assets/", 8) == 0) {
+                                snprintf(fs_mapped, sizeof(fs_mapped), "public/%s", import_buf + 8);
+                                fs_rel = fs_mapped;
+                            }
                             char fs_path[320];
-                            snprintf(fs_path, sizeof(fs_path), "public%s", import_buf);
+                            snprintf(fs_path, sizeof(fs_path), "%s", fs_rel);
                             FILE *cssf = fopen(fs_path, "rb");
                             if (cssf) {
                                 static char css_body[64 * 1024];
