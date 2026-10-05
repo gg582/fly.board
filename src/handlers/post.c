@@ -2,6 +2,7 @@
 #include "handlers_internal.h"
 #include "db/sql_escape.h"
 #include "config/write_policy.h"
+#include "utils/post_schedule.h"
 #include <openssl/rand.h>
 
 #define MAX_POST_TITLE_LEN   200
@@ -124,10 +125,83 @@ static void send_post_editor_error(cwist_http_request *req, cwist_http_response 
                                    const char *role, int initial_board_id, const char *error) {
     cJSON *ordered = editor_boards(req->db, uid, role);
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, error, pp, is_mobile_request(req));
+    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, error, pp, is_mobile_request(req), 0);
     if (ordered) cJSON_Delete(ordered);
     send_html_res(res, page);
     free(pp);
+}
+
+static int days_in_month(int y, int m) {
+    static const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (m == 2 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0)) return 29;
+    return days[m - 1];
+}
+
+/* The editor sends publish_at as browser-converted UTC ISO 8601
+ * ("2026-10-05T09:30:00.000Z"); normalize it to the stored format. */
+static bool parse_publish_at(const char *in, char out[POST_TIME_LEN]) {
+    int y, mo, d, h, mi, sec = 0, n = 0;
+    if (!in || sscanf(in, "%4d-%2d-%2dT%2d:%2d%n", &y, &mo, &d, &h, &mi, &n) != 5) return false;
+    const char *rest = in + n;
+    if (*rest == ':') {
+        int m = 0;
+        if (sscanf(rest, ":%2d%n", &sec, &m) != 1) return false;
+        rest += m;
+    }
+    if (*rest == '.') {
+        rest++;
+        while (isdigit((unsigned char)*rest)) rest++;
+    }
+    if (*rest == 'Z') rest++;
+    if (*rest != '\0') return false;
+    if (y < 1970 || y > 9999 || mo < 1 || mo > 12 || d < 1 || d > days_in_month(y, mo) ||
+        h < 0 || h > 23 || mi < 0 || mi > 59 || sec < 0 || sec > 59) return false;
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d", y, mo, d, h, mi, sec);
+    memcpy(out, buf, POST_TIME_LEN);
+    out[POST_TIME_LEN - 1] = '\0';
+    return true;
+}
+
+/* Editor buttons: post_action=draft keeps the post private; publish with a
+ * publish_at sets the publish time (future = scheduled, past = backdated).
+ * Plain publish keeps the publish time of an already public post and uses
+ * now for anything else. Guests cannot come back to a draft, so they always
+ * publish immediately. */
+typedef struct {
+    const char *status;
+    const char *publish_at;
+    char time_buf[POST_TIME_LEN];
+} publish_choice_t;
+
+static void choose_publish(publish_choice_t *out, int uid, const char *action,
+                           const char *publish_at_in, bool was_public) {
+    out->status = POST_STATUS_PUBLISHED;
+    out->publish_at = NULL;
+    if (uid <= 0) return;
+    if (action && strcmp(action, "draft") == 0) {
+        out->status = POST_STATUS_DRAFT;
+    } else if (parse_publish_at(publish_at_in, out->time_buf)) {
+        out->publish_at = out->time_buf;
+    } else if (!was_public) {
+        post_utc_now(out->time_buf);
+        out->publish_at = out->time_buf;
+    }
+}
+
+static char *dup_form_field(form_field_t *files, const char *name) {
+    form_field_t *f = form_find(files, name);
+    if (!f) return NULL;
+    char *v = (char *)cwist_alloc(f->len + 1);
+    if (!v) return NULL;
+    memcpy(v, f->data, f->len);
+    v[f->len] = 0;
+    return v;
+}
+
+static char *dup_query_field(cwist_query_map *kv, const char *name) {
+    const char *v = cwist_query_map_get(kv, name);
+    return v ? cwist_strdup_local(v) : NULL;
 }
 
 static void attach_media_meta_to_post(cwist_db *db, const char *media_meta_json, int post_id, int uid, const char *role) {
@@ -282,7 +356,7 @@ void post_bdr_hit(cwist_db *db, const char *path) {
     }
     if (!post) return;
     int post_id = json_int(post, "id", 0);
-    if (post_id > 0) db_post_increment_view(db, post_id);
+    if (post_id > 0 && post_is_public(post)) db_post_increment_view(db, post_id);
     cJSON_Delete(post);
 }
 
@@ -307,11 +381,17 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     }
 
     cJSON *post = db_post_get_by_slug(req->db, slug);
+    /* Drafts and scheduled posts exist only for their author and admins. */
+    if (post && !post_is_public(post) && !is_author_or_admin(post, uid, role)) {
+        cJSON_Delete(post);
+        post = NULL;
+    }
     if (!post) {
         res->status_code = CWIST_HTTP_NOT_FOUND;
         cwist_sstring_assign(res->body, "Not found");
         return;
     }
+    bool post_public = post_is_public(post);
 
     bool leader = false;
     cwist_sstring *shared = reqshare_wait_or_start(key, &leader);
@@ -324,7 +404,7 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     int post_id = json_int(post, "id", 0);
     /* HEAD requests are routed as GET (see global_middleware); they must not
      * inflate the view count. */
-    if (post_id > 0 && !cwist_http_header_get(req->headers, "X-Fly-Head-Rewrite")) db_post_increment_view(req->db, post_id);
+    if (post_id > 0 && post_public && !cwist_http_header_get(req->headers, "X-Fly-Head-Rewrite")) db_post_increment_view(req->db, post_id);
     cJSON *files = db_file_list_by_post(req->db, post_id);
     cJSON *comments = db_comment_list_by_target(req->db, "post", post_id);
     bool verified = false;
@@ -381,6 +461,21 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     free(pp);
 }
 
+void handler_post_drafts(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    bool admin = strcmp(role, "admin") == 0;
+    /* Admins see everyone's queue, since they can edit any post. */
+    cJSON *posts = db_post_list_unpublished(req->db, admin ? 0 : uid);
+    char *pp = get_profile_pic(req->db, uid, role);
+    cwist_sstring *page = render_post_drafts(posts, admin, is_dark(req), role, pp, is_mobile_request(req));
+    if (posts) cJSON_Delete(posts);
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-store, private");
+    send_html_res(res, page);
+    free(pp);
+}
+
 void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -397,7 +492,8 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
             cJSON_Delete(board);
         }
     }
-    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, NULL, pp, is_mobile_request(req));
+    int draft_count = uid > 0 ? db_post_count_drafts(req->db, uid) : 0;
+    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, NULL, pp, is_mobile_request(req), draft_count);
     if (ordered) cJSON_Delete(ordered);
     send_html_res(res, page);
     free(pp);
@@ -419,6 +515,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
 
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
     char *title = NULL, *content = NULL, *summary = NULL, *board_id_str = NULL, *media_meta = NULL;
+    char *post_action = NULL, *publish_at_in = NULL;
     form_field_t *files = NULL;
 
     FLY_LOG_DEBUG("ctype=%s body_len=%zu", ctype ? ctype : "NULL", req->body->size);
@@ -446,6 +543,8 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             if (summary) { char *unescaped = sql_unescape(summary); cwist_free(summary); summary = unescaped; }
             if ((f = form_find(files, "board_id"))) board_id_str = (char *)cwist_alloc(f->len+1), memcpy(board_id_str, f->data, f->len), board_id_str[f->len]=0;
             if ((f = form_find(files, "media_meta"))) media_meta = (char *)cwist_alloc(f->len+1), memcpy(media_meta, f->data, f->len), media_meta[f->len]=0;
+            post_action = dup_form_field(files, "post_action");
+            publish_at_in = dup_form_field(files, "publish_at");
             FLY_LOG_DEBUG("multipart parsed: title=%s content_len=%zu board_id=%s", title ? title : "NULL", content ? strlen(content) : 0, board_id_str ? board_id_str : "NULL");
         } else {
             FLY_LOG_DEBUG("boundary not found in ctype");
@@ -464,13 +563,15 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         strcpy(board_id_str, cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0");
         media_meta = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "media_meta") ? cwist_query_map_get(kv, "media_meta") : "[]")+1);
         strcpy(media_meta, cwist_query_map_get(kv, "media_meta") ? cwist_query_map_get(kv, "media_meta") : "[]");
+        post_action = dup_query_field(kv, "post_action");
+        publish_at_in = dup_query_field(kv, "publish_at");
         cwist_query_map_destroy(kv);
     }
 
     if (!title || !content || !title[0] || !content[0]) {
         CWIST_LOG_WARN("Post creation failed: missing title or content uid=%d", uid);
         send_post_editor_error(req, res, uid, role, board_id_str ? atoi(board_id_str) : 0, "Title and content required");
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
         multipart_free(files);
         return;
     }
@@ -480,7 +581,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         strlen(content) > MAX_POST_CONTENT_LEN) {
         CWIST_LOG_WARN("Post creation failed: input too long uid=%d", uid);
         send_post_editor_error(req, res, uid, role, board_id_str ? atoi(board_id_str) : 0, "Title, summary, or content is too long");
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
         multipart_free(files);
         return;
     }
@@ -490,7 +591,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     if (board_error) {
         CWIST_LOG_WARN("Post creation refused: %s uid=%d board_id=%d", board_error, uid, board_id);
         send_post_editor_error(req, res, uid, role, 0, board_error);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
         multipart_free(files);
         return;
     }
@@ -505,21 +606,41 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     fly_crypto_sign((const uint8_t *)msg, strlen(msg), &sig_b64);
     cwist_free(msg);
 
+    publish_choice_t pub;
+    choose_publish(&pub, uid, post_action, publish_at_in, false);
+    char now[POST_TIME_LEN];
+    post_utc_now(now);
+    bool public_now = strcmp(pub.status, POST_STATUS_PUBLISHED) == 0 &&
+                      (!pub.publish_at || strcmp(pub.publish_at, now) <= 0);
+
     int created_id = 0;
     char *created_slug = NULL;
-    created_id = db_post_create_with_auto_slug(req->db, board_id, uid, title, sl, content, summary ? summary : "", sig_b64 ? sig_b64 : "", 0, 0, "", &created_slug);
+    created_id = db_post_create_with_auto_slug(req->db, board_id, uid, title, sl, content, summary ? summary : "", sig_b64 ? sig_b64 : "", 0, 0, "", pub.status, pub.publish_at, &created_slug);
     if (!created_slug) {
         CWIST_LOG_ERROR("Post creation failed: uid=%d board_id=%d", uid, board_id);
         res->status_code = CWIST_HTTP_INTERNAL_ERROR;
         cwist_sstring_assign(res->body, "Post creation failed");
         if (sig_b64) cwist_free(sig_b64);
         cwist_free(sl);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
         multipart_free(files);
         return;
     }
-    CWIST_LOG_INFO("Post created: uid=%d slug='%s' board_id=%d", uid, created_slug, board_id);
+    CWIST_LOG_INFO("Post created: uid=%d slug='%s' board_id=%d status=%s publish_at=%s", uid, created_slug, board_id,
+                   pub.status, pub.publish_at ? pub.publish_at : "now");
     if (sig_b64) cwist_free(sig_b64);
+
+    if (!public_now) {
+        /* Drafts and scheduled posts are not on any listing yet. */
+        if (pub.publish_at) post_schedule_note(pub.publish_at);
+        attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
+        cwist_free(sl);
+        cwist_free(created_slug);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+        multipart_free(files);
+        redirect(res, "/account/drafts");
+        return;
+    }
 
     if (uid == 0) {
         char delete_pin[13];
@@ -529,11 +650,11 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             (void)db_post_set_delete_pin_hash(req->db, created_id, delete_pin_hash);
             char redirect_with_pin[1024];
             snprintf(redirect_with_pin, sizeof(redirect_with_pin), "/post/%s?delete_pin=%s", created_slug, delete_pin);
-            fly_nats_publish_post(title, created_slug, summary ? summary : "");
+            post_schedule_announce(req->db);
             attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
             cwist_free(sl);
             cwist_free(created_slug);
-            cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
+            cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
             multipart_free(files);
             redirect(res, redirect_with_pin);
             return;
@@ -541,7 +662,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     /* Publish post metadata to NATS for distributed subscribers */
-    fly_nats_publish_post(title, created_slug, summary ? summary : "");
+    post_schedule_announce(req->db);
 
     attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
 
@@ -550,7 +671,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
 
     cwist_free(sl);
     cwist_free(created_slug);
-    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
+    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
     multipart_free(files);
     redirect(res, "/");
 }
@@ -577,7 +698,7 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res) {
     const char *error_msg = NULL;
     if (error && strcmp(error, "board") == 0) error_msg = BOARD_ERROR_REQUIRED;
     else if (error && strcmp(error, "board_denied") == 0) error_msg = BOARD_ERROR_DENIED;
-    cwist_sstring *page = render_post_editor(ordered, post, files, 0, is_dark(req), role, error_msg, pp, is_mobile_request(req));
+    cwist_sstring *page = render_post_editor(ordered, post, files, 0, is_dark(req), role, error_msg, pp, is_mobile_request(req), 0);
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
     if (ordered) cJSON_Delete(ordered);
@@ -592,6 +713,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
 
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
     char *title = NULL, *content = NULL, *summary = NULL, *id_str = NULL, *board_id_str = NULL, *media_meta = NULL;
+    char *post_action = NULL, *publish_at_in = NULL;
     form_field_t *files = NULL;
 
     const char *path_id = cwist_query_map_get(req->path_params, "id");
@@ -634,6 +756,8 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
             if (summary) { char *unescaped = sql_unescape(summary); cwist_free(summary); summary = unescaped; }
             if ((f = form_find(files, "board_id"))) board_id_str = (char *)cwist_alloc(f->len+1), memcpy(board_id_str, f->data, f->len), board_id_str[f->len]=0;
             if ((f = form_find(files, "media_meta"))) media_meta = (char *)cwist_alloc(f->len+1), memcpy(media_meta, f->data, f->len), media_meta[f->len]=0;
+            post_action = dup_form_field(files, "post_action");
+            publish_at_in = dup_form_field(files, "publish_at");
         }
     } else {
         cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
@@ -650,12 +774,14 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         strcpy(board_id_str, cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0");
         media_meta = (char *)cwist_alloc(strlen(cwist_query_map_get(kv, "media_meta") ? cwist_query_map_get(kv, "media_meta") : "[]")+1);
         strcpy(media_meta, cwist_query_map_get(kv, "media_meta") ? cwist_query_map_get(kv, "media_meta") : "[]");
+        post_action = dup_query_field(kv, "post_action");
+        publish_at_in = dup_query_field(kv, "publish_at");
         cwist_query_map_destroy(kv);
     }
 
     if (!id_str || !title || !content || !title[0] || !content[0]) {
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
         multipart_free(files);
         redirect(res, "/");
         return;
@@ -666,7 +792,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         strlen(content) > MAX_POST_CONTENT_LEN) {
         CWIST_LOG_WARN("Post edit failed: input too long id=%s uid=%d", id_str, uid);
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
         multipart_free(files);
         redirect(res, "/");
         return;
@@ -676,7 +802,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     if (!post) {
         CWIST_LOG_WARN("Post edit failed: post not found id=%s uid=%d", id_str, uid);
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
         multipart_free(files);
         redirect(res, "/");
         return;
@@ -687,7 +813,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         cwist_sstring_assign(res->body, "Forbidden");
         cJSON_Delete(post);
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
         multipart_free(files);
         return;
     }
@@ -700,13 +826,16 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
                  strcmp(board_error, BOARD_ERROR_DENIED) == 0 ? "board_denied" : "board");
         cJSON_Delete(post);
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
         multipart_free(files);
         redirect(res, edit_url);
         return;
     }
     cJSON *slug_obj = cJSON_GetObjectItem(post, "slug");
     char *post_slug = (slug_obj && slug_obj->valuestring) ? strdup(slug_obj->valuestring) : NULL;
+    bool was_public = post_is_public(post);
+    publish_choice_t pub;
+    choose_publish(&pub, uid, post_action, publish_at_in, was_public);
     cJSON_Delete(post);
 
     rewrite_content_legacy_urls(req->db, &content);
@@ -716,8 +845,10 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     char *sig_b642 = NULL;
     fly_crypto_sign((const uint8_t *)msg2, strlen(msg2), &sig_b642);
     cwist_free(msg2);
-    if (db_post_update(req->db, atoi(id_str), board_id, title, content, summary ? summary : "", sig_b642 ? sig_b642 : "", 0, 0, "")) {
-        CWIST_LOG_INFO("Post updated: id=%s uid=%d board_id=%d", id_str, uid, board_id);
+    if (db_post_update(req->db, atoi(id_str), board_id, title, content, summary ? summary : "", sig_b642 ? sig_b642 : "", 0, 0, "", pub.status, pub.publish_at)) {
+        CWIST_LOG_INFO("Post updated: id=%s uid=%d board_id=%d status=%s publish_at=%s", id_str, uid, board_id,
+                       pub.status, pub.publish_at ? pub.publish_at : "kept");
+        if (pub.publish_at) post_schedule_note(pub.publish_at);
     } else {
         CWIST_LOG_ERROR("Post update failed: id=%s uid=%d", id_str, uid);
     }
@@ -725,8 +856,15 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
 
     attach_media_meta_to_post(req->db, media_meta, atoi(id_str), uid, role);
 
+    cJSON *saved = db_post_get_by_id(req->db, atoi(id_str));
+    bool public_now = post_is_public(saved);
+    if (saved) cJSON_Delete(saved);
+    if (public_now != was_public) post_schedule_bump();
     if (post_slug) {
-        fly_nats_publish_post(title, post_slug, summary ? summary : "");
+        /* A live post's edit is re-broadcast; a newly public one is
+         * announced once through its claim flag. */
+        if (public_now && was_public) fly_nats_publish_post(title, post_slug, summary ? summary : "");
+        else if (public_now) post_schedule_announce(req->db);
         page_cache_invalidate_post(post_slug);
     }
     if (id_str) {
@@ -735,10 +873,12 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     page_cache_invalidate_all();
 
     reqshare_write_lock_release(wl_key);
-    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta);
+    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
     multipart_free(files);
     char redir_target[128];
-    if (post_slug && post_slug[0]) {
+    if (!public_now) {
+        snprintf(redir_target, sizeof(redir_target), "/account/drafts");
+    } else if (post_slug && post_slug[0]) {
         snprintf(redir_target, sizeof(redir_target), "/post/%s", post_slug);
     } else {
         snprintf(redir_target, sizeof(redir_target), "/post/%s", id_str ? id_str : "");
@@ -775,6 +915,7 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
         cJSON_Delete(post);
         return;
     }
+    bool was_unpublished = !post_is_public(post);
     cJSON *slug_item = cJSON_GetObjectItem(post, "slug");
     char *deleted_slug = (slug_item && cJSON_IsString(slug_item) && slug_item->valuestring) ? strdup(slug_item->valuestring) : NULL;
     cJSON_Delete(post);
@@ -807,7 +948,12 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
             page_cache_invalidate_all();
         }
         CWIST_LOG_INFO("Post deleted: id=%s uid=%d", id_str, uid);
-        redirect(res, "/");
+        const char *ref = cwist_http_header_get(req->headers, "Referer");
+        if ((ref && strstr(ref, "/drafts")) || was_unpublished) {
+            redirect(res, "/account/drafts");
+        } else {
+            redirect(res, "/");
+        }
     } else {
         CWIST_LOG_ERROR("Post delete failed: id=%s uid=%d", id_str, uid);
         res->status_code = CWIST_HTTP_INTERNAL_ERROR;

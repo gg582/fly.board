@@ -69,6 +69,7 @@ NATS_URL=nats://localhost:4222 ./fly_board
 | Home | `/` | Latest post list |
 | Boards | `/boards` | Multi-board management (admin-only support) |
 | Post | `/post/:slug` | md4c markdown rendering + comments + attachments |
+| Drafts / Scheduling | `/account/drafts` | Save drafts, schedule a future publish time, unpublish. Visible only to the author and admins |
 | Login/Register | `/login`, `/register` | Argon2id + JWT cookie |
 | Profile | `/profile` | Nickname, bio, profile picture, join date |
 | Account Settings | `/account/settings` | Profile edit |

@@ -104,7 +104,7 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
     return res;
 }
 
-cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewer_role, const char *profile_pic, const char *error, bool is_mobile) {
+cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewer_role, const char *profile_pic, const char *error, bool is_mobile, int draft_count) {
     cwist_sstring *b = cwist_sstring_create();
     const char *username = cJSON_GetObjectItem(user, "username")->valuestring;
     const char *email = cJSON_GetObjectItem(user, "email")->valuestring;
@@ -160,7 +160,12 @@ cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewe
     cwist_sstring_append(b, "</form>");
 
     cwist_sstring_append(b, "<hr style='margin:24px 0;border:0;border-top:1px solid var(--border)'>");
+    cwist_sstring_append(b, "<div style='display:flex;gap:10px;flex-wrap:wrap;align-items:center'>");
     cwist_sstring_append(b, "<a href='/account/password' class='btn btn-outline'>Change Password</a>");
+    char draft_btn[128];
+    snprintf(draft_btn, sizeof(draft_btn), "<a href='/account/drafts' class='btn btn-outline'>Drafts &amp; Scheduled (%d)</a>", draft_count > 0 ? draft_count : 0);
+    cwist_sstring_append(b, draft_btn);
+    cwist_sstring_append(b, "</div>");
 
     cwist_sstring_append(b, "<hr style='margin:24px 0;border:0;border-top:1px solid var(--border)'>");
     cwist_sstring_append(b, "<p style='color:var(--muted);font-size:13px'>Username: ");

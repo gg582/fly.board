@@ -3889,8 +3889,66 @@
         });
     });
 
+    // Draft recovery prompt: shown on new-post if unsaved drafts exist.
+    var recoverDialog = document.getElementById('draft-recover-dialog');
+    if (recoverDialog) {
+        if (typeof recoverDialog.showModal === 'function') {
+            recoverDialog.showModal();
+        } else {
+            recoverDialog.setAttribute('open', '');
+        }
+        var noBtn = document.getElementById('draft-recover-no');
+        if (noBtn) {
+            noBtn.addEventListener('click', function() {
+                if (typeof recoverDialog.close === 'function') {
+                    recoverDialog.close();
+                } else {
+                    recoverDialog.removeAttribute('open');
+                }
+            });
+        }
+    }
+
+    // Publish time: the server stores UTC, the picker shows browser-local time.
+    var publishAtLocal = document.getElementById('publish-at-local');
+    var publishAtUtc = document.getElementById('publish-at-utc');
+    var publishBtn = document.getElementById('publish-btn');
+    var publishBtnLabel = publishBtn ? publishBtn.textContent : '';
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+    function syncPublishLabel() {
+        if (!publishBtn || !publishAtLocal) return;
+        var when = publishAtLocal.value ? new Date(publishAtLocal.value) : null;
+        if (when && !isNaN(when.getTime()) && when.getTime() > Date.now()) {
+            publishBtn.textContent = 'Schedule';
+        } else {
+            publishBtn.textContent = publishBtnLabel === 'Schedule' ? 'Publish' : publishBtnLabel;
+        }
+    }
+    if (publishAtLocal) {
+        var utc = publishAtLocal.getAttribute('data-utc');
+        if (utc) {
+            var d = new Date(utc.replace(' ', 'T') + 'Z');
+            if (!isNaN(d.getTime())) {
+                publishAtLocal.value = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) +
+                    'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+            }
+        }
+        publishAtLocal.addEventListener('input', syncPublishLabel);
+        var publishAtClear = document.getElementById('publish-at-clear');
+        if (publishAtClear) {
+            publishAtClear.addEventListener('click', function() {
+                publishAtLocal.value = '';
+                syncPublishLabel();
+            });
+        }
+    }
+
     if (form) {
         form.addEventListener('submit', function(event) {
+            if (publishAtLocal && publishAtUtc) {
+                var when = publishAtLocal.value ? new Date(publishAtLocal.value) : null;
+                publishAtUtc.value = (when && !isNaN(when.getTime())) ? when.toISOString() : '';
+            }
             // The dashboard write policy can require a board (data-required).
             var boardDropdown = document.getElementById('board-dropdown');
             var boardInput = document.getElementById('board-id-input');

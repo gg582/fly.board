@@ -63,6 +63,8 @@ void engine_routes_register(cwist_app *app) {
 
     engine_async_get_cached(app, "/posts", handler_home);
     engine_async_get_cached(app, "/search", handler_post_list);
+    engine_async_get(app, "/drafts", handler_post_drafts);
+    engine_async_get(app, "/account/drafts", handler_post_drafts);
     engine_async_get(app, "/post/new", handler_post_new_get);
     engine_async_post(app, "/post/new", handler_post_new_post);
     engine_async_get(app, "/post/delete/:id", handler_post_delete);

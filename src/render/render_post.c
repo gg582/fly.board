@@ -8,6 +8,7 @@
 #include "utils/image_invert.h"
 #include "utils/media_preview.h"
 #include "db/sql_escape.h"
+#include "db/db.h"
 #include "cwist/image_contrast.h"
 #include <cwist/core/sstring/sstring.h>
 #include <cwist/core/mem/alloc.h>
@@ -953,6 +954,20 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     char pid_buf[32]; snprintf(pid_buf, sizeof(pid_buf), "%d", post_id_val);
 
     cwist_sstring_append(b, "<article>");
+    if (!post_is_public(post)) {
+        /* Only the author and admins reach an unpublished post. */
+        cwist_sstring_append(b, "<div class='card' style='margin-bottom:16px;border-color:var(--accent)'><strong>");
+        if (post_is_scheduled(post)) {
+            cwist_sstring_append(b, "Scheduled</strong><div style='margin-top:6px;color:var(--muted)'>Goes public at ");
+            cwist_sstring_append_escaped(b, date_text);
+            cwist_sstring_append(b, " UTC. Until then only you and admins can see it.");
+        } else {
+            cwist_sstring_append(b, "Draft</strong><div style='margin-top:6px;color:var(--muted)'>Not published. Only you and admins can see it.");
+        }
+        cwist_sstring_append(b, " <a href='/post/");
+        cwist_sstring_append(b, pid_buf);
+        cwist_sstring_append(b, "/edit'>Edit</a> &middot; <a href='/account/drafts'>All drafts</a></div></div>");
+    }
     if (ephemeral_delete_pin && ephemeral_delete_pin[0]) {
         cwist_sstring_append(b, "<div class='card' style='margin-bottom:16px;border-color:var(--accent)'>");
         cwist_sstring_append(b, "<strong>Delete PIN</strong><div style='margin-top:6px;color:var(--muted)'>Save this now. It is only shown once for this anonymous post.</div><div style='margin-top:8px'><code>");
@@ -1225,9 +1240,72 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     return page;
 }
 
-cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int initial_board_id, bool dark, const char *user_role, const char *error, const char *profile_pic, bool is_mobile) {
+cwist_sstring *render_post_drafts(cJSON *posts, bool show_author, bool dark, const char *user_role, const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
-    cwist_sstring_assign(b, "<div class='card' style='margin:24px 0;'>");
+    cwist_sstring_assign(b, "<div class='hero'><h1>Drafts &amp; Scheduled</h1></div>");
+    cwist_sstring_append(b, "<div style='margin:0 0 16px'><a href='/post/new' class='btn'>New Post</a></div>");
+    int n = posts ? cJSON_GetArraySize(posts) : 0;
+    if (n == 0) {
+        cwist_sstring_append(b, "<div class='card' style='text-align:center;padding:40px 20px;color:var(--muted)'>No drafts or scheduled posts.</div>");
+    }
+    for (int i = 0; i < n; i++) {
+        cJSON *p = cJSON_GetArrayItem(posts, i);
+        char id_buf[32];
+        snprintf(id_buf, sizeof(id_buf), "%d", json_int(p, "id", 0));
+        bool scheduled = post_is_scheduled(p);
+        cwist_sstring_append(b, "<div class='post-row'><div class='post-row-head'>");
+        cwist_sstring_append(b, scheduled ? "<span class='tag' style='background:var(--accent);color:var(--panel)'>Scheduled</span>"
+                                          : "<span class='tag'>Draft</span>");
+        const char *board_name = json_string_or_empty(p, "board_name");
+        if (board_name[0]) {
+            cwist_sstring_append(b, "<span class='tag'>");
+            cwist_sstring_append_escaped(b, board_name);
+            cwist_sstring_append(b, "</span>");
+        }
+        cwist_sstring_append(b, "</div><a class='post-row-title' href='/post/");
+        cwist_sstring_append_escaped(b, json_string_or_empty(p, "slug"));
+        cwist_sstring_append(b, "'>");
+        const char *title = json_string_or_empty(p, "title");
+        cwist_sstring_append_escaped(b, title[0] ? title : "(untitled)");
+        cwist_sstring_append(b, "</a><div style='font-size:13px;color:var(--muted);margin-top:6px'>");
+        if (scheduled) {
+            cwist_sstring_append(b, "Publishes ");
+            cwist_sstring_append_escaped(b, json_string_or_empty(p, "created_at"));
+            cwist_sstring_append(b, " UTC &middot; ");
+        }
+        cwist_sstring_append(b, "Edited ");
+        cwist_sstring_append_escaped(b, json_string_or_empty(p, "updated_at"));
+        cwist_sstring_append(b, " UTC");
+        if (show_author) {
+            const char *author = json_string_or_empty(p, "author_name");
+            cwist_sstring_append(b, " &middot; ");
+            cwist_sstring_append_escaped(b, author[0] ? author : "Anonymous");
+        }
+        cwist_sstring_append(b, " &middot; <a href='/post/");
+        cwist_sstring_append(b, id_buf);
+        cwist_sstring_append(b, "/edit'>Edit</a> &middot; <a href='/post/delete/");
+        cwist_sstring_append(b, id_buf);
+        cwist_sstring_append(b, "' style='color:var(--danger, #e55353)' data-confirm='Delete this post?'>Delete</a></div></div>");
+    }
+    cwist_sstring *page = render_page("Drafts & Scheduled", b->data, dark, user_role, profile_pic, is_mobile);
+    cwist_sstring_destroy(b);
+    return page;
+}
+
+cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int initial_board_id, bool dark, const char *user_role, const char *error, const char *profile_pic, bool is_mobile, int draft_count) {
+    cwist_sstring *b = cwist_sstring_create();
+    if (!post && draft_count > 0) {
+        cwist_sstring_assign(b, "<dialog id='draft-recover-dialog' style='border:1px solid var(--border);border-radius:12px;background:var(--card-bg, #fff);color:var(--fg, #000);padding:24px;max-width:440px;box-shadow:0 8px 32px rgba(0,0,0,0.25)'>");
+        cwist_sstring_append(b, "<h3 style='margin:0 0 12px'>Unsaved Posts</h3>");
+        cwist_sstring_append(b, "<p style='margin:0 0 20px;color:var(--fg);font-size:15px'>You have unsaved post(s). Would you like to recover them?</p>");
+        cwist_sstring_append(b, "<div style='display:flex;justify-content:flex-end;gap:10px'>");
+        cwist_sstring_append(b, "<button type='button' class='btn btn-outline' id='draft-recover-no'>No</button>");
+        cwist_sstring_append(b, "<a href='/account/drafts' class='btn' id='draft-recover-yes' style='text-decoration:none'>Yes</a>");
+        cwist_sstring_append(b, "</div></dialog>");
+        cwist_sstring_append(b, "<div class='card' style='margin:24px 0;'>");
+    } else {
+        cwist_sstring_assign(b, "<div class='card' style='margin:24px 0;'>");
+    }
     if (error && error[0]) {
         cwist_sstring_append(b, "<div class='alert'>");
         char *tmp_err = sql_escape(error);
@@ -1439,10 +1517,38 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
     cwist_sstring_append(b, "<input id='file-input' type='file' multiple style='display:none'><label for='file-input' class='btn' style='margin-top:12px;display:inline-block;cursor:pointer'>Select Files...</label>");
     cwist_sstring_append(b, "</div>");
 
-    cwist_sstring_append(b, "<div style='margin-top:12px;display:flex;gap:10px'><button type='submit' class='btn'>Save</button>");
-    cwist_sstring_append(b, "<a href='/' class='btn btn-outline'>Cancel</a></div>");
+    /* Guests cannot come back to a draft, so they only get Save. */
+    bool can_draft = user_role && user_role[0];
+    if (can_draft) {
+        bool is_public = !post || post_is_public(post);
+        bool scheduled = post && post_is_scheduled(post);
+        cwist_sstring_append(b, "<label for='publish-at-local' style='margin-top:18px'>Publish at (optional)</label>");
+        cwist_sstring_append(b, "<div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>");
+        cwist_sstring_append(b, "<input type='datetime-local' id='publish-at-local' style='max-width:260px'");
+        if (scheduled) {
+            /* editor.js turns this UTC value into the browser's local time. */
+            cwist_sstring_append(b, " data-utc='");
+            cwist_sstring_append_escaped(b, json_string_or_empty(post, "created_at"));
+            cwist_sstring_append(b, "'");
+        }
+        cwist_sstring_append(b, "><button type='button' class='btn btn-outline' id='publish-at-clear'>Clear</button></div>");
+        cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>Leave empty to publish now. A future time schedules the post; it stays hidden until then.</small>");
+        cwist_sstring_append(b, "<input type='hidden' name='publish_at' id='publish-at-utc' value=''>");
+        cwist_sstring_append(b, "<div style='margin-top:12px;display:flex;gap:10px;flex-wrap:wrap'>");
+        cwist_sstring_append(b, "<button type='submit' class='btn' name='post_action' value='publish' id='publish-btn'>");
+        cwist_sstring_append(b, scheduled ? "Schedule" : (post && is_public ? "Update" : "Publish"));
+        cwist_sstring_append(b, "</button>");
+        cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' name='post_action' value='draft'>");
+        cwist_sstring_append(b, post && is_public ? "Unpublish to Draft" : "Save Draft");
+        cwist_sstring_append(b, "</button>");
+        cwist_sstring_append(b, "<a href='/account/drafts' class='btn btn-outline'>Drafts</a>");
+        cwist_sstring_append(b, "<a href='/' class='btn btn-outline'>Cancel</a></div>");
+    } else {
+        cwist_sstring_append(b, "<div style='margin-top:12px;display:flex;gap:10px'><button type='submit' class='btn'>Save</button>");
+        cwist_sstring_append(b, "<a href='/' class='btn btn-outline'>Cancel</a></div>");
+    }
     cwist_sstring_append(b, "</form></div>");
-    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=4' defer></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=5' defer></script>");
 
     cwist_sstring *page = render_page(post ? "Edit Post" : "New Post", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
