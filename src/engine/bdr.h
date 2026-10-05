@@ -10,7 +10,8 @@
  *
  * cwist only consults its BDR on the cleartext HTTP/1.1 path, and fly.board
  * pages carry Vary: Cookie, so cwist never learns them. This layer keeps
- * finished responses in the app's cwist BDR store under a key built from
+ * finished responses in a bounded, reference-counted per-worker store
+ * (FLY_BDR_MAX_KEYS replies, FLY_BDR_MAX_MB bytes) under a key built from
  * every request input the page depends on, and serves them straight from
  * the gate without running (or deferring) the route.
  *
