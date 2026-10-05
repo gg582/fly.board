@@ -87,7 +87,7 @@ static void append_write_policy_section(cwist_sstring *b, const char *msg) {
     append_scope_select(b, "post_scope", policy.post);
     cwist_sstring_append(b, "<label>Who can write comments</label>");
     append_scope_select(b, "comment_scope", policy.comment);
-    cwist_sstring_append(b, "<label><input type='checkbox' name='require_board' value='1'");
+    cwist_sstring_append(b, "<label class='check-row'><input type='checkbox' name='require_board' value='1'");
     if (policy.require_board) cwist_sstring_append(b, " checked");
     cwist_sstring_append(b, "> Require a board for every post</label>");
     cwist_sstring_append(b, "<div style='margin-top:12px'><button type='submit' class='btn'>Save Write Policy</button></div>");

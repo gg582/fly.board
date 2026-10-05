@@ -301,7 +301,7 @@ cwist_sstring *render_board_form(cJSON *board, cJSON *all_boards, bool dark, con
     }
     cwist_sstring_append(fields, "</select>");
     if (user_role && strcmp(user_role, "admin") == 0) {
-        cwist_sstring_append(fields, "<label><input type='checkbox' name='admin_only' value='1' ");
+        cwist_sstring_append(fields, "<label class='check-row'><input type='checkbox' name='admin_only' value='1' ");
         if (board) {
             if (json_int(board, "admin_only", 0)) cwist_sstring_append(fields, "checked");
         }
