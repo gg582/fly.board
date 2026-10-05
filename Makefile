@@ -164,6 +164,15 @@ LDFLAGS := -L$(CWIST_PREFIX)/lib \
            -Wl,--wrap=cwist_http_send_response \
            -Wl,--wrap=cwist_https_send_response
 
+# A Homebrew keg (<brew prefix>/opt/cwist) holds only cwist itself; the
+# formulae next to it (openssl, curl, brotli, zstd, ...) live under
+# <brew prefix>/lib, which a whole-prefix CWIST_PREFIX used to put on the
+# library path implicitly. Keep it searchable, and resolvable at run time.
+CWIST_BREW_ROOT := $(patsubst %/opt/cwist,%,$(filter %/opt/cwist,$(CWIST_PREFIX)))
+ifneq ($(CWIST_BREW_ROOT),)
+    LDFLAGS += -L$(CWIST_BREW_ROOT)/lib -Wl,-rpath,$(CWIST_BREW_ROOT)/lib
+endif
+
 LIBS := $(CWIST_LIB) \
         $(CWIST_DEPS) \
         $(MD4C_LIB) \
