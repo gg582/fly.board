@@ -17,6 +17,7 @@
 #include "engine/routes.h"
 #include "engine/async_route.h"
 #include "engine/bdr.h"
+#include "utils/post_schedule.h"
 #include "engine/warmup.h"
 #include "utils/cache.h"
 #include "utils/reqshare.h"
@@ -335,6 +336,7 @@ int main(void) {
     auth_site_admin_set_uid(site_admin_uid);
     CWIST_LOG_INFO("Site admin account: users.id=%d", site_admin_uid);
     write_policy_init(db);
+    post_schedule_init(db);
     db_file_cleanup_duplicates(db);
     if (startup_media_backfill_enabled()) {
         media_preview_backfill(db);
@@ -363,6 +365,8 @@ int main(void) {
         g_cleanup_thread_started = true;
         g_cleanup_thread_owner = getpid();
     }
+
+    post_schedule_start(db);
 
     cwist_app_set_max_memspace(app, CWIST_MIB(512));
     cwist_app_configure_bdr(app, CWIST_MIB(256), 600, 250000);
@@ -475,6 +479,7 @@ int main(void) {
     cert_renewal_join();
     cleanup_stop();
     cleanup_join();
+    post_schedule_stop();
     engine_nats_stop();
     engine_pool_shutdown();
     cleanup_close_wake_fd();

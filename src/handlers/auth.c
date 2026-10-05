@@ -390,7 +390,8 @@ void handler_account_settings_get(cwist_http_request *req, cwist_http_response *
         return;
     }
     char *pp = get_profile_pic(req->db, uid, role);
-    send_html_res(res, render_account_settings(user, is_dark(req), role, pp, NULL, is_mobile_request(req)));
+    int draft_count = db_post_count_drafts(req->db, target_uid);
+    send_html_res(res, render_account_settings(user, is_dark(req), role, pp, NULL, is_mobile_request(req), draft_count));
     cJSON_Delete(user);
     free(pp);
 }
@@ -524,7 +525,8 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
     if (!nickname || !bio) {
         cJSON *user = db_user_get_by_id(req->db, target_uid);
         char *pp = get_profile_pic(req->db, uid, role);
-        send_html_res(res, render_account_settings(user, is_dark(req), role, pp, "Invalid form data", is_mobile_request(req)));
+        int draft_count = db_post_count_drafts(req->db, target_uid);
+        send_html_res(res, render_account_settings(user, is_dark(req), role, pp, "Invalid form data", is_mobile_request(req), draft_count));
         if (user) cJSON_Delete(user);
         free(pp);
         cwist_free(nickname); cwist_free(bio); cwist_free(profile_pic_url);

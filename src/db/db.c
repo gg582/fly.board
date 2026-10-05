@@ -381,6 +381,14 @@ bool db_migrate(cwist_db *db) {
      * are (re)created. */
     if (!db_posts_relax_user_id(db)) return false;
 
+    /* After the rebuild above, which only knows the legacy columns. Existing
+     * rows default to published, so nothing disappears on upgrade. */
+    db_exec_sql(db, "ALTER TABLE posts ADD COLUMN status TEXT NOT NULL DEFAULT 'published'");
+    /* 0 until the post's NATS "published" event went out. Existing rows were
+     * announced when they were created. */
+    db_exec_sql(db, "ALTER TABLE posts ADD COLUMN announced INTEGER NOT NULL DEFAULT 1");
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_posts_unannounced ON posts(created_at) WHERE announced=0");
+
     /* Enforce one filename per post so auto-rename cannot race and create
      * hidden duplicate records. Clean up any legacy duplicates first. */
     db_file_cleanup_duplicates(db);

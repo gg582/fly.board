@@ -96,6 +96,18 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
     const char *content = cwist_query_map_get(kv, "content");
     const char *author_name_input = cwist_query_map_get(kv, "author_name");
     const char *referer = cwist_http_header_get(req->headers, "Referer");
+    if (target_type && target_id_str && content && content[0] && strcmp(target_type, "post") == 0) {
+        /* Unpublished posts take comments only from those who can see them. */
+        cJSON *target = db_post_get_by_id(req->db, atoi(target_id_str));
+        bool visible = target && (post_is_public(target) || is_author_or_admin(target, uid, role));
+        if (target) cJSON_Delete(target);
+        if (!visible) {
+            cwist_query_map_destroy(kv);
+            res->status_code = CWIST_HTTP_NOT_FOUND;
+            cwist_sstring_assign(res->body, "Not found");
+            return;
+        }
+    }
     if (target_type && target_id_str && content && content[0]) {
         int target_id = atoi(target_id_str);
         int parent_id = parent_id_str ? atoi(parent_id_str) : 0;

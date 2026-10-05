@@ -50,8 +50,30 @@ cJSON *db_board_perm_list(cwist_db *db, int board_id);
 
 /* Posts */
 int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, const char *slug, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
-int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const char *title, const char *slug_base, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category, char **out_slug);
-bool db_post_update(cwist_db *db, int id, int board_id, const char *title, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
+/* Publication state. A post's created_at doubles as its publish time: a
+ * 'published' post whose created_at is still in the future is scheduled.
+ * Timestamps are UTC "YYYY-MM-DD HH:MM:SS", the CURRENT_TIMESTAMP format. */
+#define POST_STATUS_DRAFT "draft"
+#define POST_STATUS_PUBLISHED "published"
+#define POST_TIME_LEN 20
+/* WHERE fragment selecting posts anyone may see (table alias p). */
+#define POST_PUBLIC_SQL "p.status='published' AND p.created_at<=CURRENT_TIMESTAMP"
+
+/* status NULL keeps the column default (published); publish_at NULL means
+ * now on create and "keep the current value" on update. */
+int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const char *title, const char *slug_base, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category, const char *status, const char *publish_at, char **out_slug);
+bool db_post_update(cwist_db *db, int id, int board_id, const char *title, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category, const char *status, const char *publish_at);
+void post_utc_now(char out[POST_TIME_LEN]);
+bool post_is_public(cJSON *post);
+bool post_is_scheduled(cJSON *post);
+/* Drafts and scheduled posts, newest edit first; user_id 0 lists everyone's. */
+cJSON *db_post_list_unpublished(cwist_db *db, int user_id);
+/* Earliest future publish time as a UTC epoch, or 0 when nothing is queued. */
+long long db_post_next_scheduled(cwist_db *db);
+/* Public posts whose "published" event has not gone out yet, each claimed
+ * (announced=1) by this call so no other process announces it again. */
+cJSON *db_post_claim_unannounced(cwist_db *db);
+int db_post_count_drafts(cwist_db *db, int user_id);
 bool db_post_delete(cwist_db *db, int id);
 bool db_post_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_hash);
 cJSON *db_post_get_by_slug(cwist_db *db, const char *slug);

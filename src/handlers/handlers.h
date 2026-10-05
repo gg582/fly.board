@@ -44,6 +44,7 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res);
 void post_bdr_hit(cwist_db *db, const char *path);
 void handler_post_new_get(cwist_http_request *req, cwist_http_response *res);
 void handler_post_new_post(cwist_http_request *req, cwist_http_response *res);
+void handler_post_drafts(cwist_http_request *req, cwist_http_response *res);
 void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res);
 void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res);
 void handler_post_delete(cwist_http_request *req, cwist_http_response *res);

@@ -145,7 +145,7 @@ int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, c
     return (int)id;
 }
 
-int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const char *title, const char *slug_base, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category, char **out_slug) {
+int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const char *title, const char *slug_base, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category, const char *status, const char *publish_at, char **out_slug) {
     if (out_slug) *out_slug = NULL;
     if (!db || !fly_db_conn(db) || !slug_base || !slug_base[0]) return 0;
 
@@ -210,7 +210,10 @@ int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const
     }
     snprintf(final_slug, base_len + strlen(suffix) + 1, "%s%s", slug_base, suffix);
 
-    const char *insert_sql = "INSERT INTO posts (board_id, user_id, title, slug, content, summary, pqc_signature, is_notice, is_secret, category) VALUES (?,?,?,?,?,?,?,?,?,?)";
+    /* Status and publish time go in with the row, so a draft or scheduled
+     * post is never briefly public between an INSERT and an UPDATE. The
+     * NATS announcement is claimed later by post_schedule_announce(). */
+    const char *insert_sql = "INSERT INTO posts (board_id, user_id, title, slug, content, summary, pqc_signature, is_notice, is_secret, category, status, created_at, announced) VALUES (?,?,?,?,?,?,?,?,?,?,COALESCE(?,'published'),COALESCE(?,CURRENT_TIMESTAMP),0)";
     sqlite3_stmt *stmt = NULL;
     rc = sqlite3_prepare_v2(fly_db_conn(db), insert_sql, -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
@@ -234,6 +237,10 @@ int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const
     sqlite3_bind_int(stmt, 8, is_notice);
     sqlite3_bind_int(stmt, 9, is_secret);
     sqlite3_bind_text(stmt, 10, category ? category : "", -1, SQLITE_STATIC);
+    if (status) sqlite3_bind_text(stmt, 11, status, -1, SQLITE_STATIC);
+    else sqlite3_bind_null(stmt, 11);
+    if (publish_at) sqlite3_bind_text(stmt, 12, publish_at, -1, SQLITE_STATIC);
+    else sqlite3_bind_null(stmt, 12);
     rc = sqlite3_step(stmt);
     sqlite3_int64 id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(fly_db_conn(db)) : 0;
     sqlite3_finalize(stmt);
