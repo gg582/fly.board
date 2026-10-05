@@ -11,20 +11,28 @@ FLYBOARD_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 CWIST_ROOT ?= $(abspath $(FLYBOARD_DIR)/../cwist)
 CWIST_PREFIX ?= /usr/local
 
-# Homebrew fallback: cwist ships an official c4punks/cwist/cwist formula whose
-# bottles install into the brew prefix (lib/libcwist.a + lib/cwist/*.a +
-# include/cwist). When neither a ../cwist source tree nor a /usr/local install
-# exists, detect the Homebrew prefix and use it. brew is resolved from PATH
-# first, then from the standard install locations (Linuxbrew and macOS), so
-# non-interactive SSH shells without brew on PATH still work. An explicit
+# Homebrew / Linuxbrew fallback: the c4punks/cwist tap formula (see the
+# homebrew-cwist repository) runs cwist's `make install PREFIX=<keg>`, so the
+# keg holds lib/libcwist.a, lib/cwist/*.a, include/cwist and include/cwist/vendor
+# just like a /usr/local install. When neither a ../cwist source tree nor
+# $(CWIST_PREFIX)/lib/libcwist.a exists, use the keg through its stable
+# <brew prefix>/opt/cwist link (it survives `brew upgrade`, unlike the Cellar
+# path). brew is resolved from PATH first, then from the standard install
+# locations (Linuxbrew system/user, Apple Silicon, Intel macOS), so
+# non-interactive SSH shells without brew on PATH still work; the opt links
+# are probed directly as well in case brew itself cannot run. An explicit
 # CWIST_PREFIX from the command line or environment always wins.
+BREW_LOCATIONS := /home/linuxbrew/.linuxbrew $(HOME)/.linuxbrew /opt/homebrew /usr/local
 ifeq ($(wildcard $(CWIST_ROOT)/libcwist.a),)
     ifeq ($(filter command line environment environment-overridden,$(origin CWIST_PREFIX)),)
         ifeq ($(wildcard $(CWIST_PREFIX)/lib/libcwist.a),)
-            BREW_BIN := $(shell command -v brew 2>/dev/null || { [ -x /home/linuxbrew/.linuxbrew/bin/brew ] && echo /home/linuxbrew/.linuxbrew/bin/brew; } || { [ -x /opt/homebrew/bin/brew ] && echo /opt/homebrew/bin/brew; } || { [ -x /usr/local/bin/brew ] && echo /usr/local/bin/brew; })
-            BREW_PREFIX := $(shell [ -n "$(BREW_BIN)" ] && "$(BREW_BIN)" --prefix 2>/dev/null)
-            ifneq ($(wildcard $(BREW_PREFIX)/lib/libcwist.a),)
-                CWIST_PREFIX := $(BREW_PREFIX)
+            BREW_BIN := $(firstword $(shell command -v brew 2>/dev/null) $(wildcard $(addsuffix /bin/brew,$(BREW_LOCATIONS))))
+            BREW_PREFIX := $(if $(BREW_BIN),$(shell "$(BREW_BIN)" --prefix 2>/dev/null))
+            BREW_CWIST_CANDIDATES := $(if $(BREW_PREFIX),$(BREW_PREFIX)/opt/cwist $(BREW_PREFIX)) \
+                                     $(addsuffix /opt/cwist,$(BREW_LOCATIONS))
+            BREW_CWIST := $(firstword $(foreach d,$(BREW_CWIST_CANDIDATES),$(if $(wildcard $(d)/lib/libcwist.a),$(d))))
+            ifneq ($(BREW_CWIST),)
+                CWIST_PREFIX := $(BREW_CWIST)
             endif
         endif
     endif
@@ -33,7 +41,8 @@ endif
 ifeq ($(wildcard $(CWIST_ROOT)/libcwist.a),)
     CWIST_LIB = $(CWIST_PREFIX)/lib/libcwist.a
     CWIST_DEPS_DIR = $(CWIST_PREFIX)/lib/cwist
-    CWIST_DEPS = $(CWIST_DEPS_DIR)/libnats_static.a \
+    CWIST_DEPS = $(wildcard $(CWIST_DEPS_DIR)/libusrsctp.a) \
+                 $(CWIST_DEPS_DIR)/libnats_static.a \
                  $(CWIST_DEPS_DIR)/libttak.a \
                  $(CWIST_DEPS_DIR)/libcjson.a \
                  $(CWIST_DEPS_DIR)/liburiparser.a \
@@ -47,7 +56,8 @@ ifeq ($(wildcard $(CWIST_ROOT)/libcwist.a),)
                      -I$(CWIST_PREFIX)/include/cwist/vendor/lsquic
 else
     CWIST_LIB = $(CWIST_ROOT)/libcwist.a
-    CWIST_DEPS = $(CWIST_ROOT)/lib/cnats/build/lib/libnats_static.a \
+    CWIST_DEPS = $(wildcard $(CWIST_ROOT)/lib/usrsctp/build/usrsctplib/libusrsctp.a) \
+                 $(CWIST_ROOT)/lib/cnats/build/lib/libnats_static.a \
                  $(CWIST_ROOT)/lib/libttak/lib/libttak.a \
                  $(CWIST_ROOT)/lib/cjson/libcjson.a \
                  $(CWIST_ROOT)/lib/uriparser/build/liburiparser.a \
@@ -64,6 +74,27 @@ else
                      -I$(CWIST_ROOT)/lib/lsquic/include \
                      -I$(CWIST_ROOT)/lib/sqlite3 \
                      -I$(CWIST_ROOT)/lib/multipart-parser-c
+endif
+
+# An installed cwist (Homebrew bottle, /usr/local) is usually built with
+# -flto, and GCC only links LTO bytecode written by its own major version
+# ("bytecode stream ... generated with LTO version 13.1 instead of the
+# expected 14.0"). When the archive carries LTO sections from another GCC
+# major and a matching gcc-<major> is installed, build with that compiler.
+# Only a generic cc/gcc is swapped; a specific compiler or a CC given on the
+# make command line always wins.
+ifeq ($(wildcard $(CWIST_ROOT)/libcwist.a),)
+    ifeq ($(filter-out command line,$(origin CC))$(filter cc gcc,$(CC)),$(origin CC)$(CC))
+        CWIST_LTO_GCC := $(shell grep -aqF '.gnu.lto_' '$(CWIST_LIB)' 2>/dev/null && grep -aoE -m1 'GCC: [^[:cntrl:]]+' '$(CWIST_LIB)' | sed 's/.* //;s/\..*//')
+        HOST_GCC := $(shell $(CC) -dumpversion 2>/dev/null | cut -d. -f1)
+        ifneq ($(CWIST_LTO_GCC),)
+            ifneq ($(CWIST_LTO_GCC),$(HOST_GCC))
+                ifneq ($(shell command -v gcc-$(CWIST_LTO_GCC) 2>/dev/null),)
+                    CC := gcc-$(CWIST_LTO_GCC)
+                endif
+            endif
+        endif
+    endif
 endif
 
 # Third Party Dependencies
@@ -229,7 +260,8 @@ src/crypto/fly_crypto.o: src/crypto/fly_crypto.c
 # must rebuild every consumer, not just the files edited in the same commit.
 -include $(OBJS:.o=.d)
 
-$(TARGET): $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+# Relink when the cwist archive changes (e.g. after `brew upgrade cwist`).
+$(TARGET): $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A) $(CWIST_LIB)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS) $(LIBS)
 
 setup:

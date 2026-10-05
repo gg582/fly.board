@@ -5,7 +5,7 @@
   "language": "c",
   "entrypoint": "src/main.c",
   "build": {
-    "command": "make -j",
+    "command": "make -j fly_board",
     "binary": "fly_board"
   },
   "dev": {
@@ -14,10 +14,20 @@
     "stop_timeout_ms": 5000
   },
   "watch": {
-    "exclude": ["data", "posts", "img"]
+    "exclude": [
+      "data",
+      "posts",
+      "img",
+      "third_party",
+      "wasm",
+      "wasm-client",
+      "build-wasm",
+      "tests",
+      "tools"
+    ]
   },
   "dependencies": {
-    "cwist": ">=3.3"
+    "cwist": ">=3.7.1"
   },
   "openapi": {
     "source": "src",
