@@ -637,6 +637,52 @@ void rule_components(cJSON *rules) {
     add_decl(inputf, "box-shadow", "0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent)");
     cJSON_AddItemToArray(rules, inputf);
 
+    /* Flat checkbox: the generic input rule above stretches it to 100%, so
+     * reset the box and draw the check from an SVG mask tinted by --accent. */
+    cJSON *check_row = create_rule(".check-row");
+    add_decl(check_row, "display", "flex");
+    add_decl(check_row, "align-items", "center");
+    add_decl(check_row, "justify-content", "flex-start");
+    add_decl(check_row, "gap", "8px");
+    add_decl(check_row, "text-align", "left");
+    add_decl(check_row, "cursor", "pointer");
+    cJSON_AddItemToArray(rules, check_row);
+
+    cJSON *checkbox = create_rule("input[type=checkbox]");
+    add_decl(checkbox, "appearance", "none");
+    add_decl(checkbox, "-webkit-appearance", "none");
+    add_decl(checkbox, "flex", "0 0 auto");
+    add_decl(checkbox, "width", "18px");
+    add_decl(checkbox, "height", "18px");
+    add_decl(checkbox, "padding", "0");
+    add_decl(checkbox, "margin", "0");
+    add_decl(checkbox, "display", "inline-grid");
+    add_decl(checkbox, "place-content", "center");
+    add_decl(checkbox, "border", "1.5px solid var(--border)");
+    add_decl(checkbox, "border-radius", radius_str(4));
+    add_decl(checkbox, "cursor", "pointer");
+    cJSON_AddItemToArray(rules, checkbox);
+
+    cJSON *checkbox_mark = create_rule("input[type=checkbox]::before");
+    add_decl(checkbox_mark, "content", "''");
+    add_decl(checkbox_mark, "width", "14px");
+    add_decl(checkbox_mark, "height", "14px");
+    add_decl(checkbox_mark, "background-color", "var(--accent)");
+    add_decl(checkbox_mark, "-webkit-mask", "url('/assets/images/check.svg') center / contain no-repeat");
+    add_decl(checkbox_mark, "mask", "url('/assets/images/check.svg') center / contain no-repeat");
+    add_decl(checkbox_mark, "transform", "scale(0)");
+    add_decl(checkbox_mark, "transition", "transform 0.12s ease");
+    cJSON_AddItemToArray(rules, checkbox_mark);
+
+    cJSON *checkbox_on = create_rule("input[type=checkbox]:checked");
+    add_decl(checkbox_on, "border-color", "var(--accent)");
+    add_decl(checkbox_on, "background", "var(--accent-bg-tint)");
+    cJSON_AddItemToArray(rules, checkbox_on);
+
+    cJSON *checkbox_on_mark = create_rule("input[type=checkbox]:checked::before");
+    add_decl(checkbox_on_mark, "transform", "scale(1)");
+    cJSON_AddItemToArray(rules, checkbox_on_mark);
+
     cJSON *styled_dd = create_rule(".styled-dropdown");
     add_decl(styled_dd, "position", "relative");
     add_decl(styled_dd, "width", "100%");

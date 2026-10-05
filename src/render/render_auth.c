@@ -67,7 +67,7 @@ cwist_sstring *render_register(bool dark, const char *error, bool is_mobile, cJS
         "           padding:8px;border-radius:4px;background:var(--bg)'>"
         "        <div class='markdown-body' style='font-size:13px'>{{ doc.html }}</div>"
         "      </div>"
-        "      <label style='display:flex;align-items:center;gap:6px;margin-top:6px;font-size:13px;cursor:pointer'>"
+        "      <label class='check-row' style='margin-top:6px;font-size:13px'>"
         "        <input type='checkbox' name='legal_{{ doc.name }}' {% if doc.required %}required{% endif %}>"
         "        Agree"
         "      </label>"
