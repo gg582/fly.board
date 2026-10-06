@@ -226,6 +226,9 @@ static void *cleanup_worker(void *arg) {
             fly_forkgate_enter();
             db_cleanup_orphaned_files(&db);
             fly_forkgate_leave();
+            unsigned long long freed = 0;
+            int swept = tasfa_sweep_stale_sessions(false, &freed);
+            if (swept > 0) CWIST_LOG_INFO("Removed %d abandoned transfer sessions (%.1f MB)", swept, freed / 1048576.0);
             fly_forkgate_enter();
             sqlite3_close(conn);
             fly_forkgate_leave();
@@ -327,6 +330,15 @@ int main(int argc, char **argv) {
     int backup_rc = fly_backup_cli(argc, argv);
     if (backup_rc >= 0) return backup_rc;
 
+    if (argc > 1 && strcmp(argv[1], "--sweep-uploads") == 0) {
+        bool dry = argc > 2 && strcmp(argv[2], "--dry-run") == 0;
+        unsigned long long freed = 0;
+        int n = tasfa_sweep_stale_sessions(dry, &freed);
+        fprintf(stderr, "%s %d abandoned transfer sessions, %.1f MB\n", dry ? "would remove" : "removed", n,
+                freed / 1048576.0);
+        return 0;
+    }
+
     if (!fly_crypto_init("data/.pqc_mldsa65_seed")) {
         FLY_LOG_ERROR("PQC crypto init failed");
         return 1;
@@ -394,6 +406,11 @@ int main(int argc, char **argv) {
         cwist_app_destroy(app);
         fly_crypto_cleanup();
         return 1;
+    }
+    {
+        unsigned long long freed = 0;
+        int swept = tasfa_sweep_stale_sessions(false, &freed);
+        if (swept > 0) CWIST_LOG_INFO("Removed %d abandoned transfer sessions (%.1f MB)", swept, freed / 1048576.0);
     }
     if (sign_posts_mode) {
         int rc = sign_posts_backfill(db);

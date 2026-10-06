@@ -121,7 +121,7 @@ static bool read_file(const char *path, uint8_t **out, size_t *out_len, size_t m
 
 static bool mkdirs_for(const char *path) {
     char buf[PATH_MAX];
-    snprintf(buf, sizeof(buf), "%s", path);
+    if ((size_t)snprintf(buf, sizeof(buf), "%s", path) >= sizeof(buf)) return false;
     for (char *p = buf + 1; *p; p++) {
         if (*p != '/') continue;
         *p = '\0';
@@ -1156,9 +1156,434 @@ static int cmd_restore(const char *in_path, bool force, const char *pass_file) {
     return (failed || !db_ok) ? 1 : 0;
 }
 
+/* ---- --export-markdown / --verify-markdown ----
+ *
+ * One Markdown file per post with YAML front matter, the attachments next
+ * to them, and the public keys, for moving to a static site generator or
+ * for checking signatures outside fly.board. Front matter values are JSON
+ * strings, which YAML reads as double-quoted scalars.
+ *
+ * A signature covers title + "\n" + body exactly as stored. By default the
+ * body after the front matter is that stored body. With --rewrite-links
+ * the body's attachment links point at the exported files instead, and the
+ * signed original goes to originals/<slug>.md (named by pqc_signed_body). */
+
+static bool copy_file(const char *src, const char *dst) {
+    if (!mkdirs_for(dst)) return false;
+    FILE *in = fopen(src, "rb");
+    if (!in) return false;
+    FILE *out = fopen(dst, "wb");
+    if (!out) { fclose(in); return false; }
+    static uint8_t buf[IO_CHUNK];
+    size_t n;
+    bool ok = true;
+    while (ok && (n = fread(buf, 1, sizeof(buf), in)) > 0) ok = fwrite(buf, 1, n, out) == n;
+    fclose(in);
+    if (fclose(out) != 0) ok = false;
+    return ok;
+}
+
+static bool write_text(const char *path, const char *text, size_t len) {
+    if (!mkdirs_for(path)) return false;
+    FILE *f = fopen(path, "wb");
+    if (!f) return false;
+    bool ok = fwrite(text, 1, len, f) == len;
+    if (fclose(f) != 0) ok = false;
+    return ok;
+}
+
+static void yaml_str(FILE *f, const char *key, const char *value) {
+    cJSON *v = cJSON_CreateString(value ? value : "");
+    char *js = cJSON_PrintUnformatted(v);
+    fprintf(f, "%s: %s\n", key, js ? js : "\"\"");
+    free(js);
+    cJSON_Delete(v);
+}
+
+/* "YYYY-MM-DD HH:MM:SS" (UTC) -> "YYYY-MM-DDTHH:MM:SSZ" */
+static void iso_time(const char *t, char out[32]) {
+    if (t && strlen(t) >= 19) snprintf(out, 32, "%.10sT%.8sZ", t, t + 11);
+    else snprintf(out, 32, "1970-01-01T00:00:00Z");
+}
+
+/* A filename safe as one path segment. */
+static void safe_name(const char *in, char *out, size_t out_size) {
+    size_t o = 0;
+    for (const char *p = in ? in : ""; *p && o + 1 < out_size; p++) {
+        char c = *p;
+        /* Spaces too: Markdown link targets end at whitespace. */
+        out[o++] = (c == '/' || c == '\\' || c == ' ' || c == '(' || c == ')' || (unsigned char)c < 0x20) ? '_' : c;
+    }
+    out[o] = '\0';
+    if (o == 0 || out[0] == '.') out[0] = '_';
+    if (o == 0) out[1] = '\0';
+}
+
+typedef struct {
+    sqlite3 *db;
+    const char *out_dir;
+    cJSON *links;      /* original URL -> exported path */
+    int files_copied;
+} export_ctx;
+
+/* Exported path of attachment @p id ("files/<id>/<name>"), copying it on
+ * first use. */
+static bool export_attachment(export_ctx *x, int id, char *rel, size_t rel_size) {
+    sqlite3_stmt *st = NULL;
+    bool ok = false;
+    if (sqlite3_prepare_v2(x->db, "SELECT filename, file_path FROM files WHERE id=?", -1, &st, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(st, 1, id);
+    if (sqlite3_step(st) == SQLITE_ROW) {
+        char name[256];
+        safe_name((const char *)sqlite3_column_text(st, 0), name, sizeof(name));
+        const char *src = (const char *)sqlite3_column_text(st, 1);
+        snprintf(rel, rel_size, "files/%d/%s", id, name);
+        char dst[PATH_MAX];
+        snprintf(dst, sizeof(dst), "%s/%s", x->out_dir, rel);
+        ok = access(dst, F_OK) == 0 || (src && restore_path_ok(src) && copy_file(src, dst));
+        if (ok && access(dst, F_OK) == 0) {
+            char url[64];
+            snprintf(url, sizeof(url), "/file/download/%d", id);
+            if (!cJSON_GetObjectItem(x->links, url)) {
+                cJSON_AddStringToObject(x->links, url, rel);
+                x->files_copied++;
+            }
+        }
+    }
+    sqlite3_finalize(st);
+    return ok;
+}
+
+static bool link_end(char c) {
+    return !c || c == ')' || c == '"' || c == '\'' || c == ' ' || c == '\n' || c == '\r' || c == '<' ||
+           c == '>' || c == '?' || c == '#' || c == ']';
+}
+
+/* Body with /file/download|preview/<id> and /assets/uploads/<path> links
+ * pointing at the exported copies. */
+static char *rewrite_links(export_ctx *x, const char *body) {
+    size_t cap = strlen(body) * 2 + 1024, o = 0;
+    char *out = malloc(cap);
+    if (!out) return NULL;
+    const char *p = body;
+    while (*p) {
+        char rel[PATH_MAX] = {0};
+        size_t consumed = 0;
+        if (!strncmp(p, "/file/download/", 15) || !strncmp(p, "/file/preview/", 14)) {
+            const char *num = p + (p[6] == 'd' ? 15 : 14);
+            char *end = NULL;
+            long id = strtol(num, &end, 10);
+            if (end != num && id > 0 && export_attachment(x, (int)id, rel, sizeof(rel))) {
+                while (*end && !link_end(*end)) end++;
+                if (*end == '?') while (*end && !(link_end(*end) && *end != '?')) end++; /* drop ?preview=1 etc. */
+                consumed = (size_t)(end - p);
+            }
+        } else if (!strncmp(p, "/assets/uploads/", 16)) {
+            const char *q = p + 16;
+            size_t n = 0;
+            while (!link_end(q[n])) n++;
+            char sub[PATH_MAX];
+            if (n > 0 && n < 900) {
+                snprintf(sub, sizeof(sub), "public/uploads/%.*s", (int)n, q);
+                snprintf(rel, sizeof(rel), "files/uploads/%.*s", (int)n, q);
+                char dst[PATH_MAX + 512];
+                snprintf(dst, sizeof(dst), "%s/%s", x->out_dir, rel);
+                if (restore_path_ok(sub) && (access(dst, F_OK) == 0 || copy_file(sub, dst))) {
+                    char url[PATH_MAX];
+                    snprintf(url, sizeof(url), "/assets/uploads/%.*s", (int)n, q);
+                    if (!cJSON_GetObjectItem(x->links, url)) {
+                        cJSON_AddStringToObject(x->links, url, rel);
+                        x->files_copied++;
+                    }
+                    consumed = 16 + n;
+                } else {
+                    rel[0] = '\0';
+                }
+            }
+        }
+        if (consumed) {
+            size_t rl = strlen(rel) + 1;
+            if (o + rl + 1 >= cap) { cap = cap * 2 + rl; char *g = realloc(out, cap); if (!g) { free(out); return NULL; } out = g; }
+            out[o++] = '/';
+            memcpy(out + o, rel, rl - 1);
+            o += rl - 1;
+            p += consumed;
+        } else {
+            if (o + 2 >= cap) { cap *= 2; char *g = realloc(out, cap); if (!g) { free(out); return NULL; } out = g; }
+            out[o++] = *p++;
+        }
+    }
+    out[o] = '\0';
+    return out;
+}
+
+static int cmd_export_markdown(const char *out_dir, bool rewrite) {
+    if (!output_path_safe(out_dir)) return 1;
+    DIR *d = opendir(out_dir);
+    if (d) {
+        struct dirent *e;
+        int n = 0;
+        while ((e = readdir(d))) if (strcmp(e->d_name, ".") && strcmp(e->d_name, "..")) n++;
+        closedir(d);
+        if (n) { say("%s is not empty", out_dir); return 1; }
+    } else if (mkdir(out_dir, 0700) != 0) {
+        say("cannot create %s: %s", out_dir, strerror(errno));
+        return 1;
+    }
+    export_ctx x = {.out_dir = out_dir, .links = cJSON_CreateObject()};
+    if (sqlite3_open_v2("data/blog.db", &x.db, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK) {
+        say("cannot open data/blog.db; run from the site root");
+        sqlite3_close(x.db);
+        return 1;
+    }
+    sqlite3_busy_timeout(x.db, 10000);
+
+    /* Public keys, so signatures can be checked without this site. */
+    cJSON *keys = cJSON_CreateArray();
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(x.db, "SELECT key_id, public_key, created_at FROM pqc_keys ORDER BY created_at", -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            cJSON *k = cJSON_CreateObject();
+            cJSON_AddStringToObject(k, "key_id", (const char *)sqlite3_column_text(st, 0));
+            cJSON_AddStringToObject(k, "algorithm", "ML-DSA-65 (FIPS 204)");
+            cJSON_AddStringToObject(k, "context", "fly.board/post/v1");
+            cJSON_AddStringToObject(k, "public_key", (const char *)sqlite3_column_text(st, 1));
+            cJSON_AddItemToArray(keys, k);
+        }
+        sqlite3_finalize(st);
+    }
+
+    const char *sql =
+        "SELECT p.id, p.title, p.slug, p.content, p.summary, p.pqc_signature, p.created_at, p.updated_at,"
+        " p.status, u.username, b.slug, b.name,"
+        " (SELECT group_concat(t.name, char(31)) FROM post_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.post_id=p.id)"
+        " FROM posts p LEFT JOIN users u ON u.id=p.user_id LEFT JOIN boards b ON b.id=p.board_id ORDER BY p.created_at";
+    int posts = 0, signed_posts = 0;
+    bool ok = sqlite3_prepare_v2(x.db, sql, -1, &st, NULL) == SQLITE_OK;
+    while (ok && sqlite3_step(st) == SQLITE_ROW) {
+        int id = sqlite3_column_int(st, 0);
+        const char *title = (const char *)sqlite3_column_text(st, 1);
+        const char *slug = (const char *)sqlite3_column_text(st, 2);
+        const char *content = (const char *)sqlite3_column_text(st, 3);
+        const char *summary = (const char *)sqlite3_column_text(st, 4);
+        const char *sig = (const char *)sqlite3_column_text(st, 5);
+        const char *created = (const char *)sqlite3_column_text(st, 6);
+        const char *updated = (const char *)sqlite3_column_text(st, 7);
+        const char *status = (const char *)sqlite3_column_text(st, 8);
+        const char *author = (const char *)sqlite3_column_text(st, 9);
+        const char *board_slug = (const char *)sqlite3_column_text(st, 10);
+        const char *board_name = (const char *)sqlite3_column_text(st, 11);
+        const char *tags = (const char *)sqlite3_column_text(st, 12);
+        content = content ? content : "";
+        char sname[256];
+        safe_name(slug, sname, sizeof(sname));
+
+        /* Every attachment of the post is exported, linked from the body or not. */
+        sqlite3_stmt *fs = NULL;
+        if (sqlite3_prepare_v2(x.db, "SELECT id FROM files WHERE post_id=?", -1, &fs, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(fs, 1, id);
+            char rel[PATH_MAX];
+            while (sqlite3_step(fs) == SQLITE_ROW) export_attachment(&x, sqlite3_column_int(fs, 0), rel, sizeof(rel));
+            sqlite3_finalize(fs);
+        }
+        char *body = rewrite ? rewrite_links(&x, content) : strdup(content);
+        if (!body) { ok = false; break; }
+
+        char path[PATH_MAX];
+        snprintf(path, sizeof(path), "%s/posts/%s.md", out_dir, sname);
+        if (!mkdirs_for(path)) { free(body); ok = false; break; }
+        FILE *f = fopen(path, "wb");
+        if (!f) { free(body); ok = false; break; }
+        char ts[32];
+        fputs("---\n", f);
+        yaml_str(f, "title", title);
+        yaml_str(f, "slug", slug);
+        iso_time(created, ts);
+        fprintf(f, "date: %s\n", ts);
+        iso_time(updated, ts);
+        fprintf(f, "lastmod: %s\n", ts);
+        fprintf(f, "draft: %s\n", status && !strcmp(status, "draft") ? "true" : "false");
+        if (author) yaml_str(f, "author", author);
+        if (board_slug) yaml_str(f, "board", board_slug);
+        if (board_name) {
+            fputs("categories: [", f);
+            cJSON *v = cJSON_CreateString(board_name);
+            char *js = cJSON_PrintUnformatted(v);
+            fputs(js ? js : "\"\"", f);
+            free(js);
+            cJSON_Delete(v);
+            fputs("]\n", f);
+        }
+        fputs("tags: [", f);
+        if (tags) {
+            char *copy = strdup(tags);
+            int i = 0;
+            for (char *save = NULL, *t = strtok_r(copy, "\x1f", &save); t; t = strtok_r(NULL, "\x1f", &save)) {
+                cJSON *v = cJSON_CreateString(t);
+                char *js = cJSON_PrintUnformatted(v);
+                fprintf(f, "%s%s", i++ ? ", " : "", js ? js : "\"\"");
+                free(js);
+                cJSON_Delete(v);
+            }
+            free(copy);
+        }
+        fputs("]\n", f);
+        if (summary && summary[0]) yaml_str(f, "summary", summary);
+        if (sig && sig[0]) {
+            yaml_str(f, "pqc_signature", sig);
+            signed_posts++;
+            if (rewrite) {
+                char orig_rel[PATH_MAX];
+                snprintf(orig_rel, sizeof(orig_rel), "originals/%s.md", sname);
+                yaml_str(f, "pqc_signed_body", orig_rel);
+                char orig[PATH_MAX + 512];
+                snprintf(orig, sizeof(orig), "%s/%s", out_dir, orig_rel);
+                if (!write_text(orig, content, strlen(content))) ok = false;
+            }
+        }
+        fputs("---\n", f);
+        fputs(body, f);
+        if (fclose(f) != 0) ok = false;
+        free(body);
+        posts++;
+    }
+    if (st) sqlite3_finalize(st);
+    sqlite3_close(x.db);
+
+    char path[PATH_MAX];
+    char *js = cJSON_Print(keys);
+    snprintf(path, sizeof(path), "%s/pqc-keys.json", out_dir);
+    ok = ok && js && write_text(path, js, strlen(js));
+    free(js);
+    js = cJSON_Print(x.links);
+    snprintf(path, sizeof(path), "%s/links.json", out_dir);
+    ok = ok && js && write_text(path, js, strlen(js));
+    free(js);
+    static const char readme[] =
+        "# fly.board export\n\n"
+        "- `posts/<slug>.md`: one post each, YAML front matter (Hugo/Jekyll style) and the Markdown body.\n"
+        "- `files/`: attachments; `links.json` maps each original site URL to its file here.\n"
+        "- `pqc-keys.json`: every public key that signed posts on the site.\n\n"
+        "## Signatures\n\n"
+        "`pqc_signature` is `<key id>:<base64 signature>`: ML-DSA-65 (FIPS 204) with the context string\n"
+        "`fly.board/post/v1`, over the bytes of the title, a newline, and the body exactly as stored.\n"
+        "The body is everything after the closing `---` line, or the file named by `pqc_signed_body`\n"
+        "when links were rewritten. The key id is the first 16 hex digits of SHA-256 over the public key.\n\n"
+        "`fly_board --verify-markdown <this directory>` checks every post.\n";
+    snprintf(path, sizeof(path), "%s/README.md", out_dir);
+    ok = ok && write_text(path, readme, sizeof(readme) - 1);
+    cJSON_Delete(keys);
+    cJSON_Delete(x.links);
+    if (!ok) {
+        say("export FAILED");
+        return 1;
+    }
+    say("exported %d posts (%d signed) and %d files to %s%s", posts, signed_posts, x.files_copied, out_dir,
+        rewrite ? " with rewritten links" : "");
+    return 0;
+}
+
+static int cmd_verify_markdown(const char *dir) {
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/pqc-keys.json", dir);
+    uint8_t *raw = NULL;
+    size_t len = 0;
+    cJSON *keys = read_file(path, &raw, &len, MAX_MANIFEST) ? cJSON_ParseWithLength((char *)raw, len) : NULL;
+    free(raw);
+    int nkeys = 0;
+    cJSON *k = NULL;
+    cJSON_ArrayForEach(k, keys) {
+        cJSON *pk = cJSON_GetObjectItem(k, "public_key");
+        if (cJSON_IsString(pk) && fly_crypto_add_public_key(pk->valuestring)) nkeys++;
+    }
+    if (keys) cJSON_Delete(keys);
+    if (!nkeys) {
+        say("no usable keys in %s", path);
+        return 1;
+    }
+    snprintf(path, sizeof(path), "%s/posts", dir);
+    struct dirent **list = NULL;
+    int n = scandir(path, &list, NULL, alphasort);
+    if (n < 0) {
+        say("cannot read %s", path);
+        return 1;
+    }
+    int total = 0, valid = 0, unsigned_posts = 0, bad = 0;
+    for (int i = 0; i < n; i++) {
+        const char *name = list[i]->d_name;
+        size_t nl = strlen(name);
+        if (nl < 4 || strcmp(name + nl - 3, ".md") != 0) { free(list[i]); continue; }
+        char file[PATH_MAX + 512];
+        snprintf(file, sizeof(file), "%s/%s", path, name);
+        uint8_t *doc = NULL;
+        size_t doc_len = 0;
+        total++;
+        if (!read_file(file, &doc, &doc_len, 256u * 1024 * 1024) || strncmp((char *)doc, "---\n", 4) != 0) {
+            say("  %s: no front matter", name);
+            bad++;
+            free(doc);
+            free(list[i]);
+            continue;
+        }
+        char *fm_end = strstr((char *)doc + 4, "\n---\n");
+        char *title = NULL, *sig = NULL, *signed_body = NULL;
+        if (fm_end) {
+            *fm_end = '\0';
+            for (char *save = NULL, *line = strtok_r((char *)doc + 4, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+                char *colon = strstr(line, ": ");
+                if (!colon) continue;
+                *colon = '\0';
+                cJSON *v = cJSON_Parse(colon + 2);
+                if (cJSON_IsString(v)) {
+                    if (!strcmp(line, "title")) title = strdup(v->valuestring);
+                    else if (!strcmp(line, "pqc_signature")) sig = strdup(v->valuestring);
+                    else if (!strcmp(line, "pqc_signed_body")) signed_body = strdup(v->valuestring);
+                }
+                cJSON_Delete(v);
+            }
+        }
+        const char *body = fm_end ? fm_end + 5 : NULL;
+        uint8_t *orig = NULL;
+        size_t orig_len = 0;
+        if (signed_body) {
+            char opath[PATH_MAX + 512];
+            snprintf(opath, sizeof(opath), "%s/%s", dir, signed_body);
+            body = (!strstr(signed_body, "..") && read_file(opath, &orig, &orig_len, 256u * 1024 * 1024)) ? (char *)orig : NULL;
+        }
+        if (!sig) {
+            unsigned_posts++;
+        } else if (!title || !body) {
+            say("  %s: unreadable", name);
+            bad++;
+        } else {
+            size_t mlen = strlen(title) + 1 + strlen(body);
+            char *msg = malloc(mlen + 1);
+            snprintf(msg, mlen + 1, "%s\n%s", title, body);
+            if (fly_crypto_verify((uint8_t *)msg, mlen, sig)) valid++;
+            else { say("  %s: signature does NOT verify", name); bad++; }
+            free(msg);
+        }
+        free(title); free(sig); free(signed_body); free(orig); free(doc);
+        free(list[i]);
+    }
+    free(list);
+    say("%d posts: %d verified, %d unsigned, %d failed (%d keys)", total, valid, unsigned_posts, bad, nkeys);
+    return bad ? 1 : 0;
+}
+
 int fly_backup_cli(int argc, char **argv) {
     if (argc < 2) return -1;
     const char *cmd = argv[1];
+    if (!strcmp(cmd, "--export-markdown")) {
+        if (argc < 3) { say("usage: fly_board --export-markdown <dir> [--rewrite-links]"); return 2; }
+        bool rewrite = argc > 3 && !strcmp(argv[3], "--rewrite-links");
+        if (argc > (rewrite ? 4 : 3)) { say("unknown option %s", argv[rewrite ? 4 : 3]); return 2; }
+        return cmd_export_markdown(argv[2], rewrite);
+    }
+    if (!strcmp(cmd, "--verify-markdown")) {
+        if (argc != 3) { say("usage: fly_board --verify-markdown <dir>"); return 2; }
+        return cmd_verify_markdown(argv[2]);
+    }
     bool is_backup = !strcmp(cmd, "--backup"), is_verify = !strcmp(cmd, "--verify"), is_restore = !strcmp(cmd, "--restore");
     if (!is_backup && !is_verify && !is_restore) return -1;
     if (argc < 3 || argv[2][0] == '-') {

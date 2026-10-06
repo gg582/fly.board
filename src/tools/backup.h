@@ -7,6 +7,8 @@
  *   fly_board --backup  <archive> [--with-secrets] [--passphrase-file <f>]
  *   fly_board --verify  <archive> [--passphrase-file <f>]
  *   fly_board --restore <archive> [--force] [--passphrase-file <f>]
+ *   fly_board --export-markdown <dir> [--rewrite-links]
+ *   fly_board --verify-markdown <dir>
  *
  * Run from the site root (where public/ and data/ live). The passphrase for
  * --with-secrets comes from --passphrase-file, FLY_BACKUP_PASSPHRASE, or a

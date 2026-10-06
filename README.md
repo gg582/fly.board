@@ -215,6 +215,16 @@ Run from the site root (where `public/` and `data/` live):
 - `--restore --force` keeps each replaced file as `<name>.pre-restore-<time>`. Backups are written `0600` and never under `public/`.
 - `./fly_board --sign-posts` signs posts whose signature is missing or no longer verifies.
 
+Markdown export, for static site generators or for checking signatures outside fly.board:
+
+```sh
+./fly_board --export-markdown /srv/export                  # posts/<slug>.md with front matter, files/, pqc-keys.json
+./fly_board --export-markdown /srv/export --rewrite-links  # attachment links point at files/; signed originals in originals/
+./fly_board --verify-markdown /srv/export
+```
+
+Abandoned TASFA transfer sessions (expired, idle for an hour, not locked) are removed at start and daily at 03:00; `./fly_board --sweep-uploads --dry-run` shows what would go.
+
 ## Architecture
 
 ```

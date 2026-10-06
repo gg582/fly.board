@@ -667,3 +667,104 @@ bool pwrite_all(int fd, const void *buf, size_t len, off_t offset) {
     }
     return true;
 }
+
+/* --- Stale session sweep ---
+ *
+ * Sessions are removed on complete, cancel and error, but one the browser
+ * simply walked away from stayed forever, with its upload.bin.part sized
+ * for the whole file. A session is swept only when all of these hold:
+ * its expires_at passed more than TASFA_SWEEP_GRACE ago, none of its files
+ * changed for TASFA_SWEEP_GRACE, and (uploads) nobody holds its lock, which
+ * a running finalize does. */
+
+#define TASFA_SWEEP_GRACE 3600
+
+static long long session_expires_at(const char *dir) {
+    char path[PATH_MAX + 64];
+    snprintf(path, sizeof(path), "%s/meta.json", dir);
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    char buf[65536];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    cJSON *meta = cJSON_Parse(buf);
+    if (!meta) return 0;
+    cJSON *exp = cJSON_GetObjectItem(meta, "expires_at");
+    long long v = cJSON_IsString(exp) ? atoll(exp->valuestring) : cJSON_IsNumber(exp) ? (long long)exp->valuedouble : 0;
+    cJSON_Delete(meta);
+    return v;
+}
+
+/* Newest mtime in the session directory and the disk it uses. */
+static time_t session_activity(const char *dir, unsigned long long *disk_bytes) {
+    struct stat st;
+    time_t newest = stat(dir, &st) == 0 ? st.st_mtime : 0;
+    *disk_bytes = 0;
+    DIR *d = opendir(dir);
+    if (!d) return newest;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char child[PATH_MAX + 512];
+        snprintf(child, sizeof(child), "%s/%s", dir, e->d_name);
+        if (lstat(child, &st) != 0) continue;
+        if (st.st_mtime > newest) newest = st.st_mtime;
+        *disk_bytes += (unsigned long long)st.st_blocks * 512ULL;
+    }
+    closedir(d);
+    return newest;
+}
+
+static int sweep_dir(const char *root, long long ttl, bool locked, bool dry_run, time_t now,
+                     unsigned long long *freed) {
+    DIR *d = opendir(root);
+    if (!d) return 0;
+    int removed = 0;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        if (!is_safe_segment(e->d_name)) continue;
+        char dir[PATH_MAX];
+        if ((size_t)snprintf(dir, sizeof(dir), "%s/%s", root, e->d_name) >= sizeof(dir)) continue;
+        struct stat st;
+        if (lstat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+        unsigned long long bytes = 0;
+        time_t active = session_activity(dir, &bytes);
+        long long expires = session_expires_at(dir);
+        /* No readable meta (crashed init): judge by age alone. */
+        if (expires <= 0) expires = (long long)active + ttl;
+        if (now < expires + TASFA_SWEEP_GRACE || now < active + TASFA_SWEEP_GRACE) continue;
+
+        int lock_fd = -1;
+        if (locked) {
+            char lock_path[PATH_MAX + 64];
+            snprintf(lock_path, sizeof(lock_path), "%s/session.lock", dir);
+            /* Never create the lock file here: that would mark the session
+             * as freshly active. No lock file means nobody holds it. */
+            lock_fd = open(lock_path, O_RDWR);
+            if (lock_fd < 0 && errno != ENOENT) continue;
+            if (lock_fd >= 0 && flock(lock_fd, LOCK_EX | LOCK_NB) != 0) { close(lock_fd); continue; }
+        }
+        if (dry_run) {
+            fprintf(stderr, "[tasfa] would remove %s (%.1f MB, idle %lld h)\n", dir, bytes / 1048576.0,
+                    (long long)(now - active) / 3600);
+        } else {
+            if (locked) cache_invalidate(e->d_name);
+            cleanup_dir_tree(dir);
+        }
+        if (lock_fd >= 0) close_upload_session_lock(lock_fd);
+        removed++;
+        *freed += bytes;
+    }
+    closedir(d);
+    return removed;
+}
+
+int tasfa_sweep_stale_sessions(bool dry_run, unsigned long long *bytes_freed) {
+    time_t now = time(NULL);
+    unsigned long long freed = 0;
+    int n = sweep_dir(TASFA_UPLOAD_DIR, TASFA_UPLOAD_TTL, true, dry_run, now, &freed);
+    n += sweep_dir(TASFA_DOWNLOAD_DIR, TASFA_DOWNLOAD_TTL, false, dry_run, now, &freed);
+    if (bytes_freed) *bytes_freed = freed;
+    return n;
+}
