@@ -492,8 +492,23 @@ static void parse_part(const char *phdr, size_t phdr_len, const char *pdata, siz
 /* ------------------------------------------------------- recipient/user */
 
 static const char *db_path(void) {
+    static char exe_relative[512];
     const char *p = getenv("FLY_DB_PATH");
-    return (p && p[0]) ? p : FLY_DB_MAIN_PATH;
+    if (p && p[0]) return p;
+    if (access(FLY_DB_MAIN_PATH, R_OK) == 0) return FLY_DB_MAIN_PATH;
+    /* Invoked by the Postfix pipe transport with an unrelated cwd: fall back
+     * to the database next to the binary (/proc/self/exe). */
+    ssize_t n = readlink("/proc/self/exe", exe_relative, sizeof(exe_relative) - 1);
+    if (n > 0) {
+        exe_relative[n] = '\0';
+        char *slash = strrchr(exe_relative, '/');
+        if (slash) {
+            snprintf(slash + 1, sizeof(exe_relative) - (size_t)(slash + 1 - exe_relative),
+                     "data/blog.db");
+            if (access(exe_relative, R_OK) == 0) return exe_relative;
+        }
+    }
+    return FLY_DB_MAIN_PATH;
 }
 
 /* Reserved addresses all land in the site admin's mailbox. */
