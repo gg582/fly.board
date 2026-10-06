@@ -1738,7 +1738,25 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
     }
     cwist_sstring_append(b, "'>");
 
-    cwist_sstring_append(b, "<label for='tags-input'>Tags</label><input id='tags-input' name='tags' autocomplete='off' placeholder='comma, separated, tags' value='");
+    /* A plain comma-separated field; tag-input.js turns it into chips with
+     * suggestions, and it still works as typed text without JavaScript. */
+    cwist_sstring_append(b, "<style>"
+        ".tag-editor{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:4px 6px;"
+        "border:1px solid var(--border);border-radius:6px;background:var(--panel);cursor:text}"
+        ".tag-editor:focus-within{border-color:var(--accent)}"
+        ".tag-editor-chips{display:contents;list-style:none;margin:0;padding:0}"
+        ".tag-editor-chip{display:inline-flex;align-items:center;gap:4px;margin:2px;padding:4px 6px 4px 10px}"
+        ".tag-editor-remove{border:0;background:none;color:inherit;cursor:pointer;font-size:14px;line-height:1;padding:0 2px;opacity:.7}"
+        ".tag-editor-remove:hover,.tag-editor-remove:focus-visible{opacity:1}"
+        ".tag-editor-field{flex:1 1 140px;min-width:120px;border:0!important;outline:none;background:transparent;box-shadow:none!important;margin:0!important;padding:6px 4px!important}"
+        ".tag-editor-menu{position:absolute;left:0;right:0;top:100%;z-index:20;margin:4px 0 0;padding:4px;list-style:none;"
+        "background:var(--panel);border:1px solid var(--border);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.12);max-height:260px;overflow:auto}"
+        ".tag-editor-option{display:flex;justify-content:space-between;gap:12px;padding:6px 10px;border-radius:4px;cursor:pointer}"
+        ".tag-editor-option:hover,.tag-editor-option[aria-selected=true]{background:var(--hover)}"
+        ".tag-editor-count{color:var(--muted);font-size:12px}"
+        ".tag-editor-hint{margin:4px 0 0;font-size:12px;color:var(--muted)}"
+        "</style>");
+    cwist_sstring_append(b, "<label for='tags-input'>Tags</label><input id='tags-input' name='tags' data-tag-input autocomplete='off' placeholder='comma, separated, tags' value='");
     cJSON *editor_tags = post ? cJSON_GetObjectItem(post, "tags") : NULL;
     if (cJSON_IsArray(editor_tags)) {
         bool first_tag = true;
@@ -1889,6 +1907,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
     if (!post) spam_guard_append_fields(b);
     cwist_sstring_append(b, "</form></div>");
     cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=5' defer></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/tag-input.js?v=1' defer></script>");
 
     cwist_sstring *page = render_page(post ? "Edit Post" : "New Post", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
