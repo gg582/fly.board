@@ -114,6 +114,18 @@ bool db_email_token_create(cwist_db *db, int user_id, const char *token, long ex
     return rc == SQLITE_DONE;
 }
 
+/* Drop all outstanding verification tokens for one account (used before
+ * issuing a fresh token from the resend flow). */
+bool db_email_token_delete_for_user(cwist_db *db, int user_id) {
+    const char *sql = "DELETE FROM email_tokens WHERE user_id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, user_id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
 /* Validate a verification token.  On success marks the user verified,
  * deletes all of that user's tokens, and returns the user id; 0 otherwise. */
 int db_email_token_consume(cwist_db *db, const char *token) {
@@ -139,6 +151,28 @@ int db_email_token_consume(cwist_db *db, const char *token) {
         sqlite3_finalize(stmt);
     }
     return user_id;
+}
+
+/* Remove unverified accounts whose verification token was created more than
+ * 24 hours ago.  Tokens normally disappear through ON DELETE CASCADE, but the
+ * FK pragma is per-connection, so any orphaned token rows are swept anyway to
+ * keep the table from growing without bound. */
+int db_user_delete_unverified_expired(cwist_db *db) {
+    sqlite3 *conn = fly_db_conn(db);
+    const char *sql = "DELETE FROM users WHERE email_verified=0 AND id IN ("
+                      "SELECT user_id FROM email_tokens WHERE created_at < datetime('now','-24 hours'))";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return 0;
+    int deleted = sqlite3_changes(conn);
+    const char *sweep = "DELETE FROM email_tokens WHERE user_id NOT IN (SELECT id FROM users)";
+    if (sqlite3_prepare_v2(conn, sweep, -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+    return deleted;
 }
 
 cJSON *db_user_list(cwist_db *db) {

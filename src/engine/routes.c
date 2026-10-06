@@ -47,6 +47,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/register", handler_register_get);
     engine_async_post(app, "/register", handler_register_post);
     engine_async_get(app, "/verify-email", handler_verify_email_get);
+    engine_async_post(app, "/resend-verification", handler_resend_verification_post);
     engine_async_post(app, "/unregister", handler_unregister_post);
 
     engine_async_get(app, "/profile", handler_profile_get);
@@ -110,6 +111,16 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/notifications", handler_notifications_get);
     engine_async_get(app, "/notification", handler_notifications_get);
 
+    /* Webmail */
+    engine_async_get(app, "/mail", handler_mail_get);
+    engine_async_get(app, "/mail/view", handler_mail_view_get);
+    engine_async_post(app, "/mail/send", handler_mail_send_post);
+    engine_async_post(app, "/mail/delete", handler_mail_delete_post);
+    engine_async_post(app, "/mail/read", handler_mail_read_post);
+    engine_async_post(app, "/mail/empty-trash", handler_mail_empty_trash_post);
+    engine_async_get(app, "/mail/users", handler_mail_users_get);
+    engine_async_post(app, "/admin/broadcast", handler_admin_broadcast_post);
+
     engine_async_get(app, "/dashboard", handler_dashboard);
     engine_async_get(app, "/admin", handler_admin_dashboard);
     engine_async_get(app, "/admin/dashboard", handler_admin_dashboard);
@@ -122,6 +133,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/admin/write-policy", handler_admin_dashboard);
     engine_async_post(app, "/admin/write-policy", handler_admin_write_policy_post);
     engine_async_post(app, "/admin/backup", handler_admin_backup_post);
+    engine_async_post(app, "/admin/test-email", handler_admin_test_email_post);
 
     engine_async_post(app, "/api/preview", handler_api_preview);
     engine_async_post(app, "/api/upload", handler_api_upload);

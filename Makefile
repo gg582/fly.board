@@ -185,13 +185,13 @@ LIBS := $(CWIST_LIB) \
         -pthread -ldl -lm -lstdc++ -lz
 
 SRCS := src/main.c \
-        src/db/db.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/notification.c src/db/vote.c src/db/tag.c src/db/search.c src/db/report.c src/db/pqc_keys.c src/db/series.c src/db/sql_escape.c src/db/orm.c \
+        src/db/db.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/notification.c src/db/vote.c src/db/tag.c src/db/search.c src/db/report.c src/db/pqc_keys.c src/db/series.c src/db/sql_escape.c src/db/orm.c src/db/db_email.c \
         src/auth/auth.c \
         src/crypto/fly_crypto.c \
         src/wasm_host/tasfa_crypto_wasm.c \
         src/render/theme/theme.c src/render/theme/rules.c src/render/theme/json.c src/render/theme/css.c \
-        src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/render/render_notifications.c \
-        src/handlers/handlers.c src/handlers/home.c src/handlers/blog.c src/handlers/report.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/notifications.c src/handlers/file.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c \
+        src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/render/render_notifications.c src/render/render_mail.c \
+        src/handlers/handlers.c src/handlers/home.c src/handlers/blog.c src/handlers/report.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/notifications.c src/handlers/file.c src/handlers/mail.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c \
         src/utils/utils.c \
         src/utils/cache.c \
         src/utils/post_schedule.c \
@@ -231,7 +231,7 @@ TARGET := fly_board
 
 .PHONY: all clean distclean deps prepare_assets check-render check-multipart test
 
-all: deps $(TARGET)
+all: deps $(TARGET) mail-tools
 
 deps: $(MD4C_LIB) $(LIBMAGIC_A) prepare_assets
 
@@ -323,6 +323,22 @@ tests/test_mp_%: tests/test_mp_%.c $(MULTIPART_DIR)/multipart_parser.c
 # object set (minus main.o) the same way $(TARGET) does.
 SERVER_OBJS := $(filter-out src/main.o,$(OBJS))
 
+# Mail stack helpers (Dovecot checkpassword, Postfix pipe delivery agent,
+# alias map builder). Each links the full server object set so db/auth/utils
+# symbols resolve exactly as they do in $(TARGET).
+MAIL_TOOLS := mail-verify mail-import mail-alias-build
+
+mail-verify: src/tools/mail_verify.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
+
+mail-import: src/tools/mail_import.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
+
+mail-alias-build: src/tools/mail_alias_build.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
+
+mail-tools: $(MAIL_TOOLS)
+
 tests/test_multipart: tests/test_multipart.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
 	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
 
@@ -376,7 +392,7 @@ test: check-tasfa check-tasfa-compression check-tasfa-endpoint check-render chec
 	./tools/smoke_test.sh
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tools/connhold
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tools/connhold
 	rm -rf build-wasm
 
 # --- WASM: sandboxed TASFA crypto (opt-in, experimental) -------------------

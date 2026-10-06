@@ -74,3 +74,6 @@ public/img/luminv*-*.webp
 robots.settings
 cert-backup-*/
 tools/connhold
+mail-verify
+mail-import
+mail-alias-build

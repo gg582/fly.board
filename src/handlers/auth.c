@@ -13,6 +13,23 @@ static bool random_hex(char *out, size_t byte_len) {
     return true;
 }
 
+/* Local mailbox addresses are derived from the username (username@oborona.zip)
+ * and Postfix reserves the role addresses below for the site admin, so a
+ * plain user account must never be able to claim one. Registration and the
+ * mail stack must stay in sync with this list. */
+static const char *const k_reserved_usernames[] = {
+    "postmaster", "abuse", "admin", "administrator", "support", "help",
+    "noreply", "mailer-daemon", "root", "info", "webmaster", "hostmaster",
+    "noc", "security", NULL
+};
+
+static bool is_reserved_username(const char *username) {
+    if (!username) return false;
+    for (int i = 0; k_reserved_usernames[i]; i++)
+        if (strcasecmp(username, k_reserved_usernames[i]) == 0) return true;
+    return false;
+}
+
 static bool req_is_tls(cwist_http_request *req) {
     if (!req) return g_config.use_tls;
     if (req->stream_id > 0) return true;
@@ -236,6 +253,13 @@ void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
         if (legal_docs) cJSON_Delete(legal_docs);
         return;
     }
+    if (is_reserved_username(username)) {
+        CWIST_LOG_WARN("Registration failed: reserved username='%s'", username);
+        send_html_res(res, render_register(dark, "This username is reserved", is_mobile_request(req), legal_docs));
+        cwist_query_map_destroy(kv);
+        if (legal_docs) cJSON_Delete(legal_docs);
+        return;
+    }
     char hash[256];
     if (!auth_hash_password(password, hash, sizeof(hash))) {
         CWIST_LOG_ERROR("Registration failed: password hash error username='%s'", username);
@@ -304,6 +328,52 @@ void handler_verify_email_get(cwist_http_request *req, cwist_http_response *res)
     }
     CWIST_LOG_INFO("Email verified: uid=%d", user_id);
     send_html_res(res, render_login(is_dark(req), "Email verified. Please log in.", is_mobile_request(req), NULL));
+}
+
+/* Resend the verification mail for an unverified account.  Unknown usernames
+ * and already-verified accounts get the same confirmation as a real send so
+ * the endpoint cannot be used to probe the user table. */
+void handler_resend_verification_post(cwist_http_request *req, cwist_http_response *res) {
+    bool dark = is_dark(req);
+    bool mobile = is_mobile_request(req);
+    if (!email_cert_enabled()) {
+        redirect(res, "/login");
+        return;
+    }
+    cwist_query_map *kv = cwist_query_map_create();
+    cwist_query_map_parse(kv, req->body->data);
+    const char *username = cwist_query_map_get(kv, "username");
+    const char *ok_msg = "If this account exists and is not verified yet, a new verification email is on its way.";
+    const char *fail_msg = "Could not send the verification email; contact the administrator.";
+
+    cJSON *user = (username && username[0]) ? db_user_get_by_username(req->db, username) : NULL;
+    int user_id = user ? json_int(user, "id", 0) : 0;
+    bool needs_verification = user && json_int(user, "email_verified", 1) == 0;
+    cJSON *email = user ? cJSON_GetObjectItem(user, "email") : NULL;
+    bool sent = false;
+    if (user_id > 0 && needs_verification && email && email->valuestring && email->valuestring[0]) {
+        char token[65];
+        char link[768];
+        if (random_hex(token, 32)) {
+            db_email_token_delete_for_user(req->db, user_id);
+            snprintf(link, sizeof(link), "%sverify-email?token=%s", g_config.root_url, token);
+            char body[1024];
+            snprintf(body, sizeof(body),
+                     "Hello %s,\n\nConfirm your email address to activate your account:\n\n%s\n\n"
+                     "This link expires in 24 hours.\n",
+                     username, link);
+            if (db_email_token_create(req->db, user_id, token, (long)time(NULL) + 24 * 3600)) {
+                sent = email_send(email->valuestring, "Confirm your account", body);
+            }
+        }
+    }
+    if (user) cJSON_Delete(user);
+    cwist_query_map_destroy(kv);
+    CWIST_LOG_INFO("Verification resend requested: username='%s' sent=%d",
+                   username ? username : "NULL", sent);
+    /* Unknown or already-verified accounts answer with the generic success
+     * message, exactly as if a mail had been queued. */
+    send_html_res(res, render_login(dark, sent || !needs_verification ? ok_msg : fail_msg, mobile, NULL));
 }
 
 void handler_unregister_post(cwist_http_request *req, cwist_http_response *res) {

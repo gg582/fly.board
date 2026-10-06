@@ -3,6 +3,7 @@
 #include "cwist/board_tree.h"
 #include "config/write_policy.h"
 #include "tools/backup.h"
+#include "utils/email.h"
 #include <openssl/mem.h>
 
 void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res) {
@@ -104,6 +105,37 @@ void handler_admin_backup_post(cwist_http_request *req, cwist_http_response *res
     char url[96];
     snprintf(url, sizeof(url), "/admin/dashboard?msg=%s#backups", msg);
     redirect(res, url);
+}
+
+/* Send a test message through the same SMTP path as signup verification
+ * mails.  The recipient defaults to FLY_SMTP_FROM so a blank form still
+ * proves the pipe works. */
+void handler_admin_test_email_post(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    /* Without FLY_SMTP_* the sender falls back to local Postfix on
+     * 127.0.0.1:25 (see src/utils/email.c), so always attempt the send. */
+    const char *msg = "test_email_failed";
+    {
+        cwist_query_map *kv = cwist_query_map_create();
+        if (req->body && req->body->data) cwist_query_map_parse(kv, req->body->data);
+        char to[256];
+        form_copy(to, sizeof(to), kv, "email");
+        cwist_query_map_destroy(kv);
+        if (!to[0]) {
+            const char *from = getenv("FLY_SMTP_FROM");
+            if (!from || !from[0]) from = getenv("FLY_SMTP_USER");
+            snprintf(to, sizeof(to), "%s", from ? from : "");
+        }
+        if (to[0]) {
+            time_t now = time(NULL);
+            char body[512];
+            snprintf(body, sizeof(body),
+                     "This is a test email from fly.board.\n\nSent at: %s", ctime(&now));
+            msg = email_send(to, "fly.board test email", body) ? "test_email_sent" : "test_email_failed";
+        }
+    }
+    CWIST_LOG_INFO("Admin test email -> %s", msg);
+    redirect(res, "/admin/dashboard?msg=test_email#test-email");
 }
 
 void handler_dashboard(cwist_http_request *req, cwist_http_response *res) {

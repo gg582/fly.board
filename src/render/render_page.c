@@ -543,6 +543,10 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(navlinks, boards_wrap);
     cwist_html_element_add_child(navlinks, nav_link("/archive", "Archive"));
     cwist_html_element_add_child(navlinks, nav_link("/files", "Files"));
+    /* Webmail is only meaningful for signed-in accounts. */
+    if (user_role && user_role[0]) {
+        cwist_html_element_add_child(navlinks, nav_link("/mail", "Mail"));
+    }
     if (user_role && strcmp(user_role, "admin") == 0) {
         cwist_html_element_t *admin_wrap = cwist_html_element_create("div");
         cwist_html_element_add_class(admin_wrap, "nav-admin-dropdown");

@@ -57,4 +57,12 @@ bool pqc_keys_sync_conn(sqlite3 *conn, bool register_current);
 cJSON *db_sqlite3_rows_to_json(sqlite3_stmt *stmt);
 cJSON *db_sqlite3_row_to_json(sqlite3_stmt *stmt);
 
+/* Raw-connection cores of the webmail store, shared with the standalone
+ * mail-import tool (src/tools/mail_import.c). */
+int db_email_create_conn(sqlite3 *conn, int owner_id, const char *folder,
+                         const char *from_addr, const char *to_addrs,
+                         const char *subject, const char *body_text,
+                         const char *message_id, const char *in_reply_to);
+bool db_email_append_body_conn(sqlite3 *conn, int owner_id, int id, const char *extra);
+
 #endif

@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "render.h"
 #include "render_internal.h"
+#include "utils/email.h"
 #include "utils/spam_guard.h"
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
@@ -18,6 +19,14 @@ cwist_sstring *render_login(bool dark, const char *error, bool is_mobile, const 
         "    <label>Password</label><input name='password' type='password' placeholder='password' required>"
         "    <button type='submit' class='btn' style='margin-top:8px;width:100%'>Login</button>"
         "  </form>"
+        "  {% if email_cert %}"
+        "  <hr style='border:0;border-top:1px solid var(--border);margin:16px 0'>"
+        "  <form action='/resend-verification' method='post'>"
+        "    <label style='font-size:13px'>Didn't get the verification email? Resend it</label>"
+        "    <input name='username' placeholder='username' required>"
+        "    <button type='submit' class='btn btn-outline' style='margin-top:8px;width:100%'>Resend verification email</button>"
+        "  </form>"
+        "  {% endif %}"
         "</div>"
         "<p style='text-align:center'><a href='/register'>Create account</a></p>"
         "<script src='/assets/js/auth.js' defer></script>";
@@ -33,6 +42,7 @@ cwist_sstring *render_login(bool dark, const char *error, bool is_mobile, const 
     } else {
         cJSON_AddNullToObject(ctx, "redirect");
     }
+    cJSON_AddBoolToObject(ctx, "email_cert", email_cert_enabled());
 
     cwist_sstring *body = cwist_template_render(tmpl, ctx);
     cJSON_Delete(ctx);

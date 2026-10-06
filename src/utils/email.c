@@ -132,14 +132,15 @@ static int smtp_connect(const char *host, const char *port) {
 }
 
 bool email_send(const char *to, const char *subject, const char *body) {
+    /* With no FLY_SMTP_* configuration, fall back to a local Postfix on
+     * 127.0.0.1:25 so outbound mail (verification, webmail, broadcasts)
+     * flows through the site's own MX without extra environment. */
     const char *host = getenv("FLY_SMTP_HOST");
-    if (!host || !host[0]) {
-        FLY_LOG_ERROR("Email: FLY_SMTP_HOST not set; cannot send verification mail");
-        return false;
-    }
+    bool local_fallback = !host || !host[0];
+    if (local_fallback) host = "127.0.0.1";
     const char *tls_mode = getenv("FLY_SMTP_TLS");
-    bool implicit = tls_mode && strcasecmp(tls_mode, "implicit") == 0;
-    bool starttls = tls_mode && strcasecmp(tls_mode, "starttls") == 0;
+    bool implicit = !local_fallback && tls_mode && strcasecmp(tls_mode, "implicit") == 0;
+    bool starttls = !local_fallback && tls_mode && strcasecmp(tls_mode, "starttls") == 0;
     const char *port = getenv("FLY_SMTP_PORT");
     char port_buf[8];
     if (!port || !port[0]) {
@@ -150,10 +151,7 @@ bool email_send(const char *to, const char *subject, const char *body) {
     const char *user = getenv("FLY_SMTP_USER");
     const char *pass = getenv("FLY_SMTP_PASS");
     if (!from || !from[0]) from = user;
-    if (!from || !from[0]) {
-        FLY_LOG_ERROR("Email: FLY_SMTP_FROM (or FLY_SMTP_USER) not set");
-        return false;
-    }
+    if (!from || !from[0]) from = "noreply@oborona.zip";
 
     smtp_conn c = { .fd = smtp_connect(host, port), .ssl = NULL, .ctx = NULL };
     if (c.fd < 0) {

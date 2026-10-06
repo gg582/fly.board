@@ -31,7 +31,11 @@ bool db_user_update_password(cwist_db *db, int id, const char *password_hash);
 cJSON *db_user_list(cwist_db *db);
 bool db_user_set_email_verified(cwist_db *db, int id, bool verified);
 bool db_email_token_create(cwist_db *db, int user_id, const char *token, long expires_at);
+bool db_email_token_delete_for_user(cwist_db *db, int user_id);
 int db_email_token_consume(cwist_db *db, const char *token);
+/* Delete unverified accounts whose verification token was created more than
+ * 24 hours ago (their tokens go with them). Returns the deleted count. */
+int db_user_delete_unverified_expired(cwist_db *db);
 
 /* Boards */
 bool db_board_create(cwist_db *db, const char *name, const char *slug, const char *description, bool admin_only, int read_perm, int write_perm, int comment_perm);
@@ -230,5 +234,24 @@ cJSON *db_notification_list(cwist_db *db, int user_id, int limit);
 bool db_notification_mark_all_read(cwist_db *db, int user_id);
 /* Federated delivery: inserts only when the recipient exists locally. */
 bool db_notification_deliver_federated(long user_id, const char *actor_name, const char *kind, const char *post_slug, const char *excerpt);
+
+/* Webmail (src/db/db_email.c). Folders: INBOX | Sent | Trash. */
+#define MAIL_FOLDER_INBOX "INBOX"
+#define MAIL_FOLDER_SENT "Sent"
+#define MAIL_FOLDER_TRASH "Trash"
+int db_email_create(cwist_db *db, int owner_id, const char *folder,
+                    const char *from_addr, const char *to_addrs,
+                    const char *subject, const char *body_text,
+                    const char *message_id, const char *in_reply_to);
+cJSON *db_email_list(cwist_db *db, int owner_id, const char *folder, int offset, int limit);
+int db_email_count(cwist_db *db, int owner_id, const char *folder);
+int db_email_unread_count(cwist_db *db, int owner_id);
+cJSON *db_email_get(cwist_db *db, int owner_id, int id);
+bool db_email_set_read(cwist_db *db, int owner_id, int id, bool is_read);
+bool db_email_set_folder(cwist_db *db, int owner_id, int id, const char *folder);
+bool db_email_delete(cwist_db *db, int owner_id, int id);
+int db_email_empty_trash(cwist_db *db, int owner_id);
+cJSON *db_user_search_prefix(cwist_db *db, const char *prefix, int limit);
+cJSON *db_user_list_verified(cwist_db *db);
 
 #endif

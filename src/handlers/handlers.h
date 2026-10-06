@@ -28,6 +28,7 @@ void handler_admin_reports_action(cwist_http_request *req, cwist_http_response *
  * how many were (or, with dry_run, would be) removed. */
 int tasfa_sweep_stale_sessions(bool dry_run, unsigned long long *bytes_freed);
 void handler_admin_backup_post(cwist_http_request *req, cwist_http_response *res);
+void handler_admin_test_email_post(cwist_http_request *req, cwist_http_response *res);
 void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res);
 void handler_robots_txt(cwist_http_request *req, cwist_http_response *res);
 void handler_llms_txt(cwist_http_request *req, cwist_http_response *res);
@@ -39,6 +40,7 @@ void handler_logout(cwist_http_request *req, cwist_http_response *res);
 void handler_register_get(cwist_http_request *req, cwist_http_response *res);
 void handler_register_post(cwist_http_request *req, cwist_http_response *res);
 void handler_verify_email_get(cwist_http_request *req, cwist_http_response *res);
+void handler_resend_verification_post(cwist_http_request *req, cwist_http_response *res);
 void handler_unregister_post(cwist_http_request *req, cwist_http_response *res);
 
 void handler_profile_get(cwist_http_request *req, cwist_http_response *res);
@@ -97,6 +99,16 @@ void handler_comment_edit_post(cwist_http_request *req, cwist_http_response *res
 void handler_comment_delete_get(cwist_http_request *req, cwist_http_response *res);
 
 void handler_notifications_get(cwist_http_request *req, cwist_http_response *res);
+
+/* Webmail (src/handlers/mail.c) */
+void handler_mail_get(cwist_http_request *req, cwist_http_response *res);
+void handler_mail_view_get(cwist_http_request *req, cwist_http_response *res);
+void handler_mail_send_post(cwist_http_request *req, cwist_http_response *res);
+void handler_mail_delete_post(cwist_http_request *req, cwist_http_response *res);
+void handler_mail_read_post(cwist_http_request *req, cwist_http_response *res);
+void handler_mail_empty_trash_post(cwist_http_request *req, cwist_http_response *res);
+void handler_mail_users_get(cwist_http_request *req, cwist_http_response *res);
+void handler_admin_broadcast_post(cwist_http_request *req, cwist_http_response *res);
 
 void handler_dashboard(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res);

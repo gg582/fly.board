@@ -228,6 +228,38 @@ static void append_backup_section(cwist_sstring *b, cJSON *bk, const char *msg) 
     cwist_sstring_append(b, "</section>");
 }
 
+/* Test the SMTP configuration used for signup verification emails. */
+static void append_broadcast_section(cwist_sstring *b, const char *msg) {
+    cwist_sstring_append(b, "<section id='broadcast' class='board-line fade-in' style='animation-delay:0.30s'><div class='board-line-head'><h2 class='board-line-title'>Broadcast Email</h2></div>");
+    if (msg && !strcmp(msg, "broadcast_done")) {
+        cwist_sstring_append(b, "<div class='alert'>Broadcast delivered to every verified user's inbox; see the server log for SMTP delivery counts.</div>");
+    } else if (msg && !strcmp(msg, "broadcast_invalid")) {
+        cwist_sstring_append(b, "<div class='alert'>Broadcast needs both a subject and a body.</div>");
+    }
+    cwist_sstring_append(b, "<p class='board-card-desc'>Send a message to every verified account: a copy lands in each user's webmail INBOX and another is submitted to their email address through the configured SMTP (or the local Postfix on 127.0.0.1:25).</p>");
+    cwist_sstring_append(b, "<form action='/admin/broadcast' method='post' data-confirm='Email ALL verified users?'>");
+    input_row(b, "Subject", "subject", "text", "", "");
+    cwist_sstring_append(b, "<div style='margin-top:8px'><textarea name='body' rows='6' style='width:100%' placeholder='Message body' required></textarea></div>");
+    cwist_sstring_append(b, "<div style='margin-top:12px'><button type='submit' class='btn'>Send Broadcast</button></div>");
+    cwist_sstring_append(b, "</form></section>");
+}
+
+static void append_test_email_section(cwist_sstring *b, const char *msg) {
+    cwist_sstring_append(b, "<section id='test-email' class='board-line fade-in' style='animation-delay:0.25s'><div class='board-line-head'><h2 class='board-line-title'>Test Email</h2></div>");
+    if (msg && !strcmp(msg, "test_email_sent")) {
+        cwist_sstring_append(b, "<div class='alert'>Test email sent. Check the recipient inbox.</div>");
+    } else if (msg && !strcmp(msg, "test_email_no_smtp")) {
+        cwist_sstring_append(b, "<div class='alert'>SMTP is not configured: FLY_SMTP_HOST is not set.</div>");
+    } else if (msg && !strcmp(msg, "test_email_failed")) {
+        cwist_sstring_append(b, "<div class='alert'>The test email could not be sent. Check the SMTP settings and the server log.</div>");
+    }
+    cwist_sstring_append(b, "<p class='board-card-desc'>Send a test message through the SMTP server used for signup verification emails. Leave the recipient blank to send to FLY_SMTP_FROM.</p>");
+    cwist_sstring_append(b, "<form action='/admin/test-email' method='post'>");
+    input_row(b, "Recipient (optional)", "email", "email", "", "defaults to FLY_SMTP_FROM");
+    cwist_sstring_append(b, "<div style='margin-top:12px'><button type='submit' class='btn'>Send Test Email</button></div>");
+    cwist_sstring_append(b, "</form></section>");
+}
+
 cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile, const char *msg, int open_reports, cJSON *backup) {
     cwist_sstring *b = cwist_sstring_create();
     cwist_sstring_assign(b, "<div class='hero'><h1>Dashboard</h1></div>");
@@ -250,6 +282,8 @@ cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool i
     cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Drop All Files</button></form></section>");
     append_write_policy_section(b, msg);
     append_backup_section(b, backup, msg);
+    append_test_email_section(b, msg);
+    append_broadcast_section(b, msg);
     cwist_sstring_append(b, "</div>");
     cwist_sstring *page = render_page("Dashboard", b->data, dark, "admin", profile_pic, is_mobile);
     cwist_sstring_destroy(b);

@@ -73,4 +73,11 @@ cwist_sstring *render_series_edit(cJSON *series, cJSON *posts, cJSON *pair_choic
 cwist_sstring *render_archive(cJSON *months, cJSON *tags, cJSON *series, bool dark, const char *user_role,
                               const char *profile_pic, bool is_mobile);
 
+/* Webmail (src/render/render_mail.c). */
+cwist_sstring *render_mail_list(cJSON *emails, const char *folder, int page, int total_pages,
+                                int unread, const char *msg, bool dark, const char *user_role,
+                                const char *profile_pic, bool is_mobile);
+cwist_sstring *render_mail_view(cJSON *email, bool dark, const char *user_role,
+                                const char *profile_pic, bool is_mobile);
+
 #endif

@@ -406,6 +406,17 @@ bool db_migrate(cwist_db *db) {
     if (!db_search_migrate(db)) return false;
     db_report_migrate(db);
     db_series_migrate(db);
+    db_exec_sql(db,
+        "CREATE TABLE IF NOT EXISTS emails ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,"
+        "  folder TEXT NOT NULL DEFAULT 'INBOX',"
+        "  from_addr TEXT, to_addrs TEXT, subject TEXT,"
+        "  body_text TEXT, message_id TEXT, in_reply_to TEXT,"
+        "  is_read INTEGER DEFAULT 0,"
+        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+        ")");
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_emails_owner_folder ON emails(owner_id, folder, created_at)");
     return true;
 }
 

@@ -225,7 +225,12 @@ static void *cleanup_worker(void *arg) {
             cwist_db db = { .conn = conn };
             fly_forkgate_enter();
             db_cleanup_orphaned_files(&db);
+            int expired_users = db_user_delete_unverified_expired(&db);
             fly_forkgate_leave();
+            if (expired_users > 0) {
+                CWIST_LOG_INFO("Removed %d unverified account%s past the 24h verification window",
+                               expired_users, expired_users == 1 ? "" : "s");
+            }
             unsigned long long freed = 0;
             int swept = tasfa_sweep_stale_sessions(false, &freed);
             if (swept > 0) CWIST_LOG_INFO("Removed %d abandoned transfer sessions (%.1f MB)", swept, freed / 1048576.0);
