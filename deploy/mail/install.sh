@@ -49,10 +49,14 @@ echo "==> Installing Postfix configuration"
 cat "$SITE_ROOT/deploy/mail/postfix-main.cf" >> /etc/postfix/main.cf
 
 # Pipe transport: Postfix hands each inbound message to mail-import, which
-# stores it in the webmail DB and the recipient's Maildir.
+# stores it in the recipient's Maildir and in the spool (the fly_board web
+# server sweeps the spool into the webmail DB). The binary lives OUTSIDE
+# /root because /root is not traversable by the unprivileged delivery user.
+install -d -m 755 /usr/local/lib/fly-mail
+install -m 755 "$SITE_ROOT/mail-import" /usr/local/lib/fly-mail/mail-import
 grep -q '^fly-mail' /etc/postfix/master.cf || cat >> /etc/postfix/master.cf <<EOF
 fly-mail   unix  -       n       n       -       -       pipe
-  flags=R user=$MAIL_USER argv=$SITE_ROOT/mail-import \${recipient}
+  flags=R user=$MAIL_USER argv=/usr/local/lib/fly-mail/mail-import \${recipient}
 EOF
 
 echo "==> Rebuilding /etc/postfix/fly_aliases and fly_mailboxes"
