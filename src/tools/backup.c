@@ -56,7 +56,7 @@
 
 static const char *const k_db_paths[] = {"data/blog.db", "data/comments.db", "data/board_tree.db"};
 static const char *const k_file_dirs[] = {"public/uploads", "public/profile", "public/img"};
-static const char *const k_settings[] = {"blog.settings", "fonts.settings", "robots.settings"};
+static const char *const k_settings[] = {"blog.settings", "fonts.settings", "robots.settings", "upload.settings"};
 static const char *const k_secret_paths[] = {SEED_PATH, "data/.jwt_secret", "admin.settings", "s3.settings", "backup.settings"};
 
 #define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))

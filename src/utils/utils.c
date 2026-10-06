@@ -372,6 +372,33 @@ bool get_media_dimensions(const char *src, bool is_video, int *w, int *h) {
     return false;
 }
 
+bool upload_policy_match_entry(const char *mime, const char *entry) {
+    size_t len = strlen(entry);
+    while (len > 0 && (entry[len - 1] == '*' || entry[len - 1] == '/')) len--;
+    if (len == 0) return false;
+    if (strlen(mime) < len) return false;
+    return strncasecmp(mime, entry, len) == 0;
+}
+
+bool upload_policy_check(const char *mime) {
+    if (!mime || !mime[0]) return true;
+    bool allowlist_mode = strcmp(upload_policy_mode(), UPLOAD_POLICY_MODE_ALLOW) == 0;
+    const char *list = allowlist_mode ? g_upload_policy.allowlist : g_upload_policy.denylist;
+    char buf[UPLOAD_POLICY_LIST_MAX];
+    snprintf(buf, sizeof(buf), "%s", list);
+    bool matched = false;
+    char *save = NULL;
+    for (char *tok = strtok_r(buf, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+        while (*tok == ' ' || *tok == '\t') tok++;
+        size_t n = strlen(tok);
+        while (n > 0 && (tok[n - 1] == ' ' || tok[n - 1] == '\t')) tok[--n] = '\0';
+        if (!n) continue;
+        if (upload_policy_match_entry(mime, tok)) { matched = true; break; }
+    }
+    /* denylist: match blocks; allowlist: only a match passes. */
+    return allowlist_mode ? matched : !matched;
+}
+
 bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, int media_quality_score, upload_result_t *out) {
     memset(out, 0, sizeof(*out));
 
@@ -408,6 +435,14 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
         strncpy(detected_mime, fallback, sizeof(detected_mime) - 1);
     }
     strncpy(out->mime_type, detected_mime, sizeof(out->mime_type) - 1);
+
+    if (!upload_policy_check(detected_mime)) {
+        if (out->file_path[0]) unlink(out->file_path);
+        if (original_filename && original_filename != f->filename) cwist_free(original_filename);
+        CWIST_LOG_WARN("Upload rejected by policy: %s (%s)", detected_mime, f->filename);
+        snprintf(out->error, sizeof(out->error), "file type not allowed: %s", detected_mime);
+        return false;
+    }
 
     int fid = 0;
     for (int attempt = 0; attempt < 10 && f->filename; attempt++) {

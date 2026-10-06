@@ -132,6 +132,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/admin/boards", handler_admin_boards_get);
     engine_async_get(app, "/admin/write-policy", handler_admin_dashboard);
     engine_async_post(app, "/admin/write-policy", handler_admin_write_policy_post);
+    engine_async_post(app, "/admin/upload-policy", handler_admin_upload_policy_post);
     engine_async_post(app, "/admin/backup", handler_admin_backup_post);
     engine_async_post(app, "/admin/test-email", handler_admin_test_email_post);
 

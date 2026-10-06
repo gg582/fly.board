@@ -2,6 +2,7 @@
 #include "render.h"
 #include "render_internal.h"
 #include "config/write_policy.h"
+#include "config/config.h"
 #include "db/db.h"
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
@@ -244,6 +245,57 @@ static void append_broadcast_section(cwist_sstring *b, const char *msg) {
     cwist_sstring_append(b, "</form></section>");
 }
 
+static void append_upload_policy_section(cwist_sstring *b, const char *msg) {
+    bool allow_mode = strcmp(upload_policy_mode(), UPLOAD_POLICY_MODE_ALLOW) == 0;
+    cwist_sstring_append(b, "<section id='upload-policy' class='board-line fade-in' style='animation-delay:0.18s'><div class='board-line-head'><h2 class='board-line-title'>Upload Policy</h2></div>");
+    if (msg && !strcmp(msg, "upload_saved")) {
+        cwist_sstring_append(b, "<div class='alert'>Upload policy saved. It applies to new uploads immediately; other server workers pick it up on restart.</div>");
+    } else if (msg && !strcmp(msg, "upload_error")) {
+        cwist_sstring_append(b, "<div class='alert'>Could not save the upload policy. Check the server log.</div>");
+    }
+    cwist_sstring_append(b, "<p class='board-card-desc'>Allow or forbid uploaded file types by MIME type. Detection is by libmagic content sniffing (the actual file bytes), not the file extension. Entries are comma-separated; an entry ending in <code>/*</code> or <code>/</code> (e.g. <code>image/</code>) matches every type below it, other entries match exactly. In <b>denylist</b> mode everything is allowed except the listed types; in <b>allowlist</b> mode only the listed types are accepted.</p>");
+    cwist_sstring_append(b, "<form action='/admin/upload-policy' method='post'>");
+    cwist_sstring_append(b, "<div style='margin:8px 0'><label style='margin-right:16px'><input type='radio' name='mode' value='denylist'");
+    cwist_sstring_append(b, allow_mode ? "" : " checked");
+    cwist_sstring_append(b, "> Denylist (block the listed types)</label>");
+    cwist_sstring_append(b, "<label><input type='radio' name='mode' value='allowlist'");
+    cwist_sstring_append(b, allow_mode ? " checked" : "");
+    cwist_sstring_append(b, "> Allowlist (only the listed types)</label></div>");
+    cwist_sstring_append(b, "<textarea name='list' rows='5' style='width:100%' placeholder='e.g. image/, application/pdf'>");
+    cwist_sstring_append_escaped(b, upload_policy_active_list());
+    cwist_sstring_append(b, "</textarea>");
+    cwist_sstring_append(b, "<div style='margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap'>");
+    cwist_sstring_append(b, "<select id='upload-preset'><option value=''>Load a preset...</option>"
+                            "<option value='wordpress'>WordPress-like (allowlist of common blog types)</option>"
+                            "<option value='balanced'>Balanced (default: deny executables and scripts)</option>"
+                            "<option value='media'>Media only (allowlist image/audio/video + PDF)</option>"
+                            "<option value='permissive'>Permissive (allow everything)</option></select>");
+    cwist_sstring_append(b, "<button type='button' class='btn btn-outline' id='upload-preset-apply'>Apply Preset</button></div>");
+    cwist_sstring_append(b, "<div style='margin-top:12px'><button type='submit' class='btn'>Save Upload Policy</button></div>");
+    cwist_sstring_append(b, "</form>");
+    cwist_sstring_append(b, "<p class='board-card-desc'>Presets follow conventions from other blog software (WordPress exposes an <code>upload_mimes</code> allowlist; Ghost ships a restrictive images-only list). A blocked upload is rejected with a clear error and the temp file is discarded.</p>");
+    cwist_sstring_append(b, "<script>"
+        "(function(){"
+        "var p={"
+        "wordpress:{m:'allowlist',l:'image/, audio/, video/, application/pdf, application/zip, application/msword, application/vnd.openxmlformats, application/vnd.oasis.opendocument.text, application/rtf, text/plain, text/csv'},"
+        "balanced:{m:'denylist',l:'application/x-dosexec, application/x-msdownload, application/x-msdos-program, application/x-elf, application/x-executable, application/x-sh, application/x-bash, application/x-csh, application/x-perl, application/x-python, application/x-php, message/news'},"
+        "media:{m:'allowlist',l:'image/, audio/, video/, application/pdf'},"
+        "permissive:{m:'denylist',l:''}"
+        "};"
+        "var sel=document.getElementById('upload-preset');"
+        "var btn=document.getElementById('upload-preset-apply');"
+        "if(!sel||!btn)return;"
+        "btn.addEventListener('click',function(){"
+        "var v=p[sel.value];if(!v)return;"
+        "var f=btn.closest('form');"
+        "var radios=f.querySelectorAll('input[name=mode]');"
+        "for(var k=0;k<radios.length;k++)radios[k].checked=radios[k].value===v.m;"
+        "f.querySelector('textarea[name=list]').value=v.l;"
+        "});"
+        "})();"
+        "</script></section>");
+}
+
 static void append_test_email_section(cwist_sstring *b, const char *msg) {
     cwist_sstring_append(b, "<section id='test-email' class='board-line fade-in' style='animation-delay:0.25s'><div class='board-line-head'><h2 class='board-line-title'>Test Email</h2></div>");
     if (msg && !strcmp(msg, "test_email_sent")) {
@@ -281,6 +333,7 @@ cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool i
     cwist_sstring_append(b, "<form action='/admin/files/drop' method='post' data-confirm='Drop ALL files? This cannot be undone.'>");
     cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Drop All Files</button></form></section>");
     append_write_policy_section(b, msg);
+    append_upload_policy_section(b, msg);
     append_backup_section(b, backup, msg);
     append_test_email_section(b, msg);
     append_broadcast_section(b, msg);

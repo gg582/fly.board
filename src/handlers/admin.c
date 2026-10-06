@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 #include "cwist/board_tree.h"
+#include "config/config.h"
 #include "config/write_policy.h"
 #include "tools/backup.h"
 #include "utils/email.h"
@@ -180,6 +181,36 @@ void handler_admin_write_policy_post(cwist_http_request *req, cwist_http_respons
         CWIST_LOG_ERROR("Write policy update failed");
     }
     redirect(res, ok ? "/admin/dashboard?msg=saved" : "/admin/dashboard?msg=error");
+}
+
+/* Save the upload MIME allow/deny policy (upload.settings).  The textarea
+ * edits the list belonging to the selected mode; the other list is kept. */
+void handler_admin_upload_policy_post(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    cwist_query_map *kv = cwist_query_map_create();
+    if (req->body && req->body->data) cwist_query_map_parse(kv, req->body->data);
+    const char *mode = cwist_query_map_get(kv, "mode");
+    const char *list = cwist_query_map_get(kv, "list");
+    bool ok = mode && list &&
+              (strcmp(mode, UPLOAD_POLICY_MODE_DENY) == 0 || strcmp(mode, UPLOAD_POLICY_MODE_ALLOW) == 0) &&
+              strlen(list) < UPLOAD_POLICY_LIST_MAX;
+    if (ok) {
+        snprintf(g_upload_policy.mode, sizeof(g_upload_policy.mode), "%s", mode);
+        if (strcmp(mode, UPLOAD_POLICY_MODE_ALLOW) == 0)
+            snprintf(g_upload_policy.allowlist, sizeof(g_upload_policy.allowlist), "%s", list);
+        else
+            snprintf(g_upload_policy.denylist, sizeof(g_upload_policy.denylist), "%s", list);
+        ok = upload_policy_save("upload.settings");
+        /* Refresh from disk so this process serves the new policy at once. */
+        if (ok) upload_policy_load("upload.settings");
+    }
+    cwist_query_map_destroy(kv);
+    if (ok)
+        CWIST_LOG_INFO("Upload policy updated: mode=%s list=%s", upload_policy_mode(), upload_policy_active_list());
+    else
+        CWIST_LOG_ERROR("Upload policy update failed");
+    redirect(res, ok ? "/admin/dashboard?msg=upload_saved#upload-policy"
+                     : "/admin/dashboard?msg=upload_error#upload-policy");
 }
 
 void handler_admin_users(cwist_http_request *req, cwist_http_response *res) {

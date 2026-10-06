@@ -117,6 +117,7 @@ void handler_admin_user_role(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_files_drop(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_boards_get(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_write_policy_post(cwist_http_request *req, cwist_http_response *res);
+void handler_admin_upload_policy_post(cwist_http_request *req, cwist_http_response *res);
 
 void handler_api_preview(cwist_http_request *req, cwist_http_response *res);
 void handler_api_upload(cwist_http_request *req, cwist_http_response *res);

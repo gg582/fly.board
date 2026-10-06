@@ -378,6 +378,93 @@ bool robots_config_load(const char *path) {
 const char *robots_level(void) { return g_robots_config.robots_level[0] ? g_robots_config.robots_level : "allow"; }
 const char *llms_level(void)   { return g_robots_config.llms_level[0] ? g_robots_config.llms_level : "allow"; }
 
+/* ---- Upload MIME allow/deny policy (upload.settings) ---- */
+
+upload_policy_t g_upload_policy;
+
+/* Conservative default: block executables and script interpreters, plus
+ * Usenet news (frequently used to smuggle spam binaries).  Everything else,
+ * including message/rfc822 (.eml), is allowed. */
+static const char *const UPLOAD_DEFAULT_DENYLIST =
+    "application/x-dosexec, application/x-msdownload, application/x-msdos-program, "
+    "application/x-elf, application/x-executable, application/x-sh, application/x-bash, "
+    "application/x-csh, application/x-perl, application/x-python, application/x-php, "
+    "message/news";
+
+static void upload_policy_set_defaults(void) {
+    memset(&g_upload_policy, 0, sizeof(g_upload_policy));
+    snprintf(g_upload_policy.mode, sizeof(g_upload_policy.mode), "%s", UPLOAD_POLICY_MODE_DENY);
+    snprintf(g_upload_policy.denylist, sizeof(g_upload_policy.denylist), "%s", UPLOAD_DEFAULT_DENYLIST);
+}
+
+bool upload_policy_load(const char *path) {
+    upload_policy_set_defaults();
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        /* Optional file: write a commented template with the defaults. */
+        f = fopen(path, "w");
+        if (f) {
+            fprintf(f, "# Upload MIME allow/deny policy.\n");
+            fprintf(f, "# Detection is by libmagic content sniffing (file magic), not extension.\n");
+            fprintf(f, "#\n");
+            fprintf(f, "# mode - denylist (default): everything is allowed except the denylist;\n");
+            fprintf(f, "#        allowlist: only the allowlist is accepted.\n");
+            fprintf(f, "# List entries are comma-separated MIME types. An entry ending in \"/*\"\n");
+            fprintf(f, "# or \"/\" (e.g. image/) matches every type below it; other entries match\n");
+            fprintf(f, "# exactly (case-insensitive).\n");
+            fprintf(f, "mode=%s\n", g_upload_policy.mode);
+            fprintf(f, "denylist=%s\n", g_upload_policy.denylist);
+            fprintf(f, "allowlist=\n");
+            fclose(f);
+        }
+        return true;
+    }
+    char line[2304];
+    while (fgets(line, sizeof(line), f)) {
+        trim_newline(line);
+        char *eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        if (strcmp(line, "mode") == 0) {
+            snprintf(g_upload_policy.mode, sizeof(g_upload_policy.mode), "%s", eq + 1);
+        } else if (strcmp(line, "denylist") == 0) {
+            snprintf(g_upload_policy.denylist, sizeof(g_upload_policy.denylist), "%s", eq + 1);
+        } else if (strcmp(line, "allowlist") == 0) {
+            snprintf(g_upload_policy.allowlist, sizeof(g_upload_policy.allowlist), "%s", eq + 1);
+        }
+    }
+    fclose(f);
+    if (strcmp(g_upload_policy.mode, UPLOAD_POLICY_MODE_DENY) != 0 &&
+        strcmp(g_upload_policy.mode, UPLOAD_POLICY_MODE_ALLOW) != 0) {
+        CWIST_LOG_WARN("Unknown upload policy mode '%s', falling back to denylist", g_upload_policy.mode);
+        snprintf(g_upload_policy.mode, sizeof(g_upload_policy.mode), "%s", UPLOAD_POLICY_MODE_DENY);
+    }
+    return true;
+}
+
+bool upload_policy_save(const char *path) {
+    FILE *f = fopen(path, "w");
+    if (!f) return false;
+    fprintf(f, "# Upload MIME allow/deny policy. Managed from the admin dashboard.\n");
+    fprintf(f, "# Detection is by libmagic content sniffing (file magic), not extension.\n");
+    fprintf(f, "mode=%s\n", g_upload_policy.mode);
+    fprintf(f, "denylist=%s\n", g_upload_policy.denylist);
+    fprintf(f, "allowlist=%s\n", g_upload_policy.allowlist);
+    bool ok = fclose(f) == 0;
+    if (!ok) CWIST_LOG_ERROR("Failed to write %s", path);
+    return ok;
+}
+
+const char *upload_policy_mode(void) {
+    return strcmp(g_upload_policy.mode, UPLOAD_POLICY_MODE_ALLOW) == 0 ? UPLOAD_POLICY_MODE_ALLOW
+                                                                       : UPLOAD_POLICY_MODE_DENY;
+}
+
+const char *upload_policy_active_list(void) {
+    return strcmp(upload_policy_mode(), UPLOAD_POLICY_MODE_ALLOW) == 0 ? g_upload_policy.allowlist
+                                                                       : g_upload_policy.denylist;
+}
+
 
 bool config_bg_invert_enabled(const char *target) {
     if (!target || !target[0]) return false;

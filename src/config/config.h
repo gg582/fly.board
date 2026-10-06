@@ -174,4 +174,29 @@ bool robots_config_load(const char *path);
 const char *robots_level(void);
 const char *llms_level(void);
 
+/* Upload MIME allow/deny policy (upload.settings).
+ * mode is "denylist" (default) or "allowlist".  The active list holds
+ * comma-separated MIME types or prefixes: an entry ending in a star after
+ * the slash (e.g. "image/ star") or just "/" (e.g. "image/") matches every
+ * type under that top-level type; any other
+ * entry matches exactly (case-insensitive).  In denylist mode a matching
+ * type is rejected; in allowlist mode only matching types are accepted. */
+#define UPLOAD_POLICY_MODE_DENY "denylist"
+#define UPLOAD_POLICY_MODE_ALLOW "allowlist"
+#define UPLOAD_POLICY_LIST_MAX 2048
+
+typedef struct {
+    char mode[16];
+    char denylist[UPLOAD_POLICY_LIST_MAX];
+    char allowlist[UPLOAD_POLICY_LIST_MAX];
+} upload_policy_t;
+
+extern upload_policy_t g_upload_policy;
+
+bool upload_policy_load(const char *path);
+bool upload_policy_save(const char *path);
+const char *upload_policy_mode(void);
+/* Comma-separated list for the current mode (for display/editing). */
+const char *upload_policy_active_list(void);
+
 #endif
