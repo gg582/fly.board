@@ -28,6 +28,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <pwd.h>
 #include <unistd.h>
 
 #define MAIL_DOMAIN "oborona.zip"
@@ -575,6 +576,18 @@ static void maildir_deliver(const char *username, const char *raw, size_t raw_le
     if (!f) return;
     fwrite(raw, 1, raw_len, f);
     fclose(f);
+    /* Dovecot refuses UID 0, so hand the mailbox to the mail user when one
+     * is configured (FLY_MAIL_USER, default "flymail" if it exists). */
+    const char *mu = getenv("FLY_MAIL_USER");
+    if (!mu || !mu[0]) mu = "flymail";
+    struct passwd *pw = getpwnam(mu);
+    if (pw) {
+        char userdir[512];
+        snprintf(userdir, sizeof(userdir), "%s/%s", root, username);
+        chown(userdir, pw->pw_uid, pw->pw_gid);
+        chown(dir, pw->pw_uid, pw->pw_gid);
+        chown(path, pw->pw_uid, pw->pw_gid);
+    }
 }
 
 /* ------------------------------------------------------------------- main */
