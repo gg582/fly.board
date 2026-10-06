@@ -57,6 +57,25 @@ postmap /etc/postfix/fly_aliases
 echo "==> Installing Dovecot configuration"
 cp "$SITE_ROOT/deploy/mail/dovecot.conf" /etc/dovecot/dovecot.conf
 
+# Dedicated self-signed cert with the mail hostname in the SAN (clients only
+# complain about the unknown CA, not a hostname mismatch).
+if [ ! -f /etc/dovecot/mail.crt ]; then
+    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+        -subj "/CN=mail.$DOMAIN" \
+        -addext "subjectAltName=DNS:mail.$DOMAIN,DNS:$DOMAIN" \
+        -keyout /etc/dovecot/mail.key -out /etc/dovecot/mail.crt 2>/dev/null
+    chmod 600 /etc/dovecot/mail.key
+fi
+
+# PAM bridge: Dovecot 2.4 removed the checkpassword driver, so passdb pam
+# calls mail-verify through pam_exec (password on stdin via expose_authtok).
+cat > /etc/pam.d/fly-mail <<EOF
+auth     required pam_exec.so expose_authtok $SITE_ROOT/mail-verify pam
+account  required pam_permit.so
+password required pam_deny.so
+session  required pam_permit.so
+EOF
+
 echo "==> OpenDKIM"
 if [ -f "$SITE_ROOT/deploy/mail/opendkim.conf" ]; then
     cp "$SITE_ROOT/deploy/mail/opendkim.conf" /etc/opendkim.conf

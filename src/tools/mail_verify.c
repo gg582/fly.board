@@ -16,6 +16,12 @@
  *   userdb  (DOVECOT_USERDB_LOOKUP=1 or argv[1] == "userdb"): USER alone is
  *                      given; the account must simply exist (and be verified).
  *
+ *   pam     (argv[1] == "pam"): invoked by pam_exec(8). PAM_USER carries the
+ *                      login name and expose_authtok delivers the password on
+ *                      stdin. Used with Dovecot 2.4, whose checkpassword
+ *                      driver was removed: passdb pam { } -> pam service
+ *                      "fly-mail" -> pam_exec.so -> this binary.
+ *
  * On success the userdb tuple (USER/HOME/UID/GID) is written as key=value
  * lines terminated by an empty line, to stdout and, when it is writable, fd 3
  * (the classic protocol channel). Exit status: 0 ok, 1 rejected, 111 tempfail.
@@ -52,7 +58,8 @@ int main(int argc, char **argv) {
 
     bool userdb_mode = getenv("DOVECOT_USERDB_LOOKUP") != NULL ||
                        (argc > 1 && strcmp(argv[1], "userdb") == 0);
-    const char *user_env = getenv("USER");
+    bool pam_mode = argc > 1 && strcmp(argv[1], "pam") == 0;
+    const char *user_env = pam_mode ? getenv("PAM_USER") : getenv("USER");
     if (!user_env || !user_env[0]) return 1;
     /* Dovecot passes the full login name; we only serve the bare local part. */
     char username[128];
@@ -63,15 +70,17 @@ int main(int argc, char **argv) {
 
     char password[512] = {0};
     if (!userdb_mode) {
-        const char *pw_env = getenv("PASSWORD");
+        const char *pw_env = pam_mode ? NULL : getenv("PASSWORD");
         if (pw_env && pw_env[0]) {
             snprintf(password, sizeof(password), "%s", pw_env);
         } else {
-            /* Classic checkpassword: password bytes on fd 3. */
+            /* Classic checkpassword: password bytes on fd 3.
+             * pam_exec with expose_authtok: password bytes on stdin. */
+            int fd = pam_mode ? STDIN_FILENO : 3;
             size_t off = 0;
             char tmp[256];
             ssize_t n;
-            while (off + 1 < sizeof(password) && (n = read(3, tmp, sizeof(tmp))) > 0) {
+            while (off + 1 < sizeof(password) && (n = read(fd, tmp, sizeof(tmp))) > 0) {
                 for (ssize_t i = 0; i < n && off + 1 < sizeof(password); i++) {
                     if (tmp[i] == '\0' || tmp[i] == '\n') continue;
                     password[off++] = tmp[i];
@@ -113,7 +122,12 @@ int main(int argc, char **argv) {
     sqlite3_close(conn);
 
     if (!found || !verified) return 1;
-    if (!userdb_mode && !auth_verify_password(password, hash)) return 1;
+    if (!userdb_mode && !auth_verify_password(password, hash)) {
+        if (getenv("MV_DEBUG"))
+            fprintf(stderr, "mail-verify: verify failed user=%s hash=%.16s pwlen=%zu\n",
+                    username, hash, strlen(password));
+        return 1;
+    }
 
     uid_t uid = getuid();
     gid_t gid = getgid();
