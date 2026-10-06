@@ -11,10 +11,11 @@ extern "C" {
 
 /**
  * @brief Initialize flyboard PQC signing subsystem.
- * Generates a global ML-DSA-65 signing key on first call.
- * @return true on success.
+ * Loads the ML-DSA-65 key seed from @p seed_path, creating the file (0600)
+ * with a fresh key when it does not exist yet. Call before forking workers.
+ * @return true on success; false when an existing seed file is unreadable.
  */
-bool fly_crypto_init(void);
+bool fly_crypto_init(const char *seed_path);
 
 /**
  * @brief Sign a message with ML-DSA-65 and return a base64-encoded signature.

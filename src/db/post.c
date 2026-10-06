@@ -401,3 +401,19 @@ cJSON *db_post_feed(cwist_db *db, int board_id, int limit) {
     sqlite3_bind_int(stmt, idx++, limit);
     return db_sqlite3_rows_to_json(stmt);
 }
+
+cJSON *db_post_list_for_signing(cwist_db *db) {
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), "SELECT id, title, content, pqc_signature FROM posts ORDER BY id", -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    return db_sqlite3_rows_to_json(stmt);
+}
+
+bool db_post_set_signature(cwist_db *db, int id, const char *pqc_signature) {
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), "UPDATE posts SET pqc_signature=? WHERE id=?", -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, pqc_signature ? pqc_signature : "", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}

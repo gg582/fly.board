@@ -3,6 +3,7 @@
 #include "auth/auth.h"
 #include "crypto/fly_crypto.h"
 #include "db/db.h"
+#include <cwist/core/mem/alloc.h>
 #include "db/db_internal.h"
 #include "utils/media_preview.h"
 #include "cwist/board_tree.h"
@@ -237,7 +238,53 @@ static void *cleanup_worker(void *arg) {
     return NULL;
 }
 
-int main(void) {
+/* --sign-posts: sign every post whose stored signature does not verify
+ * under the current key (unsigned posts, or ones signed by a lost key),
+ * then exit. Kept out of normal startup on purpose: re-signing silently on
+ * every boot would also bless content altered directly in the database. */
+static int sign_posts_backfill(cwist_db *db) {
+    cJSON *posts = db_post_list_for_signing(db);
+    if (!posts) {
+        FLY_LOG_ERROR("sign-posts: could not list posts");
+        return 1;
+    }
+    int total = 0, valid = 0, signed_now = 0, failed = 0;
+    cJSON *p = NULL;
+    cJSON_ArrayForEach(p, posts) {
+        total++;
+        cJSON *id = cJSON_GetObjectItem(p, "id");
+        cJSON *title = cJSON_GetObjectItem(p, "title");
+        cJSON *content = cJSON_GetObjectItem(p, "content");
+        cJSON *sig = cJSON_GetObjectItem(p, "pqc_signature");
+        const char *t = cJSON_IsString(title) ? title->valuestring : "";
+        const char *c = cJSON_IsString(content) ? content->valuestring : "";
+        /* Same message the post page verifies: title + "\n" + content. */
+        size_t mlen = strlen(t) + 1 + strlen(c);
+        char *msg = (char *)malloc(mlen + 1);
+        if (!msg) { failed++; continue; }
+        snprintf(msg, mlen + 1, "%s\n%s", t, c);
+        if (cJSON_IsString(sig) && fly_crypto_verify((const uint8_t *)msg, mlen, sig->valuestring)) {
+            valid++;
+        } else {
+            char *new_sig = NULL;
+            if (fly_crypto_sign((const uint8_t *)msg, mlen, &new_sig) &&
+                db_post_set_signature(db, cJSON_IsNumber(id) ? id->valueint : 0, new_sig)) {
+                signed_now++;
+            } else {
+                failed++;
+            }
+            if (new_sig) cwist_free(new_sig);
+        }
+        free(msg);
+    }
+    cJSON_Delete(posts);
+    CWIST_LOG_INFO("sign-posts: %d posts, %d already valid, %d signed, %d failed", total, valid, signed_now, failed);
+    fprintf(stderr, "sign-posts: %d posts, %d already valid, %d signed, %d failed\n", total, valid, signed_now, failed);
+    return failed ? 1 : 0;
+}
+
+int main(int argc, char **argv) {
+    bool sign_posts_mode = argc > 1 && strcmp(argv[1], "--sign-posts") == 0;
     /* SQLite must be configured before any connection is opened.  Use the
      * serialized threading mode so a single connection can be safely shared
      * across multiple worker threads. */
@@ -273,7 +320,7 @@ int main(void) {
         return 1;
     }
     CWIST_LOG_INFO("Workdir verified");
-    if (!fly_crypto_init()) {
+    if (!fly_crypto_init("data/.pqc_mldsa65_seed")) {
         FLY_LOG_ERROR("PQC crypto init failed");
         return 1;
     }
@@ -332,6 +379,14 @@ int main(void) {
         cwist_app_destroy(app);
         fly_crypto_cleanup();
         return 1;
+    }
+    if (sign_posts_mode) {
+        int rc = sign_posts_backfill(db);
+        engine_nats_stop();
+        engine_pool_shutdown();
+        cwist_app_destroy(app);
+        fly_crypto_cleanup();
+        return rc;
     }
     auth_site_admin_set_uid(site_admin_uid);
     CWIST_LOG_INFO("Site admin account: users.id=%d", site_admin_uid);

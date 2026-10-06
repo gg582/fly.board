@@ -75,6 +75,10 @@ long long db_post_next_scheduled(cwist_db *db);
 cJSON *db_post_claim_unannounced(cwist_db *db);
 int db_post_count_drafts(cwist_db *db, int user_id);
 bool db_post_delete(cwist_db *db, int id);
+/* [{id, title, content, pqc_signature}] for every post, for re-signing. */
+cJSON *db_post_list_for_signing(cwist_db *db);
+/* Store a signature without touching updated_at (the content did not change). */
+bool db_post_set_signature(cwist_db *db, int id, const char *pqc_signature);
 bool db_post_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_hash);
 cJSON *db_post_get_by_slug(cwist_db *db, const char *slug);
 cJSON *db_post_get_by_id(cwist_db *db, int id);
