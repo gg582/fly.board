@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define MAIL_DOMAIN "oborona.zip"
 
@@ -60,7 +61,15 @@ int main(void) {
             "SELECT username FROM users WHERE active=1 ORDER BY username", -1, &stmt, NULL) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             const unsigned char *un = sqlite3_column_text(stmt, 0);
-            if (un) printf("%s@%s %s@%s\n", (const char *)un, MAIL_DOMAIN, (const char *)un, MAIL_DOMAIN);
+            if (!un) continue;
+            const char *name = (const char *)un;
+            /* A reserved localpart already has a mapping above; emitting an
+             * identity line for it too would be a duplicate key. */
+            bool reserved = false;
+            for (int i = 0; k_reserved[i]; i++)
+                if (strcasecmp(name, k_reserved[i]) == 0) { reserved = true; break; }
+            if (reserved) continue;
+            printf("%s@%s %s@%s\n", name, MAIL_DOMAIN, name, MAIL_DOMAIN);
         }
     }
     sqlite3_finalize(stmt);
