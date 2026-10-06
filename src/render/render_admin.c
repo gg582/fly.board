@@ -106,7 +106,129 @@ static void append_write_policy_section(cwist_sstring *b, const char *msg) {
     cwist_sstring_append(b, "</form></section>");
 }
 
-cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile, const char *msg, int open_reports) {
+static const char *bstr(cJSON *o, const char *k) {
+    cJSON *v = o ? cJSON_GetObjectItem(o, k) : NULL;
+    return cJSON_IsString(v) ? v->valuestring : "";
+}
+
+static void input_row(cwist_sstring *b, const char *label, const char *name, const char *type, const char *value,
+                      const char *placeholder) {
+    cwist_sstring_append(b, "<label for='bk-");
+    cwist_sstring_append(b, name);
+    cwist_sstring_append(b, "'>");
+    cwist_sstring_append(b, label);
+    cwist_sstring_append(b, "</label><input id='bk-");
+    cwist_sstring_append(b, name);
+    cwist_sstring_append(b, "' name='");
+    cwist_sstring_append(b, name);
+    cwist_sstring_append(b, "' type='");
+    cwist_sstring_append(b, type);
+    cwist_sstring_append(b, "' autocomplete='off' value='");
+    cwist_sstring_append_escaped(b, value ? value : "");
+    cwist_sstring_append(b, "' placeholder='");
+    cwist_sstring_append_escaped(b, placeholder ? placeholder : "");
+    cwist_sstring_append(b, "'>");
+}
+
+/* Scheduled backups: register an external target (S3-compatible bucket or
+ * a mounted directory), see the last run, run one now. */
+static void append_backup_section(cwist_sstring *b, cJSON *bk, const char *msg) {
+    const char *target = bstr(bk, "target");
+    bool ready = cJSON_IsTrue(cJSON_GetObjectItem(bk, "ready"));
+    cwist_sstring_append(b, "<section id='backups' class='board-line fade-in' style='animation-delay:0.2s'><div class='board-line-head'><h2 class='board-line-title'>Scheduled Backups</h2></div>");
+    cwist_sstring_append(b, "<p class='board-card-desc'>Register an external target to back up the site every day at 03:00: posts, comments, boards, signatures, uploads and settings in one signed archive (the same as <code>fly_board --backup</code>). Nothing runs until a target is registered.</p>");
+    static const struct { const char *code, *text; } notes[] = {
+        {"backup_saved", "Backup target saved. Backups run daily at 03:00."},
+        {"backup_incomplete", "Saved, but the target is incomplete or disabled, so no backups will run."},
+        {"backup_invalid", "Not saved: choose a target, use an http(s) endpoint or an absolute directory path, keep 1-1000 archives, and a passphrase of 12+ characters if any."},
+        {"backup_removed", "Backup target removed. Scheduled backups are off."},
+        {"backup_started", "Backup started. Reload this page in a minute to see the result."},
+        {"backup_not_ready", "Register a complete, enabled target first."},
+        {"backup_error", "The backup action failed; see the server log."},
+    };
+    for (size_t i = 0; msg && i < sizeof(notes) / sizeof(notes[0]); i++) {
+        if (!strcmp(msg, notes[i].code)) {
+            cwist_sstring_append(b, "<div class='alert'>");
+            cwist_sstring_append(b, notes[i].text);
+            cwist_sstring_append(b, "</div>");
+        }
+    }
+
+    /* Status */
+    cwist_sstring_append(b, "<p><strong>Status:</strong> ");
+    if (!target[0]) cwist_sstring_append(b, "no target registered");
+    else if (!ready) cwist_sstring_append(b, "registered, but incomplete or disabled");
+    else {
+        cwist_sstring_append(b, "active &middot; ");
+        cwist_sstring_append(b, !strcmp(target, "s3") ? "S3 bucket " : "directory ");
+        cwist_sstring_append(b, "<code>");
+        cwist_sstring_append_escaped(b, !strcmp(target, "s3") ? bstr(bk, "bucket") : bstr(bk, "path"));
+        cwist_sstring_append(b, "</code>");
+    }
+    const char *last_at = bstr(bk, "last_at");
+    if (last_at[0]) {
+        cwist_sstring_append(b, "<br><strong>Last run:</strong> ");
+        cwist_sstring_append_escaped(b, last_at);
+        cwist_sstring_append(b, " UTC &middot; ");
+        bool ok = !strcmp(bstr(bk, "last_result"), "ok");
+        cwist_sstring_append(b, ok ? "succeeded" : "<span style='color:#c00'>failed</span>");
+        if (ok) {
+            char sz[64];
+            snprintf(sz, sizeof(sz), " (%.1f MB) ", atof(bstr(bk, "last_size")) / 1048576.0);
+            cwist_sstring_append(b, sz);
+            cwist_sstring_append(b, "<code>");
+            cwist_sstring_append_escaped(b, bstr(bk, "last_name"));
+            cwist_sstring_append(b, "</code>");
+        } else {
+            cwist_sstring_append(b, ": ");
+            cwist_sstring_append_escaped(b, bstr(bk, "last_error"));
+        }
+    }
+    cwist_sstring_append(b, "</p>");
+
+    /* Target form */
+    bool is_dir = !strcmp(target, "dir");
+    cwist_sstring_append(b, "<form action='/admin/backup' method='post'>");
+    cwist_sstring_append(b, "<label for='bk-target'>Target</label><select id='bk-target' name='target'>");
+    cwist_sstring_append(b, is_dir ? "<option value='s3'>S3-compatible bucket</option><option value='dir' selected>Directory (mounted disk, NFS, ...)</option>"
+                                   : "<option value='s3' selected>S3-compatible bucket</option><option value='dir'>Directory (mounted disk, NFS, ...)</option>");
+    cwist_sstring_append(b, "</select><fieldset style='border:1px solid var(--border);padding:8px 12px;margin-top:10px'><legend>S3-compatible bucket</legend>");
+    input_row(b, "Endpoint", "endpoint", "url", bstr(bk, "endpoint"), "https://s3.eu-central-1.amazonaws.com");
+    input_row(b, "Region", "region", "text", bstr(bk, "region"), "us-east-1");
+    input_row(b, "Bucket", "bucket", "text", bstr(bk, "bucket"), "");
+    input_row(b, "Access key", "access_key", "text", bstr(bk, "access_key"), "");
+    input_row(b, "Secret key", "secret_key", "password",
+              "", cJSON_IsTrue(cJSON_GetObjectItem(bk, "has_secret_key")) ? "stored; leave blank to keep" : "");
+    input_row(b, "Key prefix", "prefix", "text", bstr(bk, "prefix"), "fly-backups/");
+    cwist_sstring_append(b, "<label class='check-row'><input type='checkbox' name='use_path_style' value='1'");
+    if (cJSON_IsTrue(cJSON_GetObjectItem(bk, "use_path_style"))) cwist_sstring_append(b, " checked");
+    cwist_sstring_append(b, "> Path-style URLs (MinIO and most self-hosted stores)</label></fieldset>");
+    cwist_sstring_append(b, "<fieldset style='border:1px solid var(--border);padding:8px 12px;margin-top:10px'><legend>Directory</legend>");
+    input_row(b, "Absolute path", "path", "text", bstr(bk, "path"), "/mnt/backup/fly.board");
+    cwist_sstring_append(b, "</fieldset>");
+    char keep[16];
+    snprintf(keep, sizeof(keep), "%d", cJSON_IsNumber(cJSON_GetObjectItem(bk, "keep")) ? cJSON_GetObjectItem(bk, "keep")->valueint : 14);
+    input_row(b, "Archives to keep", "keep", "number", keep, "14");
+    bool has_pass = cJSON_IsTrue(cJSON_GetObjectItem(bk, "has_passphrase"));
+    input_row(b, "Passphrase for secrets (optional, 12+ characters)", "passphrase", "password", "",
+              has_pass ? "stored; leave blank to keep" : "empty: secrets are not included");
+    if (has_pass) cwist_sstring_append(b, "<label class='check-row'><input type='checkbox' name='clear_passphrase' value='1'> Stop including secrets (forget the passphrase)</label>");
+    cwist_sstring_append(b, "<p class='board-card-desc'>With a passphrase, each archive also carries the signing seed, JWT secret, admin.settings, s3.settings and this target, sealed with AES-256-GCM. Keep the passphrase somewhere other than this server.</p>");
+    cwist_sstring_append(b, "<label class='check-row'><input type='checkbox' name='enabled' value='1'");
+    if (!target[0] || cJSON_IsTrue(cJSON_GetObjectItem(bk, "enabled"))) cwist_sstring_append(b, " checked");
+    cwist_sstring_append(b, "> Run daily at 03:00</label>");
+    cwist_sstring_append(b, "<div style='margin-top:12px;display:flex;gap:8px;flex-wrap:wrap'><button type='submit' class='btn'>Save Backup Target</button></div></form>");
+    if (target[0]) {
+        cwist_sstring_append(b, "<div style='margin-top:8px;display:flex;gap:8px;flex-wrap:wrap'>");
+        if (ready) {
+            cwist_sstring_append(b, "<form action='/admin/backup' method='post'><input type='hidden' name='action' value='run'><button type='submit' class='btn btn-outline'>Run Backup Now</button></form>");
+        }
+        cwist_sstring_append(b, "<form action='/admin/backup' method='post' data-confirm='Remove the backup target? Scheduled backups stop; archives already stored stay.'><input type='hidden' name='action' value='remove'><button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Remove Target</button></form></div>");
+    }
+    cwist_sstring_append(b, "</section>");
+}
+
+cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile, const char *msg, int open_reports, cJSON *backup) {
     cwist_sstring *b = cwist_sstring_create();
     cwist_sstring_assign(b, "<div class='hero'><h1>Dashboard</h1></div>");
     cwist_sstring_append(b, "<div class='board-list stagger'>");
@@ -127,6 +249,7 @@ cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool i
     cwist_sstring_append(b, "<form action='/admin/files/drop' method='post' data-confirm='Drop ALL files? This cannot be undone.'>");
     cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Drop All Files</button></form></section>");
     append_write_policy_section(b, msg);
+    append_backup_section(b, backup, msg);
     cwist_sstring_append(b, "</div>");
     cwist_sstring *page = render_page("Dashboard", b->data, dark, "admin", profile_pic, is_mobile);
     cwist_sstring_destroy(b);

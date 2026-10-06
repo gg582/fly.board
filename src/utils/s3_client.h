@@ -15,6 +15,11 @@ const char *s3_path_key(const char *path);
  * local copy and store "s3://<key>" as the file path. */
 bool s3_upload_file(const char *local_path, const char *key, const char *content_type);
 bool s3_delete_object(const char *key);
+/* Same against an explicit bucket configuration (e.g. the backup target),
+ * independent of the file-storage settings in s3.settings. */
+struct s3_config_s;
+bool s3_upload_file_with(const struct s3_config_s *cfg, const char *local_path, const char *key, const char *content_type);
+bool s3_delete_object_with(const struct s3_config_s *cfg, const char *key);
 /* Push a freshly uploaded local file to the bucket (key = prefix+basename).
  * On success writes the "s3://<key>" marker into out_marker when provided. */
 bool s3_store_upload(const char *local_path, const char *content_type,

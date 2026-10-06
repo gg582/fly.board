@@ -2,6 +2,8 @@
 #include "handlers_internal.h"
 #include "cwist/board_tree.h"
 #include "config/write_policy.h"
+#include "tools/backup.h"
+#include <openssl/mem.h>
 
 void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
@@ -9,10 +11,99 @@ void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res) 
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
     const char *msg = cwist_query_map_get(req->query_params, "msg");
+    /* Backup target and last run, for the Scheduled Backups section. The
+     * secret key and passphrase never leave the server: only whether they
+     * are set. */
+    backup_settings_t bs;
+    bool has_target = backup_settings_load(&bs);
+    cJSON *backup = cJSON_CreateObject();
+    cJSON_AddStringToObject(backup, "target", has_target ? bs.target : "");
+    cJSON_AddBoolToObject(backup, "enabled", has_target && bs.enabled);
+    cJSON_AddBoolToObject(backup, "ready", has_target && backup_settings_ready(&bs));
+    cJSON_AddStringToObject(backup, "endpoint", bs.endpoint);
+    cJSON_AddStringToObject(backup, "region", bs.region);
+    cJSON_AddStringToObject(backup, "bucket", bs.bucket);
+    cJSON_AddStringToObject(backup, "access_key", bs.access_key);
+    cJSON_AddBoolToObject(backup, "has_secret_key", bs.secret_key[0] != '\0');
+    cJSON_AddStringToObject(backup, "prefix", bs.prefix);
+    cJSON_AddBoolToObject(backup, "use_path_style", bs.use_path_style);
+    cJSON_AddStringToObject(backup, "path", bs.path);
+    cJSON_AddNumberToObject(backup, "keep", bs.keep);
+    cJSON_AddBoolToObject(backup, "has_passphrase", bs.passphrase[0] != '\0');
+    OPENSSL_cleanse(&bs, sizeof(bs));
+    static const char *const status_keys[] = {"backup_last_at", "backup_last_result", "backup_last_error",
+                                              "backup_last_name", "backup_last_size"};
+    for (size_t i = 0; i < sizeof(status_keys) / sizeof(status_keys[0]); i++) {
+        char value[512] = {0};
+        db_site_setting_get(req->db, status_keys[i], value, sizeof(value));
+        cJSON_AddStringToObject(backup, status_keys[i] + 7, value); /* drop "backup_" */
+    }
     cwist_sstring *page = render_admin_dashboard(is_dark(req), pp, is_mobile_request(req), msg,
-                                                 db_report_count_open(req->db));
+                                                 db_report_count_open(req->db), backup);
+    cJSON_Delete(backup);
     send_html_res(res, page);
     free(pp);
+}
+
+static void form_copy(char *dst, size_t size, cwist_query_map *kv, const char *key) {
+    const char *v = cwist_query_map_get(kv, key);
+    snprintf(dst, size, "%s", v ? v : "");
+    /* trim surrounding whitespace */
+    size_t n = strlen(dst);
+    while (n > 0 && (dst[n - 1] == ' ' || dst[n - 1] == '\t')) dst[--n] = '\0';
+    size_t lead = strspn(dst, " \t");
+    if (lead) memmove(dst, dst + lead, strlen(dst + lead) + 1);
+}
+
+/* Register, update or remove the scheduled-backup target. Blank secret
+ * fields keep the stored values, so the form never has to echo them. */
+void handler_admin_backup_post(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    cwist_query_map *kv = cwist_query_map_create();
+    if (req->body && req->body->data) cwist_query_map_parse(kv, req->body->data);
+    const char *action = cwist_query_map_get(kv, "action");
+    const char *msg = "backup_error";
+    if (action && !strcmp(action, "remove")) {
+        if (backup_settings_remove()) msg = "backup_removed";
+    } else if (action && !strcmp(action, "run")) {
+        backup_settings_t cur;
+        bool ready = backup_settings_load(&cur) && backup_settings_ready(&cur);
+        OPENSSL_cleanse(&cur, sizeof(cur));
+        msg = !ready ? "backup_not_ready" : backup_spawn() ? "backup_started" : "backup_error";
+    } else {
+        backup_settings_t old, s;
+        backup_settings_load(&old);
+        memset(&s, 0, sizeof(s));
+        form_copy(s.target, sizeof(s.target), kv, "target");
+        s.enabled = cwist_query_map_get(kv, "enabled") != NULL;
+        form_copy(s.endpoint, sizeof(s.endpoint), kv, "endpoint");
+        form_copy(s.region, sizeof(s.region), kv, "region");
+        form_copy(s.bucket, sizeof(s.bucket), kv, "bucket");
+        form_copy(s.access_key, sizeof(s.access_key), kv, "access_key");
+        form_copy(s.secret_key, sizeof(s.secret_key), kv, "secret_key");
+        if (!s.secret_key[0]) memcpy(s.secret_key, old.secret_key, sizeof(s.secret_key));
+        form_copy(s.prefix, sizeof(s.prefix), kv, "prefix");
+        s.use_path_style = cwist_query_map_get(kv, "use_path_style") != NULL;
+        form_copy(s.path, sizeof(s.path), kv, "path");
+        const char *keep = cwist_query_map_get(kv, "keep");
+        s.keep = keep ? atoi(keep) : 14;
+        form_copy(s.passphrase, sizeof(s.passphrase), kv, "passphrase");
+        if (cwist_query_map_get(kv, "clear_passphrase")) s.passphrase[0] = '\0';
+        else if (!s.passphrase[0]) memcpy(s.passphrase, old.passphrase, sizeof(s.passphrase));
+        bool valid = (!strcmp(s.target, "s3") || !strcmp(s.target, "dir")) && s.keep >= 1 && s.keep <= 1000 &&
+                     (!s.passphrase[0] || strlen(s.passphrase) >= 12) &&
+                     (strcmp(s.target, "dir") || s.path[0] == '/') &&
+                     (strcmp(s.target, "s3") || !strncmp(s.endpoint, "https://", 8) || !strncmp(s.endpoint, "http://", 7));
+        if (valid && backup_settings_save(&s)) msg = backup_settings_ready(&s) ? "backup_saved" : "backup_incomplete";
+        else if (!valid) msg = "backup_invalid";
+        OPENSSL_cleanse(&old, sizeof(old));
+        OPENSSL_cleanse(&s, sizeof(s));
+    }
+    cwist_query_map_destroy(kv);
+    CWIST_LOG_INFO("Backup settings action=%s -> %s", action ? action : "save", msg);
+    char url[96];
+    snprintf(url, sizeof(url), "/admin/dashboard?msg=%s#backups", msg);
+    redirect(res, url);
 }
 
 void handler_dashboard(cwist_http_request *req, cwist_http_response *res) {

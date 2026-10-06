@@ -29,4 +29,13 @@ bool render_find_lead_image(const char *md, char *out, size_t out_size);
 /* Reading time at 220 words a minute; 0 for empty text. */
 int render_reading_minutes(const char *md);
 
+/* Display name of a language code ("en" -> "English"); the code itself
+ * when unknown. */
+const char *render_lang_name(const char *code);
+/* <option>s for a language <select>, with an empty "(site default)" entry
+ * first when include_unset. */
+void render_append_lang_options(cwist_sstring *b, const char *selected, bool include_unset);
+/* "Also in: English · 日本語" links for translations [{lang, path, title}]. */
+void render_append_translation_links(cwist_sstring *b, const char *label, cJSON *links);
+
 #endif

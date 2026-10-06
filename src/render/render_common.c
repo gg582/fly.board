@@ -207,3 +207,81 @@ int render_reading_minutes(const char *md) {
     /* Same rule as the editor's counter (public/js/editor.js). */
     return words ? (words + 219) / 220 : 0;
 }
+
+/* ---- Languages ---- */
+
+static const char *const k_langs[][2] = {
+    {"ko", "한국어"}, {"en", "English"}, {"ja", "日本語"}, {"zh", "中文(简体)"}, {"zh-tw", "中文(繁體)"},
+    {"es", "Español"}, {"fr", "Français"}, {"de", "Deutsch"}, {"ru", "Русский"}, {"pt", "Português"},
+    {"vi", "Tiếng Việt"}, {"id", "Bahasa Indonesia"},
+};
+
+const char *render_lang_name(const char *code) {
+    if (!code || !code[0]) return "";
+    for (size_t i = 0; i < sizeof(k_langs) / sizeof(k_langs[0]); i++) {
+        if (!strcmp(code, k_langs[i][0])) return k_langs[i][1];
+    }
+    return code;
+}
+
+void render_append_lang_options(cwist_sstring *b, const char *selected, bool include_unset) {
+    const char *sel = selected ? selected : "";
+    if (include_unset) {
+        cwist_sstring_append(b, sel[0] ? "<option value=''>(site default)</option>" : "<option value='' selected>(site default)</option>");
+    }
+    bool known = !sel[0];
+    for (size_t i = 0; i < sizeof(k_langs) / sizeof(k_langs[0]); i++) {
+        bool on = !strcmp(sel, k_langs[i][0]);
+        known = known || on;
+        cwist_sstring_append(b, "<option value='");
+        cwist_sstring_append(b, k_langs[i][0]);
+        cwist_sstring_append(b, on ? "' selected>" : "'>");
+        cwist_sstring_append(b, k_langs[i][1]);
+        cwist_sstring_append(b, "</option>");
+    }
+    if (!known) {
+        /* Keep a stored code that is not in the list. */
+        cwist_sstring_append(b, "<option value='");
+        cwist_sstring_append_escaped(b, sel);
+        cwist_sstring_append(b, "' selected>");
+        cwist_sstring_append_escaped(b, sel);
+        cwist_sstring_append(b, "</option>");
+    }
+}
+
+void render_append_translation_links(cwist_sstring *b, const char *label, cJSON *links) {
+    if (!cJSON_IsArray(links) || cJSON_GetArraySize(links) == 0) return;
+    cwist_sstring_append(b, "<p class='translation-links' style='font-size:14px;color:var(--muted);margin:6px 0'>");
+    cwist_sstring_append(b, label);
+    cwist_sstring_append(b, " ");
+    bool first = true;
+    cJSON *l = NULL;
+    cJSON_ArrayForEach(l, links) {
+        cJSON *lang = cJSON_GetObjectItem(l, "lang");
+        cJSON *path = cJSON_GetObjectItem(l, "path");
+        cJSON *title = cJSON_GetObjectItem(l, "title");
+        if (!cJSON_IsString(path)) continue;
+        const char *code = cJSON_IsString(lang) ? lang->valuestring : "";
+        if (!first) cwist_sstring_append(b, " &middot; ");
+        first = false;
+        cwist_sstring_append(b, "<a href='");
+        cwist_sstring_append_escaped(b, path->valuestring);
+        cwist_sstring_append(b, "'");
+        if (code[0]) {
+            cwist_sstring_append(b, " hreflang='");
+            cwist_sstring_append_escaped(b, code);
+            cwist_sstring_append(b, "' lang='");
+            cwist_sstring_append_escaped(b, code);
+            cwist_sstring_append(b, "'");
+        }
+        if (cJSON_IsString(title)) {
+            cwist_sstring_append(b, " title='");
+            cwist_sstring_append_escaped(b, title->valuestring);
+            cwist_sstring_append(b, "'");
+        }
+        cwist_sstring_append(b, ">");
+        cwist_sstring_append_escaped(b, code[0] ? render_lang_name(code) : (cJSON_IsString(title) ? title->valuestring : "?"));
+        cwist_sstring_append(b, "</a>");
+    }
+    cwist_sstring_append(b, "</p>");
+}

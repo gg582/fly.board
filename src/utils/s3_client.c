@@ -77,9 +77,8 @@ static bool endpoint_split(const char *endpoint, char *scheme, size_t scheme_siz
 /* Full object URL path component: "/bucket/<key>" (path style) or "/<key>"
  * (virtual-host style, bucket moves into the host).  The key already
  * carries the configured prefix. */
-static void build_host_and_uri(const char *key, char *host, size_t host_size,
+static void build_host_and_uri(const s3_config_t *c, const char *key, char *host, size_t host_size,
                                char *uri, size_t uri_size) {
-    const s3_config_t *c = &g_s3_config;
     char ep_scheme[16], ep_host[256];
     if (!endpoint_split(c->endpoint, ep_scheme, sizeof(ep_scheme), ep_host, sizeof(ep_host))) {
         ep_host[0] = '\0';
@@ -95,18 +94,18 @@ static void build_host_and_uri(const char *key, char *host, size_t host_size,
     }
 }
 
-static void build_url(const char *key, char *url, size_t url_size) {
+static void build_url(const s3_config_t *c, const char *key, char *url, size_t url_size) {
     char scheme[16], ep_host[256], host[320], uri[1280];
-    if (!endpoint_split(g_s3_config.endpoint, scheme, sizeof(scheme), ep_host, sizeof(ep_host))) return;
-    build_host_and_uri(key, host, sizeof(host), uri, sizeof(uri));
+    if (!endpoint_split(c->endpoint, scheme, sizeof(scheme), ep_host, sizeof(ep_host))) return;
+    build_host_and_uri(c, key, host, sizeof(host), uri, sizeof(uri));
     snprintf(url, url_size, "%s://%s%s", scheme, host, uri);
 }
 
 /* Derive the SigV4 signing key: HMAC chain date -> region -> service -> "aws4_request". */
-static void signing_key(const char *date, unsigned char out[32]) {
+static void signing_key(const s3_config_t *c, const char *date, unsigned char out[32]) {
     char secret[512];
-    snprintf(secret, sizeof(secret), "AWS4%s", g_s3_config.secret_key);
-    const char *region = g_s3_config.region[0] ? g_s3_config.region : "us-east-1";
+    snprintf(secret, sizeof(secret), "AWS4%s", c->secret_key);
+    const char *region = c->region[0] ? c->region : "us-east-1";
     unsigned char k[32];
     hmac_sha256(secret, strlen(secret), date, k);
     hmac_sha256(k, 32, region, k);
@@ -122,12 +121,12 @@ static void current_amz_dates(char *amz_date, char *date) {
     strftime(date, 9, "%Y%m%d", &tm_utc);
 }
 
-static void credential_scope(const char *date, char *out, size_t out_size) {
+static void credential_scope(const s3_config_t *c, const char *date, char *out, size_t out_size) {
     snprintf(out, out_size, "%s/%s/s3/aws4_request", date,
-             g_s3_config.region[0] ? g_s3_config.region : "us-east-1");
+             c->region[0] ? c->region : "us-east-1");
 }
 
-static bool sign_and_finish(const char *method, const char *uri, const char *query,
+static bool sign_and_finish(const s3_config_t *c, const char *method, const char *uri, const char *query,
                             const char *signed_headers, const char *canonical_headers,
                             const char *payload_hash, const char *amz_date, const char *date,
                             char *out_signature, size_t out_sig_size) {
@@ -140,12 +139,12 @@ static bool sign_and_finish(const char *method, const char *uri, const char *que
     hex_encode(canonical_hash, 32, canonical_hex);
 
     char scope[128];
-    credential_scope(date, scope, sizeof(scope));
+    credential_scope(c, date, scope, sizeof(scope));
     char to_sign[512];
     snprintf(to_sign, sizeof(to_sign), "AWS4-HMAC-SHA256\n%s\n%s\n%s", amz_date, scope, canonical_hex);
 
     unsigned char key[32], sig[32];
-    signing_key(date, key);
+    signing_key(c, date, key);
     hmac_sha256(key, 32, to_sign, sig);
     hex_encode(sig, 32, out_signature);
     (void)out_sig_size;
@@ -161,8 +160,8 @@ static size_t s3_put_read(char *buf, size_t size, size_t nitems, void *userdata)
     return fread(buf, size, nitems, ctx->fp);
 }
 
-bool s3_upload_file(const char *local_path, const char *key, const char *content_type) {
-    if (!s3_config_enabled()) return false;
+bool s3_upload_file_with(const s3_config_t *c, const char *local_path, const char *key, const char *content_type) {
+    if (!c || !c->endpoint[0] || !c->bucket[0] || !c->access_key[0] || !c->secret_key[0]) return false;
     FILE *fp = fopen(local_path, "rb");
     if (!fp) {
         FLY_LOG_ERROR("S3 upload: cannot open %s", local_path);
@@ -178,21 +177,21 @@ bool s3_upload_file(const char *local_path, const char *key, const char *content
 
     char amz_date[17], date[9], host[320], uri[1280], url[2048];
     current_amz_dates(amz_date, date);
-    build_host_and_uri(key, host, sizeof(host), uri, sizeof(uri));
-    build_url(key, url, sizeof(url));
+    build_host_and_uri(c, key, host, sizeof(host), uri, sizeof(uri));
+    build_url(c, key, url, sizeof(url));
 
     char canonical_headers[640];
     snprintf(canonical_headers, sizeof(canonical_headers),
              "host:%s\nx-amz-content-sha256:UNSIGNED-PAYLOAD\nx-amz-date:%s\n", host, amz_date);
     char signature[65];
-    sign_and_finish("PUT", uri, "", "host;x-amz-content-sha256;x-amz-date",
+    sign_and_finish(c, "PUT", uri, "", "host;x-amz-content-sha256;x-amz-date",
                     canonical_headers, "UNSIGNED-PAYLOAD", amz_date, date, signature, sizeof(signature));
 
     char scope[128], auth[640];
-    credential_scope(date, scope, sizeof(scope));
+    credential_scope(c, date, scope, sizeof(scope));
     snprintf(auth, sizeof(auth),
              "AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=%s",
-             g_s3_config.access_key, scope, signature);
+             c->access_key, scope, signature);
 
     char hdr_date[64], hdr_hash[96], hdr_type[320];
     snprintf(hdr_date, sizeof(hdr_date), "x-amz-date: %s", amz_date);
@@ -220,7 +219,9 @@ bool s3_upload_file(const char *local_path, const char *key, const char *content
     curl_easy_setopt(curl, CURLOPT_READDATA, &ctx);
     curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)size);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L);
+    /* Allow 64 KiB/s at worst, and never less than five minutes. */
+    long timeout = 300L + (long)(size / (64L * 1024L));
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
 
     CURLcode rc = curl_easy_perform(curl);
     long status = 0;
@@ -237,26 +238,26 @@ bool s3_upload_file(const char *local_path, const char *key, const char *content
     return true;
 }
 
-bool s3_delete_object(const char *key) {
-    if (!s3_config_enabled()) return false;
+bool s3_delete_object_with(const s3_config_t *c, const char *key) {
+    if (!c || !c->endpoint[0] || !c->bucket[0] || !c->access_key[0] || !c->secret_key[0]) return false;
 
     char amz_date[17], date[9], host[320], uri[1280], url[2048];
     current_amz_dates(amz_date, date);
-    build_host_and_uri(key, host, sizeof(host), uri, sizeof(uri));
-    build_url(key, url, sizeof(url));
+    build_host_and_uri(c, key, host, sizeof(host), uri, sizeof(uri));
+    build_url(c, key, url, sizeof(url));
 
     char canonical_headers[640];
     snprintf(canonical_headers, sizeof(canonical_headers),
              "host:%s\nx-amz-content-sha256:UNSIGNED-PAYLOAD\nx-amz-date:%s\n", host, amz_date);
     char signature[65];
-    sign_and_finish("DELETE", uri, "", "host;x-amz-content-sha256;x-amz-date",
+    sign_and_finish(c, "DELETE", uri, "", "host;x-amz-content-sha256;x-amz-date",
                     canonical_headers, "UNSIGNED-PAYLOAD", amz_date, date, signature, sizeof(signature));
 
     char scope[128], hdr_auth[768], hdr_date[64];
-    credential_scope(date, scope, sizeof(scope));
+    credential_scope(c, date, scope, sizeof(scope));
     snprintf(hdr_auth, sizeof(hdr_auth),
              "Authorization: AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=%s",
-             g_s3_config.access_key, scope, signature);
+             c->access_key, scope, signature);
     snprintf(hdr_date, sizeof(hdr_date), "x-amz-date: %s", amz_date);
 
     CURL *curl = curl_easy_init();
@@ -286,15 +287,16 @@ bool s3_delete_object(const char *key) {
 
 bool s3_presign_get(const char *key, char *out, size_t out_size, int expires_sec) {
     if (!s3_config_enabled() || expires_sec <= 0) return false;
+    const s3_config_t *c = &g_s3_config;
 
     char amz_date[17], date[9], host[320], uri[1280];
     current_amz_dates(amz_date, date);
-    build_host_and_uri(key, host, sizeof(host), uri, sizeof(uri));
+    build_host_and_uri(c, key, host, sizeof(host), uri, sizeof(uri));
 
     char scope[128], enc_cred[512];
-    credential_scope(date, scope, sizeof(scope));
+    credential_scope(c, date, scope, sizeof(scope));
     char cred[384];
-    snprintf(cred, sizeof(cred), "%s/%s", g_s3_config.access_key, scope);
+    snprintf(cred, sizeof(cred), "%s/%s", c->access_key, scope);
     uri_encode(cred, enc_cred, sizeof(enc_cred), false);
 
     char query[1024];
@@ -305,14 +307,24 @@ bool s3_presign_get(const char *key, char *out, size_t out_size, int expires_sec
     char canonical_headers[384];
     snprintf(canonical_headers, sizeof(canonical_headers), "host:%s\n", host);
     char signature[65];
-    sign_and_finish("GET", uri, query, "host", canonical_headers,
+    sign_and_finish(c, "GET", uri, query, "host", canonical_headers,
                     "UNSIGNED-PAYLOAD", amz_date, date, signature, sizeof(signature));
 
     char scheme[16], ep_host[256];
-    if (!endpoint_split(g_s3_config.endpoint, scheme, sizeof(scheme), ep_host, sizeof(ep_host))) return false;
+    if (!endpoint_split(c->endpoint, scheme, sizeof(scheme), ep_host, sizeof(ep_host))) return false;
     int n = snprintf(out, out_size, "%s://%s%s?%s&X-Amz-Signature=%s",
                      scheme, host, uri, query, signature);
     return n > 0 && (size_t)n < out_size;
+}
+
+bool s3_upload_file(const char *local_path, const char *key, const char *content_type) {
+    if (!s3_config_enabled()) return false;
+    return s3_upload_file_with(&g_s3_config, local_path, key, content_type);
+}
+
+bool s3_delete_object(const char *key) {
+    if (!s3_config_enabled()) return false;
+    return s3_delete_object_with(&g_s3_config, key);
 }
 
 /* Push a freshly uploaded local file to the bucket.  The object key is

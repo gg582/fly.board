@@ -20,8 +20,18 @@ typedef struct {
     const char *feed_path;      /* page-specific feed, e.g. "/tag/x/rss.xml" */
     const char *feed_title;
     bool noindex;               /* drafts and other private views */
+    const char *lang;           /* page language; default g_config.language */
+    cJSON *alternates;          /* [{lang, path}] translations incl. this page, for hreflang */
 } render_page_meta;
 void render_set_page_meta(const render_page_meta *meta);
+
+/* Data for the next render_post_editor() call: series the writer may add to
+ * ([{id,title}]) and posts they may name as the original of a translation
+ * ([{id,title}]). Borrowed until that call. */
+void render_set_editor_options(cJSON *series, cJSON *posts);
+/* Translations of the board the next render_post_list() call shows
+ * ([{lang, slug, title}]), plus that board's own language. */
+void render_set_board_translations(const char *lang, cJSON *siblings);
 
 void render_set_nav_profile(const char *display_name, const char *account_name);
 void render_set_nav_notifications(int unread_count);
@@ -39,7 +49,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
 cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_board_form(cJSON *board, cJSON *all_boards, bool dark, const char *error, const char *profile_pic, bool is_mobile, const char *user_role);
 cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool dark, const char *msg, const char *profile_pic, bool is_mobile);
-cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile, const char *msg, int open_reports);
+cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile, const char *msg, int open_reports, cJSON *backup);
 /* /admin/reports: groups from handlers/report.c, status is the active tab. */
 cwist_sstring *render_admin_reports(cJSON *groups, const char *status, const char *msg, bool dark,
                                     const char *profile_pic, bool is_mobile);
@@ -53,8 +63,14 @@ cwist_sstring *render_markdown_to_html(const char *md);
 cwist_sstring *render_post_index(const char *heading, const char *lead, cJSON *posts, int page, int total_pages,
                                  const char *base_path, const char *feed_path, bool dark, const char *user_role,
                                  const char *profile_pic, int user_id, bool is_mobile);
+/* Series pages. */
+cwist_sstring *render_series_index(cJSON *series, bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
+cwist_sstring *render_series_detail(cJSON *series, cJSON *posts, cJSON *siblings, const char *lang, bool can_edit,
+                                    bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
+cwist_sstring *render_series_edit(cJSON *series, cJSON *posts, cJSON *pair_choices, const char *lang, int paired_with,
+                                  const char *error, bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
 /* /archive: tag cloud plus posts per month. */
-cwist_sstring *render_archive(cJSON *months, cJSON *tags, bool dark, const char *user_role,
+cwist_sstring *render_archive(cJSON *months, cJSON *tags, cJSON *series, bool dark, const char *user_role,
                               const char *profile_pic, bool is_mobile);
 
 #endif

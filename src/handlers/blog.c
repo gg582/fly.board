@@ -129,8 +129,10 @@ void handler_archive_get(cwist_http_request *req, cwist_http_response *res) {
     auth_is_logged_in(req, &uid, role, sizeof(role));
     cJSON *months = db_post_archive_months(req->db);
     cJSON *tags = db_tag_list_public(req->db);
+    cJSON *series = db_series_list(req->db, 0, true);
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *html = render_archive(months, tags, is_dark(req), role, pp, is_mobile_request(req));
+    cwist_sstring *html = render_archive(months, tags, series, is_dark(req), role, pp, is_mobile_request(req));
+    if (series) cJSON_Delete(series);
     send_html_res(res, html);
     free(pp);
     if (months) cJSON_Delete(months);
@@ -378,4 +380,223 @@ void handler_api_tags(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring_assign(res->body, json ? json : "[]");
     free(json);
     if (tags) cJSON_Delete(tags);
+}
+
+/* ---- Series ---- */
+
+void handler_series_index(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    cJSON *series = db_series_list(req->db, 0, true);
+    char *pp = get_profile_pic(req->db, uid, role);
+    cwist_sstring *html = render_series_index(series, is_dark(req), role, pp, is_mobile_request(req));
+    send_html_res(res, html);
+    free(pp);
+    if (series) cJSON_Delete(series);
+}
+
+/* The series named by :id, or NULL after sending 404. */
+static cJSON *series_from_path(cwist_http_request *req, cwist_http_response *res) {
+    const char *id = cwist_query_map_get(req->path_params, "id");
+    cJSON *series = (id && atoi(id) > 0) ? db_series_get(req->db, atoi(id)) : NULL;
+    if (!series) not_found(res, "Series not found");
+    return series;
+}
+
+static bool can_edit_series(cJSON *series, int uid, const char *role) {
+    if (strcmp(role, "admin") == 0) return true;
+    return uid > 0 && json_int(series, "user_id", 0) == uid;
+}
+
+static const char *series_lang(cwist_db *db, int id, char *buf, size_t size) {
+    cJSON *i18n = db_i18n_get(db, "series", id);
+    cJSON *lang = i18n ? cJSON_GetObjectItem(i18n, "lang") : NULL;
+    snprintf(buf, size, "%s", cJSON_IsString(lang) ? lang->valuestring : "");
+    if (i18n) cJSON_Delete(i18n);
+    return buf;
+}
+
+void handler_series_get(cwist_http_request *req, cwist_http_response *res) {
+    cJSON *series = series_from_path(req, res);
+    if (!series) return;
+    int uid = 0;
+    char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    int sid = json_int(series, "id", 0);
+    bool editor = can_edit_series(series, uid, role);
+    cJSON *posts = db_series_posts(req->db, sid, !editor);
+    if (!editor && cJSON_GetArraySize(posts) == 0) {
+        /* Nothing public yet: the series does not exist for readers. */
+        if (posts) cJSON_Delete(posts);
+        cJSON_Delete(series);
+        not_found(res, "Series not found");
+        return;
+    }
+    cJSON *siblings = db_i18n_siblings(req->db, "series", sid, false);
+    char lang[16];
+    series_lang(req->db, sid, lang, sizeof(lang));
+    char *pp = get_profile_pic(req->db, uid, role);
+    cwist_sstring *html = render_series_detail(series, posts, siblings, lang, editor, is_dark(req), role, pp,
+                                               is_mobile_request(req));
+    send_html_res(res, html);
+    free(pp);
+    if (posts) cJSON_Delete(posts);
+    if (siblings) cJSON_Delete(siblings);
+    cJSON_Delete(series);
+}
+
+void handler_series_rss_xml(cwist_http_request *req, cwist_http_response *res) {
+    cJSON *series = series_from_path(req, res);
+    if (!series) return;
+    int sid = json_int(series, "id", 0);
+    cJSON *posts = db_series_feed(req->db, sid, FEED_ITEMS);
+    if (!posts || cJSON_GetArraySize(posts) == 0) {
+        if (posts) cJSON_Delete(posts);
+        cJSON_Delete(series);
+        not_found(res, "Series not found");
+        return;
+    }
+    char title[512], link[48], self[64];
+    cJSON *t = cJSON_GetObjectItem(series, "title");
+    snprintf(title, sizeof(title), "%s - %s", g_config.title, cJSON_IsString(t) ? t->valuestring : "");
+    snprintf(link, sizeof(link), "/series/%d", sid);
+    snprintf(self, sizeof(self), "/series/%d/rss.xml", sid);
+    send_feed(req, res, posts, title, link, self);
+    cJSON_Delete(posts);
+    cJSON_Delete(series);
+}
+
+static void render_edit_page(cwist_http_request *req, cwist_http_response *res, cJSON *series, int uid,
+                             const char *role, const char *error) {
+    int sid = json_int(series, "id", 0);
+    cJSON *posts = db_series_posts(req->db, sid, false);
+    cJSON *choices = db_series_list(req->db, strcmp(role, "admin") == 0 ? 0 : uid, false);
+    char lang[16];
+    series_lang(req->db, sid, lang, sizeof(lang));
+    cJSON *siblings = db_i18n_siblings(req->db, "series", sid, false);
+    int paired = cJSON_GetArraySize(siblings) > 0 ? json_int(cJSON_GetArrayItem(siblings, 0), "id", 0) : 0;
+    char *pp = get_profile_pic(req->db, uid, role);
+    cwist_sstring *html = render_series_edit(series, posts, choices, lang, paired, error, is_dark(req), role, pp,
+                                             is_mobile_request(req));
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-store, private");
+    send_html_res(res, html);
+    free(pp);
+    if (posts) cJSON_Delete(posts);
+    if (choices) cJSON_Delete(choices);
+    if (siblings) cJSON_Delete(siblings);
+}
+
+void handler_series_edit_get(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    cJSON *series = series_from_path(req, res);
+    if (!series) return;
+    if (!can_edit_series(series, uid, role)) {
+        cJSON_Delete(series);
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Forbidden");
+        return;
+    }
+    render_edit_page(req, res, series, uid, role, NULL);
+    cJSON_Delete(series);
+}
+
+void handler_series_edit_post(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    cJSON *series = series_from_path(req, res);
+    if (!series) return;
+    if (!can_edit_series(series, uid, role)) {
+        cJSON_Delete(series);
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Forbidden");
+        return;
+    }
+    int sid = json_int(series, "id", 0);
+    cwist_query_map *kv = cwist_query_map_create();
+    if (req->body && req->body->data) cwist_query_map_parse(kv, req->body->data);
+    const char *title = cwist_query_map_get(kv, "title");
+    const char *desc = cwist_query_map_get(kv, "description");
+    const char *lang = cwist_query_map_get(kv, "lang");
+    const char *pair = cwist_query_map_get(kv, "translation_of");
+    if (!title || !title[0] || strlen(title) > 200 || (desc && strlen(desc) > 2000) || (lang && !i18n_lang_valid(lang))) {
+        cwist_query_map_destroy(kv);
+        render_edit_page(req, res, series, uid, role, "Title is required (200 characters at most), description 2000.");
+        cJSON_Delete(series);
+        return;
+    }
+    db_series_update(req->db, sid, title, desc);
+    int pair_id = pair ? atoi(pair) : 0;
+    if (pair_id > 0) {
+        cJSON *other = db_series_get(req->db, pair_id);
+        bool ok = other && can_edit_series(other, uid, role);
+        if (other) cJSON_Delete(other);
+        db_i18n_set(req->db, "series", sid, lang, ok ? pair_id : 0);
+    } else {
+        db_i18n_set(req->db, "series", sid, lang, -1);
+    }
+    /* Reorder / remove parts: sort the remaining parts by the numbers the
+     * form sent (ties keep the current order), then number them 1..n. */
+    cJSON *posts = db_series_posts(req->db, sid, false);
+    int n = cJSON_GetArraySize(posts), kept = 0;
+    struct part { int id, want, was; } *parts = calloc((size_t)(n > 0 ? n : 1), sizeof(*parts));
+    cJSON *p = NULL;
+    int idx = 0;
+    cJSON_ArrayForEach(p, posts) {
+        int pid = json_int(p, "id", 0);
+        char key[48];
+        snprintf(key, sizeof(key), "remove_%d", pid);
+        if (cwist_query_map_get(kv, key)) {
+            db_post_set_series(req->db, pid, 0, 0);
+            idx++;
+            continue;
+        }
+        snprintf(key, sizeof(key), "pos_%d", pid);
+        const char *pos = cwist_query_map_get(kv, key);
+        if (parts) parts[kept++] = (struct part){pid, pos && atoi(pos) > 0 ? atoi(pos) : idx + 1, idx};
+        idx++;
+    }
+    for (int i = 1; parts && i < kept; i++) { /* insertion sort: stable */
+        struct part cur = parts[i];
+        int j = i - 1;
+        while (j >= 0 && (parts[j].want > cur.want || (parts[j].want == cur.want && parts[j].was > cur.was))) {
+            parts[j + 1] = parts[j];
+            j--;
+        }
+        parts[j + 1] = cur;
+    }
+    if (parts && kept > 0) {
+        int *ids = calloc((size_t)kept, sizeof(int));
+        for (int i = 0; ids && i < kept; i++) ids[i] = parts[i].id;
+        if (ids) db_series_set_order(req->db, sid, ids, kept);
+        free(ids);
+    }
+    free(parts);
+    if (posts) cJSON_Delete(posts);
+    cwist_query_map_destroy(kv);
+    cJSON_Delete(series);
+    page_cache_invalidate_all();
+    char url[48];
+    snprintf(url, sizeof(url), "/series/%d", sid);
+    redirect(res, url);
+}
+
+void handler_series_delete_post(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    cJSON *series = series_from_path(req, res);
+    if (!series) return;
+    bool ok = can_edit_series(series, uid, role) && db_series_delete(req->db, json_int(series, "id", 0));
+    cJSON_Delete(series);
+    if (!ok) {
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Forbidden");
+        return;
+    }
+    page_cache_invalidate_all();
+    redirect(res, "/series");
 }

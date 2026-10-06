@@ -30,6 +30,12 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get_cached(app, "/archive", handler_archive_get);
     engine_async_get_cached(app, "/archive/:ym", handler_archive_month_get);
     engine_async_get(app, "/tags", handler_tags_get);
+    engine_async_get_cached(app, "/series", handler_series_index);
+    engine_async_get_cached(app, "/series/:id", handler_series_get);
+    engine_async_get_cached(app, "/series/:id/rss.xml", handler_series_rss_xml);
+    engine_async_get(app, "/series/:id/edit", handler_series_edit_get);
+    engine_async_post(app, "/series/:id/edit", handler_series_edit_post);
+    engine_async_post(app, "/series/:id/delete", handler_series_delete_post);
     engine_async_get_cached(app, "/tag/:name", handler_tag_get);
     engine_async_get_cached(app, "/tag/:name/rss.xml", handler_tag_rss_xml);
     engine_async_get_cached(app, "/robots.txt", handler_robots_txt);
@@ -115,6 +121,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/admin/boards", handler_admin_boards_get);
     engine_async_get(app, "/admin/write-policy", handler_admin_dashboard);
     engine_async_post(app, "/admin/write-policy", handler_admin_write_policy_post);
+    engine_async_post(app, "/admin/backup", handler_admin_backup_post);
 
     engine_async_post(app, "/api/preview", handler_api_preview);
     engine_async_post(app, "/api/upload", handler_api_upload);

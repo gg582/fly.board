@@ -6,6 +6,7 @@ data/board_tree.db
 data/comments.db
 data/.jwt_secret
 data/.pqc_mldsa65_seed
+backup.settings
 data/tasfa/
 data.rootowned/
 public/uploads/*

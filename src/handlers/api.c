@@ -524,7 +524,7 @@ void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring_append(sm, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     cwist_sstring_append(sm, "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
 
-    static const char *const static_paths[] = {"/", "/boards", "/files", "/archive"};
+    static const char *const static_paths[] = {"/", "/boards", "/files", "/archive", "/series"};
     for (size_t i = 0; i < sizeof(static_paths) / sizeof(static_paths[0]); i++) {
         append_sitemap_url(sm, static_paths[i], NULL);
     }
@@ -569,6 +569,15 @@ void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res) {
         cwist_sstring_destroy(path);
     }
     if (tags) cJSON_Delete(tags);
+    cJSON *series = db_series_list(req->db, 0, true);
+    cJSON *sr = NULL;
+    cJSON_ArrayForEach(sr, series) {
+        char spath[48];
+        snprintf(spath, sizeof(spath), "/series/%d", json_int(sr, "id", 0));
+        cJSON *latest = cJSON_GetObjectItem(sr, "latest");
+        append_sitemap_url(sm, spath, cJSON_IsString(latest) ? latest->valuestring : NULL);
+    }
+    if (series) cJSON_Delete(series);
     cwist_sstring_append(sm, "</urlset>");
 
     cwist_http_header_add(&res->headers, "Content-Type", "application/xml; charset=utf-8");

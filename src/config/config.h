@@ -17,6 +17,9 @@ typedef struct {
     char files_img[256];
     char favicon[256];
     char root_url[256];
+    /* Site language (BCP 47, e.g. "ko"): <html lang> for pages without
+     * their own, and the RSS channel language. Default "ko". */
+    char language[16];
     char bg_full_light[256];
     char bg_full_dark[256];
     /* Optional dark-mode variants of the hero backgrounds.  When empty, the
@@ -127,7 +130,7 @@ extern font_settings_t g_font_settings;
 
 bool font_settings_load(const char *path);
 
-typedef struct {
+typedef struct s3_config_s {
     /* All fields empty means S3 is disabled (the default).  S3 is used only
      * when endpoint, bucket, access_key and secret_key are all set. */
     char endpoint[256];     /* e.g. https://s3.amazonaws.com or https://minio.local:9000 */

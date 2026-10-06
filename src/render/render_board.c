@@ -300,6 +300,26 @@ cwist_sstring *render_board_form(cJSON *board, cJSON *all_boards, bool dark, con
         }
     }
     cwist_sstring_append(fields, "</select>");
+    /* Language and the board this one translates (e.g. an English and a
+     * Korean board for the same lectures). */
+    cJSON *blang = board ? cJSON_GetObjectItem(board, "lang") : NULL;
+    cwist_sstring_append(fields, "<label for='board-lang'>Language</label><select id='board-lang' name='lang'>");
+    render_append_lang_options(fields, cJSON_IsString(blang) ? blang->valuestring : "", true);
+    cwist_sstring_append(fields, "</select><label for='board-pair'>Translation of board</label><select id='board-pair' name='translation_of'><option value='0'>None</option>");
+    int current_pair = board ? json_int(board, "translation_of", 0) : 0;
+    int self = board ? json_int(board, "id", 0) : 0;
+    cJSON *pb = NULL;
+    cJSON_ArrayForEach(pb, all_boards) {
+        int pid = json_int(pb, "id", 0);
+        cJSON *pname = cJSON_GetObjectItem(pb, "name");
+        if (pid <= 0 || pid == self || !cJSON_IsString(pname)) continue;
+        char opt[64];
+        snprintf(opt, sizeof(opt), "<option value='%d'%s>", pid, pid == current_pair ? " selected" : "");
+        cwist_sstring_append(fields, opt);
+        cwist_sstring_append_escaped(fields, pname->valuestring);
+        cwist_sstring_append(fields, "</option>");
+    }
+    cwist_sstring_append(fields, "</select>");
     if (user_role && strcmp(user_role, "admin") == 0) {
         cwist_sstring_append(fields, "<label class='check-row'><input type='checkbox' name='admin_only' value='1' ");
         if (board) {

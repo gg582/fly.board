@@ -169,6 +169,39 @@ bool db_comment_delete_by_target(const char *target_type, int target_id);
  * the current key id. Call after fly_crypto_init() and db_init(). */
 bool db_pqc_keys_sync(cwist_db *db);
 
+/* Series and translations (src/db/series.c) */
+bool db_series_migrate(cwist_db *db);
+int db_series_create(cwist_db *db, const char *title, int user_id);
+cJSON *db_series_get(cwist_db *db, int id);
+/* Series id with this exact title owned by user_id (any owner when 0). */
+int db_series_find(cwist_db *db, const char *title, int user_id);
+/* [{id,title,description,user_id,n,latest}]; user_id > 0 limits to one
+ * owner; public_only counts public posts and hides empty series. */
+cJSON *db_series_list(cwist_db *db, int user_id, bool public_only);
+/* Posts of a series in reading order: [{id,slug,title,created_at,series_pos,status}]. */
+cJSON *db_series_posts(cwist_db *db, int series_id, bool public_only);
+/* series_id <= 0 removes the post from its series. Otherwise the post is
+ * inserted at part pos, later parts moving down; pos <= 0 keeps its place
+ * or appends it. Parts stay numbered 1..n. */
+bool db_post_set_series(cwist_db *db, int post_id, int series_id, int pos);
+/* Give the listed posts parts 1..n in this order. */
+bool db_series_set_order(cwist_db *db, int series_id, const int *post_ids, int n);
+bool db_series_update(cwist_db *db, int id, const char *title, const char *description);
+bool db_series_delete(cwist_db *db, int id);
+/* Newest public posts of a series with full rows, for its feed. */
+cJSON *db_series_feed(cwist_db *db, int series_id, int limit);
+
+/* Languages and translation groups for kind "post", "board" or "series".
+ * lang NULL keeps the stored language; pair_with > 0 joins that item's
+ * translation group, 0 keeps the group, < 0 leaves it. */
+bool i18n_lang_valid(const char *lang);
+bool db_i18n_set(cwist_db *db, const char *kind, int id, const char *lang, int pair_with);
+cJSON *db_i18n_get(cwist_db *db, const char *kind, int id);           /* {lang, grp} or NULL */
+/* Other members of the item's group: [{id, lang, slug?, title}]. */
+cJSON *db_i18n_siblings(cwist_db *db, const char *kind, int id, bool public_only);
+/* [{id,title}] posts an author can pick as the original of a translation. */
+cJSON *db_post_pick_list(cwist_db *db, int user_id);
+
 /* Content reports (src/db/report.c) */
 #define REPORT_STATUS_OPEN "open"
 #define REPORT_STATUS_RESOLVED "resolved"

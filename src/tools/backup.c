@@ -57,7 +57,7 @@
 static const char *const k_db_paths[] = {"data/blog.db", "data/comments.db", "data/board_tree.db"};
 static const char *const k_file_dirs[] = {"public/uploads", "public/profile", "public/img"};
 static const char *const k_settings[] = {"blog.settings", "fonts.settings", "robots.settings"};
-static const char *const k_secret_paths[] = {SEED_PATH, "data/.jwt_secret", "admin.settings", "s3.settings"};
+static const char *const k_secret_paths[] = {SEED_PATH, "data/.jwt_secret", "admin.settings", "s3.settings", "backup.settings"};
 
 #define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -770,11 +770,6 @@ static bool output_path_safe(const char *out) {
 }
 
 static int cmd_backup(const char *out_path, bool with_secrets, const char *pass_file) {
-    if (!output_path_safe(out_path)) return 1;
-    if (access("data/blog.db", R_OK) != 0) {
-        say("data/blog.db not found; run from the site root");
-        return 1;
-    }
     char *pass = NULL;
     if (with_secrets) {
         pass = read_passphrase(pass_file, true);
@@ -784,6 +779,20 @@ static int cmd_backup(const char *out_path, bool with_secrets, const char *pass_
             free_passphrase(pass);
             return 1;
         }
+    }
+    int rc = fly_backup_write(out_path, pass);
+    free_passphrase(pass);
+    return rc;
+}
+
+int fly_backup_write(const char *out_path, const char *passphrase) {
+    bool with_secrets = passphrase && passphrase[0];
+    char *pass = with_secrets ? strdup(passphrase) : NULL;
+    if (!output_path_safe(out_path)) { free_passphrase(pass); return 1; }
+    if (access("data/blog.db", R_OK) != 0) {
+        say("data/blog.db not found; run from the site root");
+        free_passphrase(pass);
+        return 1;
     }
     if (!fly_crypto_init(SEED_PATH)) {
         say("cannot load the signing key %s", SEED_PATH);
@@ -1356,7 +1365,9 @@ static int cmd_export_markdown(const char *out_dir, bool rewrite) {
     const char *sql =
         "SELECT p.id, p.title, p.slug, p.content, p.summary, p.pqc_signature, p.created_at, p.updated_at,"
         " p.status, u.username, b.slug, b.name,"
-        " (SELECT group_concat(t.name, char(31)) FROM post_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.post_id=p.id)"
+        " (SELECT group_concat(t.name, char(31)) FROM post_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.post_id=p.id),"
+        " (SELECT title FROM series WHERE id=p.series_id), p.series_pos,"
+        " (SELECT lang FROM i18n WHERE kind='post' AND item_id=p.id)"
         " FROM posts p LEFT JOIN users u ON u.id=p.user_id LEFT JOIN boards b ON b.id=p.board_id ORDER BY p.created_at";
     int posts = 0, signed_posts = 0;
     bool ok = sqlite3_prepare_v2(x.db, sql, -1, &st, NULL) == SQLITE_OK;
@@ -1429,6 +1440,13 @@ static int cmd_export_markdown(const char *out_dir, bool rewrite) {
         }
         fputs("]\n", f);
         if (summary && summary[0]) yaml_str(f, "summary", summary);
+        const char *series_title = (const char *)sqlite3_column_text(st, 13);
+        const char *post_lang = (const char *)sqlite3_column_text(st, 15);
+        if (series_title && series_title[0]) {
+            yaml_str(f, "series", series_title);
+            fprintf(f, "series_order: %d\n", sqlite3_column_int(st, 14));
+        }
+        if (post_lang && post_lang[0]) yaml_str(f, "lang", post_lang);
         if (sig && sig[0]) {
             yaml_str(f, "pqc_signature", sig);
             signed_posts++;
@@ -1574,6 +1592,7 @@ static int cmd_verify_markdown(const char *dir) {
 int fly_backup_cli(int argc, char **argv) {
     if (argc < 2) return -1;
     const char *cmd = argv[1];
+    if (!strcmp(cmd, "--scheduled-backup")) return backup_scheduled_run();
     if (!strcmp(cmd, "--export-markdown")) {
         if (argc < 3) { say("usage: fly_board --export-markdown <dir> [--rewrite-links]"); return 2; }
         bool rewrite = argc > 3 && !strcmp(argv[3], "--rewrite-links");

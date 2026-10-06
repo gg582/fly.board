@@ -12,6 +12,12 @@ void handler_board_rss_xml(cwist_http_request *req, cwist_http_response *res);
 void handler_tag_rss_xml(cwist_http_request *req, cwist_http_response *res);
 void handler_tag_get(cwist_http_request *req, cwist_http_response *res);
 void handler_api_tags(cwist_http_request *req, cwist_http_response *res);
+void handler_series_index(cwist_http_request *req, cwist_http_response *res);
+void handler_series_get(cwist_http_request *req, cwist_http_response *res);
+void handler_series_rss_xml(cwist_http_request *req, cwist_http_response *res);
+void handler_series_edit_get(cwist_http_request *req, cwist_http_response *res);
+void handler_series_edit_post(cwist_http_request *req, cwist_http_response *res);
+void handler_series_delete_post(cwist_http_request *req, cwist_http_response *res);
 void handler_tags_get(cwist_http_request *req, cwist_http_response *res);
 void handler_archive_get(cwist_http_request *req, cwist_http_response *res);
 void handler_archive_month_get(cwist_http_request *req, cwist_http_response *res);
@@ -21,6 +27,7 @@ void handler_admin_reports_action(cwist_http_request *req, cwist_http_response *
 /* Remove abandoned TASFA upload/download sessions (see session.c). Returns
  * how many were (or, with dry_run, would be) removed. */
 int tasfa_sweep_stale_sessions(bool dry_run, unsigned long long *bytes_freed);
+void handler_admin_backup_post(cwist_http_request *req, cwist_http_response *res);
 void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res);
 void handler_robots_txt(cwist_http_request *req, cwist_http_response *res);
 void handler_llms_txt(cwist_http_request *req, cwist_http_response *res);

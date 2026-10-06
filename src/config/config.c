@@ -62,6 +62,7 @@ static void validate_image_setting(char *filename, const char *setting_name) {
 
 static void set_default(void) {
     snprintf(g_config.title, sizeof(g_config.title), "CWIST Docker Blog");
+    snprintf(g_config.language, sizeof(g_config.language), "ko");
     snprintf(g_config.subtitle, sizeof(g_config.subtitle), "Explore boards and read stories.");
     snprintf(g_config.brand_footer, sizeof(g_config.brand_footer), "Built with c4punks/CWIST | Served in Finland, Helsinki 🇫🇮");
     snprintf(g_config.accent, sizeof(g_config.accent), "#3b82f6");
@@ -115,6 +116,7 @@ bool blog_config_load(const char *path) {
             fprintf(f, "bg_invert_color=%s\n", g_config.bg_invert_color);
             fprintf(f, "bg_invert_algo=%s\n", g_config.bg_invert_algo);
             fprintf(f, "root_url=%s\n", g_config.root_url);
+            fprintf(f, "language=%s\n", g_config.language);
             fprintf(f, "use_tasfa=%s\n", g_config.use_tasfa ? "true" : "false");
             fprintf(f, "use_rss=%s\n", g_config.use_rss ? "true" : "false");
             fprintf(f, "use_tls=%s\n", g_config.use_tls ? "true" : "false");
@@ -142,6 +144,8 @@ bool blog_config_load(const char *path) {
         const char *val = eq + 1;
         if (strcmp(key, "title") == 0) {
             snprintf(g_config.title, sizeof(g_config.title), "%s", val);
+        } else if (strcmp(key, "language") == 0) {
+            if (val[0]) snprintf(g_config.language, sizeof(g_config.language), "%s", val);
         } else if (strcmp(key, "subtitle") == 0) {
             snprintf(g_config.subtitle, sizeof(g_config.subtitle), "%s", val);
         } else if (strcmp(key, "brand_footer") == 0) {

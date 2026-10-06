@@ -35,6 +35,21 @@ static const char *json_string_or_empty(cJSON *obj, const char *key) {
     return (item && item->valuestring) ? item->valuestring : "";
 }
 
+static __thread cJSON *t_editor_series = NULL;
+static __thread cJSON *t_editor_posts = NULL;
+static __thread const char *t_board_lang = NULL;
+static __thread cJSON *t_board_translations = NULL;
+
+void render_set_editor_options(cJSON *series, cJSON *posts) {
+    t_editor_series = series;
+    t_editor_posts = posts;
+}
+
+void render_set_board_translations(const char *lang, cJSON *siblings) {
+    t_board_lang = lang;
+    t_board_translations = siblings;
+}
+
 static const char *render_file_media_kind(cJSON *file) {
     if (!file) return "";
     cJSON *jmime = cJSON_GetObjectItem(file, "mime_type");
@@ -750,6 +765,29 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         }
     }
 
+    /* Consume the board translations set for this render. */
+    const char *board_lang = t_board_lang;
+    cJSON *board_translations = t_board_translations;
+    t_board_lang = NULL;
+    t_board_translations = NULL;
+    if (board_slug && board_slug[0] && cJSON_IsArray(board_translations)) {
+        cJSON *links = cJSON_CreateArray();
+        cJSON *t = NULL;
+        cJSON_ArrayForEach(t, board_translations) {
+            cJSON *l = cJSON_CreateObject();
+            cJSON_AddStringToObject(l, "lang", json_string_or_empty(t, "lang"));
+            char path[300];
+            snprintf(path, sizeof(path), "/board/%s", json_string_or_empty(t, "slug"));
+            cJSON_AddStringToObject(l, "path", path);
+            cJSON_AddStringToObject(l, "title", json_string_or_empty(t, "title"));
+            cJSON_AddItemToArray(links, l);
+        }
+        cwist_sstring_append(b, "<div style='text-align:center'>");
+        render_append_translation_links(b, "This board in:", links);
+        cwist_sstring_append(b, "</div>");
+        cJSON_Delete(links);
+    }
+
     if (write_policy_can_post(user_role)) {
         cwist_sstring_append(b, "<div style='margin-bottom:18px;text-align:center'><a href='/post/new");
         if (board_slug && board_slug[0]) {
@@ -913,6 +951,10 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         cwist_sstring_append(b, "</div>");
     }
 
+    if (board_lang && board_lang[0]) {
+        render_page_meta meta = { .lang = board_lang };
+        render_set_page_meta(&meta);
+    }
     cwist_sstring *page_html = render_page("Posts", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page_html;
@@ -993,7 +1035,7 @@ static void append_tag_cloud(cwist_sstring *b, cJSON *tags) {
     cwist_sstring_append(b, "</div>");
 }
 
-cwist_sstring *render_archive(cJSON *months, cJSON *tags, bool dark, const char *user_role,
+cwist_sstring *render_archive(cJSON *months, cJSON *tags, cJSON *series, bool dark, const char *user_role,
                               const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
     cwist_sstring_assign(b, "<div class='hero'><h1>Archive</h1></div>");
@@ -1002,6 +1044,20 @@ cwist_sstring *render_archive(cJSON *months, cJSON *tags, bool dark, const char 
         cwist_sstring_append(b, "<section id='tags' style='margin-bottom:32px'><h2>Tags</h2>");
         append_tag_cloud(b, tags);
         cwist_sstring_append(b, "</section>");
+    }
+
+    if (cJSON_IsArray(series) && cJSON_GetArraySize(series) > 0) {
+        cwist_sstring_append(b, "<section id='series' style='margin-bottom:32px'><h2><a href='/series'>Series</a></h2><ul style='margin:0;padding-left:20px'>");
+        cJSON *sr = NULL;
+        cJSON_ArrayForEach(sr, series) {
+            char line[96];
+            snprintf(line, sizeof(line), "<li><a href='/series/%d'>", json_int(sr, "id", 0));
+            cwist_sstring_append(b, line);
+            cwist_sstring_append_escaped(b, json_string_or_empty(sr, "title"));
+            snprintf(line, sizeof(line), "</a> <span style='color:var(--muted)'>(%d)</span></li>", json_int(sr, "n", 0));
+            cwist_sstring_append(b, line);
+        }
+        cwist_sstring_append(b, "</ul></section>");
     }
 
     cwist_sstring_append(b, "<section id='months'><h2>Posts by month</h2>");
@@ -1035,6 +1091,201 @@ cwist_sstring *render_archive(cJSON *months, cJSON *tags, bool dark, const char 
     cwist_sstring *page_html = render_page("Archive", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page_html;
+}
+
+/* ---- Series pages ---- */
+
+cwist_sstring *render_series_index(cJSON *series, bool dark, const char *user_role, const char *profile_pic, bool is_mobile) {
+    cwist_sstring *b = cwist_sstring_create();
+    cwist_sstring_assign(b, "<div class='hero'><h1>Series</h1></div>");
+    if (!cJSON_IsArray(series) || cJSON_GetArraySize(series) == 0) {
+        cwist_sstring_append(b, "<p style='color:var(--muted);text-align:center;padding:40px 0'>No series yet. Name one in the Series field when writing a post.</p>");
+    }
+    cwist_sstring_append(b, "<div class='post-list stagger'>");
+    cJSON *sr = NULL;
+    cJSON_ArrayForEach(sr, series) {
+        char buf[96];
+        snprintf(buf, sizeof(buf), "<div class='post-row'><a class='post-row-title' href='/series/%d'>", json_int(sr, "id", 0));
+        cwist_sstring_append(b, buf);
+        cwist_sstring_append_escaped(b, json_string_or_empty(sr, "title"));
+        cwist_sstring_append(b, "</a>");
+        const char *desc = json_string_or_empty(sr, "description");
+        if (desc[0]) {
+            cwist_sstring_append(b, "<p class='post-row-summary'>");
+            cwist_sstring_append_escaped(b, desc);
+            cwist_sstring_append(b, "</p>");
+        }
+        int n = json_int(sr, "n", 0);
+        snprintf(buf, sizeof(buf), "<div class='post-row-meta'><span class='post-badge'>%d part%s</span>", n, n == 1 ? "" : "s");
+        cwist_sstring_append(b, buf);
+        const char *latest = json_string_or_empty(sr, "latest");
+        if (strlen(latest) >= 10) {
+            cwist_sstring_append(b, "<span class='post-badge'>updated ");
+            cwist_sstring_append_len(b, latest, 10);
+            cwist_sstring_append(b, "</span>");
+        }
+        cwist_sstring_append(b, "</div></div>");
+    }
+    cwist_sstring_append(b, "</div>");
+    render_page_meta meta = { .canonical_path = "/series" };
+    render_set_page_meta(&meta);
+    cwist_sstring *page = render_page("Series", b->data, dark, user_role, profile_pic, is_mobile);
+    cwist_sstring_destroy(b);
+    return page;
+}
+
+cwist_sstring *render_series_detail(cJSON *series, cJSON *posts, cJSON *siblings, const char *lang, bool can_edit,
+                                    bool dark, const char *user_role, const char *profile_pic, bool is_mobile) {
+    int sid = json_int(series, "id", 0);
+    char path[48];
+    snprintf(path, sizeof(path), "/series/%d", sid);
+    cwist_sstring *b = cwist_sstring_create();
+    cwist_sstring_assign(b, "<div class='hero'><p style='margin:0;font-size:13px'>Series</p><h1>");
+    cwist_sstring_append_escaped(b, json_string_or_empty(series, "title"));
+    cwist_sstring_append(b, "</h1>");
+    const char *desc = json_string_or_empty(series, "description");
+    if (desc[0]) {
+        cwist_sstring_append(b, "<p>");
+        cwist_sstring_append_escaped(b, desc);
+        cwist_sstring_append(b, "</p>");
+    }
+    cwist_sstring_append(b, "<p style='font-size:14px'><a href='/series'>All series</a> &middot; <a href='");
+    cwist_sstring_append(b, path);
+    cwist_sstring_append(b, "/rss.xml'>RSS</a>");
+    if (can_edit) {
+        cwist_sstring_append(b, " &middot; <a href='");
+        cwist_sstring_append(b, path);
+        cwist_sstring_append(b, "/edit'>Edit series</a>");
+    }
+    cwist_sstring_append(b, "</p></div>");
+
+    cJSON *alternates = NULL;
+    if (cJSON_IsArray(siblings) && cJSON_GetArraySize(siblings) > 0) {
+        cJSON *links = cJSON_CreateArray();
+        alternates = cJSON_CreateArray();
+        cJSON *t = NULL;
+        cJSON_ArrayForEach(t, siblings) {
+            char p2[48];
+            snprintf(p2, sizeof(p2), "/series/%d", json_int(t, "id", 0));
+            cJSON *l = cJSON_CreateObject();
+            cJSON_AddStringToObject(l, "lang", json_string_or_empty(t, "lang"));
+            cJSON_AddStringToObject(l, "path", p2);
+            cJSON_AddStringToObject(l, "title", json_string_or_empty(t, "title"));
+            cJSON_AddItemToArray(links, l);
+            cJSON_AddItemToArray(alternates, cJSON_Duplicate(l, true));
+        }
+        cwist_sstring_append(b, "<div style='text-align:center'>");
+        render_append_translation_links(b, "This series in:", links);
+        cwist_sstring_append(b, "</div>");
+        cJSON_Delete(links);
+    }
+
+    int n = cJSON_IsArray(posts) ? cJSON_GetArraySize(posts) : 0;
+    if (n == 0) {
+        cwist_sstring_append(b, "<p style='color:var(--muted);text-align:center;padding:40px 0'>No published parts yet.</p>");
+    } else {
+        cwist_sstring_append(b, "<ol class='series-list' style='max-width:760px;margin:0 auto;padding-left:28px;line-height:1.9'>");
+        cJSON *p = NULL;
+        cJSON_ArrayForEach(p, posts) {
+            cwist_sstring_append(b, "<li><a href='/post/");
+            render_append_url_segment(b, json_string_or_empty(p, "slug"));
+            cwist_sstring_append(b, "'>");
+            cwist_sstring_append_escaped(b, json_string_or_empty(p, "title"));
+            cwist_sstring_append(b, "</a>");
+            const char *d = json_string_or_empty(p, "created_at");
+            if (strlen(d) >= 10) {
+                cwist_sstring_append(b, " <span style='color:var(--muted);font-size:13px'>");
+                cwist_sstring_append_len(b, d, 10);
+                cwist_sstring_append(b, "</span>");
+            }
+            if (strcmp(json_string_or_empty(p, "status"), "draft") == 0) {
+                cwist_sstring_append(b, " <span class='tag'>Draft</span>");
+            }
+            cwist_sstring_append(b, "</li>");
+        }
+        cwist_sstring_append(b, "</ol>");
+    }
+
+    if (alternates && lang && lang[0]) {
+        cJSON *self = cJSON_CreateObject();
+        cJSON_AddStringToObject(self, "lang", lang);
+        cJSON_AddStringToObject(self, "path", path);
+        cJSON_AddItemToArray(alternates, self);
+    }
+    char feed[64];
+    snprintf(feed, sizeof(feed), "%s/rss.xml", path);
+    render_page_meta meta = {
+        .canonical_path = path,
+        .description = desc[0] ? desc : NULL,
+        .lang = (lang && lang[0]) ? lang : NULL,
+        .alternates = alternates,
+        .feed_path = feed,
+        .feed_title = json_string_or_empty(series, "title"),
+    };
+    render_set_page_meta(&meta);
+    cwist_sstring *page = render_page(json_string_or_empty(series, "title"), b->data, dark, user_role, profile_pic, is_mobile);
+    cwist_sstring_destroy(b);
+    if (alternates) cJSON_Delete(alternates);
+    return page;
+}
+
+cwist_sstring *render_series_edit(cJSON *series, cJSON *posts, cJSON *pair_choices, const char *lang, int paired_with,
+                                  const char *error, bool dark, const char *user_role, const char *profile_pic, bool is_mobile) {
+    int sid = json_int(series, "id", 0);
+    char buf[320];
+    cwist_sstring *b = cwist_sstring_create();
+    cwist_sstring_assign(b, "<div class='card' style='max-width:760px;margin:24px auto'><h2 style='margin-top:0'>Edit series</h2>");
+    if (error && error[0]) {
+        cwist_sstring_append(b, "<div class='alert'>");
+        cwist_sstring_append_escaped(b, error);
+        cwist_sstring_append(b, "</div>");
+    }
+    snprintf(buf, sizeof(buf), "<form action='/series/%d/edit' method='post'>", sid);
+    cwist_sstring_append(b, buf);
+    cwist_sstring_append(b, "<label for='series-title'>Title</label><input id='series-title' name='title' required maxlength='200' value='");
+    cwist_sstring_append_escaped(b, json_string_or_empty(series, "title"));
+    cwist_sstring_append(b, "'><label for='series-desc'>Description</label><textarea id='series-desc' name='description' rows='3' maxlength='2000'>");
+    cwist_sstring_append_escaped(b, json_string_or_empty(series, "description"));
+    cwist_sstring_append(b, "</textarea><div style='display:flex;gap:12px;flex-wrap:wrap'><div style='flex:1 1 160px'><label for='series-lang'>Language</label><select id='series-lang' name='lang'>");
+    render_append_lang_options(b, lang, true);
+    cwist_sstring_append(b, "</select></div><div style='flex:3 1 300px'><label for='series-pair'>Translation of series</label><select id='series-pair' name='translation_of'><option value='0'>None</option>");
+    cJSON *o = NULL;
+    cJSON_ArrayForEach(o, pair_choices) {
+        int oid = json_int(o, "id", 0);
+        if (oid == sid) continue;
+        snprintf(buf, sizeof(buf), "<option value='%d'%s>", oid, oid == paired_with ? " selected" : "");
+        cwist_sstring_append(b, buf);
+        cwist_sstring_append_escaped(b, json_string_or_empty(o, "title"));
+        cwist_sstring_append(b, "</option>");
+    }
+    cwist_sstring_append(b, "</select></div></div>");
+
+    cwist_sstring_append(b, "<h3>Parts</h3>");
+    if (!cJSON_IsArray(posts) || cJSON_GetArraySize(posts) == 0) {
+        cwist_sstring_append(b, "<p style='color:var(--muted)'>No posts yet. Add one from the post editor's Series field.</p>");
+    } else {
+        cwist_sstring_append(b, "<p class='tag-editor-hint'>Change the numbers to reorder. Check Remove to take a post out of the series (the post itself stays).</p>"
+                                "<table style='width:100%;border-collapse:collapse'><thead><tr><th style='text-align:left'>Part</th><th style='text-align:left'>Post</th><th>Remove</th></tr></thead><tbody>");
+        int i = 0;
+        cJSON *p = NULL;
+        cJSON_ArrayForEach(p, posts) {
+            int pid = json_int(p, "id", 0);
+            snprintf(buf, sizeof(buf), "<tr><td><input type='number' name='pos_%d' min='1' max='9999' value='%d' style='max-width:90px' aria-label='Part number'></td><td>", pid, ++i);
+            cwist_sstring_append(b, buf);
+            cwist_sstring_append_escaped(b, json_string_or_empty(p, "title"));
+            snprintf(buf, sizeof(buf), "</td><td style='text-align:center'><input type='checkbox' name='remove_%d' value='1' aria-label='Remove from series'></td></tr>", pid);
+            cwist_sstring_append(b, buf);
+        }
+        cwist_sstring_append(b, "</tbody></table>");
+    }
+    snprintf(buf, sizeof(buf), "<div style='margin-top:16px;display:flex;gap:8px;flex-wrap:wrap'><button type='submit' class='btn'>Save</button><a class='btn btn-outline' href='/series/%d'>Cancel</a></div></form>", sid);
+    cwist_sstring_append(b, buf);
+    snprintf(buf, sizeof(buf), "<form action='/series/%d/delete' method='post' style='margin-top:24px' data-confirm='Delete this series? Its posts stay.'>", sid);
+    cwist_sstring_append(b, buf);
+    cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Delete series</button></form></div>");
+    cwist_sstring *page = render_page("Edit series", b->data, dark, user_role, profile_pic, is_mobile);
+    cwist_sstring_destroy(b);
+    return page;
 }
 
 /* Scan rendered markdown HTML for <h2>/<h3> tags, inject id="toc-N" anchors
@@ -1205,6 +1456,71 @@ static void append_post_neighbours(cwist_sstring *b, cJSON *adjacent, cJSON *rel
     }
 }
 
+/* Series navigation: where this post sits in its series, the full reading
+ * order, and the previous and next part. */
+static void append_series_box(cwist_sstring *b, cJSON *series, int post_id) {
+    cJSON *posts = series ? cJSON_GetObjectItem(series, "posts") : NULL;
+    int n = cJSON_IsArray(posts) ? cJSON_GetArraySize(posts) : 0;
+    if (n == 0) return;
+    int idx = -1;
+    for (int i = 0; i < n; i++) {
+        if (json_int(cJSON_GetArrayItem(posts, i), "id", 0) == post_id) { idx = i; break; }
+    }
+    char sid[32], part[64];
+    snprintf(sid, sizeof(sid), "%d", json_int(series, "id", 0));
+    if (idx >= 0) snprintf(part, sizeof(part), "Part %d of %d", idx + 1, n);
+    else snprintf(part, sizeof(part), "%d parts", n);
+    cwist_sstring_append(b, "<nav class='series-box card' aria-label='Series' style='margin:16px 0;padding:12px 16px'>"
+                            "<details");
+    if (n <= 12) cwist_sstring_append(b, " open");
+    cwist_sstring_append(b, "><summary style='cursor:pointer'><span style='color:var(--muted);font-size:13px'>Series</span> <a href='/series/");
+    cwist_sstring_append(b, sid);
+    cwist_sstring_append(b, "'><strong>");
+    cwist_sstring_append_escaped(b, json_string_or_empty(series, "title"));
+    cwist_sstring_append(b, "</strong></a> <span style='color:var(--muted);font-size:13px'>&middot; ");
+    cwist_sstring_append(b, part);
+    cwist_sstring_append(b, "</span></summary><ol style='margin:8px 0 0;padding-left:24px'>");
+    for (int i = 0; i < n; i++) {
+        cJSON *p = cJSON_GetArrayItem(posts, i);
+        cwist_sstring_append(b, "<li>");
+        if (i == idx) {
+            cwist_sstring_append(b, "<strong aria-current='page'>");
+            cwist_sstring_append_escaped(b, json_string_or_empty(p, "title"));
+            cwist_sstring_append(b, "</strong>");
+        } else {
+            cwist_sstring_append(b, "<a href='/post/");
+            render_append_url_segment(b, json_string_or_empty(p, "slug"));
+            cwist_sstring_append(b, "'>");
+            cwist_sstring_append_escaped(b, json_string_or_empty(p, "title"));
+            cwist_sstring_append(b, "</a>");
+        }
+        cwist_sstring_append(b, "</li>");
+    }
+    cwist_sstring_append(b, "</ol></details>");
+    if (idx >= 0 && (idx > 0 || idx + 1 < n)) {
+        cwist_sstring_append(b, "<div style='display:flex;justify-content:space-between;gap:12px;margin-top:8px;font-size:14px'><span>");
+        if (idx > 0) {
+            cJSON *p = cJSON_GetArrayItem(posts, idx - 1);
+            cwist_sstring_append(b, "<a rel='prev' href='/post/");
+            render_append_url_segment(b, json_string_or_empty(p, "slug"));
+            cwist_sstring_append(b, "'>&larr; ");
+            cwist_sstring_append_escaped(b, json_string_or_empty(p, "title"));
+            cwist_sstring_append(b, "</a>");
+        }
+        cwist_sstring_append(b, "</span><span style='text-align:right'>");
+        if (idx + 1 < n) {
+            cJSON *p = cJSON_GetArrayItem(posts, idx + 1);
+            cwist_sstring_append(b, "<a rel='next' href='/post/");
+            render_append_url_segment(b, json_string_or_empty(p, "slug"));
+            cwist_sstring_append(b, "'>");
+            cwist_sstring_append_escaped(b, json_string_or_empty(p, "title"));
+            cwist_sstring_append(b, " &rarr;</a>");
+        }
+        cwist_sstring_append(b, "</span></div>");
+    }
+    cwist_sstring_append(b, "</nav>");
+}
+
 cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, const char *author_profile_pic, int user_id, const char *ephemeral_delete_pin, bool is_mobile) {
     if (!post) {
         return render_page("Post", "<p style='color:var(--muted)'>Post not found.</p>", dark, user_role, profile_pic, is_mobile);
@@ -1288,6 +1604,30 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         cwist_sstring_append(b, rbuf);
     }
     cwist_sstring_append(b, "</p>");
+    /* Other language versions of this post. */
+    cJSON *translations = cJSON_GetObjectItem(post, "translations");
+    cJSON *alternates = NULL;
+    const char *post_lang = json_string_or_empty(post, "lang");
+    if (cJSON_IsArray(translations) && cJSON_GetArraySize(translations) > 0) {
+        cJSON *links = cJSON_CreateArray();
+        alternates = cJSON_CreateArray();
+        cJSON *t = NULL;
+        cJSON_ArrayForEach(t, translations) {
+            cwist_sstring *path = cwist_sstring_create();
+            cwist_sstring_assign(path, "/post/");
+            render_append_url_segment(path, json_string_or_empty(t, "slug"));
+            cJSON *l = cJSON_CreateObject();
+            cJSON_AddStringToObject(l, "lang", json_string_or_empty(t, "lang"));
+            cJSON_AddStringToObject(l, "path", path->data);
+            cJSON_AddStringToObject(l, "title", json_string_or_empty(t, "title"));
+            cJSON_AddItemToArray(links, l);
+            cJSON_AddItemToArray(alternates, cJSON_Duplicate(l, true));
+            cwist_sstring_destroy(path);
+        }
+        render_append_translation_links(b, "Also in:", links);
+        cJSON_Delete(links);
+    }
+    append_series_box(b, cJSON_GetObjectItem(post, "series"), post_id_val);
 
     /* Vote buttons */
     bool can_vote = config_vote_allowed(user_id > 0, user_role);
@@ -1556,11 +1896,20 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         .author = author && author->valuestring ? author->valuestring : NULL,
         .tags = cJSON_IsArray(post_tags) ? post_tags : NULL,
         .noindex = !post_is_public(post),
+        .lang = post_lang[0] ? post_lang : NULL,
     };
+    if (alternates && post_lang[0]) {
+        cJSON *self = cJSON_CreateObject();
+        cJSON_AddStringToObject(self, "lang", post_lang);
+        cJSON_AddStringToObject(self, "path", canonical_buf);
+        cJSON_AddItemToArray(alternates, self);
+        meta.alternates = alternates;
+    }
     render_set_page_meta(&meta);
 
     cwist_sstring *page = render_page(title_text[0] ? title_text : "Post", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
+    if (alternates) cJSON_Delete(alternates);
     return page;
 }
 
@@ -1769,6 +2118,61 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
         }
     }
     cwist_sstring_append(b, "'>");
+
+    /* Series and language. Consume the editor options set for this render. */
+    cJSON *series_opts = t_editor_series;
+    cJSON *post_opts = t_editor_posts;
+    t_editor_series = NULL;
+    t_editor_posts = NULL;
+    cwist_sstring_append(b, "<div style='display:flex;gap:12px;flex-wrap:wrap;margin-top:12px'>");
+    cwist_sstring_append(b, "<div style='flex:3 1 260px'><label for='series-input'>Series</label>"
+                            "<input id='series-input' name='series' list='series-options' autocomplete='off' placeholder='None, or a series name' value='");
+    if (post) cwist_sstring_append_escaped(b, json_string_or_empty(post, "series_title"));
+    cwist_sstring_append(b, "'><datalist id='series-options'>");
+    cJSON *o = NULL;
+    cJSON_ArrayForEach(o, series_opts) {
+        cwist_sstring_append(b, "<option value='");
+        cwist_sstring_append_escaped(b, json_string_or_empty(o, "title"));
+        cwist_sstring_append(b, "'>");
+    }
+    cwist_sstring_append(b, "</datalist></div>");
+    cwist_sstring_append(b, "<div style='flex:1 1 100px'><label for='series-pos-input'>Part</label>"
+                            "<input id='series-pos-input' type='number' name='series_pos' min='1' max='9999' placeholder='next' value='");
+    if (post && json_int(post, "series_pos", 0) > 0 && json_string_or_empty(post, "series_title")[0]) {
+        char pos[16];
+        snprintf(pos, sizeof(pos), "%d", json_int(post, "series_pos", 0));
+        cwist_sstring_append(b, pos);
+    }
+    cwist_sstring_append(b, "'></div>");
+    cwist_sstring_append(b, "<div style='flex:1 1 160px'><label for='lang-input'>Language</label><select id='lang-input' name='lang'>");
+    render_append_lang_options(b, post ? json_string_or_empty(post, "lang") : g_config.language, true);
+    cwist_sstring_append(b, "</select></div>");
+    cwist_sstring_append(b, "<div style='flex:3 1 260px'><label for='translation-input'>Translation of</label>"
+                            "<input id='translation-input' name='translation_of' list='translation-options' autocomplete='off' placeholder='None, or the original post' value='");
+    int pair_id = post ? json_int(post, "translation_of", 0) : 0;
+    cJSON_ArrayForEach(o, post_opts) {
+        if (pair_id > 0 && json_int(o, "id", 0) == pair_id) {
+            char v[24];
+            snprintf(v, sizeof(v), "%d \xC2\xB7 ", pair_id);
+            cwist_sstring_append(b, v);
+            cwist_sstring_append_escaped(b, json_string_or_empty(o, "title"));
+        }
+    }
+    cwist_sstring_append(b, "'><datalist id='translation-options'>");
+    int self_id = post ? json_int(post, "id", 0) : 0;
+    cJSON_ArrayForEach(o, post_opts) {
+        int oid = json_int(o, "id", 0);
+        if (oid == self_id) continue;
+        char v[24];
+        snprintf(v, sizeof(v), "%d \xC2\xB7 ", oid);
+        cwist_sstring_append(b, "<option value='");
+        cwist_sstring_append(b, v);
+        cwist_sstring_append_escaped(b, json_string_or_empty(o, "title"));
+        cwist_sstring_append(b, "'>");
+    }
+    cwist_sstring_append(b, "</datalist></div></div>");
+    cwist_sstring_append(b, "<p class='tag-editor-hint'>A new series name starts a series. Part sets the order (empty: keep its place, or add at the end). Translation of links this post with its other language versions.</p>");
+
 
     cwist_sstring_append(b, "<div style='display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px'>");
     cwist_sstring_append(b, "<label style='margin:0'>Content (Markdown)</label>");

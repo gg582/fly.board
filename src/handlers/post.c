@@ -121,11 +121,101 @@ static cJSON *editor_boards(cwist_db *db, int uid, const char *role) {
     return ordered;
 }
 
+/* ---- Series and language fields ---- */
+
+static bool is_admin_role(const char *role) {
+    return role && strcmp(role, "admin") == 0;
+}
+
+/* Editor data: the writer's series (all for admins) and the posts they may
+ * name as the original of a translation. Anonymous writers get neither. */
+typedef struct { cJSON *series; cJSON *posts; } editor_options_t;
+
+static editor_options_t editor_options_load(cwist_db *db, int uid, const char *role) {
+    editor_options_t o = {0};
+    if (uid <= 0) return o;
+    int owner = is_admin_role(role) ? 0 : uid;
+    o.series = db_series_list(db, owner, false);
+    o.posts = db_post_pick_list(db, owner);
+    render_set_editor_options(o.series, o.posts);
+    return o;
+}
+
+static void editor_options_free(editor_options_t *o) {
+    if (o->series) cJSON_Delete(o->series);
+    if (o->posts) cJSON_Delete(o->posts);
+    render_set_editor_options(NULL, NULL);
+}
+
+/* Fill "series_title", "lang" and "translation_of" on a post for the editor. */
+static void attach_editor_fields(cwist_db *db, cJSON *post) {
+    int id = json_int(post, "id", 0);
+    int sid = json_int(post, "series_id", 0);
+    if (sid > 0) {
+        cJSON *series = db_series_get(db, sid);
+        cJSON *title = series ? cJSON_GetObjectItem(series, "title") : NULL;
+        if (cJSON_IsString(title)) cJSON_AddStringToObject(post, "series_title", title->valuestring);
+        if (series) cJSON_Delete(series);
+    }
+    cJSON *i18n = db_i18n_get(db, "post", id);
+    cJSON *lang = i18n ? cJSON_GetObjectItem(i18n, "lang") : NULL;
+    cJSON_AddStringToObject(post, "lang", cJSON_IsString(lang) ? lang->valuestring : "");
+    int grp = i18n ? json_int(i18n, "grp", 0) : 0;
+    if (i18n) cJSON_Delete(i18n);
+    int pair = 0;
+    if (grp > 0 && grp != id) {
+        pair = grp; /* the post the group started from */
+    } else if (grp > 0) {
+        cJSON *sib = db_i18n_siblings(db, "post", id, false);
+        if (cJSON_GetArraySize(sib) > 0) pair = json_int(cJSON_GetArrayItem(sib, 0), "id", 0);
+        if (sib) cJSON_Delete(sib);
+    }
+    cJSON_AddNumberToObject(post, "translation_of", pair);
+}
+
+/* Apply the editor's Series / Part / Language / Translation fields. NULL
+ * means the field was not submitted and is left alone. */
+static void apply_series_and_lang(cwist_db *db, int post_id, int uid, const char *role, const char *series,
+                                  const char *series_pos, const char *lang, const char *translation_of) {
+    if (post_id <= 0) return;
+    bool admin = is_admin_role(role);
+    if (series && uid > 0) {
+        char title[201];
+        snprintf(title, sizeof(title), "%s", series);
+        /* trim */
+        char *t = title;
+        while (*t == ' ' || *t == '\t') t++;
+        size_t n = strlen(t);
+        while (n > 0 && (t[n - 1] == ' ' || t[n - 1] == '\t' || t[n - 1] == '\r' || t[n - 1] == '\n')) t[--n] = '\0';
+        if (!t[0]) {
+            db_post_set_series(db, post_id, 0, 0);
+        } else {
+            int sid = db_series_find(db, t, admin ? 0 : uid);
+            if (sid <= 0) sid = db_series_create(db, t, uid);
+            if (sid > 0) db_post_set_series(db, post_id, sid, series_pos ? atoi(series_pos) : 0);
+        }
+    }
+    if (lang && i18n_lang_valid(lang)) db_i18n_set(db, "post", post_id, lang, 0);
+    if (translation_of) {
+        int other = atoi(translation_of); /* "12 · Title" -> 12 */
+        if (!translation_of[0] || other <= 0) {
+            db_i18n_set(db, "post", post_id, NULL, -1);
+        } else if (other != post_id) {
+            cJSON *target = db_post_get_by_id(db, other);
+            bool allowed = target && (admin || (uid > 0 && json_int(target, "user_id", 0) == uid));
+            if (target) cJSON_Delete(target);
+            if (allowed) db_i18n_set(db, "post", post_id, NULL, other);
+        }
+    }
+}
+
 static void send_post_editor_error(cwist_http_request *req, cwist_http_response *res, int uid,
                                    const char *role, int initial_board_id, const char *error) {
     cJSON *ordered = editor_boards(req->db, uid, role);
     char *pp = get_profile_pic(req->db, uid, role);
+    editor_options_t opts = editor_options_load(req->db, uid, role);
     cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, error, pp, is_mobile_request(req), 0);
+    editor_options_free(&opts);
     if (ordered) cJSON_Delete(ordered);
     send_html_res(res, page);
     free(pp);
@@ -318,7 +408,14 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     }
 
     char *pp = get_profile_pic(req->db, uid, role);
+    cJSON *board_i18n = bid > 0 ? db_i18n_get(req->db, "board", bid) : NULL;
+    cJSON *board_siblings = bid > 0 ? db_i18n_siblings(req->db, "board", bid, false) : NULL;
+    cJSON *board_lang = board_i18n ? cJSON_GetObjectItem(board_i18n, "lang") : NULL;
+    render_set_board_translations(cJSON_IsString(board_lang) ? board_lang->valuestring : NULL, board_siblings);
     cwist_sstring *page_html = render_post_list(posts, NULL, dark, role, page, total_pages, slug, search, search_type, pp, uid, mobile, children);
+    render_set_board_translations(NULL, NULL);
+    if (board_i18n) cJSON_Delete(board_i18n);
+    if (board_siblings) cJSON_Delete(board_siblings);
     if (posts) cJSON_Delete(posts);
     if (children) cJSON_Delete(children);
     if (page_html) {
@@ -460,6 +557,21 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
         }
     }
     attach_post_tags(req->db, post);
+    {
+        cJSON *i18n = db_i18n_get(req->db, "post", post_id);
+        cJSON *lang = i18n ? cJSON_GetObjectItem(i18n, "lang") : NULL;
+        cJSON_AddStringToObject(post, "lang", cJSON_IsString(lang) ? lang->valuestring : "");
+        if (i18n) cJSON_Delete(i18n);
+        cJSON *siblings = db_i18n_siblings(req->db, "post", post_id, true);
+        if (siblings) cJSON_AddItemToObject(post, "translations", siblings);
+        int sid = json_int(post, "series_id", 0);
+        cJSON *series = sid > 0 ? db_series_get(req->db, sid) : NULL;
+        if (series) {
+            cJSON *parts = db_series_posts(req->db, sid, post_public);
+            if (parts) cJSON_AddItemToObject(series, "posts", parts);
+            cJSON_AddItemToObject(post, "series", series);
+        }
+    }
     if (post_public) {
         cJSON *created = cJSON_GetObjectItem(post, "created_at");
         cJSON_AddItemToObject(post, "adjacent",
@@ -515,7 +627,9 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
         }
     }
     int draft_count = uid > 0 ? db_post_count_drafts(req->db, uid) : 0;
+    editor_options_t opts = editor_options_load(req->db, uid, role);
     cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, NULL, pp, is_mobile_request(req), draft_count);
+    editor_options_free(&opts);
     if (ordered) cJSON_Delete(ordered);
     send_html_res(res, page);
     free(pp);
@@ -538,6 +652,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
     char *title = NULL, *content = NULL, *summary = NULL, *board_id_str = NULL, *media_meta = NULL;
     char *post_action = NULL, *publish_at_in = NULL, *tags_in = NULL;
+    char *series_in = NULL, *series_pos_in = NULL, *lang_in = NULL, *translation_in = NULL;
     char *spam_trap = NULL, *spam_token = NULL;
     form_field_t *files = NULL;
 
@@ -569,6 +684,10 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             post_action = dup_form_field(files, "post_action");
             publish_at_in = dup_form_field(files, "publish_at");
             tags_in = dup_form_field(files, "tags");
+            series_in = dup_form_field(files, "series");
+            series_pos_in = dup_form_field(files, "series_pos");
+            lang_in = dup_form_field(files, "lang");
+            translation_in = dup_form_field(files, "translation_of");
             spam_trap = dup_form_field(files, SPAM_FIELD_TRAP);
             spam_token = dup_form_field(files, SPAM_FIELD_TOKEN);
             FLY_LOG_DEBUG("multipart parsed: title=%s content_len=%zu board_id=%s", title ? title : "NULL", content ? strlen(content) : 0, board_id_str ? board_id_str : "NULL");
@@ -592,6 +711,10 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         post_action = dup_query_field(kv, "post_action");
         publish_at_in = dup_query_field(kv, "publish_at");
         tags_in = dup_query_field(kv, "tags");
+        series_in = dup_query_field(kv, "series");
+        series_pos_in = dup_query_field(kv, "series_pos");
+        lang_in = dup_query_field(kv, "lang");
+        translation_in = dup_query_field(kv, "translation_of");
         spam_trap = dup_query_field(kv, SPAM_FIELD_TRAP);
         spam_token = dup_query_field(kv, SPAM_FIELD_TOKEN);
         cwist_query_map_destroy(kv);
@@ -601,7 +724,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     cwist_free(spam_trap);
     cwist_free(spam_token);
     if (verdict != SPAM_OK) {
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
         multipart_free(files);
         spam_guard_reject(res, verdict);
         return;
@@ -610,7 +733,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     if (!title || !content || !title[0] || !content[0]) {
         CWIST_LOG_WARN("Post creation failed: missing title or content uid=%d", uid);
         send_post_editor_error(req, res, uid, role, board_id_str ? atoi(board_id_str) : 0, "Title and content required");
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
         multipart_free(files);
         return;
     }
@@ -620,7 +743,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         strlen(content) > MAX_POST_CONTENT_LEN) {
         CWIST_LOG_WARN("Post creation failed: input too long uid=%d", uid);
         send_post_editor_error(req, res, uid, role, board_id_str ? atoi(board_id_str) : 0, "Title, summary, or content is too long");
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
         multipart_free(files);
         return;
     }
@@ -630,7 +753,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     if (board_error) {
         CWIST_LOG_WARN("Post creation refused: %s uid=%d board_id=%d", board_error, uid, board_id);
         send_post_editor_error(req, res, uid, role, 0, board_error);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
         multipart_free(files);
         return;
     }
@@ -661,11 +784,12 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         cwist_sstring_assign(res->body, "Post creation failed");
         if (sig_b64) cwist_free(sig_b64);
         cwist_free(sl);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
         multipart_free(files);
         return;
     }
     db_tag_set_for_post(req->db, created_id, tags_in);
+    apply_series_and_lang(req->db, created_id, uid, role, series_in, series_pos_in, lang_in, translation_in);
     CWIST_LOG_INFO("Post created: uid=%d slug='%s' board_id=%d status=%s publish_at=%s", uid, created_slug, board_id,
                    pub.status, pub.publish_at ? pub.publish_at : "now");
     if (sig_b64) cwist_free(sig_b64);
@@ -676,7 +800,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
         cwist_free(sl);
         cwist_free(created_slug);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
         multipart_free(files);
         redirect(res, "/account/drafts");
         return;
@@ -694,7 +818,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
             cwist_free(sl);
             cwist_free(created_slug);
-            cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+            cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
             multipart_free(files);
             redirect(res, redirect_with_pin);
             return;
@@ -711,7 +835,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
 
     cwist_free(sl);
     cwist_free(created_slug);
-    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
     multipart_free(files);
     redirect(res, "/");
 }
@@ -739,7 +863,10 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res) {
     const char *error_msg = NULL;
     if (error && strcmp(error, "board") == 0) error_msg = BOARD_ERROR_REQUIRED;
     else if (error && strcmp(error, "board_denied") == 0) error_msg = BOARD_ERROR_DENIED;
+    attach_editor_fields(req->db, post);
+    editor_options_t opts = editor_options_load(req->db, uid, role);
     cwist_sstring *page = render_post_editor(ordered, post, files, 0, is_dark(req), role, error_msg, pp, is_mobile_request(req), 0);
+    editor_options_free(&opts);
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
     if (ordered) cJSON_Delete(ordered);
@@ -755,6 +882,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
     char *title = NULL, *content = NULL, *summary = NULL, *id_str = NULL, *board_id_str = NULL, *media_meta = NULL;
     char *post_action = NULL, *publish_at_in = NULL, *tags_in = NULL;
+    char *series_in = NULL, *series_pos_in = NULL, *lang_in = NULL, *translation_in = NULL;
     form_field_t *files = NULL;
 
     const char *path_id = cwist_query_map_get(req->path_params, "id");
@@ -800,6 +928,10 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
             post_action = dup_form_field(files, "post_action");
             publish_at_in = dup_form_field(files, "publish_at");
             tags_in = dup_form_field(files, "tags");
+            series_in = dup_form_field(files, "series");
+            series_pos_in = dup_form_field(files, "series_pos");
+            lang_in = dup_form_field(files, "lang");
+            translation_in = dup_form_field(files, "translation_of");
         }
     } else {
         cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
@@ -819,12 +951,16 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         post_action = dup_query_field(kv, "post_action");
         publish_at_in = dup_query_field(kv, "publish_at");
         tags_in = dup_query_field(kv, "tags");
+        series_in = dup_query_field(kv, "series");
+        series_pos_in = dup_query_field(kv, "series_pos");
+        lang_in = dup_query_field(kv, "lang");
+        translation_in = dup_query_field(kv, "translation_of");
         cwist_query_map_destroy(kv);
     }
 
     if (!id_str || !title || !content || !title[0] || !content[0]) {
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
         multipart_free(files);
         redirect(res, "/");
         return;
@@ -835,7 +971,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         strlen(content) > MAX_POST_CONTENT_LEN) {
         CWIST_LOG_WARN("Post edit failed: input too long id=%s uid=%d", id_str, uid);
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
         multipart_free(files);
         redirect(res, "/");
         return;
@@ -845,7 +981,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     if (!post) {
         CWIST_LOG_WARN("Post edit failed: post not found id=%s uid=%d", id_str, uid);
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
         multipart_free(files);
         redirect(res, "/");
         return;
@@ -856,7 +992,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         cwist_sstring_assign(res->body, "Forbidden");
         cJSON_Delete(post);
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
         multipart_free(files);
         return;
     }
@@ -869,7 +1005,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
                  strcmp(board_error, BOARD_ERROR_DENIED) == 0 ? "board_denied" : "board");
         cJSON_Delete(post);
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
         multipart_free(files);
         redirect(res, edit_url);
         return;
@@ -899,6 +1035,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
 
     attach_media_meta_to_post(req->db, media_meta, atoi(id_str), uid, role);
     if (tags_in) db_tag_set_for_post(req->db, atoi(id_str), tags_in);
+    apply_series_and_lang(req->db, atoi(id_str), uid, role, series_in, series_pos_in, lang_in, translation_in);
 
     cJSON *saved = db_post_get_by_id(req->db, atoi(id_str));
     bool public_now = post_is_public(saved);
@@ -917,7 +1054,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     page_cache_invalidate_all();
 
     reqshare_write_lock_release(wl_key);
-    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
     multipart_free(files);
     char redir_target[128];
     if (!public_now) {

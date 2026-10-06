@@ -229,6 +229,14 @@ static void *cleanup_worker(void *arg) {
             unsigned long long freed = 0;
             int swept = tasfa_sweep_stale_sessions(false, &freed);
             if (swept > 0) CWIST_LOG_INFO("Removed %d abandoned transfer sessions (%.1f MB)", swept, freed / 1048576.0);
+            /* Scheduled backup: only when an external target is registered.
+             * It runs as its own process so the server never waits on it. */
+            backup_settings_t bs;
+            if (backup_settings_load(&bs) && backup_settings_ready(&bs)) {
+                if (backup_spawn()) CWIST_LOG_INFO("Scheduled backup started");
+                else FLY_LOG_ERROR("Scheduled backup could not be started");
+            }
+            memset(&bs, 0, sizeof(bs));
             fly_forkgate_enter();
             sqlite3_close(conn);
             fly_forkgate_leave();

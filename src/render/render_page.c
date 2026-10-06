@@ -237,6 +237,7 @@ static void append_article_jsonld(cwist_sstring *out, const render_page_meta *pm
         cJSON_AddStringToObject(a, "@type", "Person");
         cJSON_AddStringToObject(a, "name", pm->author);
     }
+    if (pm->lang && pm->lang[0]) cJSON_AddStringToObject(ld, "inLanguage", pm->lang);
     cJSON *pub = cJSON_AddObjectToObject(ld, "publisher");
     cJSON_AddStringToObject(pub, "@type", "Organization");
     cJSON_AddStringToObject(pub, "name", g_config.title[0] ? g_config.title : "Fly Board");
@@ -382,7 +383,8 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     render_set_page_meta(NULL);
 
     cwist_html_element_t *html = cwist_html_element_create("html");
-    cwist_html_element_add_attr(html, "lang", "ko");
+    const char *page_lang = (pm.lang && pm.lang[0]) ? pm.lang : (g_config.language[0] ? g_config.language : "ko");
+    cwist_html_element_add_attr(html, "lang", page_lang);
     cwist_html_element_add_attr(html, "data-server-theme", dark ? "dark" : "light");
     if (is_mobile) cwist_html_element_add_class(html, "mobile");
 
@@ -430,6 +432,22 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         }
     }
     head_meta(head, "name", "twitter:card", (pm.image && pm.image[0]) ? "summary_large_image" : "summary");
+
+    /* Translations: one hreflang link per language version, this page
+     * included, as search engines expect the set to be symmetric. */
+    cJSON *alt = NULL;
+    cJSON_ArrayForEach(alt, pm.alternates) {
+        cJSON *al = cJSON_GetObjectItem(alt, "lang");
+        cJSON *ap = cJSON_GetObjectItem(alt, "path");
+        if (!cJSON_IsString(al) || !al->valuestring[0] || !cJSON_IsString(ap)) continue;
+        page_abs_url(url_buf, sizeof(url_buf), ap->valuestring);
+        cwist_html_element_t *l = cwist_html_element_create("link");
+        cwist_html_element_add_attr(l, "rel", "alternate");
+        cwist_html_element_add_attr(l, "hreflang", al->valuestring);
+        cwist_html_element_add_attr(l, "href", url_buf);
+        cwist_html_element_add_child(head, l);
+    }
+    if (pm.lang && pm.lang[0]) head_meta(head, "property", "og:locale", pm.lang);
 
     page_abs_url(url_buf, sizeof(url_buf), "/rss.xml");
     head_link(head, "alternate", "application/rss+xml", site_name, url_buf);

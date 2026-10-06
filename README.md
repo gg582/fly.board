@@ -198,6 +198,11 @@ board_permissions – private board access permissions
 pqc_keys    – every public key that has signed posts on this site
 ```
 
+## Series and Translations
+
+- **Series**: name a series in the editor's *Series* field (a new name starts one) and set the *Part* number, or leave it empty to keep the post's place / add it at the end. Each post shows the series' reading order with previous/next parts; `/series` lists them, `/series/<id>` shows one with its own RSS feed, and its owner (or an admin) can rename, reorder and remove parts at `/series/<id>/edit`.
+- **Translations**: posts, boards and series each have a *Language* and can be linked as translations of one another (*Translation of*). Pages then carry `<html lang>`, `hreflang` alternates and an "Also in" switcher. `language=` in `blog.settings` sets the site default (`ko`).
+
 ## Backup and Migration
 
 Run from the site root (where `public/` and `data/` live):
@@ -222,6 +227,8 @@ Markdown export, for static site generators or for checking signatures outside f
 ./fly_board --export-markdown /srv/export --rewrite-links  # attachment links point at files/; signed originals in originals/
 ./fly_board --verify-markdown /srv/export
 ```
+
+Scheduled backups: register a target under *Dashboard → Scheduled Backups* (an S3-compatible bucket, or an absolute directory such as a mounted disk). Every day at 03:00 the server then runs `fly_board --scheduled-backup` as a separate process, ships the signed archive to the target and keeps the newest *N*. With a passphrase set, the secrets are sealed into each archive too. The target lives in `backup.settings` (0600, not in git); nothing runs while no target is registered.
 
 Abandoned TASFA transfer sessions (expired, idle for an hour, not locked) are removed at start and daily at 03:00; `./fly_board --sweep-uploads --dry-run` shows what would go.
 

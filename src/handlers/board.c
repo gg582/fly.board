@@ -131,6 +131,34 @@ void handler_board_new_get(cwist_http_request *req, cwist_http_response *res) {
     free(pp);
 }
 
+/* Language and translation pairing from the board form. */
+static void apply_board_lang(cwist_db *db, int bid, cwist_query_map *kv) {
+    if (bid <= 0) return;
+    const char *lang = cwist_query_map_get(kv, "lang");
+    const char *pair = cwist_query_map_get(kv, "translation_of");
+    if (lang && !i18n_lang_valid(lang)) lang = NULL;
+    int pair_id = pair ? atoi(pair) : 0;
+    if (pair_id > 0) {
+        cJSON *other = db_board_get_by_id(db, pair_id);
+        db_i18n_set(db, "board", bid, lang, other ? pair_id : 0);
+        if (other) cJSON_Delete(other);
+    } else {
+        db_i18n_set(db, "board", bid, lang, pair ? -1 : 0);
+    }
+}
+
+/* "lang" and "translation_of" on a board, for the edit form. */
+static void attach_board_lang(cwist_db *db, cJSON *board) {
+    int bid = json_int(board, "id", 0);
+    cJSON *i18n = db_i18n_get(db, "board", bid);
+    cJSON *lang = i18n ? cJSON_GetObjectItem(i18n, "lang") : NULL;
+    cJSON_AddStringToObject(board, "lang", cJSON_IsString(lang) ? lang->valuestring : "");
+    if (i18n) cJSON_Delete(i18n);
+    cJSON *sib = db_i18n_siblings(db, "board", bid, false);
+    cJSON_AddNumberToObject(board, "translation_of", cJSON_GetArraySize(sib) > 0 ? json_int(cJSON_GetArrayItem(sib, 0), "id", 0) : 0);
+    if (sib) cJSON_Delete(sib);
+}
+
 void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0; char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
@@ -197,6 +225,7 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
             } else if (bid > 0) {
                 db_board_tree_set_parent(bid, 0);
             }
+            apply_board_lang(req->db, bid, kv);
             cJSON_Delete(created);
         }
         CWIST_LOG_INFO("Board created: name='%s' slug='%s'", name, slug);
@@ -230,6 +259,7 @@ void handler_board_edit_get(cwist_http_request *req, cwist_http_response *res) {
     append_boards_flat(ordered, all_boards, tree, 0, 4);
     int parent_id = db_board_tree_get_parent(bid);
     cJSON_AddNumberToObject(board, "parent_id", parent_id);
+    attach_board_lang(req->db, board);
     cwist_sstring *page = render_board_form(board, ordered, is_dark(req), NULL, pp, is_mobile_request(req), role);
     if (ordered) cJSON_Delete(ordered);
     if (tree) cJSON_Delete(tree);
@@ -327,6 +357,7 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
         return;
     }
     db_board_tree_set_parent(bid, parent_id);
+    apply_board_lang(req->db, bid, kv);
     CWIST_LOG_INFO("Board updated: bid=%d name='%s' slug='%s' parent=%d", bid, name, slug, parent_id);
 
     page_cache_invalidate_board(slug);
