@@ -1,12 +1,17 @@
 #define _POSIX_C_SOURCE 200809L
 /**
  * @file mail_alias_build.c
- * @brief Emit the Postfix virtual alias map for oborona.zip on stdout.
+ * @brief Emit the Postfix virtual maps for oborona.zip.
  *
- * Every account gets a identity mapping (user@oborona.zip -> user@oborona.zip)
- * and the reserved role addresses (postmaster, abuse, ...) point at the site
- * admin account. The output is plain text; the deployment script feeds it to
- * postmap(1) to build /etc/postfix/fly_aliases.db.
+ * Stdout: virtual alias map — the reserved role addresses (postmaster,
+ * abuse, ...) point at the site admin account. Identity mappings are NOT
+ * emitted: oborona.zip is a virtual_mailbox_domain, so plain users resolve
+ * through the mailbox map (an identity alias would look like a self-referral
+ * loop to Postfix and be rejected).
+ *
+ * argv[1] (optional): path of the virtual mailbox map, one "user@domain OK"
+ * line per active user. The deployment script feeds both outputs to
+ * postmap(1).
  */
 #include "db/db_internal.h"
 #include <stdio.h>
@@ -27,7 +32,7 @@ static const char *db_path(void) {
     return (p && p[0]) ? p : FLY_DB_MAIN_PATH;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     sqlite3 *conn = NULL;
     if (sqlite3_open_v2(db_path(), &conn, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) {
         fprintf(stderr, "mail-alias-build: cannot open %s\n", db_path());
@@ -56,6 +61,21 @@ int main(void) {
     for (int i = 0; k_reserved[i]; i++)
         printf("%s@%s %s\n", k_reserved[i], MAIL_DOMAIN, admin_addr);
 
+    /* Virtual mailbox map: the user list Postfix validates recipients
+     * against. Identity alias lines are NOT emitted — with
+     * virtual_alias_domains a self-mapping is treated as an alias loop and
+     * the recipient is rejected with "User unknown in virtual alias table".
+     * oborona.zip is instead a virtual_mailbox_domain: users resolve via
+     * this map and only the reserved role addresses use virtual aliases. */
+    FILE *mailboxes = NULL;
+    if (argc > 1 && argv[1][0]) {
+        mailboxes = fopen(argv[1], "w");
+        if (!mailboxes) {
+            fprintf(stderr, "mail-alias-build: cannot write %s\n", argv[1]);
+            sqlite3_close(conn);
+            return 1;
+        }
+    }
     stmt = NULL;
     if (sqlite3_prepare_v2(conn,
             "SELECT username FROM users WHERE active=1 ORDER BY username", -1, &stmt, NULL) == SQLITE_OK) {
@@ -63,15 +83,14 @@ int main(void) {
             const unsigned char *un = sqlite3_column_text(stmt, 0);
             if (!un) continue;
             const char *name = (const char *)un;
-            /* A reserved localpart already has a mapping above; emitting an
-             * identity line for it too would be a duplicate key. */
             bool reserved = false;
             for (int i = 0; k_reserved[i]; i++)
                 if (strcasecmp(name, k_reserved[i]) == 0) { reserved = true; break; }
             if (reserved) continue;
-            printf("%s@%s %s@%s\n", name, MAIL_DOMAIN, name, MAIL_DOMAIN);
+            if (mailboxes) fprintf(mailboxes, "%s@%s OK\n", name, MAIL_DOMAIN);
         }
     }
+    if (mailboxes) fclose(mailboxes);
     sqlite3_finalize(stmt);
     sqlite3_close(conn);
     return 0;

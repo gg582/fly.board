@@ -9,9 +9,13 @@ inet_interfaces = all
 inet_protocols = all
 mynetworks = 127.0.0.0/8
 
-# --- Local users are virtual; delivery goes through the pipe transport that
-# runs mail-import (see master.cf snippet in install.sh), which stores the
-# message in the webmail DB and in the recipient's Maildir.
+# --- Local users are virtual; recipient validation happens against the
+# virtual mailbox map (one entry per user, rebuilt by mail-alias-build), and
+# delivery goes through the pipe transport that runs mail-import (see the
+# master.cf snippet in install.sh), which stores the message in the webmail DB
+# and in the recipient's Maildir.
+virtual_mailbox_domains = oborona.zip
+virtual_mailbox_maps = hash:/etc/postfix/fly_mailboxes
 virtual_alias_domains = oborona.zip
 virtual_alias_maps = hash:/etc/postfix/fly_aliases
 virtual_transport = fly-mail

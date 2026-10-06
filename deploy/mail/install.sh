@@ -50,9 +50,10 @@ fly-mail   unix  -       n       n       -       -       pipe
   flags=R user=$MAIL_USER argv=$SITE_ROOT/mail-import \${recipient}
 EOF
 
-echo "==> Rebuilding /etc/postfix/fly_aliases"
-( cd "$SITE_ROOT" && ./mail-alias-build ) > /etc/postfix/fly_aliases
+echo "==> Rebuilding /etc/postfix/fly_aliases and fly_mailboxes"
+( cd "$SITE_ROOT" && ./mail-alias-build /etc/postfix/fly_mailboxes ) > /etc/postfix/fly_aliases
 postmap /etc/postfix/fly_aliases
+postmap /etc/postfix/fly_mailboxes
 
 echo "==> Installing Dovecot configuration"
 cp "$SITE_ROOT/deploy/mail/dovecot.conf" /etc/dovecot/dovecot.conf
