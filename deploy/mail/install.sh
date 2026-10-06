@@ -16,7 +16,7 @@ set -euo pipefail
 
 SITE_ROOT="${FLY_SITE_ROOT:-/home/yjlee/fly.board}"
 DOMAIN="oborona.zip"
-MAIL_USER="${FLY_MAIL_USER:-$(id -un)}"
+MAIL_USER="${FLY_MAIL_USER:-flymail}"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "install.sh must run as root" >&2
@@ -36,9 +36,14 @@ apt-get update -qq || true
 apt-get install -y -qq postfix dovecot-core dovecot-imapd opendkim opendkim-tools || true
 
 echo "==> Creating Maildir root /var/mail/fly"
-mkdir -p /var/mail/fly
+mkdir -p /var/mail/fly/spool
+# Postfix refuses to run pipe transports as root, so delivery runs as an
+# unprivileged user that can only reach the Maildir and the spool — the
+# fly_board web server (root) sweeps the spool into the webmail DB.
+id "$MAIL_USER" >/dev/null 2>&1 || useradd -r -m -s /usr/sbin/nologin "$MAIL_USER"
 chown -R "$MAIL_USER:$MAIL_USER" /var/mail/fly
 chmod 755 /var/mail/fly
+chmod 775 /var/mail/fly/spool
 
 echo "==> Installing Postfix configuration"
 cat "$SITE_ROOT/deploy/mail/postfix-main.cf" >> /etc/postfix/main.cf

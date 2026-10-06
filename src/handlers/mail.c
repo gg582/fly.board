@@ -14,9 +14,70 @@
 #include "handlers_internal.h"
 #include "utils/email.h"
 #include <ctype.h>
+#include <dirent.h>
+#include <fcntl.h>
 #include <openssl/rand.h>
+#include <sys/wait.h>
 
 #define MAIL_PAGE_SIZE 20
+
+/* Postfix delivers inbound mail as the unprivileged "flymail" user, which
+ * cannot write the webmail DB. mail-import therefore drops a copy of each
+ * message into /var/mail/fly/spool/<user>.*.eml; here (running as root) we
+ * sweep that user's spool files into the DB via the mail-import "dbonly"
+ * mode, so messages appear in webmail as soon as the recipient checks mail.
+ * IMAP clients see them immediately because they read the Maildir directly. */
+static void mail_spool_sweep(cwist_db *db, int uid) {
+    cJSON *user = db_user_get_by_id(db, uid);
+    if (!user) return;
+    const cJSON *name = cJSON_GetObjectItem(user, "username");
+    if (!cJSON_IsString(name) || !name->valuestring[0]) { cJSON_Delete(user); return; }
+    char prefix[160];
+    snprintf(prefix, sizeof(prefix), "%s.", name->valuestring);
+    cJSON_Delete(user);
+
+    const char *root = getenv("FLY_MAILDIR_ROOT");
+    if (!root || !root[0]) root = "/var/mail/fly";
+    char spool[512];
+    snprintf(spool, sizeof(spool), "%s/spool", root);
+    DIR *d = opendir(spool);
+    if (!d) return;
+
+    /* mail-import lives next to the server binary. */
+    char tool[512] = "mail-import";
+    ssize_t n = readlink("/proc/self/exe", tool, sizeof(tool) - 1);
+    if (n > 0) {
+        tool[n] = '\0';
+        char *slash = strrchr(tool, '/');
+        if (slash) snprintf(slash + 1, sizeof(tool) - (size_t)(slash + 1 - tool), "mail-import");
+    }
+
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (strncmp(ent->d_name, prefix, strlen(prefix)) != 0) continue;
+        char path[800];
+        snprintf(path, sizeof(path), "%s/%s", spool, ent->d_name);
+        FILE *f = fopen(path, "rb");
+        if (!f) continue;
+        int in = fileno(f);
+        pid_t pid = fork();
+        if (pid == 0) {
+            dup2(in, STDIN_FILENO);
+            fclose(f);
+            int nullfd = open("/dev/null", O_WRONLY);
+            if (nullfd >= 0) { dup2(nullfd, STDOUT_FILENO); dup2(nullfd, STDERR_FILENO); }
+            execl(tool, tool, "dbonly", (char *)NULL);
+            _exit(111);
+        }
+        fclose(f);
+        if (pid > 0) {
+            int status = 0;
+            if (waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0)
+                unlink(path);
+        }
+    }
+    closedir(d);
+}
 
 static bool folder_valid(const char *folder) {
     return folder && (!strcmp(folder, MAIL_FOLDER_INBOX) ||
@@ -43,6 +104,7 @@ void handler_mail_get(cwist_http_request *req, cwist_http_response *res) {
     int page = atoi(cwist_query_map_get(req->query_params, "page") ? cwist_query_map_get(req->query_params, "page") : "1");
     if (page < 1) page = 1;
 
+    if (strcmp(folder, MAIL_FOLDER_INBOX) == 0) mail_spool_sweep(req->db, uid);
     int total = db_email_count(req->db, uid, folder);
     int total_pages = total > 0 ? (total + MAIL_PAGE_SIZE - 1) / MAIL_PAGE_SIZE : 1;
     if (page > total_pages) page = total_pages;
@@ -65,6 +127,7 @@ void handler_mail_view_get(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
 
     int id = atoi(cwist_query_map_get(req->query_params, "id") ? cwist_query_map_get(req->query_params, "id") : "0");
+    mail_spool_sweep(req->db, uid);
     cJSON *email = id > 0 ? db_email_get(req->db, uid, id) : NULL;
     if (!email) {
         res->status_code = CWIST_HTTP_NOT_FOUND;

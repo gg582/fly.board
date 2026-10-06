@@ -592,7 +592,115 @@ static void maildir_deliver(const char *username, const char *raw, size_t raw_le
 
 /* ------------------------------------------------------------------- main */
 
+/* Writes the raw message into the spool directory; the fly_board web server
+ * (running as root) sweeps this directory into the webmail DB when the
+ * recipient opens their inbox. Returns false on hard failure. */
+static bool spool_write(const char *username, const char *raw, size_t raw_len) {
+    const char *root = getenv("FLY_MAILDIR_ROOT");
+    if (!root || !root[0]) root = "/var/mail/fly";
+    char dir[512];
+    snprintf(dir, sizeof(dir), "%s/spool", root);
+    mkdir(dir, 0775);
+    char path[600];
+    snprintf(path, sizeof(path), "%s/%s.%lld.%ld.eml", dir, username,
+             (long long)time(NULL), (long)getpid());
+    FILE *f = fopen(path, "wb");
+    if (!f) return false;
+    fwrite(raw, 1, raw_len, f);
+    fclose(f);
+    return true;
+}
+
+/* Inserts the parsed message into the webmail DB (as the user resolved from
+ * rcpt) and persists attachments. Requires a writable DB (root). */
+static int db_deliver(const mail_headers_t *h, const parse_result_t *res,
+                      const char *rcpt, const char *body) {
+    sqlite3 *conn = NULL;
+    if (sqlite3_open_v2(db_path(), &conn, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) {
+        if (conn) sqlite3_close(conn);
+        fprintf(stderr, "mail-import: cannot open %s\n", db_path());
+        return 111;
+    }
+    db_configure_connection(conn);
+    /* Self-contained migration guard: the table must exist even if this tool
+     * runs before the web server has ever started. */
+    sqlite3_exec(conn,
+        "CREATE TABLE IF NOT EXISTS emails ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,"
+        "  folder TEXT NOT NULL DEFAULT 'INBOX',"
+        "  from_addr TEXT, to_addrs TEXT, subject TEXT,"
+        "  body_text TEXT, message_id TEXT, in_reply_to TEXT,"
+        "  is_read INTEGER DEFAULT 0,"
+        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP)", NULL, NULL, NULL);
+    sqlite3_exec(conn, "CREATE INDEX IF NOT EXISTS idx_emails_owner_folder ON emails(owner_id, folder, created_at)", NULL, NULL, NULL);
+
+    char username[128] = {0};
+    int owner = find_owner(conn, rcpt, username, sizeof(username));
+    if (owner <= 0) {
+        fprintf(stderr, "mail-import: no local user for recipient %s\n", rcpt);
+        sqlite3_close(conn);
+        return 1;
+    }
+
+    int email_id = db_email_create_conn(conn, owner, "INBOX",
+                                        h->from ? h->from : "", rcpt,
+                                        h->subject ? h->subject : "(no subject)",
+                                        body, h->message_id, h->in_reply_to);
+    if (email_id <= 0) {
+        fprintf(stderr, "mail-import: insert failed for %s\n", rcpt);
+        sqlite3_close(conn);
+        return 111;
+    }
+
+    /* Persist attachments under public/uploads/mail/<id>/ and list them at
+     * the end of the body. The stored blob slots are base64 strings. */
+    if (res->n_attach > 0) {
+        char dir[256];
+        snprintf(dir, sizeof(dir), "public/uploads/mail/%d", email_id);
+        mkdir("public/uploads", 0755);
+        mkdir("public/uploads/mail", 0755);
+        if (mkdir(dir, 0755) == 0 || access(dir, F_OK) == 0) {
+            char listing[2048] = {0};
+            size_t lo = 0;
+            lo += (size_t)snprintf(listing + lo, sizeof(listing) - lo, "\n\n--- Attachments ---\n");
+            for (int i = 0; i < res->n_attach; i++) {
+                const char *safe = res->attachments[i * 2];
+                const char *b64 = res->attachments[i * 2 + 1];
+                size_t blen = 0;
+                char *blob = b64_decode(b64, strlen(b64), &blen);
+                if (!blob) continue;
+                char path[512];
+                snprintf(path, sizeof(path), "%s/%s", dir, safe);
+                FILE *f = fopen(path, "wb");
+                if (f) {
+                    fwrite(blob, 1, blen, f);
+                    fclose(f);
+                }
+                free(blob);
+                lo += (size_t)snprintf(listing + lo, sizeof(listing) - lo, "  %s\n", safe);
+            }
+            db_email_append_body_conn(conn, owner, email_id, listing);
+        }
+    }
+
+    sqlite3_close(conn);
+    printf("imported for %s (email id %d)\n", username, email_id);
+    return 0;
+}
+
 int main(int argc, char **argv) {
+    /* Modes:
+     *   default          Postfix pipe delivery: write Maildir + spool; also
+     *                    insert into the webmail DB when running as root
+     *                    (direct local delivery). Non-root (the default
+     *                    flymail pipe user) skips the DB — the web server
+     *                    later sweeps the spool into the DB.
+     *   dbonly [rcpt]    Re-import one raw message from stdin into the webmail
+     *                    DB only (used by the fly_board spool sweep, as root).
+     */
+    bool dbonly = argc > 1 && strcmp(argv[1], "dbonly") == 0;
+
     size_t raw_len = 0;
     char *raw = read_all_stdin(&raw_len);
     if (!raw || raw_len == 0) {
@@ -614,11 +722,15 @@ int main(int argc, char **argv) {
     mail_headers_t h;
     parse_headers(raw, hdr_len, &h);
 
-    /* Recipient: argv[1] (Postfix ${recipient}) wins; fall back to the To:
-     * header localpart. */
+    /* Recipient: explicit argv (Postfix ${recipient}, or dbonly's argv[2])
+     * wins; fall back to the To: header localpart. */
+    const char *rcpt_arg = NULL;
+    if (dbonly) { if (argc > 2 && argv[2][0]) rcpt_arg = argv[2]; }
+    else if (argc > 1 && argv[1][0]) rcpt_arg = argv[1];
+
     char rcpt[256] = {0};
-    if (argc > 1 && argv[1][0]) {
-        snprintf(rcpt, sizeof(rcpt), "%s", argv[1]);
+    if (rcpt_arg) {
+        snprintf(rcpt, sizeof(rcpt), "%s", rcpt_arg);
     } else if (h.to && h.to[0]) {
         /* Take the first address in the To list. */
         const char *lt = strchr(h.to, '<');
@@ -634,6 +746,17 @@ int main(int argc, char **argv) {
     }
     if (!rcpt[0]) {
         fprintf(stderr, "mail-import: no recipient\n");
+        free(raw);
+        return 1;
+    }
+
+    /* Localpart of the recipient — names the mailbox without needing the DB. */
+    char username[128] = {0};
+    snprintf(username, sizeof(username), "%s", rcpt);
+    char *at = strrchr(username, '@');
+    if (at) *at = '\0';
+    if (!username[0]) {
+        fprintf(stderr, "mail-import: empty localpart\n");
         free(raw);
         return 1;
     }
@@ -669,90 +792,25 @@ int main(int argc, char **argv) {
         body_len = o;
     }
 
-    sqlite3 *conn = NULL;
-    if (sqlite3_open_v2(db_path(), &conn, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) {
-        fprintf(stderr, "mail-import: cannot open %s\n", db_path());
-        if (conn) sqlite3_close(conn);
-        free(raw); free(body);
-        return 111;
-    }
-    db_configure_connection(conn);
-    /* Self-contained migration guard: the table must exist even if this tool
-     * runs before the web server has ever started. */
-    sqlite3_exec(conn,
-        "CREATE TABLE IF NOT EXISTS emails ("
-        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "  owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,"
-        "  folder TEXT NOT NULL DEFAULT 'INBOX',"
-        "  from_addr TEXT, to_addrs TEXT, subject TEXT,"
-        "  body_text TEXT, message_id TEXT, in_reply_to TEXT,"
-        "  is_read INTEGER DEFAULT 0,"
-        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP)", NULL, NULL, NULL);
-    sqlite3_exec(conn, "CREATE INDEX IF NOT EXISTS idx_emails_owner_folder ON emails(owner_id, folder, created_at)", NULL, NULL, NULL);
-
-    char username[128] = {0};
-    int owner = find_owner(conn, rcpt, username, sizeof(username));
-    if (owner <= 0) {
-        fprintf(stderr, "mail-import: no local user for recipient %s\n", rcpt);
-        sqlite3_close(conn);
-        free(raw); free(body);
-        return 1;
-    }
-
-    /* message_id uniqueness guard: drop obvious duplicates of an In-Reply? No,
-     * keep every delivery; clients handle threading. */
-    int email_id = db_email_create_conn(conn, owner, "INBOX",
-                                        h.from ? h.from : "", rcpt,
-                                        h.subject ? h.subject : "(no subject)",
-                                        body, h.message_id, h.in_reply_to);
-    if (email_id <= 0) {
-        fprintf(stderr, "mail-import: insert failed for %s\n", rcpt);
-        sqlite3_close(conn);
-        free(raw); free(body);
-        return 111;
-    }
-
-    /* Persist attachments under public/uploads/mail/<id>/ and list them at
-     * the end of the body. The stored blob slots are base64 strings. */
-    if (res.n_attach > 0) {
-        char dir[256];
-        snprintf(dir, sizeof(dir), "public/uploads/mail/%d", email_id);
-        mkdir("public/uploads", 0755);
-        mkdir("public/uploads/mail", 0755);
-        if (mkdir(dir, 0755) == 0 || access(dir, F_OK) == 0) {
-            char listing[2048] = {0};
-            size_t lo = 0;
-            lo += (size_t)snprintf(listing + lo, sizeof(listing) - lo, "\n\n--- Attachments ---\n");
-            for (int i = 0; i < res.n_attach; i++) {
-                const char *safe = res.attachments[i * 2];
-                const char *b64 = res.attachments[i * 2 + 1];
-                /* Decode the base64 blob back to bytes. */
-                size_t blen = 0;
-                char *blob = b64_decode(b64, strlen(b64), &blen);
-                if (!blob) continue;
-                char path[512];
-                snprintf(path, sizeof(path), "%s/%s", dir, safe);
-                FILE *f = fopen(path, "wb");
-                if (f) {
-                    fwrite(blob, 1, blen, f);
-                    fclose(f);
-                }
-                free(blob);
-                lo += (size_t)snprintf(listing + lo, sizeof(listing) - lo, "  %s\n", safe);
-            }
-            db_email_append_body_conn(conn, owner, email_id, listing);
+    int rc = 0;
+    if (!dbonly) {
+        maildir_deliver(username, raw, raw_len);
+        spool_write(username, raw, raw_len);
+        /* Direct DB delivery is only possible when running as root; otherwise
+         * the fly_board spool sweep picks the message up. */
+        if (geteuid() == 0) {
+            int dbrc = db_deliver(&h, &res, rcpt, body);
+            if (dbrc != 0) rc = dbrc;
         }
+    } else {
+        rc = db_deliver(&h, &res, rcpt, body);
     }
 
-    maildir_deliver(username, raw, raw_len);
-
-    sqlite3_close(conn);
     for (int i = 0; i < res.n_attach * 2; i++) free(res.attachments[i]);
     free(res.attachments);
     free(body);
     free(raw);
     free(h.from); free(h.to); free(h.subject); free(h.message_id);
     free(h.in_reply_to); free(h.content_type); free(h.content_transfer_encoding);
-    printf("delivered to %s (email id %d)\n", username, email_id);
-    return 0;
+    return rc;
 }
