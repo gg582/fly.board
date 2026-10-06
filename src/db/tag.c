@@ -57,3 +57,129 @@ bool db_tag_clear_by_post(cwist_db *db, int post_id) {
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
 }
+
+/* ---- Tag normalization and listing ---- */
+
+/* Tags travel in URL paths (/tag/<name>) and feed titles, so characters with
+ * meaning there are dropped; ASCII letters fold to lower case so "C" and "c"
+ * are one tag. Whitespace runs collapse to a single space. */
+static size_t tag_normalize(const char *in, size_t in_len, char *out, size_t out_size) {
+    size_t o = 0;
+    bool pending_space = false;
+    size_t i = 0;
+    while (i < in_len && (in[i] == '#' || in[i] == ' ' || in[i] == '\t')) i++;
+    for (; i < in_len && o + 1 < out_size; i++) {
+        unsigned char c = (unsigned char)in[i];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+            if (o > 0) pending_space = true;
+            continue;
+        }
+        if (c < 0x20 || strchr("/?#%&<>\"'\\`", c)) continue;
+        if (pending_space) {
+            if (o + 2 >= out_size) break;
+            out[o++] = ' ';
+            pending_space = false;
+        }
+        out[o++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
+    }
+    /* Never end inside a multi-byte sequence after truncation. */
+    size_t end = o;
+    while (end > 0 && ((unsigned char)out[end - 1] & 0xC0) == 0x80) end--;
+    if (end > 0) {
+        unsigned char lead = (unsigned char)out[end - 1];
+        size_t need = (lead & 0xE0) == 0xC0 ? 2 : (lead & 0xF0) == 0xE0 ? 3 : (lead & 0xF8) == 0xF0 ? 4 : 1;
+        if (o - (end - 1) < need) o = end - 1;
+    }
+    out[o] = '\0';
+    return o;
+}
+
+int db_tag_set_for_post(cwist_db *db, int post_id, const char *csv) {
+    if (post_id <= 0) return 0;
+    if (!db_tag_clear_by_post(db, post_id)) return -1;
+    if (!csv) return 0;
+    char seen[DB_TAG_MAX_PER_POST][DB_TAG_MAX_BYTES];
+    int n = 0;
+    const char *p = csv;
+    while (*p && n < DB_TAG_MAX_PER_POST) {
+        const char *end = p;
+        while (*end && *end != ',') end++;
+        char name[DB_TAG_MAX_BYTES];
+        if (tag_normalize(p, (size_t)(end - p), name, sizeof(name)) > 0) {
+            bool dup = false;
+            for (int i = 0; i < n; i++) {
+                if (strcmp(seen[i], name) == 0) { dup = true; break; }
+            }
+            if (!dup) {
+                int tag_id = db_tag_get_or_create(db, name);
+                if (tag_id > 0 && db_tag_link(db, post_id, tag_id)) {
+                    snprintf(seen[n++], DB_TAG_MAX_BYTES, "%s", name);
+                }
+            }
+        }
+        p = *end ? end + 1 : end;
+    }
+    return n;
+}
+
+bool db_tag_name_valid(const char *name) {
+    if (!name || !name[0]) return false;
+    char norm[DB_TAG_MAX_BYTES];
+    size_t len = strlen(name);
+    if (len >= sizeof(norm)) return false;
+    return tag_normalize(name, len, norm, sizeof(norm)) == len && strcmp(norm, name) == 0;
+}
+
+cJSON *db_tag_list_public(cwist_db *db) {
+    const char *sql =
+        "SELECT t.name AS name, COUNT(*) AS n FROM tags t"
+        " JOIN post_tags pt ON pt.tag_id=t.id"
+        " JOIN posts p ON p.id=pt.post_id"
+        " WHERE " POST_PUBLIC_SQL
+        " GROUP BY t.id ORDER BY n DESC, t.name";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    return db_sqlite3_rows_to_json(stmt);
+}
+
+cJSON *db_post_list_by_tag(cwist_db *db, const char *tag, int limit, int offset) {
+    const char *sql =
+        "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p"
+        " JOIN post_tags pt ON pt.post_id=p.id JOIN tags t ON t.id=pt.tag_id"
+        " LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id"
+        " WHERE t.name=? AND " POST_PUBLIC_SQL
+        " ORDER BY p.created_at DESC LIMIT ? OFFSET ?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_text(stmt, 1, tag ? tag : "", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, limit);
+    sqlite3_bind_int(stmt, 3, offset);
+    return db_sqlite3_rows_to_json(stmt);
+}
+
+int db_post_count_by_tag(cwist_db *db, const char *tag) {
+    const char *sql =
+        "SELECT COUNT(*) FROM posts p JOIN post_tags pt ON pt.post_id=p.id JOIN tags t ON t.id=pt.tag_id"
+        " WHERE t.name=? AND " POST_PUBLIC_SQL;
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, tag ? tag : "", -1, SQLITE_TRANSIENT);
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) count = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+cJSON *db_post_related_by_tags(cwist_db *db, int post_id, int limit) {
+    const char *sql =
+        "SELECT p.slug AS slug, p.title AS title, p.created_at AS created_at, COUNT(*) AS shared FROM post_tags mine"
+        " JOIN post_tags other ON other.tag_id=mine.tag_id AND other.post_id<>mine.post_id"
+        " JOIN posts p ON p.id=other.post_id"
+        " WHERE mine.post_id=? AND " POST_PUBLIC_SQL
+        " GROUP BY p.id ORDER BY shared DESC, p.created_at DESC LIMIT ?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_int(stmt, 1, post_id);
+    sqlite3_bind_int(stmt, 2, limit);
+    return db_sqlite3_rows_to_json(stmt);
+}

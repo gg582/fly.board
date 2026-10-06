@@ -3,6 +3,9 @@
 
 #include <cwist/core/html/builder.h>
 #include <cwist/core/sstring/sstring.h>
+#include <cjson/cJSON.h>
+#include <stdbool.h>
+#include <stddef.h>
 
 cwist_html_element_t *nav_link(const char *href, const char *label);
 cwist_sstring *build_form(const char *title, const char *action, const char *method,
@@ -15,5 +18,15 @@ int json_int(cJSON *obj, const char *key, int def);
 /* Shown in place of the comment form when the write policy excludes the viewer. */
 void render_comment_closed_note(cwist_sstring *b, const char *user_role);
 void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, int depth, int current_user_id, const char *user_role, int target_id);
+
+/* Percent-encode @p s as one URL path segment (e.g. a tag name). */
+void render_append_url_segment(cwist_sstring *b, const char *s);
+/* Plain-text excerpt of markdown: markup, code blocks and images dropped,
+ * whitespace collapsed, cut at @p max_cp code points with an ellipsis. */
+void render_text_excerpt(const char *md, size_t max_cp, char *out, size_t out_size);
+/* URL of the first usable image in markdown, for og:image. */
+bool render_find_lead_image(const char *md, char *out, size_t out_size);
+/* Reading time at 220 words a minute; 0 for empty text. */
+int render_reading_minutes(const char *md);
 
 #endif

@@ -83,11 +83,26 @@ cJSON *db_post_recent(cwist_db *db, int limit);
 cJSON *db_post_recent_by_board(cwist_db *db, int board_id, int limit);
 cJSON *db_post_recent_by_boards_batch(cwist_db *db, int limit_per_board);
 int db_post_count(cwist_db *db, int board_id);
+/* Archive: [{ym:"YYYY-MM", n}] over public posts, newest month first. */
+cJSON *db_post_archive_months(cwist_db *db);
+/* Public posts published in month @p ym ("YYYY-MM"); NULL/0 on a bad ym. */
+cJSON *db_post_list_by_month(cwist_db *db, const char *ym, int limit, int offset);
+int db_post_count_by_month(cwist_db *db, const char *ym);
+/* Public neighbours of @p post in publish order: {"prev":{slug,title}?,
+ * "next":{slug,title}?}; prev is the older post. */
+cJSON *db_post_adjacent(cwist_db *db, int post_id, const char *created_at);
+/* Newest public posts, notices not pinned (feeds); board_id 0 = all. */
+cJSON *db_post_feed(cwist_db *db, int board_id, int limit);
 
 /* Post extended features */
 bool db_post_increment_view(cwist_db *db, int id);
 cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, const char *search_type, int limit, int offset);
 int db_post_count_search(cwist_db *db, int board_id, const char *search, const char *search_type);
+
+/* Search index (src/db/search.c). Creates/rebuilds the trigram index; call
+ * from db_migrate. db_search_index_post re-reads one post and reindexes it. */
+bool db_search_migrate(cwist_db *db);
+bool db_search_index_post(cwist_db *db, int post_id);
 
 /* Post votes */
 bool db_post_vote(cwist_db *db, int post_id, int user_id, int vote_type);
@@ -101,6 +116,19 @@ int db_tag_get_or_create(cwist_db *db, const char *name);
 bool db_tag_link(cwist_db *db, int post_id, int tag_id);
 cJSON *db_tag_list_by_post(cwist_db *db, int post_id);
 bool db_tag_clear_by_post(cwist_db *db, int post_id);
+#define DB_TAG_MAX_PER_POST 10
+#define DB_TAG_MAX_BYTES 48
+/* Replace a post's tags with the comma-separated @p csv (normalized, deduped,
+ * at most DB_TAG_MAX_PER_POST). Returns the number linked, -1 on error. */
+int db_tag_set_for_post(cwist_db *db, int post_id, const char *csv);
+/* True when @p name is already in normalized form (safe for a URL path). */
+bool db_tag_name_valid(const char *name);
+/* [{name, n}] for tags on at least one public post, most used first. */
+cJSON *db_tag_list_public(cwist_db *db);
+cJSON *db_post_list_by_tag(cwist_db *db, const char *tag, int limit, int offset);
+int db_post_count_by_tag(cwist_db *db, const char *tag);
+/* [{slug, title, created_at, shared}] public posts sharing tags with post_id. */
+cJSON *db_post_related_by_tags(cwist_db *db, int post_id, int limit);
 
 /* Files */
 bool db_file_create_volume(cwist_db *db, int post_id, int user_id, const char *filename, const char *mime_type, const char *file_path, size_t len);

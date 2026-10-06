@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include <stdlib.h>
 #include "render.h"
 #include "render_internal.h"
 #include "config/config.h"
@@ -9,6 +10,7 @@
 #include "utils/media_preview.h"
 #include "db/sql_escape.h"
 #include "db/db.h"
+#include "db/search.h"
 #include "cwist/image_contrast.h"
 #include <cwist/core/sstring/sstring.h>
 #include <cwist/core/mem/alloc.h>
@@ -397,6 +399,197 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
     }
 }
 
+/* Snippet of a search hit: the body text around the first matching term,
+ * with every term occurrence wrapped in <mark>. ASCII matching ignores case,
+ * as SQLite LIKE does. */
+static const char *ci_find(const char *hay, const char *needle) {
+    size_t n = strlen(needle);
+    if (!n) return NULL;
+    for (const char *h = hay; *h; h++) {
+        if (strncasecmp(h, needle, n) == 0) return h;
+    }
+    return NULL;
+}
+
+static void append_search_snippet(cwist_sstring *b, const char *content, const char *search) {
+    char terms[SEARCH_MAX_TERMS][SEARCH_TERM_MAX_BYTES];
+    int nterms = search_split_terms(search, terms);
+    if (nterms == 0 || !content) return;
+    static __thread char text[1600];
+    render_text_excerpt(content, 100000, text, sizeof(text));
+    const char *hit = NULL;
+    for (int t = 0; t < nterms && !hit; t++) hit = ci_find(text, terms[t]);
+    if (!hit) return;
+    /* Window of ~70 bytes before the hit, aligned to a code point. */
+    const char *start = hit - text > 70 ? hit - 70 : text;
+    while (start > text && ((unsigned char)*start & 0xC0) == 0x80) start--;
+    /* Begin at a word boundary when one is near. */
+    if (start > text) {
+        const char *sp = memchr(start, ' ', (size_t)(hit - start) < 30 ? (size_t)(hit - start) : 30);
+        if (sp) start = sp + 1;
+    }
+    size_t span = utf8_truncate_len(start, 220);
+    const char *end = start + span;
+    cwist_sstring_append(b, "<p class='post-row-summary search-snippet'>");
+    if (start > text) cwist_sstring_append(b, "\xE2\x80\xA6");
+    const char *p = start;
+    while (p < end) {
+        const char *best = NULL;
+        size_t best_len = 0;
+        for (int t = 0; t < nterms; t++) {
+            const char *f = ci_find(p, terms[t]);
+            if (f && f < end && (!best || f < best)) { best = f; best_len = strlen(terms[t]); }
+        }
+        if (!best || best + best_len > end) {
+            char *chunk = strndup(p, (size_t)(end - p));
+            if (chunk) { cwist_sstring_append_escaped(b, chunk); free(chunk); }
+            break;
+        }
+        char *before = strndup(p, (size_t)(best - p));
+        char *mark = strndup(best, best_len);
+        if (before) { cwist_sstring_append_escaped(b, before); free(before); }
+        cwist_sstring_append(b, "<mark>");
+        if (mark) { cwist_sstring_append_escaped(b, mark); free(mark); }
+        cwist_sstring_append(b, "</mark>");
+        p = best + best_len;
+    }
+    if (*end) cwist_sstring_append(b, "\xE2\x80\xA6");
+    cwist_sstring_append(b, "</p>");
+}
+
+/* The rows of a post listing. @p board_slug non-empty means a board's own
+ * list (board tag hidden, typography variant). A non-empty @p search shows
+ * a highlighted body snippet in place of the summary. */
+static void append_post_rows(cwist_sstring *b, cJSON *posts, const char *board_slug, const char *user_role,
+                             int user_id, const char *search, const char *search_type) {
+    bool snippet = search && search[0] && !(search_type && strcmp(search_type, "board") == 0);
+    int max_views = -1;
+    int featured_idx = -1;
+    if (posts) {
+        int n_posts = cJSON_GetArraySize(posts);
+        for (int i = 0; i < n_posts; i++) {
+            cJSON *p = cJSON_GetArrayItem(posts, i);
+            cJSON *pv = cJSON_GetObjectItem(p, "view_count");
+            int v = pv ? pv->valueint : 0;
+            if (v > max_views) {
+                max_views = v;
+                featured_idx = i;
+            }
+        }
+    }
+
+    if (posts) {
+        int n = cJSON_GetArraySize(posts);
+        for (int i = 0; i < n; i++) {
+            cJSON *p = cJSON_GetArrayItem(posts, i);
+            cJSON *slug = cJSON_GetObjectItem(p, "slug");
+            cJSON *title = cJSON_GetObjectItem(p, "title");
+            cJSON *summary = cJSON_GetObjectItem(p, "summary");
+            cJSON *author = cJSON_GetObjectItem(p, "author_name");
+            cJSON *date = cJSON_GetObjectItem(p, "created_at");
+
+            cwist_sstring_append(b, "<div class='post-row");
+            cJSON *is_notice = cJSON_GetObjectItem(p, "is_notice");
+            if (is_notice && is_notice->valueint) {
+                cwist_sstring_append(b, " post-row-notice");
+            }
+            if (board_slug && board_slug[0]) {
+                cwist_sstring_append(b, " post-row-typography");
+            }
+            if (i == featured_idx) {
+                cwist_sstring_append(b, " featured");
+            }
+            cwist_sstring_append(b, "'>");
+            cwist_sstring_append(b, "<div class='post-row-head'>");
+            if (is_notice && is_notice->valueint) {
+                cwist_sstring_append(b, "<span class='tag' style='background:var(--accent);color:var(--panel)'>Notice</span>");
+            }
+            if (!board_slug || board_slug[0] == '\0') {
+                cJSON *board_name = cJSON_GetObjectItem(p, "board_name");
+                if (board_name && board_name->valuestring && board_name->valuestring[0]) {
+                    cwist_sstring_append(b, "<span class='tag'>");
+                    cwist_sstring_append_escaped(b, board_name->valuestring);
+                    cwist_sstring_append(b, "</span>");
+                }
+            }
+            cwist_sstring_append(b, "</div>");
+            cwist_sstring_append(b, "<a class='post-row-title' href='/post/");
+            cwist_sstring_append_escaped(b, slug && slug->valuestring ? slug->valuestring : "");
+            cwist_sstring_append(b, "'>");
+            cwist_sstring_append_escaped(b, title && title->valuestring ? title->valuestring : "(untitled)");
+            cwist_sstring_append(b, "</a>");
+            if (snippet) {
+                append_search_snippet(b, json_string_or_empty(p, "content"), search);
+            } else if (summary && summary->valuestring && summary->valuestring[0]) {
+                cwist_sstring_append(b, "<p class='post-row-summary'>");
+                const char *sum_text = summary->valuestring;
+                size_t sum_len = strlen(sum_text);
+                if (sum_len > 120) {
+                    size_t trunc = utf8_truncate_len(sum_text, 120);
+                    char *tmp = (char *)cwist_alloc(trunc + 1);
+                    memcpy(tmp, sum_text, trunc);
+                    tmp[trunc] = '\0';
+                    char *tmp_escaped = sql_escape(tmp);
+                    cwist_sstring_append(b, tmp_escaped);
+                    cwist_free(tmp_escaped);
+                    cwist_free(tmp);
+                    cwist_sstring_append(b, "…");
+                } else {
+                    char *tmp_summary = sql_escape(sum_text);
+                    cwist_sstring_append(b, tmp_summary);
+                    cwist_free(tmp_summary);
+                }
+                cwist_sstring_append(b, "</p>");
+            }
+            cwist_sstring_append(b, "<div class='post-row-meta'>");
+            if (author && author->valuestring) {
+                cJSON *author_id = cJSON_GetObjectItem(p, "user_id");
+                if (author_id && author_id->valueint > 0) {
+                    char uid_buf[32];
+                    snprintf(uid_buf, sizeof(uid_buf), "%d", author_id->valueint);
+                    cwist_sstring_append(b, "<span class='post-badge'><a href='/user/");
+                    cwist_sstring_append(b, uid_buf);
+                    cwist_sstring_append(b, "'>");
+                    cwist_sstring_append_escaped(b, author->valuestring);
+                    cwist_sstring_append(b, "</a></span>");
+                } else {
+                    cwist_sstring_append(b, "<span class='post-badge'>");
+                    cwist_sstring_append_escaped(b, author->valuestring);
+                    cwist_sstring_append(b, "</span>");
+                }
+            } else {
+                cwist_sstring_append(b, "<span class='post-badge'>unknown</span>");
+            }
+
+            cwist_sstring_append(b, "<span class='post-badge'>");
+            cwist_sstring_append_escaped(b, date && date->valuestring ? date->valuestring : "");
+            cwist_sstring_append(b, "</span>");
+            bool can_edit = (user_id > 0 && json_int(p, "user_id", 0) == user_id) || (user_role && strcmp(user_role, "admin") == 0);
+            if (can_edit) {
+                cwist_sstring_append(b, "<div style='margin-top:8px;display:flex;gap:8px'>");
+                char pid_buf[32];
+                snprintf(pid_buf, sizeof(pid_buf), "%d", json_int(p, "id", 0));
+                cwist_sstring_append(b, "<a href='/post/");
+                cwist_sstring_append(b, pid_buf);
+                cwist_sstring_append(b, "/edit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Edit</a>");
+                cwist_sstring_append(b, "<a href='/post/delete/");
+                cwist_sstring_append(b, pid_buf);
+                cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Delete this post?'>Delete</a>");
+                cwist_sstring_append(b, "</div>");
+            }
+            cwist_sstring_append(b, "</div>");
+            cwist_sstring_append(b, "</div>");
+        }
+    } else {
+        if (search && !search[0]) {
+            cwist_sstring_append(b, "<p style='color:var(--muted);text-align:center;padding:40px 0'>No Search Keyword</p>");
+        } else {
+            cwist_sstring_append(b, "<p style='color:var(--muted);text-align:center;padding:40px 0'>No posts found.</p>");
+        }
+    }
+
+}
+
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id, bool is_mobile, cJSON *children) {
     cwist_sstring *b = cwist_sstring_create();
     /* Both modes are resolved and analyzed up front and emitted as data
@@ -633,128 +826,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     }
     cwist_sstring_append(b, "'>");
 
-    int max_views = -1;
-    int featured_idx = -1;
-    if (posts) {
-        int n_posts = cJSON_GetArraySize(posts);
-        for (int i = 0; i < n_posts; i++) {
-            cJSON *p = cJSON_GetArrayItem(posts, i);
-            cJSON *pv = cJSON_GetObjectItem(p, "view_count");
-            int v = pv ? pv->valueint : 0;
-            if (v > max_views) {
-                max_views = v;
-                featured_idx = i;
-            }
-        }
-    }
-
-    if (posts) {
-        int n = cJSON_GetArraySize(posts);
-        for (int i = 0; i < n; i++) {
-            cJSON *p = cJSON_GetArrayItem(posts, i);
-            cJSON *slug = cJSON_GetObjectItem(p, "slug");
-            cJSON *title = cJSON_GetObjectItem(p, "title");
-            cJSON *summary = cJSON_GetObjectItem(p, "summary");
-            cJSON *author = cJSON_GetObjectItem(p, "author_name");
-            cJSON *date = cJSON_GetObjectItem(p, "created_at");
-
-            cwist_sstring_append(b, "<div class='post-row");
-            cJSON *is_notice = cJSON_GetObjectItem(p, "is_notice");
-            if (is_notice && is_notice->valueint) {
-                cwist_sstring_append(b, " post-row-notice");
-            }
-            if (board_slug && board_slug[0]) {
-                cwist_sstring_append(b, " post-row-typography");
-            }
-            if (i == featured_idx) {
-                cwist_sstring_append(b, " featured");
-            }
-            cwist_sstring_append(b, "'>");
-            cwist_sstring_append(b, "<div class='post-row-head'>");
-            if (is_notice && is_notice->valueint) {
-                cwist_sstring_append(b, "<span class='tag' style='background:var(--accent);color:var(--panel)'>Notice</span>");
-            }
-            if (!board_slug || board_slug[0] == '\0') {
-                cJSON *board_name = cJSON_GetObjectItem(p, "board_name");
-                if (board_name && board_name->valuestring && board_name->valuestring[0]) {
-                    cwist_sstring_append(b, "<span class='tag'>");
-                    cwist_sstring_append_escaped(b, board_name->valuestring);
-                    cwist_sstring_append(b, "</span>");
-                }
-            }
-            cwist_sstring_append(b, "</div>");
-            cwist_sstring_append(b, "<a class='post-row-title' href='/post/");
-            cwist_sstring_append_escaped(b, slug && slug->valuestring ? slug->valuestring : "");
-            cwist_sstring_append(b, "'>");
-            cwist_sstring_append_escaped(b, title && title->valuestring ? title->valuestring : "(untitled)");
-            cwist_sstring_append(b, "</a>");
-            if (summary && summary->valuestring && summary->valuestring[0]) {
-                cwist_sstring_append(b, "<p class='post-row-summary'>");
-                const char *sum_text = summary->valuestring;
-                size_t sum_len = strlen(sum_text);
-                if (sum_len > 120) {
-                    size_t trunc = utf8_truncate_len(sum_text, 120);
-                    char *tmp = (char *)cwist_alloc(trunc + 1);
-                    memcpy(tmp, sum_text, trunc);
-                    tmp[trunc] = '\0';
-                    char *tmp_escaped = sql_escape(tmp);
-                    cwist_sstring_append(b, tmp_escaped);
-                    cwist_free(tmp_escaped);
-                    cwist_free(tmp);
-                    cwist_sstring_append(b, "…");
-                } else {
-                    char *tmp_summary = sql_escape(sum_text);
-                    cwist_sstring_append(b, tmp_summary);
-                    cwist_free(tmp_summary);
-                }
-                cwist_sstring_append(b, "</p>");
-            }
-            cwist_sstring_append(b, "<div class='post-row-meta'>");
-            if (author && author->valuestring) {
-                cJSON *author_id = cJSON_GetObjectItem(p, "user_id");
-                if (author_id && author_id->valueint > 0) {
-                    char uid_buf[32];
-                    snprintf(uid_buf, sizeof(uid_buf), "%d", author_id->valueint);
-                    cwist_sstring_append(b, "<span class='post-badge'><a href='/user/");
-                    cwist_sstring_append(b, uid_buf);
-                    cwist_sstring_append(b, "'>");
-                    cwist_sstring_append_escaped(b, author->valuestring);
-                    cwist_sstring_append(b, "</a></span>");
-                } else {
-                    cwist_sstring_append(b, "<span class='post-badge'>");
-                    cwist_sstring_append_escaped(b, author->valuestring);
-                    cwist_sstring_append(b, "</span>");
-                }
-            } else {
-                cwist_sstring_append(b, "<span class='post-badge'>unknown</span>");
-            }
-
-            cwist_sstring_append(b, "<span class='post-badge'>");
-            cwist_sstring_append_escaped(b, date && date->valuestring ? date->valuestring : "");
-            cwist_sstring_append(b, "</span>");
-            bool can_edit = (user_id > 0 && json_int(p, "user_id", 0) == user_id) || (user_role && strcmp(user_role, "admin") == 0);
-            if (can_edit) {
-                cwist_sstring_append(b, "<div style='margin-top:8px;display:flex;gap:8px'>");
-                char pid_buf[32];
-                snprintf(pid_buf, sizeof(pid_buf), "%d", json_int(p, "id", 0));
-                cwist_sstring_append(b, "<a href='/post/");
-                cwist_sstring_append(b, pid_buf);
-                cwist_sstring_append(b, "/edit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Edit</a>");
-                cwist_sstring_append(b, "<a href='/post/delete/");
-                cwist_sstring_append(b, pid_buf);
-                cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Delete this post?'>Delete</a>");
-                cwist_sstring_append(b, "</div>");
-            }
-            cwist_sstring_append(b, "</div>");
-            cwist_sstring_append(b, "</div>");
-        }
-    } else {
-        if (search && !search[0]) {
-            cwist_sstring_append(b, "<p style='color:var(--muted);text-align:center;padding:40px 0'>No Search Keyword</p>");
-        } else {
-            cwist_sstring_append(b, "<p style='color:var(--muted);text-align:center;padding:40px 0'>No posts found.</p>");
-        }
-    }
+    append_post_rows(b, posts, board_slug, user_role, user_id, search, search_type);
 
     cwist_sstring_append(b, "</div>");
 
@@ -813,6 +885,125 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     }
 
     cwist_sstring *page_html = render_page("Posts", b->data, dark, user_role, profile_pic, is_mobile);
+    cwist_sstring_destroy(b);
+    return page_html;
+}
+
+cwist_sstring *render_post_index(const char *heading, const char *lead, cJSON *posts, int page, int total_pages,
+                                 const char *base_path, const char *feed_path, bool dark, const char *user_role,
+                                 const char *profile_pic, int user_id, bool is_mobile) {
+    cwist_sstring *b = cwist_sstring_create();
+    cwist_sstring_assign(b, "<div class='hero'><h1>");
+    cwist_sstring_append_escaped(b, heading);
+    cwist_sstring_append(b, "</h1>");
+    if (lead && lead[0]) {
+        cwist_sstring_append(b, "<p>");
+        cwist_sstring_append_escaped(b, lead);
+        cwist_sstring_append(b, "</p>");
+    }
+    cwist_sstring_append(b, "<p style='font-size:14px'><a href='/archive'>Archive</a>");
+    if (feed_path) {
+        cwist_sstring_append(b, " &middot; <a href='");
+        cwist_sstring_append_escaped(b, feed_path);
+        cwist_sstring_append(b, "'>RSS</a>");
+    }
+    cwist_sstring_append(b, "</p></div>");
+
+    cwist_sstring_append(b, "<div class='post-list stagger'>");
+    append_post_rows(b, posts, "", user_role, user_id, NULL, NULL);
+    cwist_sstring_append(b, "</div>");
+
+    if (total_pages > 1) {
+        char buf[32];
+        cwist_sstring_append(b, "<div style='margin-top:18px;display:flex;gap:8px;justify-content:center;align-items:center'>");
+        if (page > 1) {
+            cwist_sstring_append(b, "<a class='btn btn-outline' rel='prev' href='");
+            cwist_sstring_append_escaped(b, base_path);
+            snprintf(buf, sizeof(buf), "?page=%d'>Prev</a>", page - 1);
+            cwist_sstring_append(b, buf);
+        }
+        snprintf(buf, sizeof(buf), "Page %d of %d", page, total_pages);
+        cwist_sstring_append(b, "<span style='padding:6px 12px;color:var(--muted)'>");
+        cwist_sstring_append(b, buf);
+        cwist_sstring_append(b, "</span>");
+        if (page < total_pages) {
+            cwist_sstring_append(b, "<a class='btn btn-outline' rel='next' href='");
+            cwist_sstring_append_escaped(b, base_path);
+            snprintf(buf, sizeof(buf), "?page=%d'>Next</a>", page + 1);
+            cwist_sstring_append(b, buf);
+        }
+        cwist_sstring_append(b, "</div>");
+    }
+
+    render_page_meta meta = {
+        .canonical_path = base_path,
+        .feed_path = feed_path,
+        .feed_title = heading,
+    };
+    render_set_page_meta(&meta);
+    cwist_sstring *page_html = render_page(heading, b->data, dark, user_role, profile_pic, is_mobile);
+    cwist_sstring_destroy(b);
+    return page_html;
+}
+
+static void append_tag_cloud(cwist_sstring *b, cJSON *tags) {
+    cwist_sstring_append(b, "<div class='tag-cloud' style='display:flex;flex-wrap:wrap;gap:8px'>");
+    cJSON *t = NULL;
+    cJSON_ArrayForEach(t, tags) {
+        const char *name = json_string_or_empty(t, "name");
+        if (!name[0]) continue;
+        char nbuf[64];
+        snprintf(nbuf, sizeof(nbuf), " <span style='opacity:.7'>%d</span>", json_int(t, "n", 0));
+        cwist_sstring_append(b, "<a class='tag' rel='tag' style='text-decoration:none' href='/tag/");
+        render_append_url_segment(b, name);
+        cwist_sstring_append(b, "'>#");
+        cwist_sstring_append_escaped(b, name);
+        cwist_sstring_append(b, nbuf);
+        cwist_sstring_append(b, "</a>");
+    }
+    cwist_sstring_append(b, "</div>");
+}
+
+cwist_sstring *render_archive(cJSON *months, cJSON *tags, bool dark, const char *user_role,
+                              const char *profile_pic, bool is_mobile) {
+    cwist_sstring *b = cwist_sstring_create();
+    cwist_sstring_assign(b, "<div class='hero'><h1>Archive</h1></div>");
+
+    if (cJSON_IsArray(tags) && cJSON_GetArraySize(tags) > 0) {
+        cwist_sstring_append(b, "<section id='tags' style='margin-bottom:32px'><h2>Tags</h2>");
+        append_tag_cloud(b, tags);
+        cwist_sstring_append(b, "</section>");
+    }
+
+    cwist_sstring_append(b, "<section id='months'><h2>Posts by month</h2>");
+    if (!cJSON_IsArray(months) || cJSON_GetArraySize(months) == 0) {
+        cwist_sstring_append(b, "<p style='color:var(--muted)'>No posts yet.</p>");
+    } else {
+        char year[8] = {0};
+        cJSON *m = NULL;
+        cJSON_ArrayForEach(m, months) {
+            const char *ym = json_string_or_empty(m, "ym");
+            if (strlen(ym) != 7) continue;
+            if (strncmp(year, ym, 4) != 0) {
+                if (year[0]) cwist_sstring_append(b, "</ul>");
+                memcpy(year, ym, 4);
+                year[4] = '\0';
+                cwist_sstring_append(b, "<h3 style='margin:20px 0 8px'>");
+                cwist_sstring_append(b, year);
+                cwist_sstring_append(b, "</h3><ul style='margin:0;padding-left:20px'>");
+            }
+            char line[160];
+            snprintf(line, sizeof(line), "<li><a href='/archive/%s'>%s</a> <span style='color:var(--muted)'>(%d)</span></li>",
+                     ym, ym, json_int(m, "n", 0));
+            cwist_sstring_append(b, line);
+        }
+        if (year[0]) cwist_sstring_append(b, "</ul>");
+    }
+    cwist_sstring_append(b, "</section>");
+
+    render_page_meta meta = { .canonical_path = "/archive" };
+    render_set_page_meta(&meta);
+    cwist_sstring *page_html = render_page("Archive", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page_html;
 }
@@ -940,6 +1131,51 @@ static cwist_sstring *render_post_build_toc(cwist_sstring *md_html) {
     return block;
 }
 
+static void append_post_link(cwist_sstring *b, cJSON *p) {
+    cwist_sstring_append(b, "<a href='/post/");
+    render_append_url_segment(b, json_string_or_empty(p, "slug"));
+    cwist_sstring_append(b, "'>");
+    const char *t = json_string_or_empty(p, "title");
+    cwist_sstring_append_escaped(b, t[0] ? t : "(untitled)");
+    cwist_sstring_append(b, "</a>");
+}
+
+/* Older/newer post links and posts sharing this one's tags. */
+static void append_post_neighbours(cwist_sstring *b, cJSON *adjacent, cJSON *related) {
+    cJSON *prev = adjacent ? cJSON_GetObjectItem(adjacent, "prev") : NULL;
+    cJSON *next = adjacent ? cJSON_GetObjectItem(adjacent, "next") : NULL;
+    if (prev || next) {
+        cwist_sstring_append(b, "<nav class='post-neighbours' aria-label='More posts' style='display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:32px;padding-top:16px;border-top:1px solid var(--border)'>");
+        cwist_sstring_append(b, "<div style='flex:1 1 240px'>");
+        if (prev) {
+            cwist_sstring_append(b, "<div style='font-size:12px;color:var(--muted)'>&larr; Older</div>");
+            append_post_link(b, prev);
+        }
+        cwist_sstring_append(b, "</div><div style='flex:1 1 240px;text-align:right'>");
+        if (next) {
+            cwist_sstring_append(b, "<div style='font-size:12px;color:var(--muted)'>Newer &rarr;</div>");
+            append_post_link(b, next);
+        }
+        cwist_sstring_append(b, "</div></nav>");
+    }
+    if (cJSON_IsArray(related) && cJSON_GetArraySize(related) > 0) {
+        cwist_sstring_append(b, "<section class='post-related' style='margin-top:24px'><h3 style='margin-bottom:8px'>Related posts</h3><ul style='margin:0;padding-left:20px'>");
+        cJSON *r = NULL;
+        cJSON_ArrayForEach(r, related) {
+            cwist_sstring_append(b, "<li>");
+            append_post_link(b, r);
+            const char *d = json_string_or_empty(r, "created_at");
+            if (strlen(d) >= 10) {
+                cwist_sstring_append(b, " <span style='color:var(--muted);font-size:13px'>");
+                cwist_sstring_append_len(b, d, 10);
+                cwist_sstring_append(b, "</span>");
+            }
+            cwist_sstring_append(b, "</li>");
+        }
+        cwist_sstring_append(b, "</ul></section>");
+    }
+}
+
 cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, const char *author_profile_pic, int user_id, const char *ephemeral_delete_pin, bool is_mobile) {
     if (!post) {
         return render_page("Post", "<p style='color:var(--muted)'>Post not found.</p>", dark, user_role, profile_pic, is_mobile);
@@ -1017,6 +1253,11 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring_append(b, " &middot; ");
     char vbuf[32]; snprintf(vbuf, sizeof(vbuf), "%d view%s", view_total, view_total == 1 ? "" : "s");
     cwist_sstring_append(b, vbuf);
+    int read_min = render_reading_minutes(content_text);
+    if (read_min > 0) {
+        char rbuf[32]; snprintf(rbuf, sizeof(rbuf), " &middot; %d min read", read_min);
+        cwist_sstring_append(b, rbuf);
+    }
     cwist_sstring_append(b, "</p>");
 
     /* Vote buttons */
@@ -1088,6 +1329,20 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         cwist_sstring_append(b, "<div class='markdown-body'>");
     }
     cwist_sstring_append(b, "</div>");
+    cJSON *post_tags = cJSON_GetObjectItem(post, "tags");
+    if (cJSON_IsArray(post_tags) && cJSON_GetArraySize(post_tags) > 0) {
+        cwist_sstring_append(b, "<div class='post-tags' style='display:flex;flex-wrap:wrap;gap:6px;margin-top:24px'>");
+        cJSON *t = NULL;
+        cJSON_ArrayForEach(t, post_tags) {
+            if (!cJSON_IsString(t)) continue;
+            cwist_sstring_append(b, "<a class='tag' rel='tag' style='text-decoration:none' href='/tag/");
+            render_append_url_segment(b, t->valuestring);
+            cwist_sstring_append(b, "'>#");
+            cwist_sstring_append_escaped(b, t->valuestring);
+            cwist_sstring_append(b, "</a>");
+        }
+        cwist_sstring_append(b, "</div>");
+    }
     cwist_sstring_append(b, "<script src='/assets/js/post-translate.js?v=10' defer></script>");
 
     /* Files */
@@ -1182,6 +1437,8 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring_append(b, code_copy_script);
     cwist_sstring_append(b, "</article>");
 
+    append_post_neighbours(b, cJSON_GetObjectItem(post, "adjacent"), cJSON_GetObjectItem(post, "related"));
+
     /* Actions */
     cwist_sstring_append(b, "<div style='margin-top:24px;display:flex;gap:10px;flex-wrap:wrap'>");
     cwist_sstring_append(b, "<a href='/' class='btn btn-outline'>Back</a>");
@@ -1234,6 +1491,42 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     }
     cwist_sstring_append(b, "</div>");
     cwist_sstring_append(b, "<script src='/assets/js/lightbox.js?v=1' defer></script>");
+
+    /* <head> metadata: summary (or an excerpt of the body) as the
+     * description, the first image as og:image. */
+    static __thread char desc_buf[640];
+    static __thread char image_buf[512];
+    static __thread char canonical_buf[600];
+    const char *summary_text = json_string_or_empty(post, "summary");
+    if (summary_text[0]) render_text_excerpt(summary_text, 160, desc_buf, sizeof(desc_buf));
+    else render_text_excerpt(content_text, 160, desc_buf, sizeof(desc_buf));
+    if (!render_find_lead_image(content_text, image_buf, sizeof(image_buf))) {
+        image_buf[0] = '\0';
+        cJSON *f = NULL;
+        cJSON_ArrayForEach(f, files) {
+            if (strcmp(render_file_media_kind(f), "image") == 0 && json_int(f, "id", 0) > 0) {
+                snprintf(image_buf, sizeof(image_buf), "/file/preview/%d", json_int(f, "id", 0));
+                break;
+            }
+        }
+    }
+    cwist_sstring *canon = cwist_sstring_create();
+    cwist_sstring_assign(canon, "/post/");
+    render_append_url_segment(canon, json_string_or_empty(post, "slug"));
+    snprintf(canonical_buf, sizeof(canonical_buf), "%s", canon->data);
+    cwist_sstring_destroy(canon);
+    render_page_meta meta = {
+        .description = desc_buf,
+        .canonical_path = canonical_buf,
+        .og_type = "article",
+        .image = image_buf[0] ? image_buf : NULL,
+        .published = date_text,
+        .modified = json_string_or_empty(post, "updated_at"),
+        .author = author && author->valuestring ? author->valuestring : NULL,
+        .tags = cJSON_IsArray(post_tags) ? post_tags : NULL,
+        .noindex = !post_is_public(post),
+    };
+    render_set_page_meta(&meta);
 
     cwist_sstring *page = render_page(title_text[0] ? title_text : "Post", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
@@ -1411,6 +1704,20 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
         char *tmp_summary = sql_escape(s && s->valuestring[0] ? s->valuestring : "");
         cwist_sstring_append(b, tmp_summary);
         cwist_free(tmp_summary);
+    }
+    cwist_sstring_append(b, "'>");
+
+    cwist_sstring_append(b, "<label for='tags-input'>Tags</label><input id='tags-input' name='tags' autocomplete='off' placeholder='comma, separated, tags' value='");
+    cJSON *editor_tags = post ? cJSON_GetObjectItem(post, "tags") : NULL;
+    if (cJSON_IsArray(editor_tags)) {
+        bool first_tag = true;
+        cJSON *t = NULL;
+        cJSON_ArrayForEach(t, editor_tags) {
+            if (!cJSON_IsString(t)) continue;
+            if (!first_tag) cwist_sstring_append(b, ", ");
+            cwist_sstring_append_escaped(b, t->valuestring);
+            first_tag = false;
+        }
     }
     cwist_sstring_append(b, "'>");
 

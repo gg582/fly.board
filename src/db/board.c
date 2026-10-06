@@ -142,6 +142,7 @@ int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, c
     sqlite3_int64 id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(fly_db_conn(db)) : 0;
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return 0;
+    db_search_index_post(db, (int)id);
     return (int)id;
 }
 
@@ -245,6 +246,9 @@ int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const
     sqlite3_int64 id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(fly_db_conn(db)) : 0;
     sqlite3_finalize(stmt);
 
+    /* Indexed inside the same transaction, so a post is never searchable
+     * without its grams. */
+    if (rc == SQLITE_DONE && id > 0) db_search_index_post(db, (int)id);
     if (rc == SQLITE_DONE && id > 0) {
         if (sqlite3_exec(fly_db_conn(db), "COMMIT", NULL, NULL, NULL) == SQLITE_OK) {
             rc = SQLITE_DONE;

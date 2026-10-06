@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "db.h"
 #include "db_internal.h"
+#include "search.h"
 #include <cwist/core/mem/alloc.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -82,6 +83,7 @@ bool db_post_update(cwist_db *db, int id, int board_id, const char *title, const
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return false;
+    db_search_index_post(db, id);
     /* Hidden again (draft or rescheduled): announce once more when it goes
      * public. A post that stays public keeps its flag. */
     const char *reset_sql = "UPDATE posts SET announced=0 WHERE id=? AND NOT (status='published' AND created_at<=CURRENT_TIMESTAMP)";
@@ -245,106 +247,157 @@ bool db_post_increment_view(cwist_db *db, int id) {
 }
 
 cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, const char *search_type, int limit, int offset) {
-    int has_board = board_id > 0;
-    int has_search = (search && search[0]);
-    char search_pattern[512] = {0};
-    if (has_search) {
-        snprintf(search_pattern, sizeof(search_pattern), "%%%s%%", search);
+    search_query q;
+    search_query_build(&q, search, search_type);
+    bool ranked = q.title_rank->size > 0;
+
+    cwist_sstring *sql = cwist_sstring_create();
+    cwist_sstring_assign(sql, "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE " POST_PUBLIC_SQL);
+    if (board_id > 0) cwist_sstring_append(sql, " AND p.board_id=?");
+    cwist_sstring_append_sstring(sql, q.where);
+    if (ranked) {
+        /* A search lists the best title matches first; browsing keeps
+         * notices pinned on top. */
+        cwist_sstring_append(sql, " ORDER BY (");
+        cwist_sstring_append_sstring(sql, q.title_rank);
+        cwist_sstring_append(sql, ") DESC, p.created_at DESC LIMIT ? OFFSET ?");
+    } else {
+        cwist_sstring_append(sql, " ORDER BY p.is_notice DESC, p.created_at DESC LIMIT ? OFFSET ?");
     }
-
-    char sql[1024] = {0};
-    strcpy(sql, "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE " POST_PUBLIC_SQL);
-
-    if (has_board) strcat(sql, " AND p.board_id=?");
-
-    if (has_search) {
-        strcat(sql, " AND ");
-        if (!search_type || !search_type[0]) {
-            strcat(sql, "(p.title LIKE ? OR p.content LIKE ?)");
-        } else if (strcmp(search_type, "title") == 0) {
-            strcat(sql, "p.title LIKE ?");
-        } else if (strcmp(search_type, "body") == 0) {
-            strcat(sql, "p.content LIKE ?");
-        } else if (strcmp(search_type, "board") == 0) {
-            strcat(sql, "b.name LIKE ?");
-        } else {
-            strcat(sql, "(p.title LIKE ? OR p.content LIKE ?)");
-        }
-    }
-
-    strcat(sql, " ORDER BY p.is_notice DESC, p.created_at DESC LIMIT ? OFFSET ?");
 
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) {
+    int rc = sqlite3_prepare_v2(fly_db_conn(db), sql->data, -1, &stmt, NULL);
+    cwist_sstring_destroy(sql);
+    if (rc != SQLITE_OK) {
+        search_query_free(&q);
         return NULL;
     }
     int idx = 1;
-    if (has_board) sqlite3_bind_int(stmt, idx++, board_id);
-    if (has_search) {
-        int is_default = (!search_type || !search_type[0] ||
-            (strcmp(search_type, "title") != 0 && strcmp(search_type, "body") != 0 && strcmp(search_type, "board") != 0));
-        sqlite3_bind_text(stmt, idx++, search_pattern, -1, SQLITE_STATIC);
-        if (is_default) {
-            sqlite3_bind_text(stmt, idx++, search_pattern, -1, SQLITE_STATIC);
-        }
-    }
+    if (board_id > 0) sqlite3_bind_int(stmt, idx++, board_id);
+    search_query_bind(&q, stmt, &idx, ranked);
     sqlite3_bind_int(stmt, idx++, limit);
     sqlite3_bind_int(stmt, idx++, offset);
+    search_query_free(&q);
     return db_sqlite3_rows_to_json(stmt);
 }
 
 int db_post_count_search(cwist_db *db, int board_id, const char *search, const char *search_type) {
-    int has_board = board_id > 0;
-    int has_search = (search && search[0]);
-    char search_pattern[512] = {0};
-    if (has_search) {
-        snprintf(search_pattern, sizeof(search_pattern), "%%%s%%", search);
-    }
+    search_query q;
+    search_query_build(&q, search, search_type);
 
-    char sql[1024] = {0};
-    int needs_join = has_search && search_type && strcmp(search_type, "board") == 0;
-    if (needs_join) {
-        strcpy(sql, "SELECT COUNT(*) FROM posts p LEFT JOIN boards b ON p.board_id=b.id");
+    cwist_sstring *sql = cwist_sstring_create();
+    if (search_type && strcmp(search_type, "board") == 0 && q.terms > 0) {
+        cwist_sstring_assign(sql, "SELECT COUNT(*) FROM posts p LEFT JOIN boards b ON p.board_id=b.id");
     } else {
-        strcpy(sql, "SELECT COUNT(*) FROM posts p");
+        cwist_sstring_assign(sql, "SELECT COUNT(*) FROM posts p");
     }
-    strcat(sql, " WHERE " POST_PUBLIC_SQL);
-
-    if (has_board) strcat(sql, " AND p.board_id=?");
-
-    if (has_search) {
-        strcat(sql, " AND ");
-        if (!search_type || !search_type[0]) {
-            strcat(sql, "(p.title LIKE ? OR p.content LIKE ?)");
-        } else if (strcmp(search_type, "title") == 0) {
-            strcat(sql, "p.title LIKE ?");
-        } else if (strcmp(search_type, "body") == 0) {
-            strcat(sql, "p.content LIKE ?");
-        } else if (strcmp(search_type, "board") == 0) {
-            strcat(sql, "b.name LIKE ?");
-        } else {
-            strcat(sql, "(p.title LIKE ? OR p.content LIKE ?)");
-        }
-    }
+    cwist_sstring_append(sql, " WHERE " POST_PUBLIC_SQL);
+    if (board_id > 0) cwist_sstring_append(sql, " AND p.board_id=?");
+    cwist_sstring_append_sstring(sql, q.where);
 
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) {
+    int rc = sqlite3_prepare_v2(fly_db_conn(db), sql->data, -1, &stmt, NULL);
+    cwist_sstring_destroy(sql);
+    if (rc != SQLITE_OK) {
+        search_query_free(&q);
         return 0;
     }
     int idx = 1;
-    if (has_board) sqlite3_bind_int(stmt, idx++, board_id);
-    if (has_search) {
-        int is_default = (!search_type || !search_type[0] ||
-            (strcmp(search_type, "title") != 0 && strcmp(search_type, "body") != 0 && strcmp(search_type, "board") != 0));
-        sqlite3_bind_text(stmt, idx++, search_pattern, -1, SQLITE_STATIC);
-        if (is_default) {
-            sqlite3_bind_text(stmt, idx++, search_pattern, -1, SQLITE_STATIC);
-        }
-    }
+    if (board_id > 0) sqlite3_bind_int(stmt, idx++, board_id);
+    search_query_bind(&q, stmt, &idx, false);
+    search_query_free(&q);
     int count = 0;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         count = sqlite3_column_int(stmt, 0);
     }
     sqlite3_finalize(stmt);
     return count;
+}
+
+/* "YYYY-MM" -> [start, end) as UTC timestamps, so the month filter can use
+ * the created_at index instead of strftime() on every row. */
+static bool month_bounds(const char *ym, char start[POST_TIME_LEN], char end[POST_TIME_LEN]) {
+    if (!ym || strlen(ym) != 7 || ym[4] != '-') return false;
+    for (int i = 0; i < 7; i++) {
+        if (i != 4 && !isdigit((unsigned char)ym[i])) return false;
+    }
+    int y = atoi(ym), m = atoi(ym + 5);
+    if (y < 1970 || y > 9998 || m < 1 || m > 12) return false;
+    int ny = m == 12 ? y + 1 : y, nm = m == 12 ? 1 : m + 1;
+    snprintf(start, POST_TIME_LEN, "%04u-%02u-01 00:00:00", (unsigned)y % 10000u, (unsigned)m % 13u);
+    snprintf(end, POST_TIME_LEN, "%04u-%02u-01 00:00:00", (unsigned)ny % 10000u, (unsigned)nm % 13u);
+    return true;
+}
+
+cJSON *db_post_archive_months(cwist_db *db) {
+    const char *sql = "SELECT substr(p.created_at, 1, 7) AS ym, COUNT(*) AS n FROM posts p WHERE " POST_PUBLIC_SQL
+                      " GROUP BY ym ORDER BY ym DESC";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    return db_sqlite3_rows_to_json(stmt);
+}
+
+cJSON *db_post_list_by_month(cwist_db *db, const char *ym, int limit, int offset) {
+    char start[POST_TIME_LEN], end[POST_TIME_LEN];
+    if (!month_bounds(ym, start, end)) return NULL;
+    const char *sql = "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id"
+                      " WHERE p.created_at>=? AND p.created_at<? AND " POST_PUBLIC_SQL
+                      " ORDER BY p.created_at DESC LIMIT ? OFFSET ?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_text(stmt, 1, start, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, end, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, limit);
+    sqlite3_bind_int(stmt, 4, offset);
+    return db_sqlite3_rows_to_json(stmt);
+}
+
+int db_post_count_by_month(cwist_db *db, const char *ym) {
+    char start[POST_TIME_LEN], end[POST_TIME_LEN];
+    if (!month_bounds(ym, start, end)) return 0;
+    const char *sql = "SELECT COUNT(*) FROM posts p WHERE p.created_at>=? AND p.created_at<? AND " POST_PUBLIC_SQL;
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, start, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, end, -1, SQLITE_TRANSIENT);
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) count = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+static cJSON *adjacent_one(cwist_db *db, const char *sql, int post_id, const char *created_at) {
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_text(stmt, 1, created_at, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, post_id);
+    return db_sqlite3_row_to_json(stmt);
+}
+
+cJSON *db_post_adjacent(cwist_db *db, int post_id, const char *created_at) {
+    cJSON *out = cJSON_CreateObject();
+    if (!out || post_id <= 0 || !created_at || !created_at[0]) return out;
+    /* Ties on created_at fall back to id so every post has one neighbour on
+     * each side. */
+    cJSON *prev = adjacent_one(db,
+        "SELECT p.slug AS slug, p.title AS title FROM posts p WHERE (p.created_at<?1 OR (p.created_at=?1 AND p.id<?2)) AND " POST_PUBLIC_SQL
+        " ORDER BY p.created_at DESC, p.id DESC LIMIT 1", post_id, created_at);
+    cJSON *next = adjacent_one(db,
+        "SELECT p.slug AS slug, p.title AS title FROM posts p WHERE (p.created_at>?1 OR (p.created_at=?1 AND p.id>?2)) AND " POST_PUBLIC_SQL
+        " ORDER BY p.created_at ASC, p.id ASC LIMIT 1", post_id, created_at);
+    if (prev) cJSON_AddItemToObject(out, "prev", prev);
+    if (next) cJSON_AddItemToObject(out, "next", next);
+    return out;
+}
+
+cJSON *db_post_feed(cwist_db *db, int board_id, int limit) {
+    const char *sql = (board_id > 0)
+        ? "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE p.board_id=? AND COALESCE(p.is_secret,0)=0 AND " POST_PUBLIC_SQL " ORDER BY p.created_at DESC LIMIT ?"
+        : "SELECT p.*, u.username as author_name, b.name as board_name FROM posts p LEFT JOIN users u ON p.user_id=u.id LEFT JOIN boards b ON p.board_id=b.id WHERE COALESCE(p.is_secret,0)=0 AND " POST_PUBLIC_SQL " ORDER BY p.created_at DESC LIMIT ?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    int idx = 1;
+    if (board_id > 0) sqlite3_bind_int(stmt, idx++, board_id);
+    sqlite3_bind_int(stmt, idx++, limit);
+    return db_sqlite3_rows_to_json(stmt);
 }
