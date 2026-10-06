@@ -164,6 +164,11 @@ cJSON *db_comment_get_by_id(cwist_db *db, int id);
 cJSON *db_comment_list_by_target(cwist_db *db, const char *target_type, int target_id);
 bool db_comment_delete_by_target(const char *target_type, int target_id);
 
+/* Post signing keys (src/db/pqc_keys.c): register the current key, load all
+ * known public keys for verification, and tag bare legacy signatures with
+ * the current key id. Call after fly_crypto_init() and db_init(). */
+bool db_pqc_keys_sync(cwist_db *db);
+
 /* Content reports (src/db/report.c) */
 #define REPORT_STATUS_OPEN "open"
 #define REPORT_STATUS_RESOLVED "resolved"

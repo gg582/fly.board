@@ -9,6 +9,9 @@
 extern "C" {
 #endif
 
+/* Hex digits in a key id: SHA-256 of the encoded public key, truncated. */
+#define FLY_PQC_KEY_ID_LEN 16
+
 /**
  * @brief Initialize flyboard PQC signing subsystem.
  * Loads the ML-DSA-65 key seed from @p seed_path, creating the file (0600)
@@ -17,34 +20,41 @@ extern "C" {
  */
 bool fly_crypto_init(const char *seed_path);
 
-/**
- * @brief Sign a message with ML-DSA-65 and return a base64-encoded signature.
- * @param[in]  msg      Message bytes (zero-copy read).
- * @param[in]  msg_len  Message length.
- * @param[out] sig_b64  Base64-encoded signature. Ownership transferred via cwist_alloc.
- * @return true on success.
- */
-bool fly_crypto_sign(const uint8_t *msg, size_t msg_len, char **sig_b64);
+/** @brief Id of the signing key; NULL before fly_crypto_init(). */
+const char *fly_crypto_key_id(void);
 
 /**
- * @brief Verify a base64-encoded ML-DSA-65 signature.
- * @param[in] msg      Message bytes (zero-copy read).
- * @param[in] msg_len  Message length.
- * @param[in] sig_b64  Base64-encoded signature.
- * @return true if valid.
+ * @brief Register an extra public key (base64) for verification only, e.g.
+ * the key of a previous host. Call before forking workers.
  */
-bool fly_crypto_verify(const uint8_t *msg, size_t msg_len, const char *sig_b64);
+bool fly_crypto_add_public_key(const char *pk_b64);
+
+/** @brief Key id of a base64 public key. */
+bool fly_crypto_key_id_of(const char *pk_b64, char out[FLY_PQC_KEY_ID_LEN + 1]);
 
 /**
- * @brief Export the global public key in base64.
+ * @brief Sign a post message with ML-DSA-65.
+ * @param[out] sig_out "<key id>:<base64 signature>". Ownership transferred via cwist_alloc.
+ */
+bool fly_crypto_sign(const uint8_t *msg, size_t msg_len, char **sig_out);
+
+/**
+ * @brief Verify a post signature against the registered key it names; a
+ * signature without a key id is checked against the signing key.
+ */
+bool fly_crypto_verify(const uint8_t *msg, size_t msg_len, const char *sig);
+
+/** @brief Sign / verify a backup manifest (separate signing context). */
+bool fly_crypto_sign_manifest(const uint8_t *msg, size_t msg_len, char **sig_out);
+bool fly_crypto_verify_manifest(const char *pk_b64, const uint8_t *msg, size_t msg_len, const char *sig);
+
+/**
+ * @brief Export the signing public key in base64.
  * @param[out] pk_b64 Base64-encoded public key. Ownership transferred.
- * @return true on success.
  */
 bool fly_crypto_pubkey_export(char **pk_b64);
 
-/**
- * @brief Clean up flyboard PQC subsystem.
- */
+/** @brief Wipe the private key. */
 void fly_crypto_cleanup(void);
 
 #ifdef __cplusplus

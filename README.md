@@ -195,7 +195,25 @@ posts       – markdown body, PQC signature, summary
 files       – attachment path/size/MIME
 comments    – nested comments (target_type, parent_id)
 board_permissions – private board access permissions
+pqc_keys    – every public key that has signed posts on this site
 ```
+
+## Backup and Migration
+
+Run from the site root (where `public/` and `data/` live):
+
+```sh
+./fly_board --backup  /srv/backups/site.fbk                 # posts, comments, boards, uploads, images, settings
+./fly_board --backup  /srv/backups/site.fbk --with-secrets  # also the signing seed, JWT secret, admin.settings, s3.settings
+./fly_board --verify  /srv/backups/site.fbk
+./fly_board --restore /srv/backups/site.fbk                 # into a fresh install; --force to replace an existing site
+```
+
+- The archive (tar + zstd) holds consistent SQLite snapshots taken while the server runs, and a manifest with the SHA-256 of every file, signed with the site's ML-DSA-65 key. `--verify` and `--restore` refuse an archive whose signature or contents do not match.
+- Secrets are sealed with AES-256-GCM under a scrypt key derived from a passphrase (`--passphrase-file`, `FLY_BACKUP_PASSPHRASE`, or a prompt; at least 12 characters).
+- Post signatures carry the id of the key that made them, and `pqc_keys` keeps every public key. A site restored without its secrets starts with a new signing key and still verifies every earlier post.
+- `--restore --force` keeps each replaced file as `<name>.pre-restore-<time>`. Backups are written `0600` and never under `public/`.
+- `./fly_board --sign-posts` signs posts whose signature is missing or no longer verifies.
 
 ## Architecture
 

@@ -4,6 +4,7 @@
 #include "crypto/fly_crypto.h"
 #include "db/db.h"
 #include "utils/spam_guard.h"
+#include "tools/backup.h"
 #include <cwist/core/mem/alloc.h>
 #include "db/db_internal.h"
 #include "utils/media_preview.h"
@@ -321,6 +322,11 @@ int main(int argc, char **argv) {
         return 1;
     }
     CWIST_LOG_INFO("Workdir verified");
+    /* Backup tooling runs before the signing key is loaded: a restore must
+     * be able to bring the old seed back instead of minting a new one. */
+    int backup_rc = fly_backup_cli(argc, argv);
+    if (backup_rc >= 0) return backup_rc;
+
     if (!fly_crypto_init("data/.pqc_mldsa65_seed")) {
         FLY_LOG_ERROR("PQC crypto init failed");
         return 1;
@@ -375,6 +381,14 @@ int main(int argc, char **argv) {
     int site_admin_uid = db_user_ensure_site_admin(db, auth_admin_username());
     if (site_admin_uid <= 0) {
         FLY_LOG_ERROR("Failed to set up the admin.settings account in the users table");
+        engine_nats_stop();
+        engine_pool_shutdown();
+        cwist_app_destroy(app);
+        fly_crypto_cleanup();
+        return 1;
+    }
+    if (!db_pqc_keys_sync(db)) {
+        FLY_LOG_ERROR("Failed to register the post signing key");
         engine_nats_stop();
         engine_pool_shutdown();
         cwist_app_destroy(app);

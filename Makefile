@@ -185,7 +185,7 @@ LIBS := $(CWIST_LIB) \
         -pthread -ldl -lm -lstdc++ -lz
 
 SRCS := src/main.c \
-        src/db/db.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/notification.c src/db/vote.c src/db/tag.c src/db/search.c src/db/report.c src/db/sql_escape.c src/db/orm.c \
+        src/db/db.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/notification.c src/db/vote.c src/db/tag.c src/db/search.c src/db/report.c src/db/pqc_keys.c src/db/sql_escape.c src/db/orm.c \
         src/auth/auth.c \
         src/crypto/fly_crypto.c \
         src/wasm_host/tasfa_crypto_wasm.c \
@@ -196,6 +196,7 @@ SRCS := src/main.c \
         src/utils/cache.c \
         src/utils/post_schedule.c \
         src/utils/spam_guard.c \
+        src/tools/backup.c \
         src/utils/reqshare.c \
         src/utils/tcp_cork_wrap.c \
         src/utils/legal.c \

@@ -50,6 +50,10 @@ void db_board_tree_reopen(void);
 void db_comment_close_thread(void);
 void db_board_tree_close_thread(void);
 
+/* Same as db_pqc_keys_sync() on a raw connection (backup tooling); with
+ * register_current false only the stored keys are loaded. */
+bool pqc_keys_sync_conn(sqlite3 *conn, bool register_current);
+
 cJSON *db_sqlite3_rows_to_json(sqlite3_stmt *stmt);
 cJSON *db_sqlite3_row_to_json(sqlite3_stmt *stmt);
 
