@@ -77,3 +77,4 @@ tools/connhold
 mail-verify
 mail-import
 mail-alias-build
+docs/mail.md
