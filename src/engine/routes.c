@@ -124,4 +124,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/metrics", handler_api_metrics);
     engine_async_post(app, "/api/reports", handler_api_reports);
     engine_async_post(app, "/post/vote", handler_post_vote);
+    engine_async_post(app, "/report", handler_report_post);
+    engine_async_get(app, "/admin/reports", handler_admin_reports_get);
+    engine_async_post(app, "/admin/reports/action", handler_admin_reports_action);
 }

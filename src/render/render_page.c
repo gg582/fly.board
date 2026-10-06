@@ -545,6 +545,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         cwist_html_element_add_attr(admin_boards, "class", "nav-admin-subitem");
         cwist_html_element_set_text(admin_boards, "Manage Boards");
         cwist_html_element_add_child(admin_menu, admin_boards);
+        cwist_html_element_t *admin_reports = cwist_html_element_create("a");
+        cwist_html_element_add_attr(admin_reports, "href", "/admin/reports");
+        cwist_html_element_add_attr(admin_reports, "class", "nav-admin-subitem");
+        cwist_html_element_set_text(admin_reports, "Reports");
+        cwist_html_element_add_child(admin_menu, admin_reports);
         cwist_html_element_add_child(admin_wrap, admin_menu);
         cwist_html_element_add_child(navlinks, admin_wrap);
     }

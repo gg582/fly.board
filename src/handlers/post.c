@@ -538,6 +538,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
     char *title = NULL, *content = NULL, *summary = NULL, *board_id_str = NULL, *media_meta = NULL;
     char *post_action = NULL, *publish_at_in = NULL, *tags_in = NULL;
+    char *spam_trap = NULL, *spam_token = NULL;
     form_field_t *files = NULL;
 
     FLY_LOG_DEBUG("ctype=%s body_len=%zu", ctype ? ctype : "NULL", req->body->size);
@@ -568,6 +569,8 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             post_action = dup_form_field(files, "post_action");
             publish_at_in = dup_form_field(files, "publish_at");
             tags_in = dup_form_field(files, "tags");
+            spam_trap = dup_form_field(files, SPAM_FIELD_TRAP);
+            spam_token = dup_form_field(files, SPAM_FIELD_TOKEN);
             FLY_LOG_DEBUG("multipart parsed: title=%s content_len=%zu board_id=%s", title ? title : "NULL", content ? strlen(content) : 0, board_id_str ? board_id_str : "NULL");
         } else {
             FLY_LOG_DEBUG("boundary not found in ctype");
@@ -589,7 +592,19 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         post_action = dup_query_field(kv, "post_action");
         publish_at_in = dup_query_field(kv, "publish_at");
         tags_in = dup_query_field(kv, "tags");
+        spam_trap = dup_query_field(kv, SPAM_FIELD_TRAP);
+        spam_token = dup_query_field(kv, SPAM_FIELD_TOKEN);
         cwist_query_map_destroy(kv);
+    }
+
+    spam_verdict_t verdict = spam_guard_check(req, uid, role, spam_trap, spam_token);
+    cwist_free(spam_trap);
+    cwist_free(spam_token);
+    if (verdict != SPAM_OK) {
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
+        multipart_free(files);
+        spam_guard_reject(res, verdict);
+        return;
     }
 
     if (!title || !content || !title[0] || !content[0]) {
@@ -916,6 +931,33 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     cwist_free(id_str);
     redirect(res, redir_target);
 }
+/* Delete a post with its files and comments and drop the cached pages that
+ * show it. Shared by the delete route and the report queue. */
+bool post_delete_everything(cwist_db *db, int post_id, const char *slug) {
+    /* Delete files and the post record in one main-DB transaction so a crash
+     * in the middle cannot leave a post pointing to deleted files. */
+    bool tx_ok = db_transaction_begin(db);
+    db_file_delete_by_post(db, post_id);
+    bool post_deleted = db_post_delete(db, post_id);
+    if (tx_ok) {
+        if (post_deleted) {
+            if (!db_transaction_commit(db)) {
+                db_transaction_rollback(db);
+                post_deleted = false;
+            }
+        } else {
+            db_transaction_rollback(db);
+        }
+    }
+    if (!post_deleted) return false;
+    /* Comments live in a separate database; best-effort cleanup after the
+     * main transaction commits. */
+    db_comment_delete_by_target("post", post_id);
+    if (slug) page_cache_invalidate_post(slug);
+    else page_cache_invalidate_all();
+    return true;
+}
+
 void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -950,32 +992,10 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     cJSON_Delete(post);
     int post_id = atoi(id_str);
 
-    /* Delete files and the post record in one main-DB transaction so a crash
-     * in the middle cannot leave a post pointing to deleted files. */
-    bool tx_ok = db_transaction_begin(req->db);
-    db_file_delete_by_post(req->db, post_id);
-    bool post_deleted = db_post_delete(req->db, post_id);
-    if (tx_ok) {
-        if (post_deleted) {
-            if (!db_transaction_commit(req->db)) {
-                db_transaction_rollback(req->db);
-                post_deleted = false;
-            }
-        } else {
-            db_transaction_rollback(req->db);
-        }
-    }
+    bool post_deleted = post_delete_everything(req->db, post_id, deleted_slug);
+    free(deleted_slug);
 
     if (post_deleted) {
-        /* Comments live in a separate database; best-effort cleanup after the
-         * main transaction commits. */
-        db_comment_delete_by_target("post", post_id);
-        if (deleted_slug) {
-            page_cache_invalidate_post(deleted_slug);
-            free(deleted_slug);
-        } else {
-            page_cache_invalidate_all();
-        }
         CWIST_LOG_INFO("Post deleted: id=%s uid=%d", id_str, uid);
         const char *ref = cwist_http_header_get(req->headers, "Referer");
         if ((ref && strstr(ref, "/drafts")) || was_unpublished) {
@@ -987,7 +1007,6 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
         CWIST_LOG_ERROR("Post delete failed: id=%s uid=%d", id_str, uid);
         res->status_code = CWIST_HTTP_INTERNAL_ERROR;
         cwist_sstring_assign(res->body, "Failed to delete post");
-        free(deleted_slug);
     }
 }
 

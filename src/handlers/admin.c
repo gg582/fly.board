@@ -9,7 +9,8 @@ void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res) 
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
     const char *msg = cwist_query_map_get(req->query_params, "msg");
-    cwist_sstring *page = render_admin_dashboard(is_dark(req), pp, is_mobile_request(req), msg);
+    cwist_sstring *page = render_admin_dashboard(is_dark(req), pp, is_mobile_request(req), msg,
+                                                 db_report_count_open(req->db));
     send_html_res(res, page);
     free(pp);
 }
@@ -36,12 +37,18 @@ void handler_admin_write_policy_post(cwist_http_request *req, cwist_http_respons
               write_scope_parse(comment_scope, &policy.comment);
     /* An unchecked checkbox is simply absent from the form body. */
     policy.require_board = cwist_query_map_get(kv, "require_board") != NULL;
+    policy.spam_honeypot = cwist_query_map_get(kv, "spam_honeypot") != NULL;
+    const char *limit = cwist_query_map_get(kv, "spam_rate_limit");
+    int limit_val = limit && limit[0] ? atoi(limit) : 0;
+    if (limit_val < 0 || limit_val > SPAM_RATE_LIMIT_MAX) ok = false;
+    else policy.spam_rate_limit = limit_val;
     cwist_query_map_destroy(kv);
     if (ok) ok = write_policy_set(req->db, &policy);
     if (ok) {
-        CWIST_LOG_INFO("Write policy updated: posts=%s comments=%s require_board=%s",
+        CWIST_LOG_INFO("Write policy updated: posts=%s comments=%s require_board=%s spam_honeypot=%s spam_rate_limit=%d",
                        write_scope_name(policy.post), write_scope_name(policy.comment),
-                       policy.require_board ? "yes" : "no");
+                       policy.require_board ? "yes" : "no", policy.spam_honeypot ? "yes" : "no",
+                       policy.spam_rate_limit);
         /* Cached pages carry the New Post button and comment forms. This
          * also bumps the shared route BDR; the other workers' page caches
          * miss through the policy generation in their keys. */

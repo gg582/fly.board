@@ -96,6 +96,13 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
     const char *content = cwist_query_map_get(kv, "content");
     const char *author_name_input = cwist_query_map_get(kv, "author_name");
     const char *referer = cwist_http_header_get(req->headers, "Referer");
+    spam_verdict_t verdict = spam_guard_check(req, uid, role, cwist_query_map_get(kv, SPAM_FIELD_TRAP),
+                                              cwist_query_map_get(kv, SPAM_FIELD_TOKEN));
+    if (verdict != SPAM_OK) {
+        cwist_query_map_destroy(kv);
+        spam_guard_reject(res, verdict);
+        return;
+    }
     if (target_type && target_id_str && content && content[0] && strcmp(target_type, "post") == 0) {
         /* Unpublished posts take comments only from those who can see them. */
         cJSON *target = db_post_get_by_id(req->db, atoi(target_id_str));
@@ -208,7 +215,11 @@ void handler_comment_delete_get(cwist_http_request *req, cwist_http_response *re
         if (comment) {
             cJSON *tt = cJSON_GetObjectItem(comment, "target_type");
             cJSON *ti = cJSON_GetObjectItem(comment, "target_id");
-            if (db_comment_delete(req->db, cid, uid)) {
+            /* Admins may remove anyone's comment, as the Delete button they
+             * see on every comment promises. */
+            bool removed = strcmp(role, "admin") == 0 ? db_comment_delete_admin(req->db, cid)
+                                                      : db_comment_delete(req->db, cid, uid);
+            if (removed) {
                 CWIST_LOG_INFO("Comment deleted: id=%d uid=%d", cid, uid);
                 if (tt && cJSON_IsString(tt) && ti && cJSON_IsNumber(ti)) {
                     invalidate_comment_target(req->db, tt->valuestring, ti->valueint);

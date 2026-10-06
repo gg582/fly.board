@@ -3,6 +3,7 @@
 #include "auth/auth.h"
 #include "crypto/fly_crypto.h"
 #include "db/db.h"
+#include "utils/spam_guard.h"
 #include <cwist/core/mem/alloc.h>
 #include "db/db_internal.h"
 #include "utils/media_preview.h"
@@ -391,6 +392,7 @@ int main(int argc, char **argv) {
     auth_site_admin_set_uid(site_admin_uid);
     CWIST_LOG_INFO("Site admin account: users.id=%d", site_admin_uid);
     write_policy_init(db);
+    spam_guard_init();
     post_schedule_init(db);
     db_file_cleanup_duplicates(db);
     if (startup_media_backfill_enabled()) {

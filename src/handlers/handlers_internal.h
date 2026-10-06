@@ -11,6 +11,7 @@
 #include "../utils/utils.h"
 #include "../utils/cache.h"
 #include "../utils/reqshare.h"
+#include "../utils/spam_guard.h"
 #include <cwist/legal.h>
 #include <cwist/board_tree.h>
 #include "../config/config.h"
@@ -45,6 +46,7 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
 
 bool secure_str_eq(const char *a, const char *b);
 cJSON *load_download_session_cached(const char *session_id);
+bool post_delete_everything(cwist_db *db, int post_id, const char *slug);
 void append_boards_flat(cJSON *out, cJSON *boards, cJSON *tree, int parent_id, int max_depth);
 
 #endif

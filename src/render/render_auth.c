@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "render.h"
 #include "render_internal.h"
+#include "utils/spam_guard.h"
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
 
@@ -74,6 +75,7 @@ cwist_sstring *render_register(bool dark, const char *error, bool is_mobile, cJS
         "    </div>"
         "    {% endfor %}"
         "    {% endif %}"
+        "    {{ spam_fields }}"
         "    <button type='submit' class='btn' style='margin-top:8px;width:100%'>Register</button>"
         "  </form>"
         "</div>"
@@ -86,6 +88,10 @@ cwist_sstring *render_register(bool dark, const char *error, bool is_mobile, cJS
     } else {
         cJSON_AddNullToObject(ctx, "error");
     }
+    cwist_sstring *spam_fields = cwist_sstring_create();
+    spam_guard_append_fields(spam_fields);
+    cJSON_AddStringToObject(ctx, "spam_fields", spam_fields->data ? spam_fields->data : "");
+    cwist_sstring_destroy(spam_fields);
     if (legal_docs && cJSON_GetArraySize(legal_docs) > 0) {
         cJSON *docs = cJSON_CreateArray();
         cJSON *doc;

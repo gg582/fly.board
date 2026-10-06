@@ -19,7 +19,13 @@ typedef struct {
     write_scope_t comment;
     /* New and edited posts must name an existing board. */
     bool require_board;
+    /* Optional spam defenses, both off by default (see utils/spam_guard.h).
+     * Neither stores anything about a writer in the database. */
+    bool spam_honeypot;   /* hidden trap field + minimum form fill time */
+    int spam_rate_limit;  /* max submissions per writer per 10 minutes; 0 = off */
 } write_policy_t;
+
+#define SPAM_RATE_LIMIT_MAX 1000
 
 /* Load the stored policy. Call once after the database is migrated and
  * before cwist_app_listen() forks the workers. */

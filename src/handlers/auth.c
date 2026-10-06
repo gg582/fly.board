@@ -221,6 +221,14 @@ void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
     const char *username = cwist_query_map_get(kv, "username");
     const char *email = cwist_query_map_get(kv, "email");
     const char *password = cwist_query_map_get(kv, "password");
+    spam_verdict_t verdict = spam_guard_check(req, 0, "", cwist_query_map_get(kv, SPAM_FIELD_TRAP),
+                                              cwist_query_map_get(kv, SPAM_FIELD_TOKEN));
+    if (verdict != SPAM_OK) {
+        cwist_query_map_destroy(kv);
+        if (legal_docs) cJSON_Delete(legal_docs);
+        spam_guard_reject(res, verdict);
+        return;
+    }
     if (!username || !email || !password || strlen(password) < 6) {
         CWIST_LOG_WARN("Registration failed: invalid input username='%s'", username ? username : "NULL");
         send_html_res(res, render_register(dark, "Invalid input (password min 6 chars)", is_mobile_request(req), legal_docs));

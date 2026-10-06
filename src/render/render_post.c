@@ -11,6 +11,7 @@
 #include "db/sql_escape.h"
 #include "db/db.h"
 #include "db/search.h"
+#include "utils/spam_guard.h"
 #include "cwist/image_contrast.h"
 #include <cwist/core/sstring/sstring.h>
 #include <cwist/core/mem/alloc.h>
@@ -281,6 +282,28 @@ void render_comment_closed_note(cwist_sstring *b, const char *user_role) {
     cwist_sstring_append(b, "</p>");
 }
 
+/* Collapsed "Report" form for a post or comment. Anyone who can read the
+ * target may report it; moderators see reports at /admin/reports. */
+static void append_report_form(cwist_sstring *b, const char *target_type, int target_id) {
+    char id_buf[32];
+    snprintf(id_buf, sizeof(id_buf), "%d", target_id);
+    cwist_sstring_append(b, "<details class='report-box' style='display:inline-block;vertical-align:top'><summary class='btn btn-outline' style='font-size:12px;padding:4px 10px;list-style:none;cursor:pointer'>Report</summary>");
+    cwist_sstring_append(b, "<form action='/report' method='post' class='card' style='margin-top:8px;max-width:420px'>");
+    cwist_sstring_append(b, "<input type='hidden' name='target_type' value='");
+    cwist_sstring_append(b, target_type);
+    cwist_sstring_append(b, "'><input type='hidden' name='target_id' value='");
+    cwist_sstring_append(b, id_buf);
+    cwist_sstring_append(b, "'><label>Reason</label><select name='reason' required>"
+                            "<option value='spam'>Spam or advertising</option>"
+                            "<option value='abuse'>Harassment or hate</option>"
+                            "<option value='illegal'>Illegal content</option>"
+                            "<option value='privacy'>Personal information</option>"
+                            "<option value='other'>Other</option></select>"
+                            "<label>Details (optional)</label><textarea name='detail' rows='3' maxlength='1000' style='width:100%;font-family:inherit;font-size:14px'></textarea>");
+    spam_guard_append_fields(b);
+    cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn' style='font-size:13px'>Send report</button></div></form></details>");
+}
+
 void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, int depth, int current_user_id, const char *user_role, int target_id) {
     int cid = json_int(comment, "id", 0);
     int comment_user_id = json_int(comment, "user_id", 0);
@@ -380,10 +403,16 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
             cwist_sstring_append(b, "<input type='text' name='author_name' placeholder='Your name' style='width:100%;font-family:inherit;font-size:14px;margin-bottom:8px' required>");
         }
         cwist_sstring_append(b, "<textarea name='content' rows='2' placeholder='Write a reply...' required style='width:100%;font-family:inherit;font-size:14px'></textarea>");
+        spam_guard_append_fields(b);
         cwist_sstring_append(b, "<div style='margin-top:6px'><button type='submit' class='btn' style='font-size:12px;padding:4px 10px'>Reply</button></div>");
         cwist_sstring_append(b, "</form></div></div>");
     }
 
+    if (!(deleted && deleted->valueint)) {
+        cwist_sstring_append(b, "<div style='margin-top:6px'>");
+        append_report_form(b, "comment", cid);
+        cwist_sstring_append(b, "</div>");
+    }
     cwist_sstring_append(b, "</div>");
 
     /* Find children */
@@ -1458,6 +1487,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         cwist_sstring_append(b, "<input type='text' name='delete_pin' placeholder='Delete PIN' required style='max-width:180px'>");
         cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' data-confirm='Delete this anonymous post?'>Delete With PIN</button></form>");
     }
+    if (post_is_public(post)) append_report_form(b, "post", post_id_val);
     cwist_sstring_append(b, "</div>");
 
     /* Comments */
@@ -1484,6 +1514,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
             cwist_sstring_append(b, "<input type='text' name='author_name' placeholder='Your name' style='width:100%;font-family:inherit;font-size:14px;margin-bottom:8px' required>");
         }
         cwist_sstring_append(b, "<textarea name='content' rows='3' placeholder='Write a comment...' required></textarea>");
+        spam_guard_append_fields(b);
         cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div>");
         cwist_sstring_append(b, "</form>");
     } else {
@@ -1854,6 +1885,8 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
         cwist_sstring_append(b, "<div style='margin-top:12px;display:flex;gap:10px'><button type='submit' class='btn'>Save</button>");
         cwist_sstring_append(b, "<a href='/' class='btn btn-outline'>Cancel</a></div>");
     }
+    /* New posts only: edits are not spam-checked. */
+    if (!post) spam_guard_append_fields(b);
     cwist_sstring_append(b, "</form></div>");
     cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=5' defer></script>");
 

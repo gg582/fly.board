@@ -164,6 +164,24 @@ cJSON *db_comment_get_by_id(cwist_db *db, int id);
 cJSON *db_comment_list_by_target(cwist_db *db, const char *target_type, int target_id);
 bool db_comment_delete_by_target(const char *target_type, int target_id);
 
+/* Content reports (src/db/report.c) */
+#define REPORT_STATUS_OPEN "open"
+#define REPORT_STATUS_RESOLVED "resolved"
+#define REPORT_STATUS_DISMISSED "dismissed"
+bool db_report_migrate(cwist_db *db);
+/* 1 when stored, 0 when this account already has an open report on the
+ * target, -1 on error. reporter_user_id 0 = anonymous (nothing stored). */
+int db_report_create(cwist_db *db, const char *target_type, int target_id, int post_id,
+                     const char *reason, const char *detail, int reporter_user_id);
+/* Newest first, at most 500; status NULL/"all" for every report. */
+cJSON *db_report_list(cwist_db *db, const char *status);
+int db_report_count_open(cwist_db *db);
+/* Close every open report on one target; returns how many were closed. */
+int db_report_close_target(cwist_db *db, const char *target_type, int target_id, const char *status,
+                           const char *resolution, int resolved_by);
+/* Admin removal of any comment (db_comment_delete only removes one's own). */
+bool db_comment_delete_admin(cwist_db *db, int id);
+
 /* User delete with cascade */
 bool db_user_delete_with_cascade(cwist_db *db, int id, bool delete_replies);
 

@@ -151,6 +151,19 @@ bool db_comment_delete(cwist_db *db, int id, int user_id) {
     return rc == SQLITE_DONE;
 }
 
+bool db_comment_delete_admin(cwist_db *db, int id) {
+    (void)db;
+    sqlite3 *conn = comments_db_conn();
+    if (!conn) return false;
+    const char *sql = "UPDATE comments SET deleted=1, content='', updated_at=CURRENT_TIMESTAMP WHERE id=? AND deleted=0";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
 cJSON *db_comment_get_by_id(cwist_db *db, int id) {
     (void)db;
     sqlite3 *conn = comments_db_conn();

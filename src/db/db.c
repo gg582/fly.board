@@ -404,6 +404,7 @@ bool db_migrate(cwist_db *db) {
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_comments_target ON comments(target_type, target_id, created_at DESC)");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_post_tags_tag ON post_tags(tag_id, post_id)");
     if (!db_search_migrate(db)) return false;
+    db_report_migrate(db);
     return true;
 }
 
