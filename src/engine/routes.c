@@ -27,6 +27,11 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get_cached(app, "/themes.json", handler_themes_json);
     engine_async_get_cached(app, "/rss.xml", handler_rss_xml);
     engine_async_get_cached(app, "/sitemap.xml", handler_sitemap_xml);
+    engine_async_get_cached(app, "/archive", handler_archive_get);
+    engine_async_get_cached(app, "/archive/:ym", handler_archive_month_get);
+    engine_async_get(app, "/tags", handler_tags_get);
+    engine_async_get_cached(app, "/tag/:name", handler_tag_get);
+    engine_async_get_cached(app, "/tag/:name/rss.xml", handler_tag_rss_xml);
     engine_async_get_cached(app, "/robots.txt", handler_robots_txt);
     engine_async_get_cached(app, "/llms.txt", handler_llms_txt);
 
@@ -71,6 +76,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/post/:id/edit", handler_post_edit_get);
     engine_async_post(app, "/post/:id/edit", handler_post_edit_post);
     engine_async_get_cached(app, "/post/:slug", handler_post_get);
+    engine_async_get_cached(app, "/board/:slug/rss.xml", handler_board_rss_xml);
     engine_async_get_cached(app, "/board/:slug", handler_post_list);
 
     engine_async_get_cached(app, "/files", handler_file_repo);

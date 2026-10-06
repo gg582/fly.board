@@ -5,6 +5,7 @@
 #include "cwist/board_tree.h"
 #include <curl/curl.h>
 #include <time.h>
+#include <ctype.h>
 #include <stdint.h>
 
 #define TRANSLATION_MAX_REQUEST (100U * 1024U)
@@ -492,17 +493,7 @@ void handler_themes_json(cwist_http_request *req, cwist_http_response *res) {
     }
 }
 
-/* ---- RSS Feed ---- */
-static char *rfc822_time(const char *iso) {
-    static char buf[64];
-    struct tm tm = {0};
-    sscanf(iso, "%d-%d-%d %d:%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec);
-    tm.tm_year -= 1900;
-    tm.tm_mon -= 1;
-    strftime(buf, sizeof(buf), "%a, %d %b %Y %H:%M:%S GMT", &tm);
-    return buf;
-}
-
+/* ---- RSS Feed: see blog.c ---- */
 static void append_rss_link(cwist_sstring *rss, const char *root, const char *path) {
     if (root && root[0]) {
         cwist_sstring_append(rss, root);
@@ -512,65 +503,6 @@ static void append_rss_link(cwist_sstring *rss, const char *root, const char *pa
         }
     }
     cwist_sstring_append(rss, path);
-}
-
-void handler_rss_xml(cwist_http_request *req, cwist_http_response *res) {
-    cJSON *posts = db_post_list_search(req->db, 0, NULL, NULL, 20, 0);
-    const char *last_modified = "";
-    char etag_buf[128] = {0};
-    if (posts && cJSON_GetArraySize(posts) > 0) {
-        cJSON *first = cJSON_GetArrayItem(posts, 0);
-        cJSON *upd = cJSON_GetObjectItem(first, "updated_at");
-        if (upd && upd->valuestring) last_modified = upd->valuestring;
-        snprintf(etag_buf, sizeof(etag_buf), "\"fly-%s\"", last_modified);
-    }
-
-    const char *if_none = cwist_http_header_get(req->headers, "If-None-Match");
-    const char *if_mod = cwist_http_header_get(req->headers, "If-Modified-Since");
-    if ((if_none && strcmp(if_none, etag_buf) == 0) || (if_mod && strcmp(if_mod, last_modified) == 0)) {
-        res->status_code = 304;
-        if (posts) cJSON_Delete(posts);
-        return;
-    }
-
-    cwist_sstring *rss = cwist_sstring_create();
-    cwist_sstring_append(rss, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n<channel>\n");
-    cwist_sstring_append(rss, "<title>"); cwist_sstring_append_escaped(rss, g_config.title); cwist_sstring_append(rss, "</title>\n");
-    cwist_sstring_append(rss, "<link>"); append_rss_link(rss, g_config.root_url, "/"); cwist_sstring_append(rss, "</link>\n");
-    cwist_sstring_append(rss, "<description>"); cwist_sstring_append_escaped(rss, g_config.subtitle); cwist_sstring_append(rss, "</description>\n");
-    cwist_sstring_append(rss, "<language>ko</language>\n");
-    if (last_modified[0]) {
-        cwist_sstring_append(rss, "<lastBuildDate>"); cwist_sstring_append(rss, rfc822_time(last_modified)); cwist_sstring_append(rss, "</lastBuildDate>\n");
-    }
-
-    if (posts) {
-        int n = cJSON_GetArraySize(posts);
-        for (int i = 0; i < n; i++) {
-            cJSON *p = cJSON_GetArrayItem(posts, i);
-            cJSON *slug = cJSON_GetObjectItem(p, "slug");
-            cJSON *title = cJSON_GetObjectItem(p, "title");
-            cJSON *summary = cJSON_GetObjectItem(p, "summary");
-            cJSON *date = cJSON_GetObjectItem(p, "created_at");
-            cwist_sstring_append(rss, "<item>\n");
-            cwist_sstring_append(rss, "<title>"); cwist_sstring_append_escaped(rss, title ? title->valuestring : ""); cwist_sstring_append(rss, "</title>\n");
-            cwist_sstring_append(rss, "<link>"); append_rss_link(rss, g_config.root_url, "/post/"); cwist_sstring_append(rss, slug->valuestring); cwist_sstring_append(rss, "</link>\n");
-            cwist_sstring_append(rss, "<guid>"); append_rss_link(rss, g_config.root_url, "/post/"); cwist_sstring_append(rss, slug->valuestring); cwist_sstring_append(rss, "</guid>\n");
-            cwist_sstring_append(rss, "<description>"); cwist_sstring_append_escaped(rss, summary && summary->valuestring ? summary->valuestring : ""); cwist_sstring_append(rss, "</description>\n");
-            if (date && date->valuestring) {
-                cwist_sstring_append(rss, "<pubDate>"); cwist_sstring_append(rss, rfc822_time(date->valuestring)); cwist_sstring_append(rss, "</pubDate>\n");
-            }
-            cwist_sstring_append(rss, "</item>\n");
-        }
-    }
-    cwist_sstring_append(rss, "</channel>\n</rss>");
-    if (posts) cJSON_Delete(posts);
-
-    cwist_http_header_add(&res->headers, "Content-Type", "application/rss+xml; charset=utf-8");
-    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
-    if (etag_buf[0]) cwist_http_header_add(&res->headers, "ETag", etag_buf);
-    if (last_modified[0]) cwist_http_header_add(&res->headers, "Last-Modified", last_modified);
-    cwist_sstring_assign(res->body, rss->data);
-    cwist_sstring_destroy(rss);
 }
 
 /* ---- Sitemap / robots ---- */
@@ -592,7 +524,7 @@ void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res) {
     cwist_sstring_append(sm, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     cwist_sstring_append(sm, "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
 
-    static const char *const static_paths[] = {"/", "/boards", "/files"};
+    static const char *const static_paths[] = {"/", "/boards", "/files", "/archive"};
     for (size_t i = 0; i < sizeof(static_paths) / sizeof(static_paths[0]); i++) {
         append_sitemap_url(sm, static_paths[i], NULL);
     }
@@ -617,6 +549,26 @@ void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res) {
         }
         cJSON_Delete(posts);
     }
+    cJSON *tags = db_tag_list_public(req->db);
+    cJSON *t = NULL;
+    cJSON_ArrayForEach(t, tags) {
+        cJSON *name = cJSON_GetObjectItem(t, "name");
+        if (!cJSON_IsString(name)) continue;
+        cwist_sstring *path = cwist_sstring_create();
+        cwist_sstring_assign(path, "/tag/");
+        static const char hex[] = "0123456789ABCDEF";
+        for (const unsigned char *c = (const unsigned char *)name->valuestring; *c; c++) {
+            if (isalnum(*c) || *c == '-' || *c == '_' || *c == '.' || *c == '~') {
+                cwist_sstring_append_len(path, (const char *)c, 1);
+            } else {
+                char esc[4] = {'%', hex[*c >> 4], hex[*c & 15], '\0'};
+                cwist_sstring_append(path, esc);
+            }
+        }
+        append_sitemap_url(sm, path->data, NULL);
+        cwist_sstring_destroy(path);
+    }
+    if (tags) cJSON_Delete(tags);
     cwist_sstring_append(sm, "</urlset>");
 
     cwist_http_header_add(&res->headers, "Content-Type", "application/xml; charset=utf-8");

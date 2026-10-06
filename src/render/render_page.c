@@ -160,6 +160,108 @@ static bool inline_asset_fits(const char *asset) {
 static __thread char g_nav_profile_name[128];
 static __thread char g_nav_profile_account[128];
 static __thread int g_nav_notif_count = 0;
+static __thread render_page_meta g_page_meta;
+static __thread bool g_page_meta_set = false;
+
+void render_set_page_meta(const render_page_meta *meta) {
+    if (meta) {
+        g_page_meta = *meta;
+        g_page_meta_set = true;
+    } else {
+        memset(&g_page_meta, 0, sizeof(g_page_meta));
+        g_page_meta_set = false;
+    }
+}
+
+/* Absolute URL for @p path under root_url; left root-relative when no
+ * root_url is configured. */
+static void page_abs_url(char *out, size_t out_size, const char *path) {
+    if (!path) { out[0] = '\0'; return; }
+    if (strncmp(path, "http://", 7) == 0 || strncmp(path, "https://", 8) == 0) {
+        snprintf(out, out_size, "%s", path);
+        return;
+    }
+    size_t rl = strlen(g_config.root_url);
+    if (rl > 0 && g_config.root_url[rl - 1] == '/') rl--;
+    snprintf(out, out_size, "%.*s%s", (int)rl, g_config.root_url, path);
+}
+
+/* "YYYY-MM-DD HH:MM:SS" (UTC) -> "YYYY-MM-DDTHH:MM:SSZ". */
+static void page_iso_time(char *out, size_t out_size, const char *t) {
+    if (!t || strlen(t) < 19) { out[0] = '\0'; return; }
+    snprintf(out, out_size, "%.10sT%.8sZ", t, t + 11);
+}
+
+static void head_meta(cwist_html_element_t *head, const char *attr, const char *name, const char *content) {
+    if (!content || !content[0]) return;
+    cwist_html_element_t *m = cwist_html_element_create("meta");
+    cwist_html_element_add_attr(m, attr, name);
+    cwist_html_element_add_attr(m, "content", content);
+    cwist_html_element_add_child(head, m);
+}
+
+static void head_link(cwist_html_element_t *head, const char *rel, const char *type, const char *title, const char *href) {
+    cwist_html_element_t *l = cwist_html_element_create("link");
+    cwist_html_element_add_attr(l, "rel", rel);
+    if (type) cwist_html_element_add_attr(l, "type", type);
+    if (title) cwist_html_element_add_attr(l, "title", title);
+    cwist_html_element_add_attr(l, "href", href);
+    cwist_html_element_add_child(head, l);
+}
+
+/* schema.org BlogPosting for article pages. '<' is written as \u003c so the
+ * JSON can never close its <script> element. */
+static void append_article_jsonld(cwist_sstring *out, const render_page_meta *pm, const char *title) {
+    if (!pm->og_type || strcmp(pm->og_type, "article") != 0) return;
+    char buf[1024];
+    cJSON *ld = cJSON_CreateObject();
+    cJSON_AddStringToObject(ld, "@context", "https://schema.org");
+    cJSON_AddStringToObject(ld, "@type", "BlogPosting");
+    cJSON_AddStringToObject(ld, "headline", title ? title : "");
+    if (pm->description && pm->description[0]) cJSON_AddStringToObject(ld, "description", pm->description);
+    if (pm->canonical_path) {
+        page_abs_url(buf, sizeof(buf), pm->canonical_path);
+        cJSON_AddStringToObject(ld, "url", buf);
+        cJSON_AddStringToObject(ld, "mainEntityOfPage", buf);
+    }
+    if (pm->image && pm->image[0]) {
+        page_abs_url(buf, sizeof(buf), pm->image);
+        cJSON_AddStringToObject(ld, "image", buf);
+    }
+    page_iso_time(buf, sizeof(buf), pm->published);
+    if (buf[0]) cJSON_AddStringToObject(ld, "datePublished", buf);
+    page_iso_time(buf, sizeof(buf), pm->modified && pm->modified[0] ? pm->modified : pm->published);
+    if (buf[0]) cJSON_AddStringToObject(ld, "dateModified", buf);
+    if (pm->author && pm->author[0]) {
+        cJSON *a = cJSON_AddObjectToObject(ld, "author");
+        cJSON_AddStringToObject(a, "@type", "Person");
+        cJSON_AddStringToObject(a, "name", pm->author);
+    }
+    cJSON *pub = cJSON_AddObjectToObject(ld, "publisher");
+    cJSON_AddStringToObject(pub, "@type", "Organization");
+    cJSON_AddStringToObject(pub, "name", g_config.title[0] ? g_config.title : "Fly Board");
+    if (pm->tags && cJSON_GetArraySize(pm->tags) > 0) {
+        cwist_sstring *kw = cwist_sstring_create();
+        cJSON *t = NULL;
+        cJSON_ArrayForEach(t, pm->tags) {
+            if (!cJSON_IsString(t)) continue;
+            if (kw->size) cwist_sstring_append(kw, ", ");
+            cwist_sstring_append(kw, t->valuestring);
+        }
+        if (kw->size) cJSON_AddStringToObject(ld, "keywords", kw->data);
+        cwist_sstring_destroy(kw);
+    }
+    char *json = cJSON_PrintUnformatted(ld);
+    cJSON_Delete(ld);
+    if (!json) return;
+    cwist_sstring_append(out, "<script type=\"application/ld+json\">");
+    for (const char *p = json; *p; p++) {
+        if (*p == '<') cwist_sstring_append(out, "\\u003c");
+        else cwist_sstring_append_len(out, p, 1);
+    }
+    cwist_sstring_append(out, "</script>");
+    free(json);
+}
 
 static char *read_file_to_string(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -274,6 +376,10 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
      * can never leak into the next request handled on the same thread. */
     int notif_count = g_nav_notif_count;
     g_nav_notif_count = 0;
+    render_page_meta pm;
+    memset(&pm, 0, sizeof(pm));
+    if (g_page_meta_set) pm = g_page_meta;
+    render_set_page_meta(NULL);
 
     cwist_html_element_t *html = cwist_html_element_create("html");
     cwist_html_element_add_attr(html, "lang", "ko");
@@ -292,33 +398,45 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(head, vp);
     cwist_html_element_add_child(head, title_el);
 
-    /* Search engines want an explicit description; the configured subtitle is
-     * the site's own one-line summary, with the title as fallback. */
-    cwist_html_element_t *desc = cwist_html_element_create("meta");
-    cwist_html_element_add_attr(desc, "name", "description");
-    cwist_html_element_add_attr(desc, "content",
-        g_config.subtitle[0] ? g_config.subtitle : (g_config.title[0] ? g_config.title : "Fly Board"));
-    cwist_html_element_add_child(head, desc);
+    /* Search engines want an explicit description: the page's own when it
+     * has one (a post's summary or excerpt), else the site subtitle. */
+    const char *site_name = g_config.title[0] ? g_config.title : "Fly Board";
+    const char *description = (pm.description && pm.description[0]) ? pm.description
+                            : (g_config.subtitle[0] ? g_config.subtitle : site_name);
+    char url_buf[1024];
+    head_meta(head, "name", "description", description);
+    if (pm.noindex) head_meta(head, "name", "robots", "noindex");
+    if (pm.canonical_path) {
+        page_abs_url(url_buf, sizeof(url_buf), pm.canonical_path);
+        head_link(head, "canonical", NULL, NULL, url_buf);
+        head_meta(head, "property", "og:url", url_buf);
+    }
+    head_meta(head, "property", "og:title", title);
+    head_meta(head, "property", "og:description", description);
+    head_meta(head, "property", "og:type", pm.og_type ? pm.og_type : "website");
+    head_meta(head, "property", "og:site_name", site_name);
+    if (pm.image && pm.image[0]) {
+        page_abs_url(url_buf, sizeof(url_buf), pm.image);
+        head_meta(head, "property", "og:image", url_buf);
+    }
+    if (pm.og_type && strcmp(pm.og_type, "article") == 0) {
+        page_iso_time(url_buf, sizeof(url_buf), pm.published);
+        head_meta(head, "property", "article:published_time", url_buf);
+        page_iso_time(url_buf, sizeof(url_buf), pm.modified);
+        head_meta(head, "property", "article:modified_time", url_buf);
+        cJSON *t = NULL;
+        cJSON_ArrayForEach(t, pm.tags) {
+            if (cJSON_IsString(t)) head_meta(head, "property", "article:tag", t->valuestring);
+        }
+    }
+    head_meta(head, "name", "twitter:card", (pm.image && pm.image[0]) ? "summary_large_image" : "summary");
 
-    cwist_html_element_t *og_title = cwist_html_element_create("meta");
-    cwist_html_element_add_attr(og_title, "property", "og:title");
-    cwist_html_element_add_attr(og_title, "content", title);
-    cwist_html_element_add_child(head, og_title);
-
-    cwist_html_element_t *og_type = cwist_html_element_create("meta");
-    cwist_html_element_add_attr(og_type, "property", "og:type");
-    cwist_html_element_add_attr(og_type, "content", "website");
-    cwist_html_element_add_child(head, og_type);
-
-    cwist_html_element_t *og_site = cwist_html_element_create("meta");
-    cwist_html_element_add_attr(og_site, "property", "og:site_name");
-    cwist_html_element_add_attr(og_site, "content", g_config.title[0] ? g_config.title : "Fly Board");
-    cwist_html_element_add_child(head, og_site);
-
-    cwist_html_element_t *tw_card = cwist_html_element_create("meta");
-    cwist_html_element_add_attr(tw_card, "name", "twitter:card");
-    cwist_html_element_add_attr(tw_card, "content", "summary_large_image");
-    cwist_html_element_add_child(head, tw_card);
+    page_abs_url(url_buf, sizeof(url_buf), "/rss.xml");
+    head_link(head, "alternate", "application/rss+xml", site_name, url_buf);
+    if (pm.feed_path) {
+        page_abs_url(url_buf, sizeof(url_buf), pm.feed_path);
+        head_link(head, "alternate", "application/rss+xml", pm.feed_title ? pm.feed_title : site_name, url_buf);
+    }
 
     const char *favicon_url = image_inline_favicon();
     if (favicon_url) {
@@ -405,6 +523,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(boards_menu, boards_list);
     cwist_html_element_add_child(boards_wrap, boards_menu);
     cwist_html_element_add_child(navlinks, boards_wrap);
+    cwist_html_element_add_child(navlinks, nav_link("/archive", "Archive"));
     cwist_html_element_add_child(navlinks, nav_link("/files", "Files"));
     if (user_role && strcmp(user_role, "admin") == 0) {
         cwist_html_element_t *admin_wrap = cwist_html_element_create("div");
@@ -643,6 +762,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
             cwist_sstring *head_shell = cwist_sstring_create();
             if (head_shell) {
                 append_hero_preload(head_shell, body_html);
+                append_article_jsonld(head_shell, &pm, title);
                 /* Fonts are split: the large Google Fonts sheet is always
                  * loaded separately so it does not bloat the first payload.
                  * The small local fallbacks are inlined when shell inlining is

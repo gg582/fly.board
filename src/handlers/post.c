@@ -360,6 +360,20 @@ void post_bdr_hit(cwist_db *db, const char *path) {
     cJSON_Delete(post);
 }
 
+/* The post's tag names as a JSON string array, attached to @p post as
+ * "tags" for the renderers. */
+static void attach_post_tags(cwist_db *db, cJSON *post) {
+    cJSON *rows = db_tag_list_by_post(db, json_int(post, "id", 0));
+    cJSON *names = cJSON_CreateArray();
+    cJSON *r = NULL;
+    cJSON_ArrayForEach(r, rows) {
+        cJSON *name = cJSON_GetObjectItem(r, "name");
+        if (cJSON_IsString(name)) cJSON_AddItemToArray(names, cJSON_CreateString(name->valuestring));
+    }
+    if (rows) cJSON_Delete(rows);
+    cJSON_AddItemToObject(post, "tags", names);
+}
+
 void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     const char *slug = cwist_query_map_get(req->path_params, "slug");
     if (!slug) { redirect(res, "/"); return; }
@@ -445,6 +459,14 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
             cJSON_Delete(author_user);
         }
     }
+    attach_post_tags(req->db, post);
+    if (post_public) {
+        cJSON *created = cJSON_GetObjectItem(post, "created_at");
+        cJSON_AddItemToObject(post, "adjacent",
+            db_post_adjacent(req->db, post_id, cJSON_IsString(created) ? created->valuestring : NULL));
+        cJSON *related = db_post_related_by_tags(req->db, post_id, 5);
+        if (related) cJSON_AddItemToObject(post, "related", related);
+    }
     const char *ephemeral_delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
     cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, author_pp, uid, ephemeral_delete_pin, mobile);
     if (page) {
@@ -515,7 +537,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
 
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
     char *title = NULL, *content = NULL, *summary = NULL, *board_id_str = NULL, *media_meta = NULL;
-    char *post_action = NULL, *publish_at_in = NULL;
+    char *post_action = NULL, *publish_at_in = NULL, *tags_in = NULL;
     form_field_t *files = NULL;
 
     FLY_LOG_DEBUG("ctype=%s body_len=%zu", ctype ? ctype : "NULL", req->body->size);
@@ -545,6 +567,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             if ((f = form_find(files, "media_meta"))) media_meta = (char *)cwist_alloc(f->len+1), memcpy(media_meta, f->data, f->len), media_meta[f->len]=0;
             post_action = dup_form_field(files, "post_action");
             publish_at_in = dup_form_field(files, "publish_at");
+            tags_in = dup_form_field(files, "tags");
             FLY_LOG_DEBUG("multipart parsed: title=%s content_len=%zu board_id=%s", title ? title : "NULL", content ? strlen(content) : 0, board_id_str ? board_id_str : "NULL");
         } else {
             FLY_LOG_DEBUG("boundary not found in ctype");
@@ -565,13 +588,14 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         strcpy(media_meta, cwist_query_map_get(kv, "media_meta") ? cwist_query_map_get(kv, "media_meta") : "[]");
         post_action = dup_query_field(kv, "post_action");
         publish_at_in = dup_query_field(kv, "publish_at");
+        tags_in = dup_query_field(kv, "tags");
         cwist_query_map_destroy(kv);
     }
 
     if (!title || !content || !title[0] || !content[0]) {
         CWIST_LOG_WARN("Post creation failed: missing title or content uid=%d", uid);
         send_post_editor_error(req, res, uid, role, board_id_str ? atoi(board_id_str) : 0, "Title and content required");
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
         multipart_free(files);
         return;
     }
@@ -581,7 +605,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         strlen(content) > MAX_POST_CONTENT_LEN) {
         CWIST_LOG_WARN("Post creation failed: input too long uid=%d", uid);
         send_post_editor_error(req, res, uid, role, board_id_str ? atoi(board_id_str) : 0, "Title, summary, or content is too long");
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
         multipart_free(files);
         return;
     }
@@ -591,7 +615,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     if (board_error) {
         CWIST_LOG_WARN("Post creation refused: %s uid=%d board_id=%d", board_error, uid, board_id);
         send_post_editor_error(req, res, uid, role, 0, board_error);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
         multipart_free(files);
         return;
     }
@@ -622,10 +646,11 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         cwist_sstring_assign(res->body, "Post creation failed");
         if (sig_b64) cwist_free(sig_b64);
         cwist_free(sl);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
         multipart_free(files);
         return;
     }
+    db_tag_set_for_post(req->db, created_id, tags_in);
     CWIST_LOG_INFO("Post created: uid=%d slug='%s' board_id=%d status=%s publish_at=%s", uid, created_slug, board_id,
                    pub.status, pub.publish_at ? pub.publish_at : "now");
     if (sig_b64) cwist_free(sig_b64);
@@ -636,7 +661,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
         cwist_free(sl);
         cwist_free(created_slug);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
         multipart_free(files);
         redirect(res, "/account/drafts");
         return;
@@ -654,7 +679,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
             cwist_free(sl);
             cwist_free(created_slug);
-            cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+            cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
             multipart_free(files);
             redirect(res, redirect_with_pin);
             return;
@@ -671,7 +696,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
 
     cwist_free(sl);
     cwist_free(created_slug);
-    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
     multipart_free(files);
     redirect(res, "/");
 }
@@ -694,6 +719,7 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res) {
     char *pp = get_profile_pic(req->db, uid, role);
     int post_id_val = json_int(post, "id", 0);
     cJSON *files = db_file_list_by_post(req->db, post_id_val);
+    attach_post_tags(req->db, post);
     const char *error = cwist_query_map_get(req->query_params, "error");
     const char *error_msg = NULL;
     if (error && strcmp(error, "board") == 0) error_msg = BOARD_ERROR_REQUIRED;
@@ -713,7 +739,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
 
     const char *ctype = cwist_http_header_get(req->headers, "Content-Type");
     char *title = NULL, *content = NULL, *summary = NULL, *id_str = NULL, *board_id_str = NULL, *media_meta = NULL;
-    char *post_action = NULL, *publish_at_in = NULL;
+    char *post_action = NULL, *publish_at_in = NULL, *tags_in = NULL;
     form_field_t *files = NULL;
 
     const char *path_id = cwist_query_map_get(req->path_params, "id");
@@ -758,6 +784,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
             if ((f = form_find(files, "media_meta"))) media_meta = (char *)cwist_alloc(f->len+1), memcpy(media_meta, f->data, f->len), media_meta[f->len]=0;
             post_action = dup_form_field(files, "post_action");
             publish_at_in = dup_form_field(files, "publish_at");
+            tags_in = dup_form_field(files, "tags");
         }
     } else {
         cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
@@ -776,12 +803,13 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         strcpy(media_meta, cwist_query_map_get(kv, "media_meta") ? cwist_query_map_get(kv, "media_meta") : "[]");
         post_action = dup_query_field(kv, "post_action");
         publish_at_in = dup_query_field(kv, "publish_at");
+        tags_in = dup_query_field(kv, "tags");
         cwist_query_map_destroy(kv);
     }
 
     if (!id_str || !title || !content || !title[0] || !content[0]) {
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
         multipart_free(files);
         redirect(res, "/");
         return;
@@ -792,7 +820,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         strlen(content) > MAX_POST_CONTENT_LEN) {
         CWIST_LOG_WARN("Post edit failed: input too long id=%s uid=%d", id_str, uid);
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
         multipart_free(files);
         redirect(res, "/");
         return;
@@ -802,7 +830,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     if (!post) {
         CWIST_LOG_WARN("Post edit failed: post not found id=%s uid=%d", id_str, uid);
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
         multipart_free(files);
         redirect(res, "/");
         return;
@@ -813,7 +841,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         cwist_sstring_assign(res->body, "Forbidden");
         cJSON_Delete(post);
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
         multipart_free(files);
         return;
     }
@@ -826,7 +854,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
                  strcmp(board_error, BOARD_ERROR_DENIED) == 0 ? "board_denied" : "board");
         cJSON_Delete(post);
         reqshare_write_lock_release(wl_key);
-        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
         multipart_free(files);
         redirect(res, edit_url);
         return;
@@ -855,6 +883,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     if (sig_b642) cwist_free(sig_b642);
 
     attach_media_meta_to_post(req->db, media_meta, atoi(id_str), uid, role);
+    if (tags_in) db_tag_set_for_post(req->db, atoi(id_str), tags_in);
 
     cJSON *saved = db_post_get_by_id(req->db, atoi(id_str));
     bool public_now = post_is_public(saved);
@@ -873,7 +902,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     page_cache_invalidate_all();
 
     reqshare_write_lock_release(wl_key);
-    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in);
+    cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in);
     multipart_free(files);
     char redir_target[128];
     if (!public_now) {
