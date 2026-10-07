@@ -33,6 +33,7 @@ bool db_file_create_volume(cwist_db *db, int post_id, int user_id, const char *f
     sqlite3_bind_int64(stmt, 6, (sqlite3_int64)len);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) db_sync_journal_row(db, "files", "file", (int)sqlite3_last_insert_rowid(fly_db_conn(db)));
     return rc == SQLITE_DONE;
 }
 
@@ -54,6 +55,7 @@ int db_file_create_volume_get_id(cwist_db *db, int post_id, int user_id, const c
         id = -1;
     }
     sqlite3_finalize(stmt);
+    if (id > 0) db_sync_journal_row(db, "files", "file", id);
     return id;
 }
 
@@ -152,6 +154,9 @@ bool db_file_delete(cwist_db *db, int id) {
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        db_sync_journal(db, "file", id, "delete", "");
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -172,6 +177,17 @@ int db_file_drop_all(cwist_db *db) {
             count = sqlite3_column_int(stmt, 0);
         }
         sqlite3_finalize(stmt);
+    }
+    /* Journal one delete per row so replicas drop their copies too. The
+     * ids were listed above (rows already deleted from disk by then). */
+    if (count > 0) {
+        sqlite3_stmt *idst = NULL;
+        if (sqlite3_prepare_v2(fly_db_conn(db), "SELECT id FROM files", -1, &idst, NULL) == SQLITE_OK) {
+            while (sqlite3_step(idst) == SQLITE_ROW) {
+                db_sync_journal(db, "file", sqlite3_column_int(idst, 0), "delete", "");
+            }
+            sqlite3_finalize(idst);
+        }
     }
     sqlite3_exec(fly_db_conn(db), "DELETE FROM files", NULL, NULL, NULL);
     return count;
@@ -195,6 +211,9 @@ bool db_file_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_ha
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        db_sync_journal_row(db, "files", "file", id);
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -208,6 +227,9 @@ bool db_file_update_file_path(cwist_db *db, int id, const char *file_path) {
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        db_sync_journal_row(db, "files", "file", id);
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -220,6 +242,9 @@ bool db_file_set_preview_paths(cwist_db *db, int id, const char *thumb_path, con
     sqlite3_bind_int(stmt, 3, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        db_sync_journal_row(db, "files", "file", id);
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -232,6 +257,9 @@ bool db_file_attach_to_post(cwist_db *db, int id, int post_id, int is_inline) {
     sqlite3_bind_int(stmt, 3, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        db_sync_journal_row(db, "files", "file", id);
+    }
     return rc == SQLITE_DONE;
 }
 

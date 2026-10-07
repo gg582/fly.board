@@ -50,6 +50,12 @@ void db_board_tree_reopen(void);
 void db_comment_close_thread(void);
 void db_board_tree_close_thread(void);
 
+/* The calling thread's connection to the auxiliary databases, opened lazily.
+ * Used by the FlyWire replica applier (src/engine/flywire.c) to apply journal
+ * rows directly with SQL. */
+sqlite3 *db_comment_conn(void);
+sqlite3 *db_board_tree_conn(void);
+
 /* Same as db_pqc_keys_sync() on a raw connection (backup tooling); with
  * register_current false only the stored keys are loaded. */
 bool pqc_keys_sync_conn(sqlite3 *conn, bool register_current);

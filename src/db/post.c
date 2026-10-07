@@ -91,7 +91,9 @@ bool db_post_update(cwist_db *db, int id, int board_id, const char *title, const
     sqlite3_bind_int(stmt, 1, id);
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE;
+    if (rc != SQLITE_DONE) return false;
+    db_sync_journal_row(db, "posts", "post", id);
+    return true;
 }
 
 cJSON *db_post_claim_unannounced(cwist_db *db) {
@@ -140,6 +142,9 @@ bool db_post_delete(cwist_db *db, int id) {
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        db_sync_journal(db, "post", id, "delete", "");
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -151,6 +156,9 @@ bool db_post_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_ha
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        db_sync_journal_row(db, "posts", "post", id);
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -415,5 +423,8 @@ bool db_post_set_signature(cwist_db *db, int id, const char *pqc_signature) {
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        db_sync_journal_row(db, "posts", "post", id);
+    }
     return rc == SQLITE_DONE;
 }

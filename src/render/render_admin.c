@@ -296,6 +296,36 @@ static void append_upload_policy_section(cwist_sstring *b, const char *msg) {
         "</script></section>");
 }
 
+static void append_flywire_section(cwist_sstring *b, cJSON *fw) {
+    const char *mode = bstr(fw, "mode");
+    cwist_sstring_append(b, "<section id='flywire' class='board-line fade-in' style='animation-delay:0.22s'><div class='board-line-head'><h2 class='board-line-title'>FlyWire</h2></div>");
+    cwist_sstring_append(b, "<p class='board-card-desc'>Run this site on multiple servers: a primary serves reads and writes, replicas serve read-only copies kept in near-real-time sync (first bootstrap with <code>fly_board --restore</code>, then an internal delta feed). View counters are not synced.</p>");
+    cwist_sstring_append(b, "<p><strong>Mode:</strong> ");
+    if (!mode[0]) cwist_sstring_append(b, "off");
+    else {
+        cwist_sstring_append_escaped(b, mode);
+        if (!strcmp(mode, "replica")) {
+            cwist_sstring_append(b, " &middot; primary: <code>");
+            cwist_sstring_append_escaped(b, bstr(fw, "primary_url"));
+            cwist_sstring_append(b, "</code>");
+        }
+    }
+    cwist_sstring_append(b, "<br><strong>Local checkpoint:</strong> seq ");
+    cwist_sstring_append(b, bstr(fw, "local_seq"));
+    if (!strcmp(mode, "primary")) {
+        cwist_sstring_append(b, "<br><strong>Journal:</strong> ");
+        cwist_sstring_append(b, bstr(fw, "journal_count"));
+        cwist_sstring_append(b, " rows, newest seq ");
+        cwist_sstring_append(b, bstr(fw, "journal_max"));
+        if (bstr(fw, "token_set")[0] == '0') {
+            cwist_sstring_append(b, "<br><span style='color:#c00'>No token configured in flywire.settings: the feed is disabled.</span>");
+        }
+    }
+    cwist_sstring_append(b, "</p>");
+    cwist_sstring_append(b, "<p class='board-card-desc'>Editing is not available here in this version: operators edit <code>flywire.settings</code> (mode, primary_url, token, poll_seconds) and restart the service.</p>");
+    cwist_sstring_append(b, "</section>");
+}
+
 static void append_test_email_section(cwist_sstring *b, const char *msg) {
     cwist_sstring_append(b, "<section id='test-email' class='board-line fade-in' style='animation-delay:0.25s'><div class='board-line-head'><h2 class='board-line-title'>Test Email</h2></div>");
     if (msg && !strcmp(msg, "test_email_sent")) {
@@ -312,7 +342,7 @@ static void append_test_email_section(cwist_sstring *b, const char *msg) {
     cwist_sstring_append(b, "</form></section>");
 }
 
-cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile, const char *msg, int open_reports, cJSON *backup) {
+cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile, const char *msg, int open_reports, cJSON *backup, cJSON *flywire) {
     cwist_sstring *b = cwist_sstring_create();
     cwist_sstring_assign(b, "<div class='hero'><h1>Dashboard</h1></div>");
     cwist_sstring_append(b, "<div class='board-list stagger'>");
@@ -335,6 +365,7 @@ cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool i
     append_write_policy_section(b, msg);
     append_upload_policy_section(b, msg);
     append_backup_section(b, backup, msg);
+    append_flywire_section(b, flywire);
     append_test_email_section(b, msg);
     append_broadcast_section(b, msg);
     cwist_sstring_append(b, "</div>");

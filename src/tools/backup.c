@@ -812,6 +812,16 @@ int fly_backup_write(const char *out_path, const char *passphrase) {
     sqlite3_busy_timeout(live, 10000);
     bool synced = pqc_keys_sync_conn(live, true);
     if (synced) count_signatures(live, &posts, &valid);
+    /* FlyWire checkpoint: the journal position this archive corresponds to,
+     * so a replica restored from it resumes the delta feed right here. */
+    long long flywire_cp = 0;
+    {
+        sqlite3_stmt *cpst = NULL;
+        if (sqlite3_prepare_v2(live, "SELECT COALESCE(MAX(seq),0) FROM sync_journal", -1, &cpst, NULL) == SQLITE_OK) {
+            if (sqlite3_step(cpst) == SQLITE_ROW) flywire_cp = sqlite3_column_int64(cpst, 0);
+            sqlite3_finalize(cpst);
+        }
+    }
     sqlite3_close(live);
     if (!synced) {
         say("cannot register the signing key in data/blog.db");
@@ -873,6 +883,9 @@ int fly_backup_write(const char *out_path, const char *passphrase) {
     cJSON_AddNumberToObject(counts, "signed_posts", valid);
     cJSON_AddNumberToObject(counts, "files", c.files);
     cJSON_AddNumberToObject(counts, "bytes", (double)c.bytes);
+    /* FlyWire replica checkpoint: MAX(seq) of the change journal at archive
+     * time. A replica restored from this archive resumes the feed after it. */
+    cJSON_AddNumberToObject(m, "flywire_checkpoint", (double)flywire_cp);
 
     int nsecrets = 0;
     if (ok && with_secrets) {
@@ -921,6 +934,18 @@ int fly_backup_write(const char *out_path, const char *passphrase) {
         unlink(tmp_out);
         say("backup FAILED");
         return 1;
+    }
+    /* The archive carries a journal checkpoint, so rows older than the
+     * retention window can go once the archive exists (startup also purges). */
+    {
+        sqlite3 *jconn = NULL;
+        if (sqlite3_open("data/blog.db", &jconn) == SQLITE_OK) {
+            sqlite3_busy_timeout(jconn, 10000);
+            sqlite3_exec(jconn,
+                         "DELETE FROM sync_journal WHERE created_at < datetime('now', '-7 days')",
+                         NULL, NULL, NULL);
+            sqlite3_close(jconn);
+        }
     }
     struct stat st;
     stat(out_path, &st);
@@ -1161,6 +1186,24 @@ static int cmd_restore(const char *in_path, bool force, const char *pass_file) {
         say("  earlier posts keep verifying with the public keys stored in the database.");
     }
     if (existing) say("  replaced files were kept with the suffix .pre-restore-%s", suffix);
+    /* FlyWire seed marker: the archive knows which journal position it
+     * corresponds to (0 when written before FlyWire existed). A replica
+     * resumes delta sync from here. */
+    {
+        long long cp = 0;
+        cJSON *cpj = cJSON_GetObjectItem(m, "flywire_checkpoint");
+        if (cJSON_IsNumber(cpj)) cp = (long long)cpj->valuedouble;
+        char cpbuf[32];
+        snprintf(cpbuf, sizeof(cpbuf), "%lld", cp);
+        char seq_tmp[PATH_MAX];
+        snprintf(seq_tmp, sizeof(seq_tmp), "%s.tmp", "data/.flywire_seq");
+        int sfd = open(seq_tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        bool seq_ok = sfd >= 0 && write(sfd, cpbuf, strlen(cpbuf)) == (ssize_t)strlen(cpbuf);
+        if (sfd >= 0) close(sfd);
+        if (seq_ok) seq_ok = rename(seq_tmp, "data/.flywire_seq") == 0;
+        if (seq_ok) say("  flywire checkpoint: %lld (data/.flywire_seq)", cp);
+        else say("  warning: could not write data/.flywire_seq");
+    }
     cJSON_Delete(m);
     return (failed || !db_ok) ? 1 : 0;
 }

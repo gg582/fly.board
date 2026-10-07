@@ -21,5 +21,8 @@ bool engine_settings_load(void) {
     CWIST_LOG_INFO("Robots policy loaded (robots=%s, llms=%s)", robots_level(), llms_level());
     upload_policy_load("upload.settings");
     CWIST_LOG_INFO("Upload policy loaded (mode=%s)", upload_policy_mode());
+    flywire_config_load("flywire.settings");
+    if (flywire_is_primary()) CWIST_LOG_INFO("FlyWire: primary mode (serving /flywire/feed)");
+    else if (flywire_is_replica()) CWIST_LOG_INFO("FlyWire: replica of %s", flywire_primary_url());
     return true;
 }

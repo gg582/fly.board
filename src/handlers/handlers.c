@@ -473,6 +473,21 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
         return;
     }
 
+    /* FlyWire replica mode: the site is a read-only copy. Block every
+     * mutating method centrally, except logging in/out so an admin can still
+     * look around (reading works anonymously for everyone else). */
+    if (flywire_is_replica() &&
+        req->method != CWIST_HTTP_GET && req->method != CWIST_HTTP_HEAD) {
+        bool allowed = strncmp(path, "/login", 6) == 0 || strncmp(path, "/logout", 7) == 0;
+        if (!allowed) {
+            res->status_code = CWIST_HTTP_SERVICE_UNAVAILABLE;
+            cwist_sstring_assign(res->status_text, "Replica is read-only");
+            cwist_sstring_assign(res->body, "This site is a FlyWire replica and accepts only read requests.");
+            maybe_trim_heap();
+            return;
+        }
+    }
+
     const char *m = cwist_http_method_to_string(req->method);
     const char *p = (req->path && req->path->data) ? req->path->data : "?";
     CWIST_LOG_DEBUG("%s %s", m ? m : "?", p ? p : "?");

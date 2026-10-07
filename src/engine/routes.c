@@ -148,4 +148,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_post(app, "/report", handler_report_post);
     engine_async_get(app, "/admin/reports", handler_admin_reports_get);
     engine_async_post(app, "/admin/reports/action", handler_admin_reports_action);
+
+    /* FlyWire delta feed (primary mode only; 404 otherwise) */
+    engine_async_get(app, "/flywire/feed", handler_flywire_feed);
 }

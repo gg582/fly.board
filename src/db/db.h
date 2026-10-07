@@ -16,6 +16,19 @@ bool db_transaction_rollback(cwist_db *db);
 bool db_site_setting_get(cwist_db *db, const char *key, char *out, size_t out_len);
 bool db_site_setting_set(cwist_db *db, const char *key, const char *value);
 
+/* FlyWire change journal (src/db/db_sync.c). Journal writes never fail the
+ * calling mutation: errors are logged and swallowed. */
+bool db_sync_journal(cwist_db *db, const char *entity, int entity_id, const char *op, const char *payload);
+bool db_sync_journal_conn(sqlite3 *conn, const char *entity, int entity_id, const char *op, const char *payload);
+bool db_sync_journal_row(cwist_db *db, const char *table, const char *entity, int id);
+bool db_sync_journal_external(const char *entity, int entity_id, const char *op, const char *payload);
+bool db_sync_journal_external_row(sqlite3 *row_conn, const char *table, const char *key_col,
+                                  const char *entity, int id);
+void db_sync_journal_purge(cwist_db *db);
+long long db_sync_journal_max_seq(cwist_db *db);
+long long db_sync_journal_min_seq(cwist_db *db);
+long long db_sync_journal_count(cwist_db *db);
+
 /* Users */
 cJSON *db_user_get_by_username(cwist_db *db, const char *username);
 cJSON *db_user_get_by_id(cwist_db *db, int id);

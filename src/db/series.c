@@ -42,7 +42,12 @@ int db_series_create(cwist_db *db, const char *title, int user_id) {
     else sqlite3_bind_null(st, 2);
     int rc = sqlite3_step(st);
     sqlite3_finalize(st);
-    return rc == SQLITE_DONE ? (int)sqlite3_last_insert_rowid(conn) : 0;
+    if (rc == SQLITE_DONE) {
+        int id = (int)sqlite3_last_insert_rowid(conn);
+        db_sync_journal_row(db, "series", "series", id);
+        return id;
+    }
+    return 0;
 }
 
 cJSON *db_series_get(cwist_db *db, int id) {
@@ -156,6 +161,7 @@ bool db_post_set_series(cwist_db *db, int post_id, int series_id, int pos) {
     }
     if (ok) {
         sqlite3_exec(conn, "RELEASE series_move", NULL, NULL, NULL);
+        db_sync_journal_row(db, "posts", "post", post_id);
     } else {
         sqlite3_exec(conn, "ROLLBACK TO series_move", NULL, NULL, NULL);
         sqlite3_exec(conn, "RELEASE series_move", NULL, NULL, NULL);
@@ -172,6 +178,9 @@ bool db_series_set_order(cwist_db *db, int series_id, const int *post_ids, int n
     }
     sqlite3_exec(conn, ok ? "RELEASE series_order" : "ROLLBACK TO series_order", NULL, NULL, NULL);
     if (!ok) sqlite3_exec(conn, "RELEASE series_order", NULL, NULL, NULL);
+    if (ok) {
+        for (int i = 0; i < n; i++) db_sync_journal_row(db, "posts", "post", post_ids[i]);
+    }
     return ok;
 }
 
@@ -183,6 +192,9 @@ bool db_series_update(cwist_db *db, int id, const char *title, const char *descr
     sqlite3_bind_int(st, 3, id);
     int rc = sqlite3_step(st);
     sqlite3_finalize(st);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        db_sync_journal_row(db, "series", "series", id);
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -202,7 +214,11 @@ bool db_series_delete(cwist_db *db, int id) {
         sqlite3_step(st);
         sqlite3_finalize(st);
     }
-    if (ok) return db_transaction_commit(db);
+    if (ok) {
+        bool committed = db_transaction_commit(db);
+        if (committed) db_sync_journal(db, "series", id, "delete", "");
+        return committed;
+    }
     db_transaction_rollback(db);
     return false;
 }
@@ -269,15 +285,36 @@ bool db_i18n_set(cwist_db *db, const char *kind, int id, const char *lang, int p
     if (!i18n_kind_valid(kind) || id <= 0 || (lang && !i18n_lang_valid(lang))) return false;
     sqlite3 *conn = fly_db_conn(db);
     if (!i18n_upsert(conn, kind, id, lang, 0, lang != NULL, false)) return false;
-    if (pair_with < 0) return i18n_upsert(conn, kind, id, NULL, 0, false, true);
-    if (pair_with == 0 || pair_with == id) return true;
-    /* Join the other item's group, starting one keyed by its id. */
-    int grp = i18n_group_of(conn, kind, pair_with);
-    if (grp == 0) {
-        grp = pair_with;
-        if (!i18n_upsert(conn, kind, pair_with, NULL, grp, false, true)) return false;
+    bool ok = true;
+    if (pair_with < 0) ok = i18n_upsert(conn, kind, id, NULL, 0, false, true);
+    else if (pair_with == 0 || pair_with == id) ok = true;
+    else {
+        /* Join the other item's group, starting one keyed by its id. */
+        int grp = i18n_group_of(conn, kind, pair_with);
+        if (grp == 0) {
+            grp = pair_with;
+            ok = i18n_upsert(conn, kind, pair_with, NULL, grp, false, true);
+        }
+        if (ok) ok = i18n_upsert(conn, kind, id, NULL, grp, false, true);
     }
-    return i18n_upsert(conn, kind, id, NULL, grp, false, true);
+    if (ok) {
+        /* Journal the full i18n row ({kind,item_id,lang,grp}) for the item. */
+        sqlite3_stmt *st = NULL;
+        if (sqlite3_prepare_v2(conn, "SELECT kind, item_id, lang, grp FROM i18n WHERE kind=? AND item_id=?", -1, &st, NULL) == SQLITE_OK) {
+            sqlite3_bind_text(st, 1, kind, -1, SQLITE_STATIC);
+            sqlite3_bind_int(st, 2, id);
+            cJSON *row = db_sqlite3_row_to_json(st);
+            if (row) {
+                char *payload = cJSON_PrintUnformatted(row);
+                if (payload) {
+                    db_sync_journal(db, "i18n", id, "upsert", payload);
+                    free(payload);
+                }
+                cJSON_Delete(row);
+            }
+        }
+    }
+    return ok;
 }
 
 cJSON *db_i18n_siblings(cwist_db *db, const char *kind, int id, bool public_only) {

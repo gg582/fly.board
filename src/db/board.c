@@ -19,6 +19,7 @@ bool db_board_create(cwist_db *db, const char *name, const char *slug, const cha
     sqlite3_bind_int(stmt, 7, comment_perm);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) db_sync_journal_row(db, "boards", "board", (int)sqlite3_last_insert_rowid(fly_db_conn(db)));
     return rc == SQLITE_DONE;
 }
 
@@ -29,6 +30,9 @@ bool db_board_delete(cwist_db *db, int id) {
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        db_sync_journal(db, "board", id, "delete", "");
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -46,6 +50,9 @@ bool db_board_update(cwist_db *db, int id, const char *name, const char *slug, c
     sqlite3_bind_int(stmt, 8, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        db_sync_journal_row(db, "boards", "board", id);
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -96,6 +103,7 @@ bool db_board_perm_grant(cwist_db *db, int board_id, int user_id) {
     sqlite3_bind_int(stmt, 2, user_id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) db_sync_journal_row(db, "board_permissions", "board_perm", (int)sqlite3_last_insert_rowid(fly_db_conn(db)));
     return rc == SQLITE_DONE;
 }
 
@@ -107,6 +115,12 @@ bool db_board_perm_revoke(cwist_db *db, int board_id, int user_id) {
     sqlite3_bind_int(stmt, 2, user_id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        /* The composite key is the natural id for replicas. */
+        char payload[96];
+        snprintf(payload, sizeof(payload), "{\"board_id\":%d,\"user_id\":%d}", board_id, user_id);
+        db_sync_journal(db, "board_perm", board_id, "delete", payload);
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -143,6 +157,7 @@ int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, c
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return 0;
     db_search_index_post(db, (int)id);
+    db_sync_journal_row(db, "posts", "post", (int)id);
     return (int)id;
 }
 
@@ -267,5 +282,6 @@ int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const
     }
     if (out_slug) *out_slug = final_slug;
     else cwist_free(final_slug);
+    db_sync_journal_row(db, "posts", "post", (int)id);
     return (int)id;
 }

@@ -207,4 +207,26 @@ const char *upload_policy_mode(void);
 /* Comma-separated list for the current mode (for display/editing). */
 const char *upload_policy_active_list(void);
 
+/* FlyWire primary/replica site synchronization (flywire.settings).
+ * mode: "" (off, default), "primary" (serve /flywire/feed and journal every
+ * content mutation) or "replica" (poll the primary's feed and apply it;
+ * the site is read-only except login). */
+typedef struct {
+    char mode[16];
+    char primary_url[256];  /* e.g. https://oborona.zip (no trailing slash) */
+    char token[128];        /* shared secret for the feed */
+    int poll_seconds;       /* 1..60, default 2 */
+} flywire_config_t;
+
+extern flywire_config_t g_flywire;
+
+bool flywire_config_load(const char *path);
+/* "primary", "replica" or "" (off). */
+const char *flywire_mode(void);
+bool flywire_is_primary(void);
+bool flywire_is_replica(void);
+const char *flywire_token(void);
+const char *flywire_primary_url(void);
+int flywire_poll_seconds(void);
+
 #endif

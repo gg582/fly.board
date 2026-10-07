@@ -5,6 +5,7 @@
 #include "config/write_policy.h"
 #include "tools/backup.h"
 #include "utils/email.h"
+#include "engine/flywire.h"
 #include <openssl/mem.h>
 
 void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res) {
@@ -40,8 +41,28 @@ void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res) 
         db_site_setting_get(req->db, status_keys[i], value, sizeof(value));
         cJSON_AddStringToObject(backup, status_keys[i] + 7, value); /* drop "backup_" */
     }
+    /* FlyWire card: mode/URLs/checkpoint; on a primary also journal stats. */
+    cJSON *flywire = cJSON_CreateObject();
+    cJSON_AddStringToObject(flywire, "mode", flywire_mode());
+    cJSON_AddStringToObject(flywire, "primary_url", flywire_primary_url());
+    {
+        char seqbuf[32];
+        snprintf(seqbuf, sizeof(seqbuf), "%lld", flywire_checkpoint_read());
+        cJSON_AddStringToObject(flywire, "local_seq", seqbuf);
+    }
+    {
+        long long jmax = db_sync_journal_max_seq(req->db);
+        long long jcount = db_sync_journal_count(req->db);
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%lld", jmax);
+        cJSON_AddStringToObject(flywire, "journal_max", buf);
+        snprintf(buf, sizeof(buf), "%lld", jcount);
+        cJSON_AddStringToObject(flywire, "journal_count", buf);
+        cJSON_AddStringToObject(flywire, "token_set", flywire_token()[0] ? "1" : "0");
+    }
     cwist_sstring *page = render_admin_dashboard(is_dark(req), pp, is_mobile_request(req), msg,
-                                                 db_report_count_open(req->db), backup);
+                                                 db_report_count_open(req->db), backup, flywire);
+    cJSON_Delete(flywire);
     cJSON_Delete(backup);
     send_html_res(res, page);
     free(pp);

@@ -15,6 +15,20 @@ bool db_post_vote(cwist_db *db, int post_id, int user_id, int vote_type) {
     sqlite3_bind_int(stmt, 3, vote_type);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) {
+        sqlite3_stmt *st = NULL;
+        if (sqlite3_prepare_v2(fly_db_conn(db), "SELECT id FROM post_votes WHERE post_id=? AND user_id=?", -1, &st, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(st, 1, post_id);
+            sqlite3_bind_int(st, 2, user_id);
+            if (sqlite3_step(st) == SQLITE_ROW) {
+                int row_id = sqlite3_column_int(st, 0);
+                sqlite3_finalize(st);
+                db_sync_journal_row(db, "post_votes", "vote", row_id);
+            } else {
+                sqlite3_finalize(st);
+            }
+        }
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -24,8 +38,20 @@ bool db_post_vote_remove(cwist_db *db, int post_id, int user_id) {
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, post_id);
     sqlite3_bind_int(stmt, 2, user_id);
+    /* Remember the row id before it is gone, for the journal entry. */
+    int row_id = 0;
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), "SELECT id FROM post_votes WHERE post_id=? AND user_id=?", -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_int(st, 1, post_id);
+        sqlite3_bind_int(st, 2, user_id);
+        if (sqlite3_step(st) == SQLITE_ROW) row_id = sqlite3_column_int(st, 0);
+        sqlite3_finalize(st);
+    }
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && row_id > 0 && sqlite3_changes(fly_db_conn(db)) > 0) {
+        db_sync_journal(db, "vote", row_id, "delete", "");
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -37,6 +63,7 @@ bool db_post_vote_anon(cwist_db *db, int post_id, int vote_type) {
     sqlite3_bind_int(stmt, 2, vote_type);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) db_sync_journal_row(db, "post_votes_anon", "vote_anon", (int)sqlite3_last_insert_rowid(fly_db_conn(db)));
     return rc == SQLITE_DONE;
 }
 

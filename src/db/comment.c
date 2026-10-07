@@ -44,6 +44,10 @@ static sqlite3 *comments_db_conn(void) {
     return conn;
 }
 
+sqlite3 *db_comment_conn(void) {
+    return comments_db_conn();
+}
+
 bool db_comment_init(const char *path) {
     if (path && path[0] && path != g_comments_path) {
         snprintf(g_comments_path, sizeof(g_comments_path), "%s", path);
@@ -119,7 +123,9 @@ int db_comment_create(cwist_db *db, const char *target_type, int target_id, int 
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return -1;
-    return (int)sqlite3_last_insert_rowid(conn);
+    int new_id = (int)sqlite3_last_insert_rowid(conn);
+    db_sync_journal_external_row(conn, "comments", "id", "comment", new_id);
+    return new_id;
 }
 
 bool db_comment_update(cwist_db *db, int id, int user_id, const char *content) {
@@ -134,6 +140,9 @@ bool db_comment_update(cwist_db *db, int id, int user_id, const char *content) {
     sqlite3_bind_int(stmt, 3, user_id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(conn) > 0) {
+        db_sync_journal_external_row(conn, "comments", "id", "comment", id);
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -148,6 +157,10 @@ bool db_comment_delete(cwist_db *db, int id, int user_id) {
     sqlite3_bind_int(stmt, 2, user_id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(conn) > 0) {
+        /* Soft delete: journal the full row (deleted=1) so replicas match. */
+        db_sync_journal_external_row(conn, "comments", "id", "comment", id);
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -161,6 +174,9 @@ bool db_comment_delete_admin(cwist_db *db, int id) {
     sqlite3_bind_int(stmt, 1, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(conn) > 0) {
+        db_sync_journal_external_row(conn, "comments", "id", "comment", id);
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -190,12 +206,25 @@ cJSON *db_comment_list_by_target(cwist_db *db, const char *target_type, int targ
 bool db_comment_delete_by_target(const char *target_type, int target_id) {
     sqlite3 *conn = comments_db_conn();
     if (!conn) return false;
-    const char *sql = "DELETE FROM comments WHERE target_type=? AND target_id=?";
+    /* Collect the ids first: the rows disappear with the DELETE, and each
+     * one needs its own journal entry so replicas drop them too. */
+    int ids[512];
+    int n = 0;
     sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn, "SELECT id FROM comments WHERE target_type=? AND target_id=?", -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, target_type, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 2, target_id);
+        while (sqlite3_step(stmt) == SQLITE_ROW && n < 512) ids[n++] = sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+    }
+    const char *sql = "DELETE FROM comments WHERE target_type=? AND target_id=?";
     if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, target_type, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, target_id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) {
+        for (int i = 0; i < n; i++) db_sync_journal_external("comment", ids[i], "delete", "");
+    }
     return rc == SQLITE_DONE;
 }

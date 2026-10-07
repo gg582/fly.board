@@ -19,13 +19,16 @@ int db_tag_get_or_create(cwist_db *db, const char *name) {
     }
     if (tag_id > 0) return tag_id;
     const char *sql_ins = "INSERT INTO tags (name) VALUES (?)";
+    bool created = false;
     if (sqlite3_prepare_v2(fly_db_conn(db), sql_ins, -1, &stmt, NULL) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
         if (sqlite3_step(stmt) == SQLITE_DONE) {
             tag_id = (int)sqlite3_last_insert_rowid(fly_db_conn(db));
+            created = true;
         }
         sqlite3_finalize(stmt);
     }
+    if (created) db_sync_journal_row(db, "tags", "tag", tag_id);
     return tag_id;
 }
 
@@ -37,6 +40,11 @@ bool db_tag_link(cwist_db *db, int post_id, int tag_id) {
     sqlite3_bind_int(stmt, 2, tag_id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        char payload[96];
+        snprintf(payload, sizeof(payload), "{\"post_id\":%d,\"tag_id\":%d}", post_id, tag_id);
+        db_sync_journal(db, "tag_link", post_id, "upsert", payload);
+    }
     return rc == SQLITE_DONE;
 }
 
@@ -55,6 +63,11 @@ bool db_tag_clear_by_post(cwist_db *db, int post_id) {
     sqlite3_bind_int(stmt, 1, post_id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
+        char payload[48];
+        snprintf(payload, sizeof(payload), "{\"post_id\":%d}", post_id);
+        db_sync_journal(db, "tag_link", post_id, "delete", payload);
+    }
     return rc == SQLITE_DONE;
 }
 

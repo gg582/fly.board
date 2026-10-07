@@ -486,6 +486,90 @@ const char *upload_policy_active_list(void) {
                                                                        : g_upload_policy.denylist;
 }
 
+/* ---- FlyWire primary/replica synchronization (flywire.settings) ---- */
+
+flywire_config_t g_flywire;
+
+bool flywire_config_load(const char *path) {
+    memset(&g_flywire, 0, sizeof(g_flywire));
+    g_flywire.poll_seconds = 2;
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        /* Optional file: write a commented template and run with FlyWire off. */
+        f = fopen(path, "w");
+        if (f) {
+            fprintf(f, "# FlyWire site synchronization (primary/replica).\n");
+            fprintf(f, "# Edit, save, then restart the service.\n");
+            fprintf(f, "#\n");
+            fprintf(f, "# mode - \"\" (off, default), \"primary\" (this site serves the\n");
+            fprintf(f, "#        /flywire/feed delta feed and journals mutations),\n");
+            fprintf(f, "#        \"replica\" (this site is a read-only copy kept in sync\n");
+            fprintf(f, "#        from the primary; first bootstrap it with\n");
+            fprintf(f, "#        fly_board --restore <archive> from the primary's backup)\n");
+            fprintf(f, "# primary_url - where a replica polls, e.g. https://oborona.zip\n");
+            fprintf(f, "# token - shared secret; replicas send it as X-FlyWire-Token\n");
+            fprintf(f, "# poll_seconds - 1..60, default 2\n");
+            fprintf(f, "mode=\n");
+            fprintf(f, "primary_url=\n");
+            fprintf(f, "token=\n");
+            fprintf(f, "poll_seconds=2\n");
+            fclose(f);
+        }
+        return true;
+    }
+    char line[768];
+    while (fgets(line, sizeof(line), f)) {
+        trim_newline(line);
+        char *eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        const char *key = line;
+        const char *val = eq + 1;
+        if (strcmp(key, "mode") == 0) {
+            snprintf(g_flywire.mode, sizeof(g_flywire.mode), "%s", val);
+        } else if (strcmp(key, "primary_url") == 0) {
+            snprintf(g_flywire.primary_url, sizeof(g_flywire.primary_url), "%s", val);
+        } else if (strcmp(key, "token") == 0) {
+            snprintf(g_flywire.token, sizeof(g_flywire.token), "%s", val);
+        } else if (strcmp(key, "poll_seconds") == 0) {
+            g_flywire.poll_seconds = atoi(val);
+        }
+    }
+    fclose(f);
+    if (strcmp(g_flywire.mode, "primary") != 0 && strcmp(g_flywire.mode, "replica") != 0 &&
+        g_flywire.mode[0]) {
+        CWIST_LOG_WARN("Unknown flywire mode '%s', FlyWire disabled", g_flywire.mode);
+        g_flywire.mode[0] = '\0';
+    }
+    if (g_flywire.poll_seconds < 1) g_flywire.poll_seconds = 1;
+    if (g_flywire.poll_seconds > 60) g_flywire.poll_seconds = 60;
+    return true;
+}
+
+const char *flywire_mode(void) {
+    return g_flywire.mode;
+}
+
+bool flywire_is_primary(void) {
+    return strcmp(g_flywire.mode, "primary") == 0 && g_flywire.token[0];
+}
+
+bool flywire_is_replica(void) {
+    return strcmp(g_flywire.mode, "replica") == 0 && g_flywire.primary_url[0] && g_flywire.token[0];
+}
+
+const char *flywire_token(void) {
+    return g_flywire.token;
+}
+
+const char *flywire_primary_url(void) {
+    return g_flywire.primary_url;
+}
+
+int flywire_poll_seconds(void) {
+    return g_flywire.poll_seconds > 0 ? g_flywire.poll_seconds : 2;
+}
+
 
 bool config_bg_invert_enabled(const char *target) {
     if (!target || !target[0]) return false;

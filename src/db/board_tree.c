@@ -41,6 +41,10 @@ static sqlite3 *board_tree_db_conn(void) {
     return conn;
 }
 
+sqlite3 *db_board_tree_conn(void) {
+    return board_tree_db_conn();
+}
+
 bool db_board_tree_init(const char *path) {
     if (path && path[0] && path != g_board_tree_path) {
         snprintf(g_board_tree_path, sizeof(g_board_tree_path), "%s", path);
@@ -113,6 +117,7 @@ bool db_board_tree_set_parent(int board_id, int parent_board_id) {
     sqlite3_bind_int(stmt, 2, parent_board_id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) db_sync_journal_external_row(conn, "board_tree", "board_id", "board_tree", board_id);
     return rc == SQLITE_DONE;
 }
 
@@ -125,18 +130,35 @@ bool db_board_tree_remove(int board_id) {
     sqlite3_bind_int(stmt, 1, board_id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(conn) > 0) {
+        db_sync_journal_external("board_tree", board_id, "delete", "");
+    }
     return rc == SQLITE_DONE;
 }
 
 bool db_board_tree_promote_children(int parent_board_id) {
     sqlite3 *conn = board_tree_db_conn();
     if (!conn || parent_board_id <= 0) return false;
+    /* Journal an upsert for every row that is about to change. */
+    int ids[512];
+    int n = 0;
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(conn, "SELECT board_id FROM board_tree WHERE parent_board_id=?", -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_int(st, 1, parent_board_id);
+        while (sqlite3_step(st) == SQLITE_ROW && n < 512) ids[n++] = sqlite3_column_int(st, 0);
+        sqlite3_finalize(st);
+    }
     const char *sql = "UPDATE board_tree SET parent_board_id=0 WHERE parent_board_id=?;";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, parent_board_id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) {
+        for (int i = 0; i < n; i++) {
+            db_sync_journal_external_row(conn, "board_tree", "board_id", "board_tree", ids[i]);
+        }
+    }
     return rc == SQLITE_DONE;
 }
 

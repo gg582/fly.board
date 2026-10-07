@@ -22,6 +22,7 @@
 #include "engine/bdr.h"
 #include "utils/post_schedule.h"
 #include "engine/warmup.h"
+#include "engine/flywire.h"
 #include "utils/cache.h"
 #include "utils/reqshare.h"
 #include "utils/image_inline.h"
@@ -469,6 +470,11 @@ int main(int argc, char **argv) {
 
     post_schedule_start(db);
 
+    /* FlyWire replica apply loop: like the cleanup worker above, this
+     * thread is created before cwist_app_listen() and therefore exists only
+     * in the supervisor process, never in forked workers. */
+    flywire_start();
+
     cwist_app_set_max_memspace(app, CWIST_MIB(512));
     cwist_app_configure_bdr(app, CWIST_MIB(256), 600, 250000);
     engine_bdr_init(app);
@@ -576,6 +582,7 @@ int main(int argc, char **argv) {
         }
     }
     int rc = cwist_app_listen(app, g_config.port);
+    flywire_stop();
     cert_renewal_stop();
     cert_renewal_join();
     cleanup_stop();

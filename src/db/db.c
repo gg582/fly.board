@@ -417,6 +417,23 @@ bool db_migrate(cwist_db *db) {
         "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
         ")");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_emails_owner_folder ON emails(owner_id, folder, created_at)");
+
+    /* FlyWire change journal: one row per content mutation on the primary;
+     * replicas replay it via /flywire/feed. */
+    db_exec_sql(db,
+        "CREATE TABLE IF NOT EXISTS sync_journal ("
+        "  seq INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  entity TEXT NOT NULL,"
+        "  entity_id INTEGER NOT NULL,"
+        "  op TEXT NOT NULL,"
+        "  payload TEXT NOT NULL DEFAULT '',"
+        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+        ");");
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_sync_journal_seq ON sync_journal(seq);");
+    /* Retention: replicas poll every few seconds, so rows older than 7 days
+     * are only useful to a replica that is already too far behind (it must
+     * reseed from an archive anyway). */
+    db_sync_journal_purge(db);
     return true;
 }
 

@@ -24,6 +24,9 @@ void handler_archive_month_get(cwist_http_request *req, cwist_http_response *res
 void handler_report_post(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_reports_get(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_reports_action(cwist_http_request *req, cwist_http_response *res);
+/* GET /flywire/feed: FlyWire delta feed, primary mode only (404 otherwise).
+ * Implemented in src/engine/flywire.c. */
+void handler_flywire_feed(cwist_http_request *req, cwist_http_response *res);
 /* Remove abandoned TASFA upload/download sessions (see session.c). Returns
  * how many were (or, with dry_run, would be) removed. */
 int tasfa_sweep_stale_sessions(bool dry_run, unsigned long long *bytes_freed);
