@@ -9,6 +9,7 @@
 #include <cwist/net/http/http.h>
 #include <cjson/cJSON.h>
 #include <curl/curl.h>
+#include <curl/header.h>
 #include <openssl/crypto.h>
 #include <pthread.h>
 #include <sqlite3.h>
@@ -1075,4 +1076,102 @@ void handler_flywire_promote_request(cwist_http_request *req, cwist_http_respons
     flywire_send_json(res, out, CWIST_HTTP_OK);
     cJSON_Delete(out);
     cJSON_Delete(doc);
+}
+
+/* ---- Replica write-through proxy ---- */
+
+typedef struct {
+    cwist_sstring *body;
+} flywire_proxy_ctx;
+
+static size_t flywire_proxy_write_cb(void *ptr, size_t size, size_t nmemb, void *userdata) {
+    flywire_proxy_ctx *ctx = (flywire_proxy_ctx *)userdata;
+    cwist_sstring_append_len(ctx->body, (const char *)ptr, size * nmemb);
+    return size * nmemb;
+}
+
+/* Header names we forward to the primary (session, request typing, auth). */
+static bool flywire_proxy_fwd_header(const char *key) {
+    return strcasecmp(key, "Cookie") == 0 ||
+           strcasecmp(key, "Content-Type") == 0 ||
+           strcasecmp(key, "Authorization") == 0;
+}
+
+/* Header names we relay back from the primary's response. */
+static bool flywire_proxy_relay_header(const char *key) {
+    return strcasecmp(key, "Location") == 0 ||
+           strcasecmp(key, "Set-Cookie") == 0 ||
+           strcasecmp(key, "Content-Type") == 0;
+}
+
+bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res) {
+    const char *base = flywire_primary_url();
+    if (!base || !base[0]) return false;
+
+    char url[2048];
+    size_t bl = strlen(base);
+    const char *path = (req->path && req->path->data) ? req->path->data : "/";
+    const char *query = (req->query && req->query->data && req->query->size) ? req->query->data : NULL;
+    snprintf(url, sizeof(url), "%s%s%s%s%s",
+             base, (bl > 0 && base[bl - 1] == '/') ? "" : "/",
+             path[0] == '/' ? path + 1 : path,
+             query ? "?" : "", query ? query : "");
+
+    const char *method = cwist_http_method_to_string(req->method);
+    if (!method || !method[0]) method = "POST";
+
+    struct curl_slist *headers = NULL;
+    for (cwist_http_header_node *h = req->headers; h; h = h->next) {
+        if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
+        if (!flywire_proxy_fwd_header(h->key->data)) continue;
+        char line[1400];
+        snprintf(line, sizeof(line), "%s: %s", h->key->data, h->value->data);
+        headers = curl_slist_append(headers, line);
+    }
+
+    flywire_proxy_ctx ctx = { .body = res->body };
+    cwist_sstring_assign(res->body, "");
+
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        curl_slist_free_all(headers);
+        return false;
+    }
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    if (req->body && req->body->data && req->body->size) {
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, req->body->data);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)req->body->size);
+    }
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, flywire_proxy_write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+
+    CURLcode rc = curl_easy_perform(curl);
+    long status = 0;
+    if (rc == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    if (rc != CURLE_OK || status <= 0) {
+        CWIST_LOG_WARN("flywire: write proxy to %s %s failed: %s", method, url, curl_easy_strerror(rc));
+        curl_easy_cleanup(curl);
+        curl_slist_free_all(headers);
+        return false;
+    }
+
+    res->status_code = (cwist_http_status_t)status;
+    /* Relay selected response headers (multiple Set-Cookie supported). */
+    struct curl_header *prev = NULL;
+    struct curl_header *h = NULL;
+    while ((h = curl_easy_nextheader(curl, CURLH_HEADER, 0, prev)) != NULL) {
+        if (flywire_proxy_relay_header(h->name))
+            cwist_http_header_add(&res->headers, h->name, h->value);
+        prev = h;
+    }
+    CWIST_LOG_INFO("flywire: proxied %s %s -> %ld (%zu bytes)", method, path, status, res->body->size);
+    curl_easy_cleanup(curl);
+    curl_slist_free_all(headers);
+    return true;
 }

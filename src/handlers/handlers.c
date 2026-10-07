@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers.h"
 #include "handlers_internal.h"
+#include "engine/flywire.h"
 #include "../auth/auth.h"
 #include "../crypto/fly_crypto.h"
 #include "../db/db.h"
@@ -473,20 +474,20 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
         return;
     }
 
-    /* FlyWire replica mode: the site is a read-only copy. Block every
-     * mutating method centrally, except logging in/out so an admin can still
-     * look around (reading works anonymously for everyone else). */
+    /* FlyWire replica mode: writes are transparently forwarded to the
+     * primary (write-through proxy) so the replica behaves like the main
+     * site behind a shared hostname. Local /flywire/* endpoints stay on the
+     * replica. When the primary cannot be reached, fall back to 503. */
     if (flywire_is_replica() &&
-        req->method != CWIST_HTTP_GET && req->method != CWIST_HTTP_HEAD) {
-        bool allowed = strncmp(path, "/login", 6) == 0 || strncmp(path, "/logout", 7) == 0 ||
-                       strncmp(path, "/flywire/request-admin", 22) == 0;
-        if (!allowed) {
+        req->method != CWIST_HTTP_GET && req->method != CWIST_HTTP_HEAD &&
+        strncmp(path, "/flywire/", 9) != 0) {
+        if (!flywire_proxy_write(req, res)) {
             res->status_code = CWIST_HTTP_SERVICE_UNAVAILABLE;
-            cwist_sstring_assign(res->status_text, "Replica is read-only");
-            cwist_sstring_assign(res->body, "This site is a FlyWire replica and accepts only read requests.");
-            maybe_trim_heap();
-            return;
+            cwist_sstring_assign(res->status_text, "Primary unreachable");
+            cwist_sstring_assign(res->body, "The FlyWire primary could not be reached; try again shortly.");
         }
+        maybe_trim_heap();
+        return;
     }
 
     const char *m = cwist_http_method_to_string(req->method);
