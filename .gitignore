@@ -79,3 +79,6 @@ mail-verify
 mail-import
 mail-alias-build
 docs/mail.md
+*.db-shm
+*.db-wal
+flywire.settings
