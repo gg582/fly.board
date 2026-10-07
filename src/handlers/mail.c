@@ -204,7 +204,7 @@ void handler_mail_send_post(cwist_http_request *req, cwist_http_response *res) {
     if (!message_id_new(message_id, sizeof(message_id)))
         snprintf(message_id, sizeof(message_id), "<%d.%lld@%s>", uid, (long long)time(NULL), FLY_MAIL_DOMAIN);
 
-    int local_delivered = 0, external_failed = 0;
+    int local_delivered = 0, external_sent = 0, external_failed = 0;
     char failed_list[512] = {0};
     for (int i = 0; i < n; i++) {
         char addr[256] = {0};
@@ -232,7 +232,9 @@ void handler_mail_send_post(cwist_http_request *req, cwist_http_response *res) {
             cJSON_Delete(rcpt);
         } else if (at) {
             /* External recipient: try the configured SMTP / local Postfix. */
-            if (!email_send(addr, subject, body)) {
+            if (email_send(addr, subject, body)) {
+                external_sent++;
+            } else {
                 external_failed++;
                 if (failed_list[0]) strncat(failed_list, ", ", sizeof(failed_list) - strlen(failed_list) - 1);
                 strncat(failed_list, addr, sizeof(failed_list) - strlen(failed_list) - 1);
@@ -247,13 +249,16 @@ void handler_mail_send_post(cwist_http_request *req, cwist_http_response *res) {
     cwist_free(to_copy);
     cwist_query_map_destroy(kv);
 
-    CWIST_LOG_INFO("Mail send: uid=%d local=%d external_failed=%d", uid, local_delivered, external_failed);
+    CWIST_LOG_INFO("Mail send: uid=%d local=%d external_sent=%d external_failed=%d",
+                   uid, local_delivered, external_sent, external_failed);
     if (external_failed > 0 && failed_list[0]) {
         char url[768];
         snprintf(url, sizeof(url), "/mail?folder=Sent&msg=send_partial&failed=%s", failed_list);
         redirect(res, url);
+    } else if (local_delivered > 0 || external_sent > 0) {
+        mail_redirect(res, MAIL_FOLDER_SENT, "sent");
     } else {
-        mail_redirect(res, MAIL_FOLDER_SENT, local_delivered > 0 ? "sent" : "send_no_local");
+        mail_redirect(res, MAIL_FOLDER_SENT, "send_no_local");
     }
 }
 
