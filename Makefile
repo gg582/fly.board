@@ -116,6 +116,9 @@ CURL_LIBS := $(shell pkg-config --libs libcurl 2>/dev/null || echo -lcurl)
 NGHTTP2_LIBS := $(shell pkg-config --libs libnghttp2 2>/dev/null)
 BROTLI_LIBS := $(shell pkg-config --libs libbrotlienc libbrotlicommon libbrotlidec 2>/dev/null || echo -lbrotlienc -lbrotlicommon -lbrotlidec)
 WEBP_LIBS := $(shell pkg-config --libs libwebp libwebpmux 2>/dev/null)
+ifeq ($(strip $(WEBP_LIBS)),)
+WEBP_LIBS = -lwebp -lwebpmux
+endif
 ifneq ($(strip $(WEBP_LIBS)),)
 WEBP_CFLAGS += -DHAVE_WEBP
 endif
@@ -123,6 +126,10 @@ ZSTD_LIBS := $(shell pkg-config --libs libzstd 2>/dev/null)
 ifeq ($(strip $(ZSTD_LIBS)),)
 ZSTD_LIBS = -lzstd
 endif
+# OpenSSL: cwist's BoringSSL archives leave unresolved SSL/crypto symbols on
+# some toolchains; system libssl/libcrypto satisfy them. Harmless when the
+# symbols are already resolved (static libs dedupe at link time).
+SSL_LIBS := $(shell pkg-config --libs openssl 2>/dev/null || echo -lssl -lcrypto)
 
 # Common flags & defines matching cwist buildchain
 COMMON_DEFINES = -D_GNU_SOURCE -D_XOPEN_SOURCE=700 -D_REENTRANT -DSQLITE_ENABLE_DESERIALIZE
@@ -182,6 +189,7 @@ LIBS := $(CWIST_LIB) \
         $(BROTLI_LIBS) \
         $(WEBP_LIBS) \
         $(ZSTD_LIBS) \
+        $(SSL_LIBS) \
         -pthread -ldl -lm -lstdc++ -lz
 
 SRCS := src/main.c \
