@@ -1,19 +1,22 @@
-C1M Held-Connection Benchmark - 2026. 09. 29. (화) 13:50:21 KST
+C1M Held-Connection Benchmark - 2026. 10. 07. (수) 18:35:39 KST
 live = connections open and past TLS (if any); served = got at least one full
 response; responses = total responses including keep-alive pings.
+Full 1,000,000 held connections per mode on one host. Kernel limits raised
+first: fs.file-max=8388608, net.netfilter.nf_conntrack_max=4194304,
+net.core.somaxconn=65535, net.ipv4.tcp_max_syn_backlog=262144.
+cwist v3.9 (4af0de39).
 
-== plain (port 18080, 12 workers, 40000 conn/s, 48 VIPs, ping 120s, cwist 11f3518d)
-t=146 opened=1000000 connecting=0 handshaking=0 live=1000000 served=1000000 responses=2124089 connect_fail=0 tls_fail=0 closed=0 timeouts=0 memavail=22231MiB
+== plain (port 18080, 12 workers, 40000 conn/s, 48 VIPs, ping 120s)
+t=146 opened=1000000 connecting=0 handshaking=0 live=1000000 served=1000000 responses=2119348 connect_fail=0 tls_fail=0 closed=0 timeouts=0 memavail=18142MiB
 peak_live=1000000 peak_served=1000000
-peak_server_established=1000000 server_pss_kB=24006186
+peak_server_established=1000000 server_pss_kB=16758812
 
-== tls (port 8888, 12 workers, 8000 conn/s, 48 VIPs, ping 120s, cwist 11f3518d)
-t=246 opened=1000000 connecting=0 handshaking=0 live=1000000 served=1000000 responses=2632665 connect_fail=0 tls_fail=0 closed=0 timeouts=0 memavail=19320MiB
+== tls (port 8888, 12 workers, 8000 conn/s, 48 VIPs, ping 120s)
+t=246 opened=1000000 connecting=0 handshaking=0 live=1000000 served=1000000 responses=2628499 connect_fail=0 tls_fail=0 closed=0 timeouts=0 memavail=11820MiB
 peak_live=1000000 peak_served=1000000
-peak_server_established=1000000 server_pss_kB=19858101
+peak_server_established=1000000 server_pss_kB=19617721
 
-== h2 (port 8888, 12 workers, 8000 conn/s, 48 VIPs, ping 120s, cwist 11f3518d)
-t=246 opened=1000000 connecting=0 handshaking=0 live=1000000 served=1000000 responses=2052855 connect_fail=0 tls_fail=0 closed=0 timeouts=0 memavail=8709MiB
+== h2 (port 8888, 12 workers, 8000 conn/s, 48 VIPs, ping 120s)
+t=212 opened=1000000 connecting=0 handshaking=0 live=1000000 served=1000000 responses=1677602 connect_fail=0 tls_fail=0 closed=0 timeouts=0 memavail=4981MiB
 peak_live=1000000 peak_served=1000000
-peak_server_established=1000000 server_pss_kB=30094828
-
+peak_server_established=1000000 server_pss_kB=28344844

@@ -1,32 +1,33 @@
-C1M Benchmark Result - 2026. 09. 29. (화) 13:32:39 KST
+C1M Benchmark Result - 2026. 10. 07. (수) 16:59:17 KST
+cwist v3.9 (4af0de39), 2026-10-07 re-run on the same host; h2load suite
 Total Requests: 1000000
 Total Succeeded: 1000000
 Total Failed: 0
-Approx Total RPS: 19753.70
+Approx Total RPS: 19482.64
 Success Rate: 100.00%
 
 SERVER RESOURCE REPORT
 ========================================
 	Command being timed: "./fly_board"
-	User time (seconds): 151.35
-	System time (seconds): 155.90
-	Percent of CPU this job got: 536%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:57.28
+	User time (seconds): 120.64
+	System time (seconds): 161.40
+	Percent of CPU this job got: 511%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:55.15
 	Average shared text size (kbytes): 0
 	Average unshared data size (kbytes): 0
 	Average stack size (kbytes): 0
 	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 1108316
+	Maximum resident set size (kbytes): 1079132
 	Average resident set size (kbytes): 0
-	Major (requiring I/O) page faults: 0
-	Minor (reclaiming a frame) page faults: 2927633
-	Voluntary context switches: 3117890
-	Involuntary context switches: 2765070
+	Major (requiring I/O) page faults: 2
+	Minor (reclaiming a frame) page faults: 2800886
+	Voluntary context switches: 3144282
+	Involuntary context switches: 2729441
 	Swaps: 0
-	File system inputs: 0
-	File system outputs: 240
+	File system inputs: 704
+	File system outputs: 296
 	Socket messages sent: 0
 	Socket messages received: 0
 	Signals delivered: 0
 	Page size (bytes): 4096
-	Exit status: 0
+	Exit status: 255

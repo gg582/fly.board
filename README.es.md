@@ -2,12 +2,12 @@
 
 ![fly.board logo](img/logo.png)
 
-> Uno de los pocos motores de blog sencillos que mantiene **1.000.000 de conexiones concurrentes** en un solo host de escritorio (medido sobre HTTP/1.1 en claro, TLS HTTP/1.1 y TLS HTTP/2) y supera las baterías de carga TLS C10k/C100k con un 100% de éxito.
+> Uno de los pocos motores de blog sencillos que mantiene **1.000.000 de conexiones concurrentes** en un solo host de escritorio (verificado el 2026-10-07 con CWIST v3.9 y los límites del kernel elevados sobre HTTP/1.1 en claro, TLS HTTP/1.1 y TLS HTTP/2, sin ningún fallo) y supera las baterías de carga TLS C10k/C100k con un 100% de éxito.
 > Motor híbrido ligero de foro y blog construido sobre el framework web CWIST en C, con soporte para HTTPS/3, Argon2id, firmas PQC y mensajería NATS.
 
 ## Características
 
-- **Escalable en conexiones** – Implementación en C con pila y montón sobre el reactor basado en eventos de cwist. **1.000.000 de conexiones concurrentes** mantenidas y atendidas en ejecuciones medidas sobre HTTP/1.1 en claro, TLS HTTP/1.1 y TLS HTTP/2; las páginas públicas anónimas se sirven desde una caché Big Dumb Reply.
+- **Escalable en conexiones** – Implementación en C con pila y montón sobre el reactor basado en eventos de cwist. **1.000.000 de conexiones concurrentes** mantenidas y atendidas en ejecuciones medidas sobre HTTP/1.1 en claro, TLS HTTP/1.1 y TLS HTTP/2 (2026-10-07, CWIST v3.9); las páginas públicas anónimas se sirven desde una caché Big Dumb Reply.
 - **Transporte moderno** – TLS 1.3 + HTTP/3 (QUIC) por defecto. ECH (Encrypted Client Hello) opcional.
 - **Autenticación segura** – Prehash SHA-512 del lado del cliente + **Argon2id** del lado del servidor (KDF de OpenSSL 3). Cookies de sesión JWT.
 - **Híbrido foro / blog** – Publicaciones Markdown basadas en slug + múltiples tableros + comentarios anidados.
@@ -233,7 +233,7 @@ Tres cosas distintas, que las versiones anteriores de esta sección mezclaban:
 | RAM | 62 GiB |
 | GCC | 14.2.0 (Debian 14.2.0-19) |
 | Generadores de carga | h2load nghttp2/1.64.0, wrk, `tools/connhold` (BoringSSL) |
-| CWIST | `main` en `11f3518d` (2026-09-29; incluido en v3.7.1) |
+| CWIST | v3.9 (`4af0de39`) |
 | Certificado TLS | ECDSA P-256 (predeterminado de `keygen.sh`) |
 | Modo de servicio | `CWIST_C1M_MODE=1` (reactor basado en eventos) |
 
@@ -247,16 +247,18 @@ Cliente y servidor se ejecutan en el mismo host.
 | fs.file-max | 8.388.608 (1M de conexiones mantenidas necesitan 2M de fds, cliente + servidor) |
 | fs.nr_open | 1.050.000 |
 | net.netfilter.nf_conntrack_max | 4.194.304 (las conexiones loopback también se rastrean) |
-| net.core.somaxconn | 1.050.000 |
-| net.ipv4.tcp_max_syn_backlog | 1.050.000 |
+| net.core.somaxconn | 65.535 |
+| net.ipv4.tcp_max_syn_backlog | 262.144 |
 | net.ipv4.ip_local_port_range | 1024 65535 |
 | vm.max_map_count | 1.048.576 |
 | kernel.pid_max | 4.194.304 |
 | Gobernador de CPU | ecodemand |
 
-### C1M: 1.000.000 de conexiones concurrentes (2026-09-29)
+`fs.file-max` y `nf_conntrack_max` deben subirse con sudo antes de una ejecución C1M; la ejecución de CWIST v3.9 del 2026-10-07 usó los valores de arriba.
 
-`run_c1m_held_bench.sh`: 12 workers, 1.000.000 de conexiones repartidas entre 48 direcciones loopback. Cada conexión envía `GET /robots.txt` y lo repite cada 60–120 s para que nunca venza el temporizador de keep-alive (HTTP/2: un stream nuevo cada vez). Las conexiones fallidas se cuentan y nunca se reintentan.
+### C1M: 1.000.000 de conexiones concurrentes (2026-10-07, CWIST v3.9)
+
+Metodología de `run_c1m_held_bench.sh`: 12 workers, conexiones repartidas entre 48 direcciones loopback. Cada conexión envía `GET /robots.txt` y lo repite cada 60–120 s para que nunca venza el temporizador de keep-alive (HTTP/2: un stream nuevo cada vez). Las conexiones fallidas se cuentan y nunca se reintentan.
 
 | | HTTP/1.1 en claro | TLS 1.3 + HTTP/1.1 | TLS 1.3 + HTTP/2 |
 |---|---|---|---|
@@ -264,13 +266,15 @@ Cliente y servidor se ejecutan en el mismo host.
 | Tasa de conexión | 40.000 / s | 8.000 / s | 8.000 / s |
 | Máximo mantenidas | **1.000.000** | **1.000.000** | **1.000.000** |
 | Máximo atendidas a la vez | **1.000.000** | **1.000.000** | **1.000.000** |
-| Respuestas (incl. GET de keep-alive) | 2.124.089 | 2.632.665 | 2.052.855 |
+| Respuestas (incl. GET de keep-alive) | 2.119.348 | 2.628.499 | 1.677.602 |
 | Conexiones fallidas | 0 | 0 | 0 |
-| Memoria del servidor en el pico (PSS, todos los workers) | 24,0 GB | 19,9 GB | 30,1 GB |
+| Memoria del servidor en el pico (PSS, todos los workers) | 16,0 GiB | 18,7 GiB | 27,0 GiB |
+
+El valor por defecto `nf_conntrack_max=262.144` limita las conexiones loopback cerca de 262k (cada conexión loopback consume una entrada conntrack); para C1M debe subirse a 4.194.304, como en la tabla de ajustes de arriba.
 
 - **Los tres modos mantienen y atienden 1.000.000 de conexiones concurrentes sin ningún fallo.**
-- TLS necesita CWIST v3.7.1 o `main` desde `11f3518d`. Antes, un hilo del pool esperaba en cada conexión TLS inactiva, así que solo se atendían a la vez tantas conexiones TLS como hilos tenía el pool: la misma ejecución mantuvo 395.729 conexiones TLS pero atendió como máximo 25. v3.7.1 aparca las conexiones TLS inactivas en un conjunto epoll y las devuelve al pool cuando llegan datos.
-- La tasa de conexión TLS la limitan los handshakes completos: a 20.000 conexiones nuevas por segundo, ~37% de los handshakes agotaron el presupuesto de 45 s (523.654 conexiones HTTP/1.1 y 510.023 HTTP/2 atendidas); a 8.000/s ninguno.
+- TLS necesita CWIST v3.7.1 o posterior. Antes, un hilo del pool esperaba en cada conexión TLS inactiva, así que solo se atendían a la vez tantas conexiones TLS como hilos tenía el pool: la misma ejecución mantuvo 395.729 conexiones TLS pero atendió como máximo 25. v3.7.1 aparca las conexiones TLS inactivas en un conjunto epoll y las devuelve al pool cuando llegan datos.
+- La tasa de conexión TLS la limitan los handshakes completos: a 20.000 conexiones nuevas por segundo, ~37% de los handshakes agotaron el presupuesto de 45 s; a 8.000/s ninguno.
 - Trampa de la carga: `connect()` de Linux reparte primero los puertos efímeros pares y luego pasa a una búsqueda lenta de impares, así que cada dirección de destino da unas 32k conexiones rápidas. Con 24 direcciones todas las ejecuciones se atascaron cerca de 774k; usa al menos `conexiones / 32.000` direcciones.
 
 ### Memoria
@@ -279,42 +283,42 @@ PSS sumado sobre todos los procesos del servidor (maestro y workers bifurcados).
 
 | Caso | Total del servidor | Por conexión |
 |---|---|---|
-| En reposo, 1 worker | 115 MB | — |
-| En reposo, 4 workers | 406 MB | — |
-| 100k conexiones TLS/HTTP/2 (h2load C100k) | 1,77 GB (1,11 GB en reposo tras calentar) | ~6,7 KB |
-| 1M conexiones HTTP/1.1 en claro (connhold) | 24,0 GB | ~24 KB |
-| 1M conexiones TLS HTTP/1.1 (connhold) | 19,9 GB | ~20 KB |
-| 1M conexiones TLS HTTP/2 (connhold) | 30,1 GB | ~30 KB |
+| En reposo, 1 worker | 117 MB | — |
+| En reposo, 4 workers | 409 MB | — |
+| ~91k conexiones TLS/HTTP/2 (h2load C100k, muestra a 91.286 establecidas) | 7,58 GB | ~83 KB |
+| 1M de conexiones HTTP/1.1 en claro (connhold) | 16,0 GiB | ~16 KB |
+| 1M de conexiones TLS HTTP/1.1 (connhold) | 18,7 GiB | ~19 KB |
+| 1M de conexiones TLS HTTP/2 (connhold) | 27,0 GiB | ~27 KB |
 
 Costes del lado cliente para planificar ejecuciones en el mismo host: h2load ~60 KB por conexión, connhold ~0,06 KB más la memoria de sockets del kernel (~12,7 KB por par de conexiones en C100k).
 
 > **Corrección:** versiones anteriores de este README afirmaban ~102–108 MB en reposo y ~110–146 MB de C10k a C1m. Eran el RSS máximo de `/usr/bin/time -v` solo del proceso maestro; `cwist_app_listen()` hace fork de los workers que sirven, y su memoria nunca se contó. Los totales de arriba las sustituyen.
 
-### Batería h2load: churn de peticiones (2026-09-29, CWIST `11f3518d`)
+### Batería h2load: churn de peticiones (2026-10-07, CWIST v3.9)
 
 | Prueba | Conexiones concurrentes | Peticiones | Éxito | Tiempo | RPS (suma de procesos) |
 |---|---|---|---|---|---|
-| C10k (4 workers) | 10.000 | 20.000 | **100%** | 8,50 s | 9.253 |
-| C100k (12 workers) | 100.000 | 200.000 | **100%** | 29,83 s | 8.958 |
-| C1m churn (12 workers) | 100.000 | 1.000.000 | **100%** | 57,28 s | 19.754 |
+| C10k (4 workers) | 10.000 | 20.000 | **100%** | 5,06 s | 8.812 |
+| C100k (12 workers) | 100.000 | 200.000 | **100%** | 29,06 s | 7.626 |
+| C1m churn (12 workers) | 100.000 | 1.000.000 | **100%** | 55,15 s | 19.483 |
 
-El tiempo es la vida del proceso servidor (incluye el arranque y el drenado de apagado de 5 s). Las respuestas son la portada completa de 79 KB; h2load no pide compresión.
+El tiempo es la vida del proceso servidor (incluye el arranque y el drenado de apagado). Las respuestas son la portada completa de 79 KB; h2load no pide compresión.
 
-Ese mismo día, antes y con un certificado RSA-4096, C100k cayó al 72,6% y el churn C1m al 65,2%: casi toda la CPU ocupada se iba en la firma RSA CertificateVerify de cada handshake completo de TLS 1.3, así que los handshakes en cola agotaban el presupuesto de 45 s. Cambiar a ECDSA P-256 (predeterminado de `keygen.sh`), ejecutar los manejadores de ruta en workers de peticiones y servir las páginas públicas anónimas desde la caché Big Dumb Reply de rutas devolvió el 100%.
+Con un certificado RSA-4096, C100k cayó al 72,6% y el churn C1m al 65,2%: casi toda la CPU ocupada se iba en la firma RSA CertificateVerify de cada handshake completo de TLS 1.3, así que los handshakes en cola agotaban el presupuesto de 45 s. Cambiar a ECDSA P-256 (predeterminado de `keygen.sh`), ejecutar los manejadores de ruta en workers de peticiones y servir las páginas públicas anónimas desde la caché Big Dumb Reply de rutas devolvió el 100%.
 
-### Prueba de rendimiento (2026-09-29, CWIST `11f3518d`)
+### Prueba de rendimiento (2026-10-07, CWIST v3.9)
 
 Carga sin límite (sin `-r`) contra la portada, 12 workers.
 
 | Herramienta | Comando | Resultado |
 |---|---|---|
-| h2load (HTTP/2) | `h2load -c512 -n100000 https://127.0.0.1:8888/` | **12.337 req/s**, 970,71 MB/s, 100.000/100.000 con éxito, 8,11 s; tiempo por petición mín. 410 µs, media 20,69 ms, máx. 205,85 ms |
-| wrk (HTTP/1.1) | `wrk -t12 -c512 -d60s https://127.0.0.1:8888/` | **48.829 req/s**, 3,76 GB/s; latencia media 9,50 ms, desviación 4,15 ms, máx. 132,20 ms; sin errores de socket |
+| h2load (HTTP/2) | `h2load -c512 -n100000 https://127.0.0.1:8888/` | **12.123 req/s**, 963,50 MB/s, 100.000/100.000 con éxito, 8,25 s; tiempo por petición mín. 187 µs, media 20,76 ms, máx. 200,24 ms |
+| wrk (HTTP/1.1) | `wrk -t12 -c512 -d60s https://127.0.0.1:8888/` | **38.775 req/s**, 3,02 GB/s; latencia media 12,55 ms, desviación 7,67 ms, máx. 185,73 ms; sin errores de socket |
 
-Las dos herramientas usan protocolos distintos y no son directamente comparables. En 2026-08 los mismos comandos dieron 7.167 req/s (h2load) y 1.282 req/s con 77.027 errores de lectura (wrk); ahora las peticiones anónimas a la portada se responden desde la caché Big Dumb Reply de rutas.
+Las dos herramientas usan protocolos distintos y no son directamente comparables. En 2026-08 los mismos comandos dieron 7.167 req/s (h2load) y 1.282 req/s con 77.027 errores de lectura (wrk); ahora las peticiones anónimas a la portada se responden desde la caché Big Dumb Reply de rutas. La cifra de wrk es inferior a los 48.829 req/s de 2026-09-29 porque la ejecución de 2026-10-07 compartió el host de escritorio con un navegador y una VM; no hubo errores de socket.
 
 **Conclusiones clave**
 
-- **C1M:** 1.000.000 de conexiones concurrentes mantenidas y atendidas en un solo host de escritorio sobre HTTP/1.1 en claro, TLS HTTP/1.1 y TLS HTTP/2, cero fallos.
-- **La memoria por conexión es real:** ~20–30 KB por conexión mantenida en el servidor; dimensiona la RAM en consecuencia.
+- **C1M:** 1.000.000 de conexiones concurrentes mantenidas y atendidas en un solo host de escritorio sobre HTTP/1.1 en claro, TLS HTTP/1.1 y TLS HTTP/2, cero fallos — reverificado con CWIST v3.9 el 2026-10-07 con los límites del kernel de la tabla elevados.
+- **La memoria por conexión es real:** ~16–28 KB por conexión mantenida en el servidor; dimensiona la RAM en consecuencia.
 - **La tasa de conexión TLS la limitan los handshakes:** usa un certificado ECDSA; en este host ~8.000 handshakes completos por segundo terminaron sin pérdidas.

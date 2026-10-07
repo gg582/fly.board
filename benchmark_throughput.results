@@ -1,5 +1,5 @@
-Throughput Benchmark Result - 2026. 09. 29. (화) 14:04:38 KST
-Server: CWIST_WORKERS=12 FLYBOARD_INLINE_SHELL=1, cwist 11f3518d, ECDSA P-256 certificate
+Throughput Benchmark Result - 2026. 10. 07. (수) 17:20:45 KST
+Server: CWIST_WORKERS=12 FLYBOARD_INLINE_SHELL=1, cwist v3.9 (4af0de39), ECDSA P-256 certificate
 
 === H2LOAD Throughput (no rate limit) ===
 Command: h2load -c512 -n100000 https://127.0.0.1:8888/
@@ -9,24 +9,34 @@ TLS Protocol: TLSv1.3
 Cipher: TLS_AES_128_GCM_SHA256
 Server Temp Key: X25519 253 bits
 Application protocol: h2
+progress: 10% done
+progress: 20% done
+progress: 30% done
+progress: 40% done
+progress: 50% done
+progress: 60% done
+progress: 70% done
+progress: 80% done
+progress: 90% done
+progress: 100% done
 
-finished in 8.11s, 12337.24 req/s, 970.71MB/s
+finished in 8.25s, 12122.63 req/s, 963.50MB/s
 requests: 100000 total, 100000 started, 100000 done, 100000 succeeded, 0 failed, 0 errored, 0 timeout
 status codes: 100000 2xx, 0 3xx, 0 4xx, 0 5xx
-traffic: 7.68GB (8250336699) total, 287.15MB (301099835) headers (space savings 0.76%), 7.40GB (7943800000) data
+traffic: 7.76GB (8334036684) total, 268.84MB (281899820) headers (space savings 0.67%), 7.49GB (8046700000) data
                      min         max         mean         sd        +/- sd
-time for request:      410us    205.85ms     20.69ms      8.21ms    97.81%
-time for connect:    55.15ms    252.01ms    150.11ms     56.91ms    58.98%
-time to 1st byte:   207.93ms    466.17ms    332.59ms     79.17ms    56.64%
-req/s           :      24.19       24.49       24.34        0.08    64.84%
+time for request:      187us    200.24ms     20.76ms      8.00ms    98.39%
+time for connect:    53.00ms    314.49ms    171.37ms     72.23ms    65.43%
+time to 1st byte:   185.58ms    535.64ms    360.40ms     92.39ms    64.26%
+req/s           :      23.76       24.25       24.03        0.12    74.80%
 
 === WRK Throughput ===
 Command: wrk -t12 -c512 -d60s https://127.0.0.1:8888/
 Running 1m test @ https://127.0.0.1:8888/
   12 threads and 512 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     9.50ms    4.15ms 132.20ms   78.39%
-    Req/Sec     4.10k   398.77     8.65k    82.52%
-  2934475 requests in 1.00m, 226.02GB read
-Requests/sec:  48829.49
-Transfer/sec:      3.76GB
+    Latency    12.55ms    7.67ms 185.73ms   79.59%
+    Req/Sec     3.26k   640.78     6.72k    64.61%
+  2329702 requests in 1.00m, 181.21GB read
+Requests/sec:  38775.03
+Transfer/sec:      3.02GB

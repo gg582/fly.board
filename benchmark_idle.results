@@ -1,11 +1,10 @@
-Idle Benchmark Result - 2026. 09. 29. (화) 14:05:51 KST
+Idle Benchmark Result - 2026. 10. 07. (수) 17:22:12 KST
 No client connections. Memory is PSS summed over every fly_board process (master + forked workers), 15 s after start.
 
 === Idle, CWIST_WORKERS=1 ===
 processes: 1
-total PSS (kB): 117718
+total PSS (kB): 120175
 
 === Idle, CWIST_WORKERS=4 ===
 processes: 4
-total PSS (kB): 416090
-
+total PSS (kB): 418867

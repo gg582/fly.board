@@ -1,0 +1,19 @@
+# FlyWire site synchronization (primary/replica).
+# Edit, save, then restart the service.
+#
+# mode - "" (off, default), "primary" (this site serves the
+#        /flywire/feed delta feed and journals mutations),
+#        "replica" (this site is a read-only copy kept in sync
+#        from the primary; first bootstrap it with
+#        fly_board --restore <archive> from the primary's backup)
+# primary_url - where a replica polls, e.g. https://oborona.zip
+# token - shared secret; replicas send it as X-FlyWire-Token
+# poll_seconds - 1..60, default 2
+# auto_upgrade - "1" lets a replica run ./flywire-upgrade.sh
+#        (git fetch/reset + build + service restart) when the
+#        primary advertises a different version; default off
+mode=
+primary_url=
+token=
+poll_seconds=2
+auto_upgrade=
