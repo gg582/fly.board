@@ -509,10 +509,14 @@ bool flywire_config_load(const char *path) {
             fprintf(f, "# primary_url - where a replica polls, e.g. https://oborona.zip\n");
             fprintf(f, "# token - shared secret; replicas send it as X-FlyWire-Token\n");
             fprintf(f, "# poll_seconds - 1..60, default 2\n");
+            fprintf(f, "# auto_upgrade - \"1\" lets a replica run ./flywire-upgrade.sh\n");
+            fprintf(f, "#        (git fetch/reset + build + service restart) when the\n");
+            fprintf(f, "#        primary advertises a different version; default off\n");
             fprintf(f, "mode=\n");
             fprintf(f, "primary_url=\n");
             fprintf(f, "token=\n");
             fprintf(f, "poll_seconds=2\n");
+            fprintf(f, "auto_upgrade=\n");
             fclose(f);
         }
         return true;
@@ -533,6 +537,8 @@ bool flywire_config_load(const char *path) {
             snprintf(g_flywire.token, sizeof(g_flywire.token), "%s", val);
         } else if (strcmp(key, "poll_seconds") == 0) {
             g_flywire.poll_seconds = atoi(val);
+        } else if (strcmp(key, "auto_upgrade") == 0) {
+            g_flywire.auto_upgrade = (strcmp(val, "1") == 0);
         }
     }
     fclose(f);
@@ -568,6 +574,10 @@ const char *flywire_primary_url(void) {
 
 int flywire_poll_seconds(void) {
     return g_flywire.poll_seconds > 0 ? g_flywire.poll_seconds : 2;
+}
+
+bool flywire_auto_upgrade(void) {
+    return g_flywire.auto_upgrade;
 }
 
 

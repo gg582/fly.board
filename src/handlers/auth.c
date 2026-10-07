@@ -470,7 +470,14 @@ void handler_account_settings_get(cwist_http_request *req, cwist_http_response *
     }
     char *pp = get_profile_pic(req->db, uid, role);
     int draft_count = db_post_count_drafts(req->db, target_uid);
-    send_html_res(res, render_account_settings(user, is_dark(req), role, pp, NULL, is_mobile_request(req), draft_count));
+    const char *notice = NULL;
+    const char *msg = cwist_query_map_get(req->query_params, "msg");
+    if (msg && strcmp(msg, "admin_requested") == 0) {
+        notice = "Your admin promotion request has been sent to the primary site.";
+    } else if (msg && strcmp(msg, "admin_request_failed") == 0) {
+        notice = "Could not send the admin promotion request to the primary site. Please try again later.";
+    }
+    send_html_res(res, render_account_settings(user, is_dark(req), role, pp, notice, is_mobile_request(req), draft_count));
     cJSON_Delete(user);
     free(pp);
 }

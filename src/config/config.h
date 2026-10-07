@@ -216,6 +216,7 @@ typedef struct {
     char primary_url[256];  /* e.g. https://oborona.zip (no trailing slash) */
     char token[128];        /* shared secret for the feed */
     int poll_seconds;       /* 1..60, default 2 */
+    bool auto_upgrade;      /* replica: run ./flywire-upgrade.sh on version mismatch */
 } flywire_config_t;
 
 extern flywire_config_t g_flywire;
@@ -228,5 +229,6 @@ bool flywire_is_replica(void);
 const char *flywire_token(void);
 const char *flywire_primary_url(void);
 int flywire_poll_seconds(void);
+bool flywire_auto_upgrade(void);
 
 #endif

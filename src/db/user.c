@@ -2,10 +2,26 @@
 #include "db.h"
 #include "db_internal.h"
 #include <cwist/core/mem/alloc.h>
+#include <cwist/core/log.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+/* FlyWire user sync: every account mutation journals a full-row snapshot of
+ * the users table (entity "user"), so role/profile/password changes made on
+ * the primary propagate to replicas. The snapshot intentionally includes
+ * password_hash and email: replicas are the operator's own servers and the
+ * feed is protected by TLS + the shared token.
+ *
+ * UPSERTS ONLY: user deletions (db_user_delete, db_user_delete_with_cascade,
+ * expired-unverified sweeps) are deliberately NOT journaled — a replica keeps
+ * its local accounts even when the primary deletes them, and the replica's
+ * own admin.settings account must survive regardless. */
+
+static void journal_user_row(cwist_db *db, int id) {
+    if (id > 0) db_sync_journal_row(db, "users", "user", id);
+}
 
 cJSON *db_user_get_by_username(cwist_db *db, const char *username) {
     const char *sql = "SELECT * FROM users WHERE username=? LIMIT 1";
@@ -32,6 +48,7 @@ bool db_user_create(cwist_db *db, const char *username, const char *email, const
     sqlite3_bind_text(stmt, 3, password_hash, -1, SQLITE_STATIC);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) journal_user_row(db, (int)sqlite3_last_insert_rowid(fly_db_conn(db)));
     return rc == SQLITE_DONE;
 }
 
@@ -53,6 +70,7 @@ bool db_user_update_role(cwist_db *db, int id, const char *role) {
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) journal_user_row(db, id);
     return rc == SQLITE_DONE;
 }
 
@@ -64,6 +82,7 @@ bool db_user_update_profile_pic(cwist_db *db, int id, const char *profile_pic) {
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) journal_user_row(db, id);
     return rc == SQLITE_DONE;
 }
 
@@ -77,6 +96,7 @@ bool db_user_update_profile(cwist_db *db, int id, const char *nickname, const ch
     sqlite3_bind_int(stmt, 4, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) journal_user_row(db, id);
     return rc == SQLITE_DONE;
 }
 
@@ -88,6 +108,7 @@ bool db_user_update_password(cwist_db *db, int id, const char *password_hash) {
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) journal_user_row(db, id);
     return rc == SQLITE_DONE;
 }
 
@@ -99,6 +120,7 @@ bool db_user_set_email_verified(cwist_db *db, int id, bool verified) {
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) journal_user_row(db, id);
     return rc == SQLITE_DONE;
 }
 
@@ -283,6 +305,7 @@ int db_user_ensure_site_admin(cwist_db *db, const char *username) {
         sqlite3_bind_int(stmt, 2, id);
         int rc = sqlite3_step(stmt);
         sqlite3_finalize(stmt);
+        if (rc == SQLITE_DONE) journal_user_row(db, id);
         return rc == SQLITE_DONE ? id : 0;
     }
 
@@ -304,6 +327,7 @@ int db_user_ensure_site_admin(cwist_db *db, const char *username) {
     id = (int)sqlite3_last_insert_rowid(conn);
     snprintf(value, sizeof(value), "%d", id);
     if (!db_site_setting_set(db, SITE_ADMIN_SETTING, value)) return 0;
+    journal_user_row(db, id);
     return id;
 }
 

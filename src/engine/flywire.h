@@ -9,6 +9,11 @@ long long flywire_checkpoint_read(void);
 /* Atomically persist the replica checkpoint (temp file + rename). */
 bool flywire_checkpoint_write(long long seq);
 
+/* This site's version string (cached): data/.flywire_version, else the short
+ * git HEAD when running from a checkout, else "unknown". Advertised by the
+ * primary in the feed so replicas can auto-upgrade. */
+const char *flywire_site_version(void);
+
 /* Spawn the replica apply loop when flywire.settings says mode=replica.
  * Called once from main() before cwist_app_listen(): the thread then lives
  * only in the parent/supervisor process, never in forked workers (same

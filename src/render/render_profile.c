@@ -174,6 +174,15 @@ cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewe
     cwist_sstring_append_escaped(b, email);
     cwist_sstring_append(b, "</p>");
 
+    if (flywire_is_replica() && viewer_role && strcmp(viewer_role, "admin") != 0) {
+        cwist_sstring_append(b, "<hr style='margin:24px 0;border:0;border-top:1px solid var(--border)'>");
+        cwist_sstring_append(b, "<form action='/flywire/request-admin' method='POST'>");
+        cwist_sstring_append(b, "<button type='submit' class='btn btn-outline'>Request admin role</button>");
+        cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>"
+                                "Sends a request to the primary site; an admin there can grant the role.</small>");
+        cwist_sstring_append(b, "</form>");
+    }
+
     cwist_sstring_append(b, "</div>");
 
     cwist_sstring *res = render_page("Account Settings", b->data, dark, viewer_role, profile_pic, is_mobile);

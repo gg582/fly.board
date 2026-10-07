@@ -478,7 +478,8 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
      * look around (reading works anonymously for everyone else). */
     if (flywire_is_replica() &&
         req->method != CWIST_HTTP_GET && req->method != CWIST_HTTP_HEAD) {
-        bool allowed = strncmp(path, "/login", 6) == 0 || strncmp(path, "/logout", 7) == 0;
+        bool allowed = strncmp(path, "/login", 6) == 0 || strncmp(path, "/logout", 7) == 0 ||
+                       strncmp(path, "/flywire/request-admin", 22) == 0;
         if (!allowed) {
             res->status_code = CWIST_HTTP_SERVICE_UNAVAILABLE;
             cwist_sstring_assign(res->status_text, "Replica is read-only");

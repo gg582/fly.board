@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "engine/flywire.h"
 #include "engine/forkgate.h"
+#include "auth/auth.h"
 #include "db/db.h"
 #include "db/db_internal.h"
 #include "config/config.h"
@@ -18,7 +19,10 @@
 #include <unistd.h>
 #include <errno.h>
 #include <limits.h>
+#include <ctype.h>
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 /* FlyWire: primary/replica site synchronization.
  *
@@ -74,6 +78,89 @@ static bool flywire_token_eq(const char *a, const char *b) {
     if (a_len != b_len) return false;
     return CRYPTO_memcmp(a, b, a_len) == 0;
 }
+
+/* ---- Site version (advertised in the feed for auto-upgrade) ---- */
+
+/* Resolved lazily on first use and cached in a static: data/.flywire_version
+ * if present, else `git rev-parse --short HEAD` when running from a git
+ * checkout, else "unknown". */
+const char *flywire_site_version(void) {
+    static char version[64] = {0};
+    static bool resolved = false;
+    if (resolved) return version;
+    resolved = true;
+
+    FILE *f = fopen("data/.flywire_version", "r");
+    if (f) {
+        if (fgets(version, sizeof(version), f)) {
+            size_t n = strlen(version);
+            while (n > 0 && isspace((unsigned char)version[n - 1])) version[--n] = '\0';
+        }
+        fclose(f);
+        if (version[0]) return version;
+    }
+
+    struct stat st;
+    if (stat(".git", &st) == 0) {
+        FILE *p = popen("git rev-parse --short HEAD", "r");
+        if (p) {
+            if (fgets(version, sizeof(version), p)) {
+                size_t n = strlen(version);
+                while (n > 0 && isspace((unsigned char)version[n - 1])) version[--n] = '\0';
+            }
+            pclose(p);
+            if (version[0]) return version;
+        }
+    }
+    snprintf(version, sizeof(version), "%s", "unknown");
+    return version;
+}
+
+/* ---- Replica auto-upgrade ---- */
+
+static char g_upgrade_spawned_for[64] = {0};
+
+/* Spawn ./flywire-upgrade.sh detached (double fork like backup_spawn()). The
+ * script does git pull/build/restart; the C code never runs git or make
+ * itself. At most one spawn per primary version: g_upgrade_spawned_for
+ * remembers the version we already tried, so a failed upgrade is retried
+ * only when the primary moves to yet another version. */
+static void flywire_maybe_auto_upgrade(const char *primary_version) {
+    if (!primary_version || !primary_version[0]) return;
+    const char *local = flywire_site_version();
+    if (strcmp(primary_version, local) == 0) return;
+    if (!flywire_auto_upgrade()) return;
+    if (strcmp(g_upgrade_spawned_for, primary_version) == 0) return;
+    struct stat st;
+    if (stat("./flywire-upgrade.sh", &st) != 0 || !S_ISREG(st.st_mode) || !(st.st_mode & S_IXUSR)) {
+        CWIST_LOG_WARN("FlyWire: primary runs version %s, local %s, but ./flywire-upgrade.sh "
+                       "is missing or not executable; not upgrading", primary_version, local);
+        snprintf(g_upgrade_spawned_for, sizeof(g_upgrade_spawned_for), "%s", primary_version);
+        return;
+    }
+    snprintf(g_upgrade_spawned_for, sizeof(g_upgrade_spawned_for), "%s", primary_version);
+    CWIST_LOG_INFO("FlyWire: primary runs version %s, local %s — spawning flywire-upgrade.sh",
+                   primary_version, local);
+    pid_t pid = fork();
+    if (pid < 0) {
+        CWIST_LOG_ERROR("FlyWire: fork for flywire-upgrade.sh failed: %s", strerror(errno));
+        return;
+    }
+    if (pid == 0) {
+        if (fork() != 0) _exit(0);
+        setsid();
+        int devnull = open("/dev/null", O_RDWR);
+        if (devnull >= 0) { dup2(devnull, STDIN_FILENO); close(devnull); }
+        if (close_range(3, ~0U, 0) != 0) {
+            for (int fd = 3; fd < 65536; fd++) close(fd);
+        }
+        execl("/bin/sh", "sh", "./flywire-upgrade.sh", (char *)NULL);
+        _exit(127);
+    }
+    int status = 0;
+    waitpid(pid, &status, 0);
+}
+
 
 /* ---- Feed endpoint (primary side) ---- */
 
@@ -166,6 +253,7 @@ void handler_flywire_feed(cwist_http_request *req, cwist_http_response *res) {
         sqlite3_finalize(st);
     }
     cJSON_AddNumberToObject(doc, "next_since", (double)next_since);
+    cJSON_AddStringToObject(doc, "version", flywire_site_version());
     flywire_send_json(res, doc, CWIST_HTTP_OK);
     cJSON_Delete(doc);
 }
@@ -198,6 +286,7 @@ static const flywire_entity_t k_entities[] = {
     { "i18n",       "i18n",            FLYWIRE_DB_MAIN,     true  },
     { "comment",    "comments",        FLYWIRE_DB_COMMENTS, false },
     { "board_tree", "board_tree",      FLYWIRE_DB_TREE,     false },
+    { "user",       "users",           FLYWIRE_DB_MAIN,     false },
 };
 
 static const flywire_entity_t *flywire_entity(const char *name) {
@@ -233,7 +322,7 @@ static flywire_cols_t *flywire_cols_slot(const char *table) {
     static const struct { const char *t; int slot; } map[] = {
         { "posts", 0 }, { "boards", 1 }, { "files", 2 }, { "series", 3 },
         { "tags", 4 }, { "post_votes", 5 }, { "post_votes_anon", 6 },
-        { "comments", 7 }, { "board_tree", 8 },
+        { "comments", 7 }, { "board_tree", 8 }, { "users", 9 },
     };
     for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
         if (strcmp(map[i].t, table) == 0) return &g_cols[map[i].slot];
@@ -591,7 +680,30 @@ static bool flywire_apply_row(sqlite3 *main_conn, long long seq, const char *ent
     if (!conn) return false;
 
     bool ok;
-    if (e->special && strcmp(op, "upsert") == 0) {
+    if (strcmp(e->entity, "user") == 0 && strcmp(op, "upsert") == 0) {
+        /* Never clobber the replica's own admin identity: skip any user
+         * upsert whose username matches the local admin.settings username,
+         * and never touch the admin.settings account row itself. The primary
+         * may journal the same-named row (or the same id after a reseed);
+         * locally that row is how the operator signs in. */
+        cJSON *payload = cJSON_Parse(payload_json && payload_json[0] ? payload_json : "{}");
+        const char *uname = payload && cJSON_IsString(cJSON_GetObjectItem(payload, "username"))
+                                ? cJSON_GetObjectItem(payload, "username")->valuestring : "";
+        if (uname[0] && strcmp(uname, auth_admin_username()) == 0) {
+            CWIST_LOG_WARN("flywire: skipped user upsert for local admin username '%s' at seq %lld",
+                           uname, seq);
+            if (payload) cJSON_Delete(payload);
+            return true;
+        }
+        if (entity_id > 0 && entity_id == auth_site_admin_uid()) {
+            CWIST_LOG_WARN("flywire: skipped user upsert for local admin.settings row (id %d) at seq %lld",
+                           entity_id, seq);
+            if (payload) cJSON_Delete(payload);
+            return true;
+        }
+        ok = payload ? flywire_apply_upsert(conn, e, payload) : false;
+        if (payload) cJSON_Delete(payload);
+    } else if (e->special && strcmp(op, "upsert") == 0) {
         cJSON *payload = cJSON_Parse(payload_json && payload_json[0] ? payload_json : "{}");
         ok = payload ? flywire_apply_special(conn, e, op, entity_id, payload) : false;
         if (payload) cJSON_Delete(payload);
@@ -666,8 +778,7 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
         return -1;
     }
     cJSON *okj = cJSON_GetObjectItem(doc, "ok");
-    if (!cJSON_IsTrue(okj)) {
-        const char *err = cJSON_GetObjectItem(doc, "error") && cJSON_IsString(cJSON_GetObjectItem(doc, "error"))
+    if (!cJSON_IsTrue(okj)) {        const char *err = cJSON_GetObjectItem(doc, "error") && cJSON_IsString(cJSON_GetObjectItem(doc, "error"))
                               ? cJSON_GetObjectItem(doc, "error")->valuestring : "?";
         if (strcmp(err, "journal_purged") == 0) {
             CWIST_LOG_ERROR("flywire: the primary no longer has journal rows for our checkpoint "
@@ -679,6 +790,9 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
         cJSON_Delete(doc);
         return -1;
     }
+
+    cJSON *ver = cJSON_GetObjectItem(doc, "version");
+    if (cJSON_IsString(ver) && ver->valuestring) flywire_maybe_auto_upgrade(ver->valuestring);
 
     cJSON *rows = cJSON_GetObjectItem(doc, "rows");
     int applied = 0;
@@ -765,4 +879,200 @@ bool flywire_start(void) {
 
 void flywire_stop(void) {
     atomic_store_explicit(&g_flywire_running, false, memory_order_release);
+}
+
+/* ---- Admin promotion request flow ----
+ *
+ * A user registered on a replica asks for admin; the replica forwards the
+ * request to the primary's /flywire/promote-request (token-authenticated),
+ * where a webmail message is created for the primary's first admin. Approval
+ * itself happens through the existing admin dashboard role change, which is
+ * journaled as a normal "user" upsert and therefore flows back to replicas. */
+
+static void flywire_redirect(cwist_http_response *res, const char *url) {
+    res->status_code = (cwist_http_status_t)302;
+    cwist_http_header_add(&res->headers, "Location", url);
+    cwist_sstring_assign(res->body, "");
+    cwist_http_header_add(&res->headers, "Content-Length", "0");
+}
+
+/* POST /flywire/request-admin — replica only (404 otherwise). Forwards the
+ * current user's username/email/password_hash to the primary so the account
+ * can be created (or matched) there and an admin notified. */
+void handler_flywire_request_admin(cwist_http_request *req, cwist_http_response *res) {
+    if (!flywire_is_replica()) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        cwist_sstring_assign(res->body, "Not found");
+        return;
+    }
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    if (strcmp(role, "admin") == 0) {
+        flywire_redirect(res, "/account/settings");
+        return;
+    }
+    cJSON *user = db_user_get_by_id(req->db, uid);
+    if (!user) {
+        flywire_redirect(res, "/account/settings?msg=admin_request_failed");
+        return;
+    }
+    cJSON *body = cJSON_CreateObject();
+    cJSON_AddStringToObject(body, "username",
+        cJSON_GetObjectItem(user, "username") && cJSON_GetObjectItem(user, "username")->valuestring
+            ? cJSON_GetObjectItem(user, "username")->valuestring : "");
+    cJSON_AddStringToObject(body, "email",
+        cJSON_GetObjectItem(user, "email") && cJSON_GetObjectItem(user, "email")->valuestring
+            ? cJSON_GetObjectItem(user, "email")->valuestring : "");
+    cJSON_AddStringToObject(body, "password_hash",
+        cJSON_GetObjectItem(user, "password_hash") && cJSON_GetObjectItem(user, "password_hash")->valuestring
+            ? cJSON_GetObjectItem(user, "password_hash")->valuestring : "");
+    char *payload = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+    cJSON_Delete(user);
+    if (!payload) {
+        flywire_redirect(res, "/account/settings?msg=admin_request_failed");
+        return;
+    }
+
+    char url[600];
+    const char *base = flywire_primary_url();
+    size_t bl = strlen(base);
+    snprintf(url, sizeof(url), "%s%s/flywire/promote-request",
+             base, (bl > 0 && base[bl - 1] == '/') ? "" : "");
+
+    flywire_buf buf = {0};
+    CURL *curl = curl_easy_init();
+    bool ok = false;
+    if (curl) {
+        char token_hdr[192];
+        snprintf(token_hdr, sizeof(token_hdr), "X-FlyWire-Token: %s", flywire_token());
+        struct curl_slist *headers = NULL;
+        headers = curl_slist_append(headers, token_hdr);
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, flywire_feed_write);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+        CURLcode rc = curl_easy_perform(curl);
+        long status = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        ok = (rc == CURLE_OK) && status >= 200 && status < 300;
+    }
+    free(buf.data);
+    free(payload);
+    if (!ok) CWIST_LOG_WARN("flywire: admin promotion request to primary failed");
+    flywire_redirect(res, ok ? "/account/settings?msg=admin_requested"
+                             : "/account/settings?msg=admin_request_failed");
+}
+
+/* POST /flywire/promote-request — primary only (404 otherwise), token
+ * REQUIRED (constant-time compare, same as the feed). Creates the requesting
+ * user locally when unknown, then notifies the first admin via webmail. */
+void handler_flywire_promote_request(cwist_http_request *req, cwist_http_response *res) {
+    if (!flywire_is_primary()) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        cwist_sstring_assign(res->body, "Not found");
+        return;
+    }
+    const char *token = cwist_http_header_get(req->headers, "X-FlyWire-Token");
+    if (!token || !token[0]) token = cwist_query_map_get(req->query_params, "token");
+    if (!flywire_token_eq(token ? token : "", flywire_token())) {
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddBoolToObject(err, "ok", false);
+        cJSON_AddStringToObject(err, "error", "unauthorized");
+        flywire_send_json(res, err, CWIST_HTTP_UNAUTHORIZED);
+        cJSON_Delete(err);
+        return;
+    }
+    cJSON *doc = (req->body && req->body->data) ? cJSON_Parse(req->body->data) : NULL;
+    if (!doc) {
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddBoolToObject(err, "ok", false);
+        cJSON_AddStringToObject(err, "error", "bad_json");
+        flywire_send_json(res, err, CWIST_HTTP_BAD_REQUEST);
+        cJSON_Delete(err);
+        return;
+    }
+    const char *username = cJSON_GetObjectItem(doc, "username") && cJSON_IsString(cJSON_GetObjectItem(doc, "username"))
+                               ? cJSON_GetObjectItem(doc, "username")->valuestring : NULL;
+    const char *email = cJSON_GetObjectItem(doc, "email") && cJSON_IsString(cJSON_GetObjectItem(doc, "email"))
+                            ? cJSON_GetObjectItem(doc, "email")->valuestring : "";
+    const char *password_hash = cJSON_GetObjectItem(doc, "password_hash") && cJSON_IsString(cJSON_GetObjectItem(doc, "password_hash"))
+                                    ? cJSON_GetObjectItem(doc, "password_hash")->valuestring : "";
+    if (!username || !username[0] || strlen(username) >= 128) {
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddBoolToObject(err, "ok", false);
+        cJSON_AddStringToObject(err, "error", "missing_fields");
+        flywire_send_json(res, err, CWIST_HTTP_BAD_REQUEST);
+        cJSON_Delete(err);
+        cJSON_Delete(doc);
+        return;
+    }
+
+    cJSON *existing = db_user_get_by_username(req->db, username);
+    if (!existing) {
+        /* Unknown on the primary: create with role "user", verified, storing
+         * the hash as given. db_user_create / db_user_set_email_verified
+         * journal the row normally, so the replica that asked gets the
+         * account back through the regular sync. */
+        if (db_user_create(req->db, username, email, password_hash)) {
+            cJSON *created = db_user_get_by_username(req->db, username);
+            if (created) {
+                int new_id = cJSON_GetObjectItem(created, "id") ? cJSON_GetObjectItem(created, "id")->valueint : 0;
+                if (new_id > 0) db_user_set_email_verified(req->db, new_id, true);
+                cJSON_Delete(created);
+            }
+            CWIST_LOG_INFO("flywire: promote-request created user '%s' on the primary", username);
+        } else {
+            CWIST_LOG_ERROR("flywire: promote-request could not create user '%s'", username);
+        }
+    }
+    if (existing) cJSON_Delete(existing);
+
+    /* Notify the primary's first admin by webmail. */
+    int admin_id = 0;
+    char admin_email[256] = {0};
+    {
+        sqlite3 *conn = fly_db_conn(req->db);
+        sqlite3_stmt *st = NULL;
+        if (sqlite3_prepare_v2(conn, "SELECT id, email FROM users WHERE role='admin' ORDER BY id LIMIT 1", -1, &st, NULL) == SQLITE_OK) {
+            if (sqlite3_step(st) == SQLITE_ROW) {
+                admin_id = sqlite3_column_int(st, 0);
+                const char *e = (const char *)sqlite3_column_text(st, 1);
+                if (e) snprintf(admin_email, sizeof(admin_email), "%s", e);
+            }
+            sqlite3_finalize(st);
+        }
+    }
+    if (admin_id > 0) {
+        char from[320];
+        snprintf(from, sizeof(from), "postmaster@%s", fly_mail_domain());
+        char subject[192];
+        snprintf(subject, sizeof(subject), "Admin promotion request: %s", username);
+        char body[1024];
+        snprintf(body, sizeof(body),
+                 "User '%s' (email: %s) registered on a FlyWire replica and requests the admin role.\n\n"
+                 "Approve by promoting this user in the admin dashboard.\n",
+                 username, email && email[0] ? email : "(none given)");
+        if (db_email_create(req->db, admin_id, MAIL_FOLDER_INBOX, from, admin_email,
+                            subject, body, NULL, NULL) > 0) {
+            CWIST_LOG_INFO("flywire: admin promotion request for '%s' delivered to admin uid=%d",
+                           username, admin_id);
+        }
+    } else {
+        CWIST_LOG_WARN("flywire: promote-request for '%s' but no admin user exists on the primary",
+                       username);
+    }
+
+    cJSON *out = cJSON_CreateObject();
+    cJSON_AddBoolToObject(out, "ok", true);
+    flywire_send_json(res, out, CWIST_HTTP_OK);
+    cJSON_Delete(out);
+    cJSON_Delete(doc);
 }
