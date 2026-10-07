@@ -19,7 +19,10 @@
 #include <string.h>
 #include <strings.h>
 
-#define MAIL_DOMAIN "oborona.zip"
+static const char *mail_domain(void) {
+    const char *d = getenv("FLY_MAIL_DOMAIN");
+    return (d && d[0]) ? d : "localhost";
+}
 
 static const char *const k_reserved[] = {
     "postmaster", "abuse", "admin", "administrator", "support", "help",
@@ -48,7 +51,7 @@ int main(int argc, char **argv) {
             "SELECT username FROM users WHERE role='admin' ORDER BY id LIMIT 1", -1, &stmt, NULL) == SQLITE_OK) {
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             const unsigned char *un = sqlite3_column_text(stmt, 0);
-            if (un) snprintf(admin_addr, sizeof(admin_addr), "%s@" MAIL_DOMAIN, (const char *)un);
+            if (un) snprintf(admin_addr, sizeof(admin_addr), "%s@%s", (const char *)un, mail_domain());
         }
     }
     sqlite3_finalize(stmt);
@@ -59,7 +62,7 @@ int main(int argc, char **argv) {
     }
 
     for (int i = 0; k_reserved[i]; i++)
-        printf("%s@%s %s\n", k_reserved[i], MAIL_DOMAIN, admin_addr);
+        printf("%s@%s %s\n", k_reserved[i], mail_domain(), admin_addr);
 
     /* Virtual mailbox map: the user list Postfix validates recipients
      * against. Identity alias lines are NOT emitted — with
@@ -87,7 +90,7 @@ int main(int argc, char **argv) {
             for (int i = 0; k_reserved[i]; i++)
                 if (strcasecmp(name, k_reserved[i]) == 0) { reserved = true; break; }
             if (reserved) continue;
-            if (mailboxes) fprintf(mailboxes, "%s@%s OK\n", name, MAIL_DOMAIN);
+            if (mailboxes) fprintf(mailboxes, "%s@%s OK\n", name, mail_domain());
         }
     }
     if (mailboxes) fclose(mailboxes);

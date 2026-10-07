@@ -8,6 +8,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 #include "utils/email.h"
+#include "config/config.h"
 #include <cwist/core/log.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -131,7 +132,7 @@ static int smtp_connect(const char *host, const char *port) {
     return fd;
 }
 
-bool email_send(const char *to, const char *subject, const char *body) {
+bool email_send_from(const char *from_arg, const char *to, const char *subject, const char *body) {
     /* With no FLY_SMTP_* configuration, fall back to a local Postfix on
      * 127.0.0.1:25 so outbound mail (verification, webmail, broadcasts)
      * flows through the site's own MX without extra environment. */
@@ -147,11 +148,17 @@ bool email_send(const char *to, const char *subject, const char *body) {
         snprintf(port_buf, sizeof(port_buf), "%d", implicit ? 465 : 25);
         port = port_buf;
     }
-    const char *from = getenv("FLY_SMTP_FROM");
+    const char *from = from_arg;
     const char *user = getenv("FLY_SMTP_USER");
     const char *pass = getenv("FLY_SMTP_PASS");
+    if (!from || !from[0]) from = getenv("FLY_SMTP_FROM");
     if (!from || !from[0]) from = user;
-    if (!from || !from[0]) from = "noreply@oborona.zip";
+    char from_buf[384] = {0};
+    if (!from || !from[0]) {
+        /* Default identity: noreply@<site mail domain> (config.c). */
+        snprintf(from_buf, sizeof(from_buf), "noreply@%s", fly_mail_domain());
+        from = from_buf;
+    }
 
     smtp_conn c = { .fd = smtp_connect(host, port), .ssl = NULL, .ctx = NULL };
     if (c.fd < 0) {
@@ -211,4 +218,8 @@ bool email_send(const char *to, const char *subject, const char *body) {
         FLY_LOG_ERROR("Email: SMTP transaction with %s:%s failed for recipient %s", host, port, to);
     }
     return ok;
+}
+
+bool email_send(const char *to, const char *subject, const char *body) {
+    return email_send_from(NULL, to, subject, body);
 }

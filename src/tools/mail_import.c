@@ -31,8 +31,6 @@
 #include <pwd.h>
 #include <unistd.h>
 
-#define MAIL_DOMAIN "oborona.zip"
-
 /* ------------------------------------------------------------------ utils */
 
 static char *read_all_stdin(size_t *out_len) {

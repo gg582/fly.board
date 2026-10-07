@@ -17,6 +17,10 @@ typedef struct {
     char files_img[256];
     char favicon[256];
     char root_url[256];
+    /* Mail domain for locally hosted addresses (<user>@mail_domain).
+     * Resolved at load time: FLY_MAIL_DOMAIN env, then the host part of
+     * root_url, then "localhost". */
+    char mail_domain[128];
     /* Site language (BCP 47, e.g. "ko"): <html lang> for pages without
      * their own, and the RSS channel language. Default "ko". */
     char language[16];
@@ -55,6 +59,10 @@ typedef struct {
 } blog_config_t;
 
 extern blog_config_t g_config;
+
+/* Resolved mail domain for the local mail stack (FLY_MAIL_DOMAIN env,
+ * mail_domain setting, or root_url host). */
+const char *fly_mail_domain(void);
 
 bool blog_config_load(const char *path);
 

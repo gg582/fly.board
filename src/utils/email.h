@@ -13,6 +13,9 @@ bool email_cert_enabled(void);
  *   FLY_SMTP_TLS       "starttls" | "implicit" | off otherwise
  *   FLY_SMTP_USER/PASS AUTH LOGIN credentials (optional)
  *   FLY_SMTP_FROM      envelope/header sender (default FLY_SMTP_USER) */
+bool email_send_from(const char *from, const char *to, const char *subject, const char *body);
+/* Convenience wrapper: sends with the default identity (FLY_SMTP_FROM,
+ * FLY_SMTP_USER, or noreply@<mail domain>). */
 bool email_send(const char *to, const char *subject, const char *body);
 
 #endif

@@ -116,6 +116,7 @@ bool blog_config_load(const char *path) {
             fprintf(f, "bg_invert_color=%s\n", g_config.bg_invert_color);
             fprintf(f, "bg_invert_algo=%s\n", g_config.bg_invert_algo);
             fprintf(f, "root_url=%s\n", g_config.root_url);
+            fprintf(f, "mail_domain=%s\n", g_config.mail_domain);
             fprintf(f, "language=%s\n", g_config.language);
             fprintf(f, "use_tasfa=%s\n", g_config.use_tasfa ? "true" : "false");
             fprintf(f, "use_rss=%s\n", g_config.use_rss ? "true" : "false");
@@ -170,6 +171,8 @@ bool blog_config_load(const char *path) {
             snprintf(g_config.favicon, sizeof(g_config.favicon), "%s", val);
         } else if (strcmp(key, "root_url") == 0) {
             snprintf(g_config.root_url, sizeof(g_config.root_url), "%s", val);
+        } else if (strcmp(key, "mail_domain") == 0) {
+            snprintf(g_config.mail_domain, sizeof(g_config.mail_domain), "%s", val);
         } else if (strcmp(key, "bg_full_light") == 0) {
             snprintf(g_config.bg_full_light, sizeof(g_config.bg_full_light), "%s", val);
         } else if (strcmp(key, "bg_full_dark") == 0) {
@@ -231,6 +234,24 @@ bool blog_config_load(const char *path) {
         CWIST_LOG_WARN("Unknown vote_only value '%s', falling back to all", g_config.vote_only);
         g_config.vote_only[0] = '\0';
     }
+
+    /* Resolve the mail domain: explicit env override wins, then the
+     * mail_domain setting, then the host part of root_url, then localhost. */
+    const char *md_env = getenv("FLY_MAIL_DOMAIN");
+    if (md_env && md_env[0]) {
+        snprintf(g_config.mail_domain, sizeof(g_config.mail_domain), "%s", md_env);
+    }
+    if (!g_config.mail_domain[0]) {
+        const char *u = g_config.root_url;
+        const char *p = strstr(u, "://");
+        p = p ? p + 3 : u;
+        size_t len = strcspn(p, "/:?#");
+        if (len >= sizeof(g_config.mail_domain)) len = sizeof(g_config.mail_domain) - 1;
+        memcpy(g_config.mail_domain, p, len);
+        g_config.mail_domain[len] = '\0';
+    }
+    if (!g_config.mail_domain[0])
+        snprintf(g_config.mail_domain, sizeof(g_config.mail_domain), "localhost");
 
     /* Validate configured image assets so the renderer does not emit broken
        <img> tags that result in 404s in Firefox (and all other browsers). */
@@ -718,4 +739,9 @@ bool font_settings_load(const char *path) {
     }
     fclose(f);
     return true;
+}
+
+/* Resolved mail domain for the local mail stack (see blog_config_load). */
+const char *fly_mail_domain(void) {
+    return g_config.mail_domain[0] ? g_config.mail_domain : "localhost";
 }

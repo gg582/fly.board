@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "render.h"
+#include "config/config.h"
 #include "cwist/image_size.h"
 #include <cwist/core/sstring/sstring.h>
 #include <md4c-html.h>
@@ -1491,10 +1492,22 @@ static void rewrite_tasfa_bootstrap(cwist_sstring *html) {
                         const char *target = NULL;
                         if (strncmp(href, "/file/download/", 15) == 0) {
                             target = href;
-                        } else if (strncmp(href, "https://oborona.zip/file/download/", 34) == 0) {
-                            target = href + 19;
-                        } else if (strncmp(href, "http://oborona.zip/file/download/", 33) == 0) {
-                            target = href + 18;
+                        } else if (g_config.root_url[0]) {
+                            /* Absolute URL pointing at this site: match any
+                             * scheme://host prefix derived from root_url. */
+                            const char *p = strstr(g_config.root_url, "://");
+                            p = p ? p + 3 : g_config.root_url;
+                            size_t host_len = strcspn(p, "/");
+                            char prefix[320] = {0};
+                            if (host_len < sizeof(prefix) - 16) {
+                                memcpy(prefix, p, host_len);
+                                prefix[host_len] = '\0';
+                                strncat(prefix, "/file/download/", sizeof(prefix) - strlen(prefix) - 1);
+                                size_t plen = strlen(prefix);
+                                const char *abs = strstr(href, "://");
+                                if (abs && strncmp(abs + 3, prefix, plen) == 0)
+                                    target = abs + 3 + host_len;
+                            }
                         }
                         if (target) {
                             cwist_sstring_append(out, "<a href=\"#\" data-tasfa-download-link=\"");

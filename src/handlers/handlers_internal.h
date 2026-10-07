@@ -44,9 +44,10 @@ bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res
                                const char *path, const char *mime,
                                const char *cache_control, bool *not_modified);
 
-/* Domain served by the local Postfix/Dovecot stack; local mail addresses are
- * <username>@FLY_MAIL_DOMAIN. */
-#define FLY_MAIL_DOMAIN "oborona.zip"
+/* Domain served by the local Postfix/Dovecot stack; local mail addresses
+ * are <username>@<mail_domain>. Resolved from FLY_MAIL_DOMAIN, the
+ * mail_domain blog setting, or the root_url host (see config.c). */
+const char *fly_mail_domain(void);
 
 bool secure_str_eq(const char *a, const char *b);
 cJSON *load_download_session_cached(const char *session_id);

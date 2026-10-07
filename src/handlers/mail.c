@@ -165,7 +165,7 @@ static bool message_id_new(char *out, size_t out_len) {
     if (RAND_bytes(rnd, sizeof(rnd)) != 1) return false;
     char hex[17] = {0};
     for (size_t i = 0; i < sizeof(rnd); i++) snprintf(hex + i * 2, 3, "%02x", rnd[i]);
-    snprintf(out, out_len, "<%lld.%s@%s>", (long long)time(NULL), hex, FLY_MAIL_DOMAIN);
+    snprintf(out, out_len, "<%lld.%s@%s>", (long long)time(NULL), hex, fly_mail_domain());
     return true;
 }
 
@@ -196,13 +196,13 @@ void handler_mail_send_post(cwist_http_request *req, cwist_http_response *res) {
     const char *sender_name = cJSON_IsString(sender_name_obj) ? sender_name_obj->valuestring : "";
     char from_addr[320] = {0};
     if (sender_name && sender_name[0])
-        snprintf(from_addr, sizeof(from_addr), "%s@%s", sender_name, FLY_MAIL_DOMAIN);
+        snprintf(from_addr, sizeof(from_addr), "%s@%s", sender_name, fly_mail_domain());
     else
-        snprintf(from_addr, sizeof(from_addr), "user%d@%s", uid, FLY_MAIL_DOMAIN);
+        snprintf(from_addr, sizeof(from_addr), "user%d@%s", uid, fly_mail_domain());
 
     char message_id[128] = {0};
     if (!message_id_new(message_id, sizeof(message_id)))
-        snprintf(message_id, sizeof(message_id), "<%d.%lld@%s>", uid, (long long)time(NULL), FLY_MAIL_DOMAIN);
+        snprintf(message_id, sizeof(message_id), "<%d.%lld@%s>", uid, (long long)time(NULL), fly_mail_domain());
 
     int local_delivered = 0, external_sent = 0, external_failed = 0;
     char failed_list[512] = {0};
@@ -220,7 +220,7 @@ void handler_mail_send_post(cwist_http_request *req, cwist_http_response *res) {
         }
         if (!local[0]) continue;
 
-        bool is_local_domain = !at || strcasecmp(at + 1, FLY_MAIL_DOMAIN) == 0;
+        bool is_local_domain = !at || strcasecmp(at + 1, fly_mail_domain()) == 0;
         cJSON *rcpt = is_local_domain ? db_user_get_by_username(req->db, local) : NULL;
         if (rcpt) {
             int owner = json_int(rcpt, "id", 0);
@@ -232,7 +232,7 @@ void handler_mail_send_post(cwist_http_request *req, cwist_http_response *res) {
             cJSON_Delete(rcpt);
         } else if (at) {
             /* External recipient: try the configured SMTP / local Postfix. */
-            if (email_send(addr, subject, body)) {
+            if (email_send_from(from_addr, addr, subject, body)) {
                 external_sent++;
             } else {
                 external_failed++;
@@ -337,18 +337,20 @@ void handler_admin_broadcast_post(cwist_http_request *req, cwist_http_response *
 
     char message_id[128] = {0};
     if (!message_id_new(message_id, sizeof(message_id)))
-        snprintf(message_id, sizeof(message_id), "<broadcast.%lld@%s>", (long long)time(NULL), FLY_MAIL_DOMAIN);
+        snprintf(message_id, sizeof(message_id), "<broadcast.%lld@%s>", (long long)time(NULL), fly_mail_domain());
 
     int inbox_copies = 0, send_ok = 0, send_failed = 0;
     cJSON *users = db_user_list_verified(req->db);
     cJSON *u = NULL;
+    char postmaster[320] = {0};
+    snprintf(postmaster, sizeof(postmaster), "postmaster@%s", fly_mail_domain());
     cJSON_ArrayForEach(u, users) {
         int target = json_int(u, "id", 0);
         cJSON *email = cJSON_GetObjectItem(u, "email");
         if (target <= 0) continue;
         /* Local copy for the webmail inbox. */
         if (db_email_create(req->db, target, MAIL_FOLDER_INBOX,
-                            "postmaster@" FLY_MAIL_DOMAIN, "",
+                            postmaster, "",
                             subject, body, message_id, NULL) > 0)
             inbox_copies++;
         /* Outbound copy to the address on file. */

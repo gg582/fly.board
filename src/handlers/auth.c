@@ -13,9 +13,10 @@ static bool random_hex(char *out, size_t byte_len) {
     return true;
 }
 
-/* Local mailbox addresses are derived from the username (username@oborona.zip)
- * and Postfix reserves the role addresses below for the site admin, so a
- * plain user account must never be able to claim one. Registration and the
+/* Local mailbox addresses are derived from the username (<username>@<mail
+ * domain>) and Postfix reserves the role addresses below for the site
+ * admin, so a plain user account must never be able to claim one.
+ * Registration and the
  * mail stack must stay in sync with this list. */
 static const char *const k_reserved_usernames[] = {
     "postmaster", "abuse", "admin", "administrator", "support", "help",
