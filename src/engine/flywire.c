@@ -325,6 +325,7 @@ static flywire_cols_t *flywire_cols_slot(const char *table) {
         { "posts", 0 }, { "boards", 1 }, { "files", 2 }, { "series", 3 },
         { "tags", 4 }, { "post_votes", 5 }, { "post_votes_anon", 6 },
         { "comments", 7 }, { "board_tree", 8 }, { "users", 9 },
+        { "emails", 10 },
     };
     for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
         if (strcmp(map[i].t, table) == 0) return &g_cols[map[i].slot];
@@ -807,11 +808,19 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
         cJSON *payload = cJSON_GetObjectItem(row, "payload");
         if (!cJSON_IsNumber(seqj) || !cJSON_IsString(ent) || !cJSON_IsNumber(idj) || !cJSON_IsString(op)) continue;
         char *payload_str = payload && cJSON_IsObject(payload) ? cJSON_PrintUnformatted(payload) : strdup("");
-        flywire_apply_row(main_conn, (long long)seqj->valuedouble, ent->valuestring, idj->valueint,
-                          op->valuestring, payload_str ? payload_str : "");
+        bool ok = flywire_apply_row(main_conn, (long long)seqj->valuedouble, ent->valuestring, idj->valuedouble,
+                                    op->valuestring, payload_str ? payload_str : "");
         free(payload_str);
-        flywire_checkpoint_write((long long)seqj->valuedouble);
-        applied++;
+        /* Only advance the checkpoint on success: a failed row is retried
+         * next poll instead of being silently skipped forever. */
+        if (ok) {
+            flywire_checkpoint_write((long long)seqj->valuedouble);
+            applied++;
+        } else {
+            CWIST_LOG_ERROR("flywire: apply failed at seq %lld (%s %d %s); will retry",
+                            (long long)seqj->valuedouble, ent->valuestring, (int)idj->valuedouble, op->valuestring);
+            break;
+        }
     }
     if (applied > 0) {
         CWIST_LOG_INFO("flywire: applied %d journal rows (now at seq %lld)", applied, flywire_checkpoint_read());
