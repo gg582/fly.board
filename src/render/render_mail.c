@@ -170,17 +170,21 @@ cwist_sstring *render_mail_list(cJSON *emails, const char *folder, int page, int
         cwist_sstring_append(b, "</a></td><td>");
         cwist_sstring_append_escaped(b, cJSON_IsString(created) ? created->valuestring : "");
         cwist_sstring_append(b, "</td><td style='white-space:nowrap'>");
-        /* Read/unread toggle + delete. */
-        cwist_sstring_append(b, "<form action='/mail/read' method='post' style='display:inline'>"
-                                "<input type='hidden' name='id' value='");
-        cwist_sstring_append(b, num);
-        cwist_sstring_append(b, "'><input type='hidden' name='folder' value='");
-        cwist_sstring_append(b, folder);
-        cwist_sstring_append(b, "'><input type='hidden' name='value' value='");
-        cwist_sstring_append(b, is_read ? "0'>" : "1'>");
-        cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='padding:2px 8px;font-size:12px'>");
-        cwist_sstring_append(b, is_read ? "Mark unread" : "Mark read");
-        cwist_sstring_append(b, "</button></form> ");
+        /* Read/unread toggle is meaningless for messages the viewer sent;
+         * Sent rows get Delete only. */
+        bool is_sent = !strcmp(folder, MAIL_FOLDER_SENT);
+        if (!is_sent) {
+            cwist_sstring_append(b, "<form action='/mail/read' method='post' style='display:inline'>"
+                                    "<input type='hidden' name='id' value='");
+            cwist_sstring_append(b, num);
+            cwist_sstring_append(b, "'><input type='hidden' name='folder' value='");
+            cwist_sstring_append(b, folder);
+            cwist_sstring_append(b, "'><input type='hidden' name='value' value='");
+            cwist_sstring_append(b, is_read ? "0'>" : "1'>");
+            cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='padding:2px 8px;font-size:12px'>");
+            cwist_sstring_append(b, is_read ? "Mark unread" : "Mark read");
+            cwist_sstring_append(b, "</button></form> ");
+        }
         cwist_sstring_append(b, "<form action='/mail/delete' method='post' style='display:inline'>"
                                 "<input type='hidden' name='id' value='");
         cwist_sstring_append(b, num);

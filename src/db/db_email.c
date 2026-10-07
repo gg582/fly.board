@@ -2,6 +2,7 @@
 #include "db.h"
 #include "db_internal.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* ---------------------------------------------------------------------------
@@ -39,8 +40,13 @@ int db_email_create(cwist_db *db, int owner_id, const char *folder,
                     const char *from_addr, const char *to_addrs,
                     const char *subject, const char *body_text,
                     const char *message_id, const char *in_reply_to) {
-    return db_email_create_conn(fly_db_conn(db), owner_id, folder, from_addr, to_addrs,
-                                subject, body_text, message_id, in_reply_to);
+    int id = db_email_create_conn(fly_db_conn(db), owner_id, folder, from_addr, to_addrs,
+                                  subject, body_text, message_id, in_reply_to);
+    /* Webmail rows sync primary->replica like every other entity; the
+     * replica-side spool sweep re-creating a row is harmless (idempotent
+     * upsert by id). */
+    if (id > 0) db_sync_journal_row(db, "emails", "email", id);
+    return id;
 }
 
 /* Append an attachment listing to a stored body (used by mail-import, which
@@ -113,6 +119,7 @@ bool db_email_set_read(cwist_db *db, int owner_id, int id, bool is_read) {
     sqlite3_bind_int(stmt, 3, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) db_sync_journal_row(db, "emails", "email", id);
     return rc == SQLITE_DONE;
 }
 
@@ -125,6 +132,7 @@ bool db_email_set_folder(cwist_db *db, int owner_id, int id, const char *folder)
     sqlite3_bind_int(stmt, 3, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) db_sync_journal_row(db, "emails", "email", id);
     return rc == SQLITE_DONE;
 }
 
@@ -136,10 +144,28 @@ bool db_email_delete(cwist_db *db, int owner_id, int id) {
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) db_sync_journal(db, "email", id, "delete", NULL);
     return rc == SQLITE_DONE;
 }
 
 int db_email_empty_trash(cwist_db *db, int owner_id) {
+    /* Collect the ids first so each deleted row can be journaled (the
+     * replica applies deletes idempotently). */
+    char ids[4096] = {0};
+    int nids = 0;
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db),
+            "SELECT id FROM emails WHERE owner_id=? AND folder='Trash'", -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_int(st, 1, owner_id);
+        while (sqlite3_step(st) == SQLITE_ROW && nids < 500) {
+            int id = sqlite3_column_int(st, 0);
+            int off = strlen(ids);
+            snprintf(ids + off, sizeof(ids) - (size_t)off, "%s%d", nids ? "," : "", id);
+            nids++;
+        }
+    }
+    sqlite3_finalize(st);
+
     const char *sql = "DELETE FROM emails WHERE owner_id=? AND folder='Trash'";
     sqlite3_stmt *stmt = NULL;
     sqlite3 *conn = fly_db_conn(db);
@@ -148,6 +174,11 @@ int db_email_empty_trash(cwist_db *db, int owner_id) {
     int rc = sqlite3_step(stmt);
     int n = rc == SQLITE_DONE ? sqlite3_changes(conn) : 0;
     sqlite3_finalize(stmt);
+    if (n > 0) {
+        char *save = NULL;
+        for (char *tok = strtok_r(ids, ",", &save); tok; tok = strtok_r(NULL, ",", &save))
+            db_sync_journal(db, "email", atoi(tok), "delete", NULL);
+    }
     return n;
 }
 

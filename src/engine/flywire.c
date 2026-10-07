@@ -288,6 +288,7 @@ static const flywire_entity_t k_entities[] = {
     { "comment",    "comments",        FLYWIRE_DB_COMMENTS, false },
     { "board_tree", "board_tree",      FLYWIRE_DB_TREE,     false },
     { "user",       "users",           FLYWIRE_DB_MAIN,     false },
+    { "email",      "emails",          FLYWIRE_DB_MAIN,     false },
 };
 
 static const flywire_entity_t *flywire_entity(const char *name) {

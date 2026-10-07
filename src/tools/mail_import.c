@@ -650,6 +650,10 @@ static int db_deliver(const mail_headers_t *h, const parse_result_t *res,
         sqlite3_close(conn);
         return 111;
     }
+    /* The spool sweep (dbonly) and root pipe delivery both bypass the web
+     * server, so journal here to keep FlyWire replicas in sync. The journal
+     * insert is best-effort: a failure must not fail delivery. */
+    db_sync_journal_external_row(conn, "emails", "id", "email", email_id);
 
     /* Persist attachments under public/uploads/mail/<id>/ and list them at
      * the end of the body. The stored blob slots are base64 strings. */
@@ -679,6 +683,8 @@ static int db_deliver(const mail_headers_t *h, const parse_result_t *res,
                 lo += (size_t)snprintf(listing + lo, sizeof(listing) - lo, "  %s\n", safe);
             }
             db_email_append_body_conn(conn, owner, email_id, listing);
+            /* Re-journal: the first snapshot predates the appended listing. */
+            db_sync_journal_external_row(conn, "emails", "id", "email", email_id);
         }
     }
 
