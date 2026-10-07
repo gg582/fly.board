@@ -18,9 +18,9 @@ static unsigned int cache_hash(const char *str) {
 
 static void cache_clear_slot(cache_slot_t *slot) {
     if (!slot->valid) return;
-    if (slot->type == 3 && slot->data.json) {
-        cJSON_Delete(slot->data.json);
-        slot->data.json = NULL;
+    if (slot->type == 3 && slot->data.json_str) {
+        free(slot->data.json_str);
+        slot->data.json_str = NULL;
     }
     slot->valid = 0;
     slot->key[0] = '\0';
@@ -103,7 +103,7 @@ cJSON *load_download_session_cached(const char *session_id) {
         if (!g_tasfa_cache[probe].valid) break;
         if (g_tasfa_cache[probe].type == 3 && strcmp(g_tasfa_cache[probe].key, session_id) == 0) {
             if (time(NULL) <= g_tasfa_cache[probe].expires) {
-                cJSON *copy = cJSON_Duplicate(g_tasfa_cache[probe].data.json, 1);
+                cJSON *copy = cJSON_Parse(g_tasfa_cache[probe].data.json_str);
                 pthread_mutex_unlock(&g_tasfa_cache_mtx);
                 return copy;
             }
@@ -124,7 +124,7 @@ cJSON *load_download_session_cached(const char *session_id) {
             if (g_tasfa_cache[probe].type == 3 && strcmp(g_tasfa_cache[probe].key, session_id) == 0) {
                 if (time(NULL) <= g_tasfa_cache[probe].expires) {
                     cJSON_Delete(meta);
-                    meta = cJSON_Duplicate(g_tasfa_cache[probe].data.json, 1);
+                    meta = cJSON_Parse(g_tasfa_cache[probe].data.json_str);
                     already_cached = true;
                 } else {
                     cache_clear_slot(&g_tasfa_cache[probe]);
@@ -133,18 +133,22 @@ cJSON *load_download_session_cached(const char *session_id) {
             }
         }
         if (!already_cached) {
+            char *serialized = cJSON_PrintUnformatted(meta);
+            if (serialized) cwist_gc_scope_disown(serialized);
             for (int i = 0; i < TASFA_CACHE_SLOTS; i++) {
                 int probe = (idx + i) % TASFA_CACHE_SLOTS;
-                if (!g_tasfa_cache[probe].valid) {
+                if (!g_tasfa_cache[probe].valid && serialized) {
                     g_tasfa_cache[probe].valid = 1;
                     g_tasfa_cache[probe].type = 3;
                     strncpy(g_tasfa_cache[probe].key, session_id, sizeof(g_tasfa_cache[probe].key)-1);
                     g_tasfa_cache[probe].key[sizeof(g_tasfa_cache[probe].key)-1] = '\0';
-                    g_tasfa_cache[probe].data.json = cJSON_Duplicate(meta, 1);
+                    g_tasfa_cache[probe].data.json_str = serialized;
                     g_tasfa_cache[probe].expires = time(NULL) + TASFA_DOWNLOAD_TTL;
+                    serialized = NULL;
                     break;
                 }
             }
+            free(serialized); /* no free slot: drop the entry */
         }
         pthread_mutex_unlock(&g_tasfa_cache_mtx);
     }
@@ -240,6 +244,9 @@ void finalize_cache_update_status(const char *upload_id, const char *msg) {
         cJSON_AddBoolToObject(obj, "processing", true);
         cJSON_AddStringToObject(obj, "status", msg ? msg : "");
         slot->body = cJSON_PrintUnformatted(obj);
+        /* Stored in a global slot and freed by whichever thread evicts it:
+           take it out of full-GC tracking so a scope flush cannot reclaim it. */
+        if (slot->body) cwist_gc_scope_disown(slot->body);
         cJSON_Delete(obj);
     }
     pthread_mutex_unlock(&g_finalize_mtx);

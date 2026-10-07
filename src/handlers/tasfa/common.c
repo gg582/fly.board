@@ -142,7 +142,7 @@ void send_queued_json(cwist_http_response *res, const char *msg, int retry_after
     add_keepalive_headers(res);
     char *json = cJSON_PrintUnformatted(obj);
     cwist_sstring_assign(res->body, json ? json : "{}");
-    if (json) free(json);
+    if (json) cwist_free(json);
     cJSON_Delete(obj);
 }
 
@@ -183,7 +183,7 @@ void send_json_response(cwist_http_response *res, cJSON *obj, int status_code) {
     cwist_http_header_add(&res->headers, "Vary", "Origin, Accept-Encoding");
     add_keepalive_headers(res);
     cwist_sstring_assign(res->body, json ? json : "{}");
-    if (json) free(json);
+    if (json) cwist_free(json);
     cJSON_Delete(obj);
 }
 
@@ -458,30 +458,72 @@ void tasfa_rolling_hash_notify_rewrite(const char *upload_id, int chunk_index) {
     pthread_mutex_unlock(&g_rolling_hash_mtx);
 }
 
-static void rolling_hash_consume_locked(rolling_hash_slot_t *slot, const char *path) {
+/* Read back the contiguous not-yet-consumed chunk prefix and extend the
+ * digest.  I/O and hashing run WITHOUT g_rolling_hash_mtx (a global lock
+ * held across pread() of the whole file serialized every concurrent upload
+ * behind one disk reader); the mutex is only taken to snapshot the small
+ * slot state and to commit the result.  The commit validates that no other
+ * thread consumed the slot in the meantime: concurrent note_chunk calls for
+ * the same upload would make the digest order undefined, so the slot is
+ * dropped and finalize transparently falls back to the full re-read. */
+static void rolling_hash_consume(const char *upload_id, const char *path) {
     if (!path || !path[0]) return;
+    pthread_mutex_lock(&g_rolling_hash_mtx);
+    rolling_hash_slot_t *slot = rolling_hash_find_locked(upload_id);
+    if (!slot) {
+        pthread_mutex_unlock(&g_rolling_hash_mtx);
+        return;
+    }
+    int start = slot->next_chunk;
+    int end = start;
+    while (end < slot->data_chunks && slot->received[end] == '1') end++;
+    int chunk_size = slot->chunk_size;
+    int data_chunks = slot->data_chunks;
+    long long total_size = slot->total_size;
+    pthread_mutex_unlock(&g_rolling_hash_mtx);
+    if (end <= start) return;
+
     int fd = open(path, O_RDONLY);
     if (fd < 0) return;
     unsigned char *buf = (unsigned char *)cwist_alloc(65536);
     if (!buf) { close(fd); return; }
-    while (slot->next_chunk < slot->data_chunks && slot->received[slot->next_chunk] == '1') {
-        long long offset = (long long)slot->next_chunk * (long long)slot->chunk_size;
-        long long len = slot->total_size - offset;
-        if (len > slot->chunk_size) len = slot->chunk_size;
+    SHA256_CTX ctx;
+    SHA256_Init(&ctx);
+    long long consumed = 0;
+    bool ok = true;
+    for (int chunk = start; chunk < end; chunk++) {
+        long long offset = (long long)chunk * (long long)chunk_size;
+        long long len = total_size - offset;
+        if (len > chunk_size) len = chunk_size;
         if (len <= 0) break;
         long long done = 0;
         while (done < len) {
             size_t want = ((size_t)(len - done) > 65536) ? 65536 : (size_t)(len - done);
             ssize_t n = pread(fd, buf, want, (off_t)(offset + done));
-            if (n <= 0) { cwist_free(buf); close(fd); return; }
-            SHA256_Update(&slot->ctx, buf, (size_t)n);
+            if (n <= 0) { ok = false; break; }
+            SHA256_Update(&ctx, buf, (size_t)n);
             done += n;
         }
-        slot->consumed += len;
-        slot->next_chunk++;
+        if (!ok) break;
+        consumed += len;
     }
     cwist_free(buf);
     close(fd);
+    if (!ok) return; /* leave the slot untouched; a later call retries */
+
+    pthread_mutex_lock(&g_rolling_hash_mtx);
+    slot = rolling_hash_find_locked(upload_id);
+    if (slot && slot->next_chunk == start && slot->chunk_size == chunk_size &&
+        slot->data_chunks == data_chunks && slot->total_size == total_size && end <= slot->data_chunks) {
+        slot->ctx = ctx;
+        slot->consumed += consumed;
+        slot->next_chunk = end;
+    } else if (slot) {
+        /* Concurrent consumer advanced the slot, or geometry changed: the
+         * digest order is no longer reliable.  Drop it. */
+        rolling_hash_drop_locked(slot);
+    }
+    pthread_mutex_unlock(&g_rolling_hash_mtx);
 }
 
 bool tasfa_rolling_hash_note_chunk(const char *upload_id, const char *temp_path,
@@ -489,6 +531,7 @@ bool tasfa_rolling_hash_note_chunk(const char *upload_id, const char *temp_path,
                                    long long total_size) {
     if (!upload_id || chunk_index < 0 || chunk_index >= data_chunks || chunk_size <= 0 || total_size <= 0)
         return false;
+    bool consume = false;
     pthread_mutex_lock(&g_rolling_hash_mtx);
     rolling_hash_slot_t *slot = rolling_hash_find_locked(upload_id);
     if (slot && (slot->chunk_size != chunk_size || slot->data_chunks != data_chunks || slot->total_size != total_size)) {
@@ -522,21 +565,35 @@ bool tasfa_rolling_hash_note_chunk(const char *upload_id, const char *temp_path,
             rolling_hash_drop_locked(slot);
         } else {
             slot->received[chunk_index] = '1';
-            rolling_hash_consume_locked(slot, temp_path);
+            consume = true;
         }
     }
     pthread_mutex_unlock(&g_rolling_hash_mtx);
+    if (consume) rolling_hash_consume(upload_id, temp_path);
     return true;
 }
 
 bool tasfa_rolling_hash_finish(const char *upload_id, const char *path, int chunk_size,
                                int data_chunks, long long total_size, unsigned char out[32]) {
     bool ok = false;
+    bool geometry_ok = false;
     pthread_mutex_lock(&g_rolling_hash_mtx);
     rolling_hash_slot_t *slot = rolling_hash_find_locked(upload_id);
     if (slot) {
-        if (slot->chunk_size == chunk_size && slot->data_chunks == data_chunks && slot->total_size == total_size)
-            rolling_hash_consume_locked(slot, path);
+        geometry_ok = slot->chunk_size == chunk_size && slot->data_chunks == data_chunks &&
+                      slot->total_size == total_size;
+        if (!geometry_ok) {
+            /* One-shot: always release the slot (caller falls back on failure). */
+            rolling_hash_drop_locked(slot);
+        }
+    }
+    pthread_mutex_unlock(&g_rolling_hash_mtx);
+
+    if (geometry_ok) rolling_hash_consume(upload_id, path);
+
+    pthread_mutex_lock(&g_rolling_hash_mtx);
+    slot = rolling_hash_find_locked(upload_id);
+    if (slot) {
         if (slot->consumed == slot->total_size && slot->next_chunk >= slot->data_chunks) {
             SHA256_Final(out, &slot->ctx);
             ok = true;

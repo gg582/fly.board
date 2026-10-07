@@ -316,7 +316,7 @@ void handler_mail_users_get(cwist_http_request *req, cwist_http_response *res) {
     res->status_code = CWIST_HTTP_OK;
     cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
     cwist_sstring_assign(res->body, json ? json : "[]");
-    if (json) free(json);
+    if (json) cwist_free(json);
     if (users) cJSON_Delete(users);
 }
 

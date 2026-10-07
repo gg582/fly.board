@@ -13,7 +13,8 @@
  * idempotently. The journal INSERT must never fail or disturb the main
  * mutation: on error we log and let the request proceed.
  *
- * Rows older than 7 days are purged at startup and after each archive write;
+ * Rows older than 7 days are purged at startup, hourly by the supervisor's
+ * periodic worker, and after each archive write;
  * a replica that falls behind past the purge window must be reseeded from a
  * signed archive (fly_board --restore), which also restores the checkpoint
  * marker data/.flywire_seq.

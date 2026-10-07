@@ -119,25 +119,36 @@ cwist_sstring *reqshare_wait_or_start(const char *key, bool *leader) {
              * periodically to check whether the leader has exceeded its
              * safety TTL. A stuck leader would otherwise block every later
              * request for the same key indefinitely and eventually starve the
-             * worker pool on long-running servers. */
+             * worker pool on long-running servers.
+             *
+             * The sleep happens with g_mutex RELEASED: only the cheap state
+             * recheck re-acquires it, so a slow leader for one key never
+             * holds the global mutex (and never convoys unrelated reqshare
+             * users or the write-dedup table) while a waiter sleeps.  The
+             * registration in e->waiters keeps the entry alive across the
+             * sleep exactly like the old cond_timedwait path. */
             bool leader_timed_out = false;
             e->waiters++;
-            while (e->state == RS_IN_PROGRESS) {
-                struct timespec ts;
-                clock_gettime(CLOCK_REALTIME, &ts);
-                ts.tv_sec += 1;
-                int rc = pthread_cond_timedwait(&e->cond, &g_mutex, &ts);
-                if (rc == ETIMEDOUT && e->state == RS_IN_PROGRESS && time(NULL) > e->expires_at) {
-                    /* Wake the remaining waiters before unlinking so nobody
-                     * stays blocked on a soon-to-be-orphaned entry. */
+            for (;;) {
+                pthread_mutex_unlock(&g_mutex);
+                struct timespec ts = { .tv_sec = 1, .tv_nsec = 0 };
+                nanosleep(&ts, NULL);
+                pthread_mutex_lock(&g_mutex);
+                if (e->unlinked) break;
+                if (e->state != RS_IN_PROGRESS) break;
+                if (time(NULL) > e->expires_at) {
+                    /* Leader exceeded its TTL: publish an immediately-stale
+                     * result so every waiter for this key falls through and
+                     * re-leads, matching the old cond-timeout path. */
                     e->state = RS_DONE;
-                    e->expires_at = now; /* immediately stale */
+                    e->expires_at = time(NULL);
                     pthread_cond_broadcast(&e->cond);
                     leader_timed_out = true;
                     break;
                 }
             }
             e->waiters--;
+            now = time(NULL);
             if (e->unlinked) {
                 if (e->waiters == 0) free_entry(e);
                 break;

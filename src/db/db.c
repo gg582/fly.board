@@ -154,9 +154,13 @@ bool db_configure_connection(sqlite3 *conn) {
         return false;
     }
 
-    /* Checkpoint in small, predictable batches rather than allowing a burst
-     * of concurrent writers to grow the WAL indefinitely. */
-    rc = sqlite3_exec(conn, "PRAGMA wal_autocheckpoint=1000;", NULL, NULL, &err);
+    /* Checkpoint in large batches (~32 MB): the previous 1000-page default
+     * fired a fsync-heavy checkpoint every few MB of writes, which produced
+     * periodic multi-second write stalls under view/write bursts.  A
+     * scheduled TRUNCATE checkpoint (db_wal_checkpoint_truncate, run by the
+     * supervisor's periodic worker) keeps the WAL from growing toward
+     * journal_size_limit between autocheckpoints. */
+    rc = sqlite3_exec(conn, "PRAGMA wal_autocheckpoint=8000;", NULL, NULL, &err);
     if (rc != SQLITE_OK || err) {
         CWIST_LOG_WARN("Failed to configure WAL autocheckpoint: %s", err ? err : sqlite3_errmsg(conn));
         if (err) sqlite3_free(err);
@@ -183,6 +187,28 @@ bool db_checkpoint(cwist_db *db) {
         return false;
     }
     return true;
+}
+
+/* WAL maintenance for long uptime: autocheckpoint (PASSIVE) never truncates
+ * the WAL while a reader holds a snapshot, so over uptime the WAL file would
+ * otherwise grow toward journal_size_limit and checkpoint cost would grow
+ * with it.  Runs TRUNCATE on a short-lived connection from the supervisor's
+ * periodic worker.  SQLITE_BUSY/SQLITE_LOCKED are expected when a reader or
+ * writer holds a snapshot and are silently ignored - the next round retries.
+ * Must be called outside any fork window (the caller brackets it with the
+ * fork gate; the connection is short-lived so this is cheap). */
+void db_wal_checkpoint_truncate(void) {
+    sqlite3 *conn = NULL;
+    if (sqlite3_open(FLY_DB_MAIN_PATH, &conn) != SQLITE_OK) {
+        sqlite3_close(conn);
+        return;
+    }
+    sqlite3_busy_timeout(conn, 5000);
+    int rc = sqlite3_wal_checkpoint_v2(conn, NULL, SQLITE_CHECKPOINT_TRUNCATE, NULL, NULL);
+    if (rc != SQLITE_OK && rc != SQLITE_BUSY && rc != SQLITE_LOCKED) {
+        CWIST_LOG_WARN("WAL truncate checkpoint failed: %s", sqlite3_errmsg(conn));
+    }
+    sqlite3_close(conn);
 }
 
 bool db_transaction_begin(cwist_db *db) {
@@ -430,10 +456,17 @@ bool db_migrate(cwist_db *db) {
         "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
         ");");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_sync_journal_seq ON sync_journal(seq);");
+    /* The time-based retention purge matches on created_at; without this
+     * index every purge full-scanned the table. */
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_sync_journal_created_at ON sync_journal(created_at);");
     /* Retention: replicas poll every few seconds, so rows older than 7 days
      * are only useful to a replica that is already too far behind (it must
-     * reseed from an archive anyway). */
+     * reseed from an archive anyway).  Also runs hourly from the supervisor's
+     * periodic worker so the journal cannot grow unbounded between restarts. */
     db_sync_journal_purge(db);
+    /* Shared view-counter deltas must exist before cwist forks workers, so
+     * every process accumulates into the same MAP_SHARED region. */
+    db_view_counters_init();
     return true;
 }
 

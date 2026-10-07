@@ -90,12 +90,12 @@ static bool save_json_file(const char *path, cJSON *root) {
     char *json = cJSON_PrintUnformatted(root);
     if (!json) return false;
     size_t path_len = strlen(path);
-    if (path_len + 5 > PATH_MAX) { free(json); return false; }
+    if (path_len + 5 > PATH_MAX) { cwist_free(json); return false; }
     char temp_path[PATH_MAX];
     memcpy(temp_path, path, path_len);
     memcpy(temp_path + path_len, ".tmp", 5);
-    if (!file_write(temp_path, json, strlen(json))) { free(json); return false; }
-    free(json);
+    if (!file_write(temp_path, json, strlen(json))) { cwist_free(json); return false; }
+    cwist_free(json);
     if (rename(temp_path, path) != 0) { unlink(temp_path); return false; }
     return true;
 }

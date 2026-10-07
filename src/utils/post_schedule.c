@@ -1,9 +1,11 @@
 #include "utils/post_schedule.h"
 #include "utils/cache.h"
 #include "db/db.h"
+#include "db/db_internal.h"
 #include "engine/forkgate.h"
 #include "nats/fly_nats.h"
 #include <cwist/core/log.h>
+#include <cwist/core/mem/gc.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <string.h>
@@ -13,6 +15,15 @@
 
 /* Catch-up sweep for announcements a crashed or racing save left behind. */
 #define SWEEP_INTERVAL_SEC 60
+/* Batched view-counter flush (src/db/post.c): eventual consistency within
+ * this window for post view counts. */
+#define VIEW_FLUSH_INTERVAL_SEC 30
+/* WAL truncate checkpoint: autocheckpoint is PASSIVE-only and never shrinks
+ * the WAL while readers hold snapshots, so a periodic TRUNCATE keeps the WAL
+ * from growing toward journal_size_limit over uptime. */
+#define WAL_TRUNCATE_INTERVAL_SEC 600
+/* sync_journal retention purge (rows older than 7 days, see db_sync.c). */
+#define JOURNAL_PURGE_INTERVAL_SEC 3600
 
 /* MAP_SHARED before fork (same pattern as the write policy). */
 typedef struct {
@@ -89,10 +100,16 @@ static void run_due(cwist_db *db) {
 }
 
 /* Lives in the master process, which never serves requests, so publishing
- * does not wait for traffic and costs the request path nothing. */
+ * does not wait for traffic and costs the request path nothing.  This thread
+ * is also the process-wide periodic maintenance timer: batched view-counter
+ * flush (30 s), WAL truncate checkpoint (10 min) and sync_journal retention
+ * purge (1 h). */
 static void *schedule_worker(void *arg) {
     (void)arg;
     time_t last_sweep = time(NULL);
+    time_t last_view_flush = time(NULL);
+    time_t last_wal_truncate = time(NULL);
+    time_t last_journal_purge = time(NULL);
     struct timespec tick = { .tv_sec = 1, .tv_nsec = 0 };
     while (atomic_load_explicit(&g_thread_running, memory_order_acquire)) {
         nanosleep(&tick, NULL);
@@ -100,7 +117,10 @@ static void *schedule_worker(void *arg) {
         long long due = atomic_load_explicit(&g_sched->next_due, memory_order_relaxed);
         bool is_due = due != 0 && (long long)now >= due;
         bool sweep = now - last_sweep >= SWEEP_INTERVAL_SEC;
-        if (!is_due && !sweep) continue;
+        bool view_flush = now - last_view_flush >= VIEW_FLUSH_INTERVAL_SEC;
+        bool wal_truncate = now - last_wal_truncate >= WAL_TRUNCATE_INTERVAL_SEC;
+        bool journal_purge = now - last_journal_purge >= JOURNAL_PURGE_INTERVAL_SEC;
+        if (!is_due && !sweep && !view_flush && !wal_truncate && !journal_purge) continue;
         /* sqlite is fork-unsafe; cwist forks workers from this process. */
         fly_forkgate_enter();
         if (is_due) run_due(g_thread_db);
@@ -108,7 +128,22 @@ static void *schedule_worker(void *arg) {
             post_schedule_announce(g_thread_db);
             last_sweep = now;
         }
+        if (view_flush) {
+            db_view_counters_flush();
+            last_view_flush = now;
+        }
+        if (wal_truncate) {
+            db_wal_checkpoint_truncate();
+            last_wal_truncate = now;
+        }
+        if (journal_purge) {
+            db_sync_journal_purge(g_thread_db);
+            last_journal_purge = now;
+        }
         fly_forkgate_leave();
+        /* CWIST full GC is enabled process-wide; a long-lived thread like
+         * this one would otherwise hold tracked allocations until exit. */
+        cwist_gc_scope_flush();
     }
     return NULL;
 }
@@ -132,6 +167,9 @@ void post_schedule_stop(void) {
     atomic_store(&g_thread_running, false);
     pthread_join(g_thread, NULL);
     g_thread_started = false;
+    /* Clean shutdown hook: no workers or forks are running anymore, so one
+     * last flush pushes any remaining batched view counters to SQLite. */
+    db_view_counters_flush();
 }
 
 void post_schedule_bump(void) {

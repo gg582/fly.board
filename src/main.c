@@ -6,6 +6,7 @@
 #include "utils/spam_guard.h"
 #include "tools/backup.h"
 #include <cwist/core/mem/alloc.h>
+#include <cwist/core/mem/gc.h>
 #include "db/db_internal.h"
 #include "utils/media_preview.h"
 #include "cwist/board_tree.h"
@@ -222,12 +223,13 @@ static void *cleanup_worker(void *arg) {
         sqlite3 *conn = NULL;
         if (sqlite3_open_v2("data/blog.db", &conn, SQLITE_OPEN_READWRITE, NULL) == SQLITE_OK &&
             db_configure_connection(conn)) {
-            fly_forkgate_leave();
+            /* The open -> sweep -> close sequence below is ONE continuous
+             * fork-gate section: a fork can never land mid-write on this
+             * connection (audit finding), and the child inherits no live
+             * sqlite state. */
             cwist_db db = { .conn = conn };
-            fly_forkgate_enter();
             db_cleanup_orphaned_files(&db);
             int expired_users = db_user_delete_unverified_expired(&db);
-            fly_forkgate_leave();
             if (expired_users > 0) {
                 CWIST_LOG_INFO("Removed %d unverified account%s past the 24h verification window",
                                expired_users, expired_users == 1 ? "" : "s");
@@ -235,17 +237,17 @@ static void *cleanup_worker(void *arg) {
             unsigned long long freed = 0;
             int swept = tasfa_sweep_stale_sessions(false, &freed);
             if (swept > 0) CWIST_LOG_INFO("Removed %d abandoned transfer sessions (%.1f MB)", swept, freed / 1048576.0);
-            /* Scheduled backup: only when an external target is registered.
-             * It runs as its own process so the server never waits on it. */
+            sqlite3_close(conn);
+            fly_forkgate_leave();
+            /* Scheduled backup runs as its own process. It is deliberately
+             * OUTSIDE the gate above so the forked child never inherits a
+             * held fork-gate lock; it needs no sqlite handle. */
             backup_settings_t bs;
             if (backup_settings_load(&bs) && backup_settings_ready(&bs)) {
                 if (backup_spawn()) CWIST_LOG_INFO("Scheduled backup started");
                 else FLY_LOG_ERROR("Scheduled backup could not be started");
             }
             memset(&bs, 0, sizeof(bs));
-            fly_forkgate_enter();
-            sqlite3_close(conn);
-            fly_forkgate_leave();
         } else {
             FLY_LOG_ERROR("Failed to open cleanup database connection");
             fly_forkgate_leave();
@@ -303,6 +305,12 @@ static int sign_posts_backfill(cwist_db *db) {
 }
 
 int main(int argc, char **argv) {
+    /* Enable CWIST full GC before ANY allocation, thread creation, or CWIST
+     * call: cwist_full_gc() latches on the first call, and from then on every
+     * cwist_alloc()/cJSON block is tracked on the allocating thread's
+     * pending-sweep list. Plain free() on such a pointer would double-free at
+     * the next scope flush, so all tracked frees go through cwist_free(). */
+    cwist_full_gc(true);
     bool sign_posts_mode = argc > 1 && strcmp(argv[1], "--sign-posts") == 0;
     /* SQLite must be configured before any connection is opened.  Use the
      * serialized threading mode so a single connection can be safely shared

@@ -49,7 +49,7 @@ void handler_theme_json(cwist_http_request *req, cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
     if (json) {
         cwist_sstring_assign(res->body, json);
-        free(json);
+        cwist_free(json);
     }
 }
 

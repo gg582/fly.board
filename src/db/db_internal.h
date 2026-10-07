@@ -43,6 +43,16 @@ void fly_db_close_thread_conns(void);
  * large writes or before shutdown; failures are logged but not fatal. */
 bool db_checkpoint(cwist_db *db);
 
+/* Run "PRAGMA wal_checkpoint(TRUNCATE)" on a short-lived connection; silently
+ * ignores SQLITE_BUSY/SQLITE_LOCKED.  Bracket with the fork gate. */
+void db_wal_checkpoint_truncate(void);
+
+/* Shared (process-wide) batched view counters (src/db/post.c).
+ * db_view_counters_init must run before cwist forks workers; the supervisor's
+ * periodic worker calls db_view_counters_flush every 30 s. */
+bool db_view_counters_init(void);
+void db_view_counters_flush(void);
+
 /* Re-open the auxiliary databases after a fork() so each process owns its own
  * SQLite file descriptor and page cache. */
 void db_comment_reopen(void);

@@ -100,7 +100,7 @@ static void translation_json_error(cwist_http_response *res, int status, const c
     cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
     cwist_http_header_add(&res->headers, "Cache-Control", "no-store");
     cwist_sstring_assign(res->body, json ? json : "{\"ok\":false}");
-    free(json);
+    cwist_free(json);
 }
 
 static char *translate_text_via_api(CURL *curl, const char *text, const char *source, const char *target) {
@@ -342,7 +342,7 @@ void handler_api_translate(cwist_http_request *req, cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
     cwist_http_header_add(&res->headers, "Cache-Control", "no-store");
     cwist_sstring_assign(res->body, json ? json : "{\"ok\":true,\"parts\":[]}");
-    if (json) free(json);
+    if (json) cwist_free(json);
 }
 
 void handler_api_preview(cwist_http_request *req, cwist_http_response *res) {
@@ -431,7 +431,7 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
     cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
     cwist_sstring_assign(res->body, json ? json : "{}");
-    if (json) free(json);
+    if (json) cwist_free(json);
 }
 
 void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res) {
@@ -476,7 +476,7 @@ void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res) 
     cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
     cwist_sstring_assign(res->body, json ? json : "[]");
 
-    if (json) free(json);
+    if (json) cwist_free(json);
     if (out) cJSON_Delete(out);
     if (boards) cJSON_Delete(boards);
 }
@@ -489,7 +489,7 @@ void handler_themes_json(cwist_http_request *req, cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Cache-Control", "no-store, no-cache, must-revalidate, private");
     if (json) {
         cwist_sstring_assign(res->body, json);
-        free(json);
+        cwist_free(json);
     }
 }
 
@@ -707,7 +707,7 @@ void handler_api_my_files(cwist_http_request *req, cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
     cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
     cwist_sstring_assign(res->body, json ? json : "[]");
-    if (json) free(json);
+    if (json) cwist_free(json);
     if (files) cJSON_Delete(files);
 }
 
@@ -752,7 +752,7 @@ void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
         cwist_http_header_add(&res->headers, "Content-Type", "application/json");
         cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
         cwist_sstring_assign(res->body, ejson ? ejson : "{}");
-        if (ejson) free(ejson);
+        if (ejson) cwist_free(ejson);
         cwist_query_map_destroy(kv);
         return;
     }
@@ -790,7 +790,7 @@ void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
     cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
     cwist_sstring_assign(res->body, json ? json : "{}");
-    if (json) free(json);
+    if (json) cwist_free(json);
     cwist_query_map_destroy(kv);
 }
 

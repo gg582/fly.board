@@ -7,6 +7,9 @@
 #include "../handlers_internal.h"
 #include "../../utils/media_preview.h"
 
+#include <cwist/core/mem/alloc.h>
+#include <cwist/core/mem/gc.h>
+
 #include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -103,7 +106,9 @@ typedef struct {
     time_t expires;
     union {
         tasfa_meta_bin_t mbin;
-        cJSON *json;
+        /* Serialized JSON text (libc malloc, disowned from full-GC tracking
+           at store time) so any thread may free it; parse on hit. */
+        char *json_str;
     } data;
 } cache_slot_t;
 

@@ -1304,7 +1304,7 @@ static void *upload_finalize_worker(void *arg) {
 
     char *body = response_obj ? cJSON_PrintUnformatted(response_obj) : NULL;
     finalize_cache_mark_done(job->upload_id, status, body ? body : "{\"ok\":false,\"error\":\"finalize failed\"}");
-    if (body) free(body);
+    if (body) cwist_free(body);
     if (response_obj) cJSON_Delete(response_obj);
     free(job);
     return NULL;

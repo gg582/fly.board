@@ -261,7 +261,7 @@ static void append_article_jsonld(cwist_sstring *out, const render_page_meta *pm
         else cwist_sstring_append_len(out, p, 1);
     }
     cwist_sstring_append(out, "</script>");
-    free(json);
+    cwist_free(json);
 }
 
 static char *read_file_to_string(const char *path) {

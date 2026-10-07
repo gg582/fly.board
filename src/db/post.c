@@ -2,11 +2,17 @@
 #include "db.h"
 #include "db_internal.h"
 #include "search.h"
+#include "engine/forkgate.h"
+#include <cwist/core/log.h>
 #include <cwist/core/mem/alloc.h>
 #include <ctype.h>
+#include <errno.h>
+#include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <time.h>
 
 void post_utc_now(char out[POST_TIME_LEN]) {
@@ -244,7 +250,149 @@ int db_post_count(cwist_db *db, int board_id) {
     return count;
 }
 
+/* ---- Batched view counters ----
+ *
+ * Every post view used to issue "UPDATE posts SET view_count=view_count+1"
+ * on the request path, turning pure read traffic into serialized writer
+ * traffic across all worker processes (each holding its own connection with a
+ * 5 s busy timeout).  Deltas are now accumulated per post id in an
+ * anonymous mmap shared by every worker (MAP_SHARED before the fork, same
+ * pattern as src/utils/spam_guard.c, with a robust pshared mutex) and flushed
+ * to SQLite periodically - every 30 s - by the supervisor's schedule worker
+ * (src/utils/post_schedule.c).  Semantics: eventual consistency; a view
+ * becomes visible in view_count (and in hot-score queries) within ~30 s
+ * instead of instantly.  Total counts are exact: deltas are only cleared
+ * after their UPDATE commits. */
+
+#define VIEW_COUNTER_SLOTS 4096
+
+typedef struct {
+    int64_t post_id;  /* 0 = empty */
+    uint64_t delta;
+} view_counter_slot_t;
+
+typedef struct {
+    pthread_mutex_t lock;
+    view_counter_slot_t slots[VIEW_COUNTER_SLOTS];
+} view_counter_table_t;
+
+static view_counter_table_t *g_view_counters = NULL;
+
+bool db_view_counters_init(void) {
+    if (g_view_counters) return true;
+    void *mem = mmap(NULL, sizeof(view_counter_table_t), PROT_READ | PROT_WRITE,
+                     MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    if (mem == MAP_FAILED) {
+        CWIST_LOG_ERROR("View counters: shared memory unavailable; per-view writes stay enabled");
+        return false;
+    }
+    view_counter_table_t *t = (view_counter_table_t *)mem;
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+    /* A worker killed while holding the lock must not wedge the others. */
+    pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);
+    bool ok = pthread_mutex_init(&t->lock, &attr) == 0;
+    pthread_mutexattr_destroy(&attr);
+    if (!ok) {
+        munmap(mem, sizeof(view_counter_table_t));
+        CWIST_LOG_ERROR("View counters: init failed; per-view writes stay enabled");
+        return false;
+    }
+    g_view_counters = t;
+    return true;
+}
+
+/* Accumulate one view.  Never blocks on SQLite. */
+static void view_counter_bump(int id) {
+    view_counter_table_t *t = g_view_counters;
+    if (!t || id <= 0) return;
+    uint64_t key = (uint64_t)id;
+    size_t start = (size_t)(key % VIEW_COUNTER_SLOTS);
+    if (pthread_mutex_lock(&t->lock) == EOWNERDEAD) pthread_mutex_consistent(&t->lock);
+    for (size_t i = 0; i < 32; i++) {
+        view_counter_slot_t *s = &t->slots[(start + i) % VIEW_COUNTER_SLOTS];
+        if (s->post_id == (int64_t)id) {
+            s->delta++;
+            goto done;
+        }
+        if (s->post_id == 0) {
+            s->post_id = id;
+            s->delta = 1;
+            goto done;
+        }
+    }
+    /* Probe exhausted: the table is saturated with other posts.  Rare;
+     * sacrifice this count rather than grow shared memory at runtime. */
+done:
+    pthread_mutex_unlock(&t->lock);
+}
+
+/* Snapshot-and-clear under the lock, then apply outside it so request-path
+ * bumps are never blocked by SQLite I/O.  Uses its own short-lived
+ * connection; must be called inside a fly_forkgate bracket when forks can
+ * still happen. */
+void db_view_counters_flush(void) {
+    view_counter_table_t *t = g_view_counters;
+    if (!t) return;
+    view_counter_slot_t pending[VIEW_COUNTER_SLOTS];
+    size_t pending_idx[VIEW_COUNTER_SLOTS];
+    size_t n = 0;
+    if (pthread_mutex_lock(&t->lock) == EOWNERDEAD) pthread_mutex_consistent(&t->lock);
+    for (size_t i = 0; i < VIEW_COUNTER_SLOTS; i++) {
+        if (t->slots[i].post_id != 0 && t->slots[i].delta > 0) {
+            pending[n].post_id = t->slots[i].post_id;
+            pending[n].delta = t->slots[i].delta;
+            pending_idx[n] = i;
+            n++;
+            t->slots[i].delta = 0;
+        }
+    }
+    pthread_mutex_unlock(&t->lock);
+    if (n == 0) return;
+
+    sqlite3 *conn = NULL;
+    if (sqlite3_open(FLY_DB_MAIN_PATH, &conn) != SQLITE_OK) {
+        sqlite3_close(conn);
+        /* Put the deltas back so no count is lost on the next flush. */
+        if (pthread_mutex_lock(&t->lock) == EOWNERDEAD) pthread_mutex_consistent(&t->lock);
+        for (size_t i = 0; i < n; i++) t->slots[pending_idx[i]].delta += pending[i].delta;
+        pthread_mutex_unlock(&t->lock);
+        CWIST_LOG_WARN("View counters: flush could not open %s", FLY_DB_MAIN_PATH);
+        return;
+    }
+    db_configure_connection(conn);
+    const char *sql = "UPDATE posts SET view_count = view_count + ? WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    bool ok = sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) == SQLITE_OK;
+    size_t applied = 0;
+    for (size_t i = 0; ok && i < n; i++) {
+        sqlite3_reset(stmt);
+        sqlite3_clear_bindings(stmt);
+        sqlite3_bind_int64(stmt, 1, (sqlite3_int64)pending[i].delta);
+        sqlite3_bind_int64(stmt, 2, (sqlite3_int64)pending[i].post_id);
+        if (sqlite3_step(stmt) != SQLITE_DONE) ok = false;
+        else applied++;
+    }
+    if (stmt) sqlite3_finalize(stmt);
+    if (!ok) {
+        CWIST_LOG_WARN("View counters: flush failed: %s", sqlite3_errmsg(conn));
+        /* Return unapplied deltas so no count is lost on the next flush. */
+        if (pthread_mutex_lock(&t->lock) == EOWNERDEAD) pthread_mutex_consistent(&t->lock);
+        for (size_t i = applied; i < n; i++) t->slots[pending_idx[i]].delta += pending[i].delta;
+        pthread_mutex_unlock(&t->lock);
+    }
+    sqlite3_close(conn);
+}
+
 bool db_post_increment_view(cwist_db *db, int id) {
+    /* Fast path: accumulate the delta in shared memory; the supervisor's
+     * schedule worker flushes it every 30 s (see db_view_counters_flush). */
+    if (g_view_counters) {
+        view_counter_bump(id);
+        return true;
+    }
+    /* Shared table unavailable: keep the exact old behavior. */
     const char *sql = "UPDATE posts SET view_count = view_count + 1 WHERE id=?";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;

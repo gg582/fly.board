@@ -6,6 +6,7 @@
 #include "db/db_internal.h"
 #include "config/config.h"
 #include <cwist/core/log.h>
+#include <cwist/core/mem/gc.h>
 #include <cwist/net/http/http.h>
 #include <cjson/cJSON.h>
 #include <curl/curl.h>
@@ -562,23 +563,35 @@ static size_t flywire_download_write(void *ptr, size_t size, size_t nmemb, void 
     return fwrite(ptr, size, nmemb, ctx->f);
 }
 
-/* Fetch one file's bytes from the primary with a resumable HTTPS GET of
- * /file/download/<id>. Always-through-HTTPS by design: it works whether or
- * not the primary serves TASFA; a TASFA server-side pull can replace this
- * later. Idempotent: resumes at the existing partial size and rewrites the
- * row's file on HTTP 200. Failure is logged; the id stays out of the queue
- * and a later "file" upsert re-queues it. */
-static void flywire_fetch_file_bytes(int file_id, sqlite3 *main_conn) {
+/* Look up the queued file's target path.  Pure SQLite: runs inside the fork
+ * gate.  Returns false when the row is gone or has no path. */
+static bool flywire_fetch_file_path(int file_id, sqlite3 *main_conn, char *file_path, size_t path_size) {
     sqlite3_stmt *st = NULL;
-    char file_path[PATH_MAX] = {0};
-    if (sqlite3_prepare_v2(main_conn, "SELECT file_path FROM files WHERE id=?", -1, &st, NULL) != SQLITE_OK) return;
+    if (sqlite3_prepare_v2(main_conn, "SELECT file_path FROM files WHERE id=?", -1, &st, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(st, 1, file_id);
+    bool ok = false;
     if (sqlite3_step(st) == SQLITE_ROW) {
         const char *p = (const char *)sqlite3_column_text(st, 0);
-        if (p) snprintf(file_path, sizeof(file_path), "%s", p);
+        if (p) {
+            snprintf(file_path, path_size, "%s", p);
+            ok = true;
+        }
     }
     sqlite3_finalize(st);
-    if (!file_path[0]) return;
+    return ok;
+}
+
+/* Download one file's bytes from the primary with a resumable HTTPS GET of
+ * /file/download/<id> into @p file_path.  Always-through-HTTPS by design: it
+ * works whether or not the primary serves TASFA; a TASFA server-side pull can
+ * replace this later.  Idempotent: resumes at the existing partial size and
+ * rewrites the row's file on HTTP 200.  Contains NO SQLite calls and may run
+ * for up to 120 s (CURLOPT_TIMEOUT): it must stay OUTSIDE the fork gate so
+ * the supervisor can fork workers while a download is in flight.  Failure is
+ * logged; the id stays out of the queue and a later "file" upsert re-queues
+ * it. */
+static void flywire_download_file_bytes(int file_id, const char *file_path) {
+    if (!file_path || !file_path[0]) return;
     if (strstr(file_path, "..") || file_path[0] == '/') {
         CWIST_LOG_ERROR("flywire: refusing unsafe file_path %s", file_path);
         return;
@@ -833,42 +846,53 @@ static void *flywire_replica_loop(void *arg) {
     (void)arg;
     /* A dedicated short-lived connection per iteration: nothing is held
      * across cwist_app_listen()'s worker fork, and a crash never loses more
-     * than the rows already checkpointed. sqlite sections are bracketed by
-     * the fork gate exactly like the cleanup worker. */
+     * than the rows already checkpointed.  All sqlite work of an iteration -
+     * open, poll/apply, the file fetch's DB lookup, close - is ONE continuous
+     * fork-gated section so a fork can never land mid-write and let a child
+     * inherit a copied sqlite connection.  The blocking file download itself
+     * (up to 120 s) runs OUTSIDE the gate so the supervisor can keep forking
+     * workers while a replica pulls a file. */
     while (atomic_load_explicit(&g_flywire_running, memory_order_acquire)) {
         sleep((unsigned)flywire_poll_seconds());
         if (!atomic_load_explicit(&g_flywire_running, memory_order_acquire)) break;
+
+        char file_path[PATH_MAX] = {0};
+        int file_id = 0;
+        int rc = -1;
 
         fly_forkgate_enter();
         sqlite3 *conn = NULL;
         bool open_ok = sqlite3_open(FLY_DB_MAIN_PATH, &conn) == SQLITE_OK;
         if (open_ok) open_ok = db_configure_connection(conn);
-        fly_forkgate_leave();
         if (!open_ok) {
             CWIST_LOG_ERROR("flywire: cannot open %s", FLY_DB_MAIN_PATH);
             if (conn) sqlite3_close(conn);
+            fly_forkgate_leave();
             continue;
         }
 
         long long since = flywire_checkpoint_read();
-        int rc = flywire_poll_once(conn, since);
+        rc = flywire_poll_once(conn, since);
         if (rc == 0) {
             /* At most one queued file-byte fetch per iteration. */
-            int file_id = flywire_dequeue_file();
-            if (file_id > 0) {
-                fly_forkgate_enter();
-                flywire_fetch_file_bytes(file_id, conn);
-                fly_forkgate_leave();
-            }
-        } else if (rc == 1) {
+            file_id = flywire_dequeue_file();
+            if (file_id > 0)
+                flywire_fetch_file_path(file_id, conn, file_path, sizeof(file_path));
+        }
+        sqlite3_close(conn);
+        fly_forkgate_leave();
+
+        if (file_id > 0 && file_path[0])
+            flywire_download_file_bytes(file_id, file_path);
+
+        if (rc == 1) {
             /* Journal purged past our checkpoint: back off hard and keep
              * telling the operator to reseed. Never auto-restore. */
             sleep(300);
         }
-
-        fly_forkgate_enter();
-        sqlite3_close(conn);
-        fly_forkgate_leave();
+        /* CWIST full GC is enabled process-wide; this long-lived thread would
+         * otherwise accumulate tracked allocations until it exits. */
+        cwist_gc_scope_flush();
     }
     return NULL;
 }

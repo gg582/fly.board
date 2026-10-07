@@ -56,17 +56,17 @@ static char *build_signed_post_payload(const char *title, const char *slug, cons
     if (!canonical_json) return NULL;
 
     if (!fly_crypto_sign((const uint8_t *)canonical_json, strlen(canonical_json), &sig_b64)) {
-        free(canonical_json);
+        cwist_free(canonical_json);
         return NULL;
     }
     if (!fly_crypto_pubkey_export(&pubkey_b64)) {
-        free(canonical_json);
+        cwist_free(canonical_json);
         cwist_free(sig_b64);
         return NULL;
     }
 
     cJSON *envelope = cJSON_Parse(canonical_json);
-    free(canonical_json);
+    cwist_free(canonical_json);
     if (!envelope) {
         cwist_free(sig_b64);
         cwist_free(pubkey_b64);
@@ -135,17 +135,17 @@ static char *build_signed_comment_payload(const char *origin, const char *actor_
     if (!canonical_json) return NULL;
 
     if (!fly_crypto_sign((const uint8_t *)canonical_json, strlen(canonical_json), &sig_b64)) {
-        free(canonical_json);
+        cwist_free(canonical_json);
         return NULL;
     }
     if (!fly_crypto_pubkey_export(&pubkey_b64)) {
-        free(canonical_json);
+        cwist_free(canonical_json);
         cwist_free(sig_b64);
         return NULL;
     }
 
     cJSON *envelope = cJSON_Parse(canonical_json);
-    free(canonical_json);
+    cwist_free(canonical_json);
     if (!envelope) {
         cwist_free(sig_b64);
         cwist_free(pubkey_b64);
@@ -199,7 +199,7 @@ bool fly_nats_publish_post(const char *title, const char *slug, const char *summ
     char *json = build_signed_post_payload(title, slug, summary);
     if (!json) return false;
     cwist_error_t err = cwist_nats_publish_string(g_nats, "flyboard.posts", json);
-    free(json);
+    cwist_free(json);
     return cwist_error_is_ok(&err);
 #else
     (void)title; (void)slug; (void)summary;
@@ -213,7 +213,7 @@ bool fly_nats_publish_comment(const char *origin, const char *actor_name, const 
     char *json = build_signed_comment_payload(origin, actor_name, kind, post_slug, recipient_user_id, excerpt);
     if (!json) return false;
     cwist_error_t err = cwist_nats_publish_string(g_nats, "flyboard.comments", json);
-    free(json);
+    cwist_free(json);
     return cwist_error_is_ok(&err);
 #else
     (void)origin; (void)actor_name; (void)kind; (void)post_slug; (void)recipient_user_id; (void)excerpt;
