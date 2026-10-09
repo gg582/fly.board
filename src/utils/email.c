@@ -223,3 +223,177 @@ bool email_send_from(const char *from_arg, const char *to, const char *subject, 
 bool email_send(const char *to, const char *subject, const char *body) {
     return email_send_from(NULL, to, subject, body);
 }
+
+/* ---- Mailjet sender auto-registration ------------------------------------
+ *
+ * Outbound webmail is rejected by the relay unless the sender address is
+ * allowed on the account. When the site's domain is authenticated with the
+ * relay (SPF/DKIM), a sender created UNDER that domain is active immediately
+ * - no per-address validation email, no admin involvement. Registration runs
+ * detached and best-effort: signup must never fail because of the relay.
+ * Requires FLY_SMTP_USER/FLY_SMTP_PASS to hold the relay API key pair.
+ */
+
+#include <curl/curl.h>
+#include <pthread.h>
+
+#define MJ_API_BASE "https://api.mailjet.com/v3/REST"
+#define MJ_TIMEOUT_SEC 10
+
+typedef struct {
+    char *data;
+    size_t len;
+    size_t cap;
+} mj_buf;
+
+static size_t mj_write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
+    size_t n = size * nmemb;
+    mj_buf *b = (mj_buf *)userdata;
+    if (b->len + n + 1 > b->cap) {
+        size_t cap = b->cap ? b->cap * 2 : 1024;
+        while (cap < b->len + n + 1) cap *= 2;
+        char *nd = realloc(b->data, cap);
+        if (!nd) return 0;
+        b->data = nd;
+        b->cap = cap;
+    }
+    memcpy(b->data + b->len, ptr, n);
+    b->len += n;
+    b->data[b->len] = '\0';
+    return n;
+}
+
+/* One Mailjet REST call. Returns malloc'd response body (may be "") or NULL
+ * on transport failure, with the HTTP status in *code. */
+static char *mj_api(const char *key, const char *secret,
+                    const char *method, const char *path,
+                    const char *payload, long *code) {
+    CURL *curl = curl_easy_init();
+    if (!curl) return NULL;
+    char url[512];
+    snprintf(url, sizeof(url), "%s%s", MJ_API_BASE, path);
+    mj_buf buf = {0};
+    struct curl_slist *hdrs = NULL;
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    /* Basic auth from the raw key pair (avoid %-encoding surprises). */
+    char userpwd[256];
+    snprintf(userpwd, sizeof(userpwd), "%s:%s", key, secret);
+    curl_easy_setopt(curl, CURLOPT_USERPWD, userpwd);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)MJ_TIMEOUT_SEC);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, mj_write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+    if (payload) {
+        hdrs = curl_slist_append(hdrs, "Content-Type: application/json");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdrs);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
+    }
+    if (strcmp(method, "POST") == 0) curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    else if (strcmp(method, "PUT") == 0) curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
+    else if (strcmp(method, "DELETE") == 0) curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
+    CURLcode rc = curl_easy_perform(curl);
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, code);
+    curl_slist_free_all(hdrs);
+    curl_easy_cleanup(curl);
+    if (rc != CURLE_OK) {
+        free(buf.data);
+        return NULL;
+    }
+    if (!buf.data) buf.data = strdup("");
+    return buf.data;
+}
+
+/* Extract the integer field "name" from the first object of a Mailjet
+ * collection response; returns def when absent. */
+static long mj_first_id(const char *body, const char *name, long def) {
+    if (!body) return def;
+    char pattern[64];
+    snprintf(pattern, sizeof(pattern), "\"%s\":", name);
+    const char *p = strstr(body, pattern);
+    if (!p) return def;
+    p += strlen(pattern);
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p == '"') {
+        const char *e = strchr(p + 1, '"');
+        return e ? atol(p + 1) : def;
+    }
+    return strtol(p, NULL, 10);
+}
+
+static void *mailjet_register_sender_worker(void *arg) {
+    char *address = (char *)arg;
+    const char *key = getenv("FLY_SMTP_USER");
+    const char *secret = getenv("FLY_SMTP_PASS");
+    const char *domain = fly_mail_domain();
+    if (!key || !secret || !domain) { free(address); return NULL; }
+
+    /* 1. Find the authenticated domain's relay-side ID. */
+    char path[512];
+    snprintf(path, sizeof(path), "/dns?Domain=%s", domain);
+    long code = 0;
+    char *body = mj_api(key, secret, "GET", path, NULL, &code);
+    long dns_id = (code == 200) ? mj_first_id(body, "ID", -1) : -1;
+    free(body);
+    if (dns_id < 0) {
+        CWIST_LOG_WARN("mailjet: no authenticated relay domain for %s; skipping sender registration for %s",
+                       domain, address);
+        free(address);
+        return NULL;
+    }
+
+    /* 2. Look up the sender; create under the domain or relink+revalidate. */
+    snprintf(path, sizeof(path), "/sender?Email=%s", address);
+    body = mj_api(key, secret, "GET", path, NULL, &code);
+    long sender_id = (code == 200) ? mj_first_id(body, "ID", -1) : -1;
+    free(body);
+
+    if (sender_id < 0) {
+        char payload[512];
+        snprintf(payload, sizeof(payload), "{\"Email\":\"%s\",\"DNSID\":%ld}", address, dns_id);
+        body = mj_api(key, secret, "POST", "/sender", payload, &code);
+        if (body && code >= 200 && code < 300) {
+            CWIST_LOG_INFO("mailjet: registered sender %s under authenticated domain", address);
+        } else if (body && strstr(body, "already existing")) {
+            snprintf(path, sizeof(path), "/sender?Email=%s", address);
+            char *b2 = mj_api(key, secret, "GET", path, NULL, &code);
+            sender_id = (code == 200) ? mj_first_id(b2, "ID", -1) : -1;
+            free(b2);
+        } else {
+            CWIST_LOG_WARN("mailjet: sender registration for %s failed (http %ld)", address, code);
+        }
+        free(body);
+    }
+
+    if (sender_id >= 0) {
+        char payload[128];
+        snprintf(payload, sizeof(payload), "{\"DNSID\":%ld}", dns_id);
+        snprintf(path, sizeof(path), "/sender/%ld", sender_id);
+        body = mj_api(key, secret, "PUT", path, payload, &code);
+        free(body);
+        snprintf(path, sizeof(path), "/sender/%ld/validate", sender_id);
+        body = mj_api(key, secret, "POST", path, NULL, &code);
+        if (body && (code == 200 || strstr(body, "already active")))
+            CWIST_LOG_INFO("mailjet: sender %s active", address);
+        free(body);
+    }
+    free(address);
+    return NULL;
+}
+
+void email_register_local_sender(const char *username) {
+    const char *key = getenv("FLY_SMTP_USER");
+    const char *secret = getenv("FLY_SMTP_PASS");
+    if (!key || !key[0] || !secret || !secret[0]) return;
+    if (!username || !username[0] || strlen(username) > 64) return;
+    const char *domain = fly_mail_domain();
+    if (!domain || !domain[0] || strchr(domain, '@')) return;
+    size_t len = strlen(username) + strlen(domain) + 2;
+    char *address = malloc(len);
+    if (!address) return;
+    snprintf(address, len, "%s@%s", username, domain);
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, mailjet_register_sender_worker, address) != 0) {
+        free(address);
+        return;
+    }
+    pthread_detach(thread);
+}

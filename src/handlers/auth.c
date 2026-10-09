@@ -279,6 +279,9 @@ void handler_register_post(cwist_http_request *req, cwist_http_response *res) {
     }
     if (legal_docs) cJSON_Delete(legal_docs);
     CWIST_LOG_INFO("User registered: username='%s' email='%s'", username, email);
+    /* Let the relay know this account may send webmail (no-op when the
+     * relay API is not configured). */
+    email_register_local_sender(username);
 
     /* Email verification mode: hold the account unverified until the user
      * follows the link mailed to the address they signed up with. */

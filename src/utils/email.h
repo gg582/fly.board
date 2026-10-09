@@ -18,4 +18,10 @@ bool email_send_from(const char *from, const char *to, const char *subject, cons
  * FLY_SMTP_USER, or noreply@<mail domain>). */
 bool email_send(const char *to, const char *subject, const char *body);
 
+/* Best-effort, fire-and-forget: register <username>@<mail domain> as an
+ * outbound sender with the relay provider so webmail from this account is
+ * accepted. No-op unless the relay API credentials (FLY_SMTP_USER/PASS) are
+ * configured; failures are logged and never affect the caller. */
+void email_register_local_sender(const char *username);
+
 #endif
