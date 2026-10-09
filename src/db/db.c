@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "db.h"
 #include "db_internal.h"
+#include "fts5_mecab.h"
 #include <cwist/core/log.h>
 #include <cwist/core/mem/alloc.h>
 #include <pthread.h>
@@ -166,6 +167,10 @@ bool db_configure_connection(sqlite3 *conn) {
         if (err) sqlite3_free(err);
         err = NULL;
     }
+
+    /* FTS5 tokenizers are registered per connection; failures are fine —
+     * search falls back to the built-in trigram tokenizer. */
+    fts5_search_register_conn(conn);
 
     /* Bound WAL file growth so a runaway writer cannot exhaust disk before the
      * next checkpoint.  64 MiB is large enough for normal batch writes. */
@@ -443,6 +448,23 @@ bool db_migrate(cwist_db *db) {
         "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
         ")");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_emails_owner_folder ON emails(owner_id, folder, created_at)");
+
+    /* Per-user guestbook: visitors leave messages on a profile. The owner
+     * controls whether anonymous posts are accepted (users.guestbook_anon,
+     * 0 = members only); writers are members (author_uid set) or anonymous
+     * visitors (author_uid NULL, author_name is their chosen display name).
+     * Entries replicate through the FlyWire "guestbook" journal entity. */
+    db_exec_sql(db, "ALTER TABLE users ADD COLUMN guestbook_anon INTEGER NOT NULL DEFAULT 0");
+    db_exec_sql(db,
+        "CREATE TABLE IF NOT EXISTS guestbook ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  owner_uid INTEGER NOT NULL,"
+        "  author_uid INTEGER,"
+        "  author_name TEXT NOT NULL,"
+        "  content TEXT NOT NULL,"
+        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+        ")");
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_guestbook_owner ON guestbook(owner_uid, id DESC)");
 
     /* FlyWire change journal: one row per content mutation on the primary;
      * replicas replay it via /flywire/feed. */

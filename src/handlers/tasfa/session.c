@@ -583,21 +583,22 @@ bool init_download_session(const char *filename, const char *mime, const char *s
 
     /* Load pre-calculated HTP metadata if available */
     if (media_name && media_name[0]) {
-        char src_htp[PATH_MAX], dst_htp[PATH_MAX];
+        char src_htp[PATH_MAX], dst_htp[PATH_MAX + 16];
         snprintf(src_htp, sizeof(src_htp), "data/tasfa/media_htp/%s/htp.bin", media_name);
-        snprintf(dst_htp, sizeof(dst_htp), "%s/htp.bin", dir_path);
-        struct stat st;
-        if (stat(src_htp, &st) == 0 && st.st_size > 0) {
-            /* Copy HTP metadata to session dir */
-            FILE *fsrc = fopen(src_htp, "rb");
-            FILE *fdst = fopen(dst_htp, "wb");
-            if (fsrc && fdst) {
-                char buf[8192]; size_t n;
-                while ((n = fread(buf, 1, sizeof(buf), fsrc)) > 0) fwrite(buf, 1, n, fdst);
-                modulus_M = HTP_MODULUS_STABLE;
+        if (snprintf(dst_htp, sizeof(dst_htp), "%s/htp.bin", dir_path) < (int)sizeof(dst_htp)) {
+            struct stat st;
+            if (stat(src_htp, &st) == 0 && st.st_size > 0) {
+                /* Copy HTP metadata to session dir */
+                FILE *fsrc = fopen(src_htp, "rb");
+                FILE *fdst = fopen(dst_htp, "wb");
+                if (fsrc && fdst) {
+                    char buf[8192]; size_t n;
+                    while ((n = fread(buf, 1, sizeof(buf), fsrc)) > 0) fwrite(buf, 1, n, fdst);
+                    modulus_M = HTP_MODULUS_STABLE;
+                }
+                if (fsrc) fclose(fsrc);
+                if (fdst) fclose(fdst);
             }
-            if (fsrc) fclose(fsrc);
-            if (fdst) fclose(fdst);
         }
     }
 

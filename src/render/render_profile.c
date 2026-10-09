@@ -99,6 +99,27 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
 
     cwist_sstring_append(b, "</div>");
 
+    /* Guestbook: the entries, post form, and owner toggle live in a partial
+     * served by GET /guestbook/list and are injected here client-side. The
+     * profile route is page-cached and has no request context, so fetching
+     * keeps viewer permissions (delete buttons, anon toggle) and ?page=
+     * pagination correct; the fetch sends the session cookie same-origin. */
+    if (user_id > 0) {
+        char gb[900];
+        snprintf(gb, sizeof(gb),
+            "<div class='card' style='max-width:600px;margin:20px auto' id='guestbook' data-owner='%d'>"
+            "<h3>Guestbook</h3>"
+            "<p style='color:var(--muted);font-size:13px'>Loading...</p></div>"
+            "<script>(function(){var el=document.getElementById('guestbook');if(!el)return;"
+            "var p=(new URLSearchParams(location.search)).get('page')||'1';"
+            "fetch('/guestbook/list?owner='+encodeURIComponent(el.dataset.owner)+'&page='+encodeURIComponent(p))"
+            ".then(function(r){return r.text();})"
+            ".then(function(h){el.innerHTML=h;})"
+            ".catch(function(){});})();</script>",
+            user_id);
+        cwist_sstring_append(b, gb);
+    }
+
     cwist_sstring *res = render_page("Profile", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return res;

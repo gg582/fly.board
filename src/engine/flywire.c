@@ -291,6 +291,7 @@ static const flywire_entity_t k_entities[] = {
     { "board_tree", "board_tree",      FLYWIRE_DB_TREE,     false },
     { "user",       "users",           FLYWIRE_DB_MAIN,     false },
     { "email",      "emails",          FLYWIRE_DB_MAIN,     false },
+    { "guestbook",  "guestbook",       FLYWIRE_DB_MAIN,     false },
 };
 
 static const flywire_entity_t *flywire_entity(const char *name) {
@@ -327,7 +328,7 @@ static flywire_cols_t *flywire_cols_slot(const char *table) {
         { "posts", 0 }, { "boards", 1 }, { "files", 2 }, { "series", 3 },
         { "tags", 4 }, { "post_votes", 5 }, { "post_votes_anon", 6 },
         { "comments", 7 }, { "board_tree", 8 }, { "users", 9 },
-        { "emails", 10 },
+        { "emails", 10 }, { "guestbook", 11 },
     };
     for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
         if (strcmp(map[i].t, table) == 0) return &g_cols[map[i].slot];
@@ -683,15 +684,17 @@ static size_t flywire_feed_write(void *ptr, size_t size, size_t nmemb, void *use
     return size * nmemb;
 }
 
-/* Apply one journal row to the local databases. Returns false on a hard
- * failure (unknown entity); individual SQL errors are logged and skipped so
- * one bad row cannot wedge the loop. */
+/* Apply one journal row to the local databases. Unknown entities are skipped
+ * (logged, checkpoint advanced) rather than wedging the loop: a replica that
+ * predates a feature must keep syncing everything it does know. Individual
+ * SQL errors are likewise logged and skipped so one bad row cannot wedge the
+ * loop. */
 static bool flywire_apply_row(sqlite3 *main_conn, long long seq, const char *entity, int entity_id,
                               const char *op, const char *payload_json) {
     const flywire_entity_t *e = flywire_entity(entity);
     if (!e) {
         CWIST_LOG_WARN("flywire: unknown entity '%s' at seq %lld; skipped", entity ? entity : "?", seq);
-        return false;
+        return true;
     }
     sqlite3 *conn = e->db == FLYWIRE_DB_MAIN ? main_conn : flywire_conn(e->db);
     if (!conn) return false;

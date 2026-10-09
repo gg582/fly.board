@@ -548,8 +548,8 @@ int htp_contract_groups(const uint64_t *balanced_scalars, int chunk_count, uint6
 }
 
 bool save_htp_scalar_to_dir(const char *dir_path, int chunk_index, const char *hash_tag_hex, uint64_t raw_scalar, uint64_t balanced_scalar) {
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/htp.bin", dir_path);
+    char path[PATH_MAX + 16];
+    if (snprintf(path, sizeof(path), "%s/htp.bin", dir_path) >= (int)sizeof(path)) return false;
     int fd = open(path, O_CREAT | O_WRONLY, 0644);
     if (fd < 0) return false;
     char tag[HTP_TAG_LEN] = {0};

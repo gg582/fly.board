@@ -12,8 +12,10 @@
 int search_split_terms(const char *query, char terms[SEARCH_MAX_TERMS][SEARCH_TERM_MAX_BYTES]);
 
 /* SQL fragments for a post search over table aliases p (posts) and b
- * (boards). Every term must match (AND); terms of three or more code points
- * are narrowed through the trigram index first. */
+ * (boards). Every term must match (AND). Candidate posts are narrowed
+ * through the posts_fts FTS5 table (morpheme-branched under the mecab
+ * tokenizer, substring under trigram) and always re-confirmed with LIKE on
+ * the requested field. */
 typedef struct {
     cwist_sstring *where;      /* " AND ..." clauses, empty when no terms */
     cwist_sstring *title_rank; /* expression counting terms found in the title; empty when unranked */

@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 #include "utils/email.h"
+#include "utils/ipban.h"
 #include <ctype.h>
 #include <openssl/rand.h>
 
@@ -148,6 +149,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     /* Admin login via admin.settings */
     if (auth_admin_check(username, password)) {
         CWIST_LOG_INFO("Admin login success: username='%s'", username);
+        ipban_note_success(req);
         char *token = auth_jwt_issue(auth_site_admin_uid(), username, "admin");
         if (!token) {
             CWIST_LOG_ERROR("Admin login failed: token issue error username='%s'", username);
@@ -166,6 +168,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     cJSON *user = db_user_get_by_username(req->db, username);
     if (!user) {
         CWIST_LOG_WARN("Login failed: invalid credentials for username='%s'", username);
+        ipban_note_failure(req);
         send_html_res(res, render_login(dark, "Invalid credentials", mobile, redirect_target));
         cwist_query_map_destroy(kv);
         return;
@@ -175,6 +178,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     if (!hash || !hash->valuestring || !hash->valuestring[0] ||
         !auth_verify_password(password, hash->valuestring)) {
         CWIST_LOG_WARN("Login failed: invalid credentials or wrong password for username='%s'", username);
+        ipban_note_failure(req);
         cJSON_Delete(user);
         send_html_res(res, render_login(dark, "Invalid credentials", mobile, redirect_target));
         cwist_query_map_destroy(kv);
@@ -211,6 +215,7 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     CWIST_LOG_INFO("User login success: username='%s'", username);
+    ipban_note_success(req);
     set_auth_cookies(res, token, req_is_tls(req));
     cwist_free(token);
     cJSON_Delete(user);

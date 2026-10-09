@@ -20,17 +20,101 @@
 ## Build
 
 ```sh
-make
+make -j2 fly_board mail-tools
 ./keygen.sh
 ```
 
+`fly_board` is the server; `mail-tools` builds the three mail-stack helpers
+(`mail-verify`, `mail-import`, `mail-alias-build`) needed for the built-in
+mail server — see [docs/mail.md](docs/mail.md). Plain `make` builds both plus
+the vendored third-party libraries.
+
 Dependencies:
-- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3 (QUIC) is handled by the embedded BoringSSL inside CWIST; no extra setup required.
+- [CWIST](https://github.com/religiya-serdtsa/cwist) v3.9 — TLS 1.3 / HTTP/3 (QUIC) is handled by the embedded BoringSSL inside CWIST; no extra setup required.
 - OpenSSL 3.x (Argon2id KDF)
 - ngtcp2 / nghttp3 (HTTP/3)
 - cJSON, SQLite3
 
+The Makefile locates CWIST in this order:
+
+1. `CWIST_ROOT` — a cwist source tree (defaults to `../cwist`, i.e. a checkout
+   next to this repository; override with `make CWIST_ROOT=/path/to/cwist`).
+2. `CWIST_PREFIX` — an installed prefix holding `lib/libcwist.a` and
+   `include/cwist` (defaults to `/usr/local`; the Homebrew/Linuxbrew
+   `opt/cwist` keg is auto-detected).
+3. Homebrew/Linuxbrew locations, probed automatically.
+
 `Makefile` clones and builds `third_party/md4c` as a static library.
+
+### Quick start (first run)
+
+```sh
+make -j2 fly_board mail-tools
+./keygen.sh                       # self-signed server.crt / server.key (or install real certs)
+
+# Site admin account: line 1 = username, line 2 = password.
+# Auto-created as admin / fly.board if the file is missing — change it before going public.
+printf 'admin\nchange-me-now\n' > admin.settings
+
+# Edit the generated settings, at minimum root_url, port, and language.
+./fly_board                       # generates blog.settings, fonts.settings, s3.settings,
+                                  # robots.settings, upload.settings, flywire.settings with defaults
+# ^C, then:
+$EDITOR blog.settings
+./fly_board
+```
+
+On startup the admin account from `admin.settings` is created (or re-synced)
+in the `users` table as the site admin — no separate account-registration
+step is needed. Opening the site and logging in with those credentials lands
+on `/admin`.
+
+### systemd unit
+
+```ini
+[Unit]
+Description=fly.board blog engine
+After=network.target
+
+[Service]
+Type=simple
+User=flyboard
+Group=flyboard
+WorkingDirectory=/srv/fly.board
+Environment=BLOG_ROOT=/srv/fly.board
+ExecStart=/srv/fly.board/fly_board
+Restart=on-failure
+RestartSec=2
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/fly.board
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+```
+
+The server must run from the site root (the directory containing `public/`
+and `data/`); it refuses to start otherwise. `BLOG_ROOT` lets systemd start
+the binary without a shell `cd`. HTTP/3 uses the same port over UDP, so open
+both TCP and UDP in the firewall. Full install walkthrough:
+[docs/install.md](docs/install.md).
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [docs/install.md](docs/install.md) | Dependencies, per-distro build steps, troubleshooting |
+| [docs/configuration.md](docs/configuration.md) | Every settings file key and environment variable |
+| [docs/mail.md](docs/mail.md) | Built-in mail server: Postfix/Dovecot integration, DNS, Mailjet relay |
+| [docs/flywire.md](docs/flywire.md) | Primary/replica site synchronization |
+| [docs/backup.md](docs/backup.md) | Scheduled backups, archive format, restore procedure |
+| [docs/tasfa-compression.md](docs/tasfa-compression.md) | TASFA resumable transfer protocol and compression |
+| [SETTINGS.md](SETTINGS.md) | Settings files reference (same content as docs/configuration.md, repo-root form) |
+| [TUNABLES.md](TUNABLES.md) | Performance knobs and benchmark environment |
+| [INSTALL.debian.md](INSTALL.debian.md) | Debian-specific package list and setup sequence |
 
 ## Run
 
@@ -38,10 +122,10 @@ Dependencies:
 ./fly_board
 ```
 
-The default port follows the `port` value in `blog.settings` (default 9443).
+The listen port comes from `port` in `blog.settings` (default 8443).
 
 ```text
-https://localhost:9443
+https://localhost:8443
 ```
 
 HTTP/3 listens on the same port over UDP.
@@ -105,7 +189,7 @@ Plain `key=value` lines. Unknown keys are ignored; invalid values fall back to d
 | `roundness` | `0.0` | UI corner roundness, `0.0`–`1.0` |
 | `max_upload_size` | `1G` | Per-file upload limit. Accepts suffixes `K/M/G/T` (e.g. `500M`) |
 | `max_total_parallel_uploads` | `8` | Concurrent uploads overall (1–512) |
-| `max_upload_parallel_chunks` | `32` | Parallel chunks per upload (1–64) |
+| `max_upload_parallel_chunks` | `48` | Parallel chunks per upload (1–64) |
 | `max_concurrent_downloads` | `128` | Concurrent downloads (1–512) |
 | `vote_only` | *(empty = `all`)* | Who may vote on posts: `all` (anyone, incl. anonymous), `authorized` (logged-in users only), `admin` (admins only) |
 | `use_special_modes` | *(empty)* | Replaces the light/dark themes: `lightTheme,darkTheme` (or a single theme). Available themes: `light`, `dark`, `ocean`, `forest`, `sepia`. E.g. `ocean,forest` |
@@ -142,7 +226,7 @@ S3-compatible object storage for uploaded files (AWS S3, MinIO, R2, B2). Entirel
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `FLYBOARD_CACHE_MAX_MB` | `64` | Page cache size in MB (1–1024) |
+| `FLYBOARD_CACHE_MAX_MB` | *(unlimited)* | Page cache size in MB (1–1024) |
 | `FLYBOARD_ADVERTISE_H3` | `true` | Send `Alt-Svc` headers advertising HTTP/3 |
 | `FLYBOARD_ALT_SVC_MAX_AGE` | `300` | `Alt-Svc` `ma` value in seconds (0–86400) |
 | `FLYBOARD_INLINE_IMAGES` | *(off)* | Inline images as base64 data URIs in HTML |

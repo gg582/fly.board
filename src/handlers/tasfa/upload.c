@@ -961,7 +961,6 @@ static bool tasfa_finalize_session_process(cwist_db *db,
                 /* Count suspects in this group and locate candidate with highest suspicion */
                 int suspect_in_group_count = 0;
                 int best_suspect_idx = -1;
-                int best_suspect_pos = -1;
                 double max_score = -1.0;
 
                 for (int i = 0; i < suspect_count; i++) {
@@ -971,7 +970,6 @@ static bool tasfa_finalize_session_process(cwist_db *db,
                         if (suspects[i].suspicion_score > max_score) {
                             max_score = suspects[i].suspicion_score;
                             best_suspect_idx = ci;
-                            best_suspect_pos = i;
                         }
                     }
                 }
@@ -1275,23 +1273,6 @@ client_disconnect:
     *out_status = CWIST_HTTP_BAD_REQUEST;
     *out_response = session_error_json("client disconnected");
     return false;
-}
-
-static void handler_file_upload_complete_sync(cwist_http_request *req, cwist_http_response *res) {
-    int uid = 0;
-    char role[32] = {0};
-    auth_is_logged_in(req, &uid, role, sizeof(role));
-    cwist_query_map *kv = cwist_query_map_create();
-    cwist_query_map_parse(kv, req->body->data);
-    const char *upload_id = cwist_query_map_get(kv, "upload_id");
-    const char *upload_token = cwist_query_map_get(kv, "upload_token");
-
-    int status = 500;
-    cJSON *response_obj = NULL;
-    tasfa_finalize_session_process(req->db, upload_id, upload_token, req, uid, false, &status, &response_obj);
-    cwist_query_map_destroy(kv);
-
-    send_json_response(res, response_obj ? response_obj : session_error_json("internal error"), (cwist_http_status_t)status);
 }
 
 static void *upload_finalize_worker(void *arg) {

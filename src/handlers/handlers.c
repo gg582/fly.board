@@ -298,25 +298,6 @@ cJSON *board_by_route_key(cwist_db *db, const char *key) {
     return db_board_get_by_slug(db, key);
 }
 
-static int env_int_clamped(const char *name, int def, int min_value, int max_value) {
-    const char *value = getenv(name);
-    if (!value || !value[0]) return def;
-    char *end = NULL;
-    long parsed = strtol(value, &end, 10);
-    if (end == value || *end != '\0') return def;
-    if (parsed < min_value) return min_value;
-    if (parsed > max_value) return max_value;
-    return (int)parsed;
-}
-
-static bool env_flag_enabled(const char *name, bool def) {
-    const char *value = getenv(name);
-    if (!value || !value[0]) return def;
-    if (strcmp(value, "0") == 0 || strcasecmp(value, "false") == 0 || strcasecmp(value, "off") == 0) return false;
-    if (strcmp(value, "1") == 0 || strcasecmp(value, "true") == 0 || strcasecmp(value, "on") == 0) return true;
-    return def;
-}
-
 #include <malloc.h>
 #include <time.h>
 
@@ -476,7 +457,7 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
 
     /* FlyWire replica mode: writes are transparently forwarded to the
      * primary (write-through proxy) so the replica behaves like the main
-     * site behind a shared hostname. Local /flywire/* endpoints stay on the
+     * site behind a shared hostname. Local flywire endpoints stay on the
      * replica. When the primary cannot be reached, fall back to 503. */
     if (flywire_is_replica() &&
         req->method != CWIST_HTTP_GET && req->method != CWIST_HTTP_HEAD &&

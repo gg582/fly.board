@@ -2,6 +2,7 @@
 #define FLYBOARD_RENDER_H
 
 #include <stdbool.h>
+#include <cwist/core/db/sql.h>
 #include <cwist/core/sstring/sstring.h>
 #include <cjson/cJSON.h>
 
@@ -76,8 +77,12 @@ cwist_sstring *render_archive(cJSON *months, cJSON *tags, cJSON *series, bool da
 /* Webmail (src/render/render_mail.c). */
 cwist_sstring *render_mail_list(cJSON *emails, const char *folder, int page, int total_pages,
                                 int unread, const char *msg, bool dark, const char *user_role,
-                                const char *profile_pic, bool is_mobile);
+                                const char *profile_pic, bool is_mobile, const char *own_addr);
 cwist_sstring *render_mail_view(cJSON *email, bool dark, const char *user_role,
                                 const char *profile_pic, bool is_mobile);
+
+/* Guestbook (src/render/render_guestbook.c). */
+cwist_sstring *render_guestbook_section(cwist_db *db, int owner_uid, int viewer_uid,
+                                        const char *viewer_role, int page);
 
 #endif

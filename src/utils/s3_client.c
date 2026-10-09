@@ -122,7 +122,9 @@ static void current_amz_dates(char *amz_date, char *date) {
 }
 
 static void credential_scope(const s3_config_t *c, const char *date, char *out, size_t out_size) {
-    snprintf(out, out_size, "%s/%s/s3/aws4_request", date,
+    /* date is an 8-digit stamp and region is char[64]; bound both so the
+     * worst case (8 + 1 + 63 + "/s3/aws4_request" + NUL = 89) always fits. */
+    snprintf(out, out_size, "%.8s/%.63s/s3/aws4_request", date,
              c->region[0] ? c->region : "us-east-1");
 }
 
@@ -293,10 +295,12 @@ bool s3_presign_get(const char *key, char *out, size_t out_size, int expires_sec
     current_amz_dates(amz_date, date);
     build_host_and_uri(c, key, host, sizeof(host), uri, sizeof(uri));
 
-    char scope[128], enc_cred[512];
-    credential_scope(c, date, scope, sizeof(scope));
-    char cred[384];
-    snprintf(cred, sizeof(cred), "%s/%s", c->access_key, scope);
+    /* cred = "<access_key>/<date>/<region>/s3/aws4_request"; access_key is
+     * char[128] and the rest is bounded by field sizes, so 512 is enough. */
+    char enc_cred[512];
+    char cred[512];
+    snprintf(cred, sizeof(cred), "%.127s/%.8s/%.63s/s3/aws4_request",
+             c->access_key, date, c->region[0] ? c->region : "us-east-1");
     uri_encode(cred, enc_cred, sizeof(enc_cred), false);
 
     char query[1024];

@@ -2,6 +2,14 @@
 #include "engine/async_route.h"
 #include "handlers/handlers.h"
 
+/* Guestbook handlers, implemented in src/handlers/guestbook.c. They are
+ * declared here (rather than in handlers/handlers.h) to keep the feature
+ * self-contained; prototypes match handlers/handlers.h conventions. */
+void handler_guestbook_list_get(cwist_http_request *req, cwist_http_response *res);
+void handler_guestbook_post(cwist_http_request *req, cwist_http_response *res);
+void handler_guestbook_delete_post(cwist_http_request *req, cwist_http_response *res);
+void handler_guestbook_settings_post(cwist_http_request *req, cwist_http_response *res);
+
 void engine_routes_register(cwist_app *app) {
     cwist_app_use(app, global_middleware);
     engine_async_set_hit_hook(post_bdr_hit);
@@ -120,6 +128,13 @@ void engine_routes_register(cwist_app *app) {
     engine_async_post(app, "/mail/empty-trash", handler_mail_empty_trash_post);
     engine_async_get(app, "/mail/users", handler_mail_users_get);
     engine_async_post(app, "/admin/broadcast", handler_admin_broadcast_post);
+
+    /* Guestbook: partial HTML for the profile page section, posting,
+     * deletion (owner / admin / author), and the owner's anon toggle. */
+    engine_async_get(app, "/guestbook/list", handler_guestbook_list_get);
+    engine_async_post(app, "/guestbook/post", handler_guestbook_post);
+    engine_async_post(app, "/guestbook/delete", handler_guestbook_delete_post);
+    engine_async_post(app, "/guestbook/settings", handler_guestbook_settings_post);
 
     engine_async_get(app, "/dashboard", handler_dashboard);
     engine_async_get(app, "/admin", handler_admin_dashboard);

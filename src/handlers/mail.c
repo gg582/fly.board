@@ -113,9 +113,17 @@ void handler_mail_get(cwist_http_request *req, cwist_http_response *res) {
     const char *msg = cwist_query_map_get(req->query_params, "msg");
 
     char *pp = get_profile_pic(req->db, uid, role);
+    /* Own mail address lets the renderer drop the read/unread toggle on
+     * sent-side copies (Sent folder, and the user's own mail in Trash). */
+    char own_addr[160] = {0};
+    cJSON *self = db_user_get_by_id(req->db, uid);
+    cJSON *self_name = self ? cJSON_GetObjectItem(self, "username") : NULL;
+    if (cJSON_IsString(self_name) && self_name->valuestring[0])
+        snprintf(own_addr, sizeof(own_addr), "%s@%s", self_name->valuestring, fly_mail_domain());
+    if (self) cJSON_Delete(self);
     cwist_sstring *page_html = render_mail_list(emails ? emails : cJSON_CreateArray(), folder, page,
                                                 total_pages, unread, msg, is_dark(req), role, pp,
-                                                is_mobile_request(req));
+                                                is_mobile_request(req), own_addr);
     send_html_res(res, page_html);
     if (emails) cJSON_Delete(emails);
     free(pp);

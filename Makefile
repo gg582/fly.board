@@ -113,7 +113,7 @@ BROTLI_CFLAGS := $(shell pkg-config --cflags libbrotlienc libbrotlicommon libbro
 WEBP_CFLAGS := $(shell pkg-config --cflags libwebp libwebpmux 2>/dev/null)
 
 CURL_LIBS := $(shell pkg-config --libs libcurl 2>/dev/null || echo -lcurl)
-NGHTTP2_LIBS := $(shell pkg-config --libs libnghttp2 2>/dev/null)
+NGHTTP2_LIBS := $(shell pkg-config --libs libnghttp2 2>/dev/null || echo -lnghttp2)
 BROTLI_LIBS := $(shell pkg-config --libs libbrotlienc libbrotlicommon libbrotlidec 2>/dev/null || echo -lbrotlienc -lbrotlicommon -lbrotlidec)
 WEBP_LIBS := $(shell pkg-config --libs libwebp libwebpmux 2>/dev/null)
 ifeq ($(strip $(WEBP_LIBS)),)
@@ -131,8 +131,22 @@ endif
 # symbols are already resolved (static libs dedupe at link time).
 SSL_LIBS := $(shell pkg-config --libs openssl 2>/dev/null || echo -lssl -lcrypto)
 
+# MeCab: Korean morphological analyzer for the FTS5 search tokenizer
+# (src/db/fts5_mecab_tokenizer.c). Optional: without libmecab-dev the build
+# falls back to the built-in trigram tokenizer (HAVE_MECAB unset).
+MECAB_LIBS := $(shell pkg-config --libs mecab 2>/dev/null)
+ifeq ($(strip $(MECAB_LIBS)),)
+MECAB_LIBS = -lmecab
+endif
+ifeq ($(shell pkg-config --exists mecab 2>/dev/null && echo 1 || ls /usr/include/mecab.h /usr/local/include/mecab.h 2>/dev/null | head -1),)
+MECAB_LIBS =
+endif
+ifneq ($(strip $(MECAB_LIBS)),)
+MECAB_CFLAGS := $(shell pkg-config --cflags mecab 2>/dev/null) -DHAVE_MECAB
+endif
+
 # Common flags & defines matching cwist buildchain
-COMMON_DEFINES = -D_GNU_SOURCE -D_XOPEN_SOURCE=700 -D_REENTRANT -DSQLITE_ENABLE_DESERIALIZE
+COMMON_DEFINES = -D_GNU_SOURCE -D_XOPEN_SOURCE=700 -D_REENTRANT -DSQLITE_ENABLE_DESERIALIZE -DSQLITE_ENABLE_FTS5
 COMMON_WARNINGS = -Wall -Wextra -pthread -fPIC
 # Match cwist's GCC_STACK_FLAGS (-Ofast -g).  The FP audit found no NaN/Inf
 # or signed-zero dependencies (media_preview guards src_h > 0, image_contrast
@@ -147,7 +161,7 @@ CFLAGS := $(OPT_FLAGS) $(COMMON_WARNINGS) $(COMMON_DEFINES) \
           -I$(MULTIPART_DIR) \
           -Ithird_party/stb \
           -Ithird_party/file/src \
-          $(CURL_CFLAGS) $(NGHTTP2_CFLAGS) $(BROTLI_CFLAGS) $(WEBP_CFLAGS)
+          $(CURL_CFLAGS) $(NGHTTP2_CFLAGS) $(BROTLI_CFLAGS) $(WEBP_CFLAGS) $(MECAB_CFLAGS)
 
 ifeq ($(UNAME_S),Linux)
     CFLAGS += -DCWIST_OS_LINUX
@@ -190,20 +204,22 @@ LIBS := $(CWIST_LIB) \
         $(WEBP_LIBS) \
         $(ZSTD_LIBS) \
         $(SSL_LIBS) \
+        $(MECAB_LIBS) \
         -pthread -ldl -lm -lstdc++ -lz
 
 SRCS := src/main.c \
-        src/db/db.c src/db/db_sync.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/notification.c src/db/vote.c src/db/tag.c src/db/search.c src/db/report.c src/db/pqc_keys.c src/db/series.c src/db/sql_escape.c src/db/orm.c src/db/db_email.c \
+        src/db/db.c src/db/db_sync.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/notification.c src/db/vote.c src/db/tag.c src/db/search.c src/db/fts5_mecab_tokenizer.c src/db/report.c src/db/pqc_keys.c src/db/series.c src/db/sql_escape.c src/db/orm.c src/db/db_email.c src/db/guestbook.c \
         src/auth/auth.c \
         src/crypto/fly_crypto.c \
         src/wasm_host/tasfa_crypto_wasm.c \
         src/render/theme/theme.c src/render/theme/rules.c src/render/theme/json.c src/render/theme/css.c \
-        src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/render/render_notifications.c src/render/render_mail.c \
-        src/handlers/handlers.c src/handlers/home.c src/handlers/blog.c src/handlers/report.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/notifications.c src/handlers/file.c src/handlers/mail.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c \
+        src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/render/render_notifications.c src/render/render_mail.c src/render/render_guestbook.c \
+        src/handlers/handlers.c src/handlers/home.c src/handlers/blog.c src/handlers/report.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/notifications.c src/handlers/file.c src/handlers/mail.c src/handlers/guestbook.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c \
         src/utils/utils.c \
         src/utils/cache.c \
         src/utils/post_schedule.c \
         src/utils/spam_guard.c \
+        src/utils/ipban.c \
         src/tools/backup.c \
         src/tools/backup_schedule.c \
         src/utils/reqshare.c \
@@ -289,7 +305,7 @@ setup:
 	mkdir -p data
 
 # Markdown renderer regression tests.
-RENDER_TEST_SRCS := src/render/render_md.c src/utils/image_size.c src/utils/stb_image_impl.c
+RENDER_TEST_SRCS := tests/stubs/g_config.c src/render/render_md.c src/utils/image_size.c src/utils/stb_image_impl.c
 RENDER_TESTS := tests/test_render_md_video tests/test_render_md_blocks tests/test_render_md_iframe tests/test_render_md_tikz
 
 tests/test_render_%: tests/test_render_%.c $(RENDER_TEST_SRCS) $(MD4C_OBJS)

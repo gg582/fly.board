@@ -23,6 +23,16 @@ static void append_mail_css(cwist_sstring *b) {
         ".mail-body{white-space:normal;margin:16px 0;line-height:1.5}"
         ".mail-form label{display:block;margin:10px 0 4px;font-weight:600}"
         ".mail-form input[type=text],.mail-form textarea{width:100%;padding:8px;border:1px solid var(--border,#8884);border-radius:6px;background:transparent;color:inherit}"
+        /* Mobile: keep the mailbox readable on narrow screens - let long
+         * addresses/subjects wrap, shrink the action buttons, and let the
+         * body text break anywhere so no horizontal scroll appears. */
+        "@media(max-width:640px){"
+        ".mail-table td,.mail-table th{padding:6px 4px;font-size:13px}"
+        ".mail-table td{overflow-wrap:anywhere;word-break:break-word}"
+        ".mail-table td:last-child{white-space:nowrap}"
+        ".mail-table .btn{padding:2px 5px;font-size:11px}"
+        ".mail-body{overflow-wrap:anywhere;word-break:break-word}"
+        "}"
         "</style>");
 }
 
@@ -51,7 +61,7 @@ static void append_msg_banner(cwist_sstring *b, const char *msg) {
 
 cwist_sstring *render_mail_list(cJSON *emails, const char *folder, int page, int total_pages,
                                 int unread, const char *msg, bool dark, const char *user_role,
-                                const char *profile_pic, bool is_mobile) {
+                                const char *profile_pic, bool is_mobile, const char *own_addr) {
     (void)is_mobile;
     cwist_sstring *b = cwist_sstring_create();
     append_mail_css(b);
@@ -171,9 +181,14 @@ cwist_sstring *render_mail_list(cJSON *emails, const char *folder, int page, int
         cwist_sstring_append_escaped(b, cJSON_IsString(created) ? created->valuestring : "");
         cwist_sstring_append(b, "</td><td style='white-space:nowrap'>");
         /* Read/unread toggle is meaningless for messages the viewer sent;
-         * Sent rows get Delete only. */
-        bool is_sent = !strcmp(folder, MAIL_FOLDER_SENT);
-        if (!is_sent) {
+         * Sent rows - and the viewer's own sent copies sitting in Trash -
+         * get Delete only. */
+        bool hide_toggle = !strcmp(folder, MAIL_FOLDER_SENT);
+        if (!hide_toggle && !strcmp(folder, MAIL_FOLDER_TRASH) && own_addr && own_addr[0]) {
+            cJSON *fa = cJSON_GetObjectItem(e, "from_addr");
+            if (cJSON_IsString(fa) && strcasecmp(fa->valuestring, own_addr) == 0) hide_toggle = true;
+        }
+        if (!hide_toggle) {
             cwist_sstring_append(b, "<form action='/mail/read' method='post' style='display:inline'>"
                                     "<input type='hidden' name='id' value='");
             cwist_sstring_append(b, num);

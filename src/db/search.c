@@ -1,80 +1,43 @@
 #define _POSIX_C_SOURCE 200809L
 #include "db.h"
 #include "db_internal.h"
+#include "fts5_mecab.h"
 #include "search.h"
-#include <cwist/core/mem/alloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* Trigram search index for posts.
+/* FTS5 full-text search over posts, backed by the SQLite FTS5 module enabled
+ * in the cwist amalgamation (-DSQLITE_ENABLE_FTS5).
  *
- * The SQLite bundled with cwist is built without FTS5, so fly.board keeps
- * its own inverted index: every distinct run of three code points inside a
- * whitespace-separated word of a post's title or body, ASCII-folded to lower
- * case, maps to the post. A query term of three or more code points can only
- * occur in a post that holds all of the term's trigrams, so the index narrows
- * the candidates and LIKE then confirms the exact substring. Trigrams work the
- * same for Hangul, CJK and Latin text, which a word tokenizer would not.
+ * Index: a regular FTS5 table posts_fts(rowid, title, body) whose rowid is
+ * the post id. Two tokenizers are supported (see fts5_mecab.h):
  *
- * Bump SEARCH_INDEX_VERSION whenever gram extraction changes; the next start
- * rebuilds the whole index. */
-#define SEARCH_INDEX_VERSION "1"
-#define SEARCH_GRAM_MAX 16 /* 3 code points of at most 4 bytes, plus NUL */
+ *   - "mecab":   Korean morphological tokens plus eojeol surfaces, so both
+ *                "형태소" (morpheme inside a word) and exact surface phrases
+ *                hit.
+ *   - "trigram": substring matching for any text, terms need 3+ characters.
+ *
+ * db_search_migrate picks the tokenizer once (MeCab available -> mecab, else
+ * trigram), stores it in the site_settings row "search_tokenizer" and stamps
+ * "search_index_version"; a version bump or tokenizer change rebuilds the
+ * whole index on the next start. The old hand-rolled trigram tables
+ * (post_search_grams) are dropped.
+ *
+ * Queries keep the historical semantics: every whitespace-separated term
+ * must match (AND), and a LIKE confirmation on the requested field
+ * (title/body/both) always applies, so the FTS table only narrows candidates
+ * and short terms (< 3 chars under the trigram tokenizer) still work through
+ * LIKE alone. With the mecab tokenizer a Hangul term is branched:
+ * the surface (quoted) OR the morpheme conjunction, e.g. 개발일지 ->
+ * ("개발일지" OR (개발 AND 일지)), so it also matches text written as
+ * "개발 일지". */
+#define SEARCH_INDEX_VERSION "2"
 
-static size_t utf8_cp_len(unsigned char c) {
-    if (c < 0x80) return 1;
-    if ((c & 0xE0) == 0xC0) return 2;
-    if ((c & 0xF0) == 0xE0) return 3;
-    if ((c & 0xF8) == 0xF0) return 4;
-    return 1; /* stray continuation or invalid lead byte: one unit */
-}
-
-static bool is_space(unsigned char c) {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
-}
-
-typedef void (*gram_fn)(const char *gram, void *ud);
-
-/* Calls @p fn for every trigram of @p text, word by word. Duplicates are
- * reported as often as they occur; callers dedupe. */
-static void for_each_gram(const char *text, gram_fn fn, void *ud) {
-    if (!text) return;
-    const unsigned char *s = (const unsigned char *)text;
-    size_t i = 0;
-    while (s[i]) {
-        while (s[i] && is_space(s[i])) i++;
-        size_t start[3];
-        size_t len[3];
-        int have = 0;
-        while (s[i] && !is_space(s[i])) {
-            size_t n = utf8_cp_len(s[i]);
-            size_t k = 1;
-            while (k < n && s[i + k] && (s[i + k] & 0xC0) == 0x80) k++;
-            if (have == 3) {
-                start[0] = start[1]; len[0] = len[1];
-                start[1] = start[2]; len[1] = len[2];
-                have = 2;
-            }
-            start[have] = i;
-            len[have] = k;
-            have++;
-            if (have == 3) {
-                char gram[SEARCH_GRAM_MAX];
-                size_t g = 0;
-                for (int j = 0; j < 3; j++) {
-                    for (size_t b = 0; b < len[j]; b++) {
-                        unsigned char c = s[start[j] + b];
-                        gram[g++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
-                    }
-                }
-                gram[g] = '\0';
-                fn(gram, ud);
-            }
-            i += k;
-        }
-    }
-}
+/* Tokenizer chosen at migrate time; read by search_query_build. Workers
+ * fork after migration, so the value is stable per process. Empty means
+ * "no FTS index": queries degrade to pure LIKE filtering. */
+static char g_search_tokenizer[16] = "";
 
 static size_t utf8_cp_count(const char *s) {
     size_t n = 0;
@@ -84,30 +47,50 @@ static size_t utf8_cp_count(const char *s) {
     return n;
 }
 
-/* ---- Index maintenance ---- */
-
-static void insert_gram(const char *gram, void *ud) {
-    sqlite3_stmt *stmt = (sqlite3_stmt *)ud;
-    sqlite3_bind_text(stmt, 1, gram, -1, SQLITE_TRANSIENT);
-    sqlite3_step(stmt);
-    sqlite3_reset(stmt);
+static bool term_is_match_safe(const char *term) {
+    for (const unsigned char *p = (const unsigned char *)term; *p; p++) {
+        if (*p < 0x20 || *p == '"' || *p == '(' || *p == ')' ||
+            *p == ':' || *p == '*' || *p == '^') return false;
+    }
+    return true;
 }
 
-static bool index_post_text(sqlite3 *conn, int post_id, const char *title, const char *content) {
-    sqlite3_stmt *del = NULL;
-    if (sqlite3_prepare_v2(conn, "DELETE FROM post_search_grams WHERE post_id=?", -1, &del, NULL) != SQLITE_OK) return false;
-    sqlite3_bind_int(del, 1, post_id);
-    int rc = sqlite3_step(del);
-    sqlite3_finalize(del);
-    if (rc != SQLITE_DONE) return false;
+static bool term_has_hangul(const char *term) {
+    /* Hangul syllables (U+AC00..U+D7A3) and jamo encode to lead bytes
+     * 0xEA..0xED; Hangul compatibility jamo sit in the 0xE1..0xE3 range.
+     * Checking the lead byte is enough for branching purposes. */
+    for (const unsigned char *p = (const unsigned char *)term; *p; p++) {
+        if (*p >= 0xEA && *p <= 0xED) return true;
+    }
+    return false;
+}
 
-    sqlite3_stmt *ins = NULL;
-    if (sqlite3_prepare_v2(conn, "INSERT OR IGNORE INTO post_search_grams (gram, post_id) VALUES (?, ?)", -1, &ins, NULL) != SQLITE_OK) return false;
-    sqlite3_bind_int(ins, 2, post_id);
-    for_each_gram(title, insert_gram, ins);
-    for_each_gram(content, insert_gram, ins);
-    sqlite3_finalize(ins);
-    return true;
+/* ---- Index maintenance ---- */
+
+static bool index_post_text(sqlite3 *conn, int post_id, const char *title, const char *content) {
+    sqlite3_stmt *stmt = NULL;
+    bool ok;
+    if (title || content) {
+        ok = sqlite3_prepare_v2(conn,
+            "INSERT OR REPLACE INTO posts_fts (rowid, title, body) VALUES (?, ?, ?)",
+            -1, &stmt, NULL) == SQLITE_OK;
+        if (ok) {
+            sqlite3_bind_int(stmt, 1, post_id);
+            sqlite3_bind_text(stmt, 2, title ? title : "", -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 3, content ? content : "", -1, SQLITE_TRANSIENT);
+            ok = sqlite3_step(stmt) == SQLITE_DONE;
+        }
+    } else {
+        /* Post gone (or never existed): drop any stale FTS row so deletes
+         * made without a rebuild do not leave dangling entries. */
+        ok = sqlite3_prepare_v2(conn, "DELETE FROM posts_fts WHERE rowid=?", -1, &stmt, NULL) == SQLITE_OK;
+        if (ok) {
+            sqlite3_bind_int(stmt, 1, post_id);
+            ok = sqlite3_step(stmt) == SQLITE_DONE;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return ok;
 }
 
 bool db_search_index_post(cwist_db *db, int post_id) {
@@ -120,10 +103,13 @@ bool db_search_index_post(cwist_db *db, int post_id) {
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(conn, "SELECT title, content FROM posts WHERE id=?", -1, &stmt, NULL) == SQLITE_OK) {
         sqlite3_bind_int(stmt, 1, post_id);
-        if (sqlite3_step(stmt) == SQLITE_ROW) {
+        int rc = sqlite3_step(stmt);
+        if (rc == SQLITE_ROW) {
             ok = index_post_text(conn, post_id,
                                  (const char *)sqlite3_column_text(stmt, 0),
                                  (const char *)sqlite3_column_text(stmt, 1));
+        } else if (rc == SQLITE_DONE) {
+            ok = index_post_text(conn, post_id, NULL, NULL);
         }
         sqlite3_finalize(stmt);
     }
@@ -136,31 +122,88 @@ bool db_search_index_post(cwist_db *db, int post_id) {
     return ok;
 }
 
-bool db_search_migrate(cwist_db *db) {
-    /* Deleting a post (directly or through its author's cascade) drops its
-     * grams through the foreign key; post_id is indexed so that cascade does
-     * not scan the whole table. */
-    db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_search_grams ("
-                    "gram TEXT NOT NULL, post_id INTEGER NOT NULL,"
-                    "PRIMARY KEY (gram, post_id),"
-                    "FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE"
-                    ") WITHOUT ROWID");
-    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_post_search_grams_post ON post_search_grams(post_id)");
-
-    char version[16] = {0};
-    if (db_site_setting_get(db, "search_index_version", version, sizeof(version)) &&
-        strcmp(version, SEARCH_INDEX_VERSION) == 0) {
-        return true;
+static bool setting_get_conn(sqlite3 *conn, const char *key, char *out, size_t out_len) {
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn, "SELECT value FROM site_settings WHERE key=?", -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
+    bool found = false;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *v = (const char *)sqlite3_column_text(stmt, 0);
+        if (v) {
+            snprintf(out, out_len, "%s", v);
+            found = true;
+        }
     }
+    sqlite3_finalize(stmt);
+    return found;
+}
 
+static bool setting_set_conn(sqlite3 *conn, const char *key, const char *value) {
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn,
+            "INSERT INTO site_settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, value, -1, SQLITE_STATIC);
+    bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
+static bool fts_table_exists(sqlite3 *conn) {
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='posts_fts'", -1, &stmt, NULL) != SQLITE_OK) return false;
+    bool found = sqlite3_step(stmt) == SQLITE_ROW;
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+/* (Re)create posts_fts with @p tokenizer; on failure drop the partial table
+ * so the caller can retry with the trigram fallback. */
+static bool fts_create_table(sqlite3 *conn, const char *tokenizer) {
+    char sql[128];
+    snprintf(sql, sizeof(sql), "CREATE VIRTUAL TABLE posts_fts USING fts5(title, body, tokenize='%s')", tokenizer);
+    if (sqlite3_exec(conn, sql, NULL, NULL, NULL) == SQLITE_OK) return true;
+    sqlite3_exec(conn, "DROP TABLE IF EXISTS posts_fts", NULL, NULL, NULL);
+    return false;
+}
+
+bool db_search_migrate(cwist_db *db) {
     sqlite3 *conn = fly_db_conn(db);
     if (!conn) return false;
+
+    /* The old hand-rolled trigram inverted index is gone; dropping it is
+     * idempotent and cheap. */
+    sqlite3_exec(conn, "DROP TABLE IF EXISTS post_search_grams", NULL, NULL, NULL);
+
+    char version[16] = {0};
+    char stored_tok[16] = {0};
+    setting_get_conn(conn, "search_index_version", version, sizeof(version));
+    setting_get_conn(conn, "search_tokenizer", stored_tok, sizeof(stored_tok));
+
+    const char *preferred = fts5_search_preferred_tokenizer();
+    bool fresh = strcmp(version, SEARCH_INDEX_VERSION) != 0 ||
+                 strcmp(stored_tok, preferred) != 0 ||
+                 !fts_table_exists(conn);
+    snprintf(g_search_tokenizer, sizeof(g_search_tokenizer), "%s",
+             fts_table_exists(conn) && stored_tok[0] ? stored_tok : preferred);
+    if (!fresh) return true;
+
     if (!db_transaction_begin(db)) return false;
-    /* Everything inside the transaction runs on this thread's connection;
-     * db_exec_sql() goes through cwist's own handle and would block on it. */
-    bool ok = sqlite3_exec(conn, "DELETE FROM post_search_grams", NULL, NULL, NULL) == SQLITE_OK;
-    sqlite3_stmt *stmt = NULL;
+    bool ok = sqlite3_exec(conn, "DROP TABLE IF EXISTS posts_fts", NULL, NULL, NULL) == SQLITE_OK;
+    const char *chosen = NULL;
+    if (ok) {
+        if (strcmp(preferred, "mecab") == 0 && fts_create_table(conn, "mecab")) {
+            chosen = "mecab";
+        } else if (fts_create_table(conn, "trigram")) {
+            chosen = "trigram";
+        } else {
+            ok = false;
+        }
+    }
     int indexed = 0;
+    sqlite3_stmt *stmt = NULL;
     if (ok && sqlite3_prepare_v2(conn, "SELECT id, title, content FROM posts", -1, &stmt, NULL) == SQLITE_OK) {
         while (ok && sqlite3_step(stmt) == SQLITE_ROW) {
             ok = index_post_text(conn, sqlite3_column_int(stmt, 0),
@@ -169,12 +212,14 @@ bool db_search_migrate(cwist_db *db) {
             indexed++;
         }
         sqlite3_finalize(stmt);
-    } else {
+    } else if (ok) {
         ok = false;
     }
-    if (ok) ok = db_site_setting_set(db, "search_index_version", SEARCH_INDEX_VERSION);
+    if (ok) ok = setting_set_conn(conn, "search_tokenizer", chosen);
+    if (ok) ok = setting_set_conn(conn, "search_index_version", SEARCH_INDEX_VERSION);
     if (ok && db_transaction_commit(db)) {
-        fprintf(stderr, "[search] rebuilt trigram index for %d posts\n", indexed);
+        snprintf(g_search_tokenizer, sizeof(g_search_tokenizer), "%s", chosen);
+        fprintf(stderr, "[search] rebuilt FTS5 index (%s tokenizer) for %d posts\n", chosen, indexed);
         return true;
     }
     fprintf(stderr, "[search] index rebuild failed: %s\n", sqlite3_errmsg(conn));
@@ -204,29 +249,14 @@ void search_query_add_bind(search_query *q, const char *value) {
     q->binds[q->nbinds++] = strdup(value ? value : "");
 }
 
-typedef struct {
-    char grams[SEARCH_TERM_MAX_BYTES][SEARCH_GRAM_MAX];
-    int n;
-} gram_set;
-
-static void collect_gram(const char *gram, void *ud) {
-    gram_set *set = (gram_set *)ud;
-    for (int i = 0; i < set->n; i++) {
-        if (strcmp(set->grams[i], gram) == 0) return;
-    }
-    if (set->n < SEARCH_TERM_MAX_BYTES) {
-        snprintf(set->grams[set->n++], SEARCH_GRAM_MAX, "%s", gram);
-    }
-}
-
 int search_split_terms(const char *query, char terms[SEARCH_MAX_TERMS][SEARCH_TERM_MAX_BYTES]) {
     int n = 0;
     const unsigned char *s = (const unsigned char *)(query ? query : "");
     while (*s && n < SEARCH_MAX_TERMS) {
-        while (*s && is_space(*s)) s++;
+        while (*s && (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' || *s == '\f' || *s == '\v')) s++;
         if (!*s) break;
         size_t len = 0;
-        while (s[len] && !is_space(s[len])) len++;
+        while (s[len] && !(s[len] == ' ' || s[len] == '\t' || s[len] == '\n' || s[len] == '\r' || s[len] == '\f' || s[len] == '\v')) len++;
         /* Cut over-long terms at a code point boundary. */
         size_t keep = len;
         if (keep >= SEARCH_TERM_MAX_BYTES) {
@@ -241,6 +271,43 @@ int search_split_terms(const char *query, char terms[SEARCH_MAX_TERMS][SEARCH_TE
     return n;
 }
 
+/* Build the FTS5 MATCH expression for one term, honoring the tokenizer the
+ * index was actually built with. Returns an empty string when the term must
+ * be left to LIKE alone (unsafe characters, or too short for trigram).
+ * Sets @p branched when the mecab morpheme branch fired: the exact-substring
+ * LIKE confirmation would reject legitimate morphological matches (eojeol
+ * boundaries differ), so the caller skips it for such terms. */
+static void build_fts_expr(cwist_sstring *out, const char *term, bool *branched) {
+    bool is_mecab = strcmp(g_search_tokenizer, "mecab") == 0;
+    bool is_trigram = strcmp(g_search_tokenizer, "trigram") == 0;
+    if ((!is_mecab && !is_trigram) || !term_is_match_safe(term)) return;
+
+    if (is_trigram && utf8_cp_count(term) < 3) return; /* LIKE-only */
+
+    if (is_mecab && term_has_hangul(term)) {
+        char morph[8][64];
+        int n = fts5_mecab_split_term(term, morph, 8);
+        if (n > 1) {
+            /* Branch: exact surface OR morpheme conjunction. */
+            cwist_sstring_append(out, "(\"");
+            cwist_sstring_append(out, term);
+            cwist_sstring_append(out, "\" OR (");
+            for (int i = 0; i < n; i++) {
+                cwist_sstring_append(out, i ? " AND " : "");
+                cwist_sstring_append(out, morph[i]);
+            }
+            cwist_sstring_append(out, "))");
+            *branched = true;
+            return;
+        }
+    }
+    /* Plain term / trigram substring: a quoted string matches the eojeol
+     * surface under mecab and a substring under trigram. */
+    cwist_sstring_append(out, "\"");
+    cwist_sstring_append(out, term);
+    cwist_sstring_append(out, "\"");
+}
+
 void search_query_build(search_query *q, const char *query, const char *search_type) {
     memset(q, 0, sizeof(*q));
     q->where = cwist_sstring_create();
@@ -252,6 +319,7 @@ void search_query_build(search_query *q, const char *query, const char *search_t
     bool body_only = search_type && strcmp(search_type, "body") == 0;
 
     cwist_sstring *pattern = cwist_sstring_create();
+    cwist_sstring *expr = cwist_sstring_create();
     for (int t = 0; t < q->terms; t++) {
         cwist_sstring_assign(pattern, "");
         escape_like(pattern, q->term[t]);
@@ -262,24 +330,21 @@ void search_query_build(search_query *q, const char *query, const char *search_t
             continue;
         }
 
-        if (utf8_cp_count(q->term[t]) >= 3) {
-            gram_set set;
-            set.n = 0;
-            for_each_gram(q->term[t], collect_gram, &set);
-            if (set.n > 0) {
-                cwist_sstring_append(q->where, " AND p.id IN (SELECT post_id FROM post_search_grams WHERE gram IN (");
-                for (int g = 0; g < set.n; g++) {
-                    cwist_sstring_append(q->where, g ? ",?" : "?");
-                    search_query_add_bind(q, set.grams[g]);
-                }
-                char having[64];
-                snprintf(having, sizeof(having), ") GROUP BY post_id HAVING COUNT(*)=%d)", set.n);
-                cwist_sstring_append(q->where, having);
-            }
+        /* FTS5 narrows candidates; LIKE below confirms the exact substring
+         * in the requested field, which also covers terms the FTS expression
+         * skipped (short trigram terms, unsafe characters). Branched mecab
+         * terms skip LIKE: the whole point of the branch is matching across
+         * eojeol boundaries the raw substring would reject. */
+        cwist_sstring_assign(expr, "");
+        bool branched = false;
+        build_fts_expr(expr, q->term[t], &branched);
+        if (expr->size > 0) {
+            cwist_sstring_append(q->where, " AND p.id IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?)");
+            search_query_add_bind(q, expr->data);
         }
 
-        /* The grams only prove the pieces are present somewhere in the
-         * post; LIKE confirms the term itself in the requested field. */
+        if (branched) continue;
+
         if (title_only) {
             cwist_sstring_append(q->where, " AND p.title LIKE ? ESCAPE '\\'");
             search_query_add_bind(q, pattern->data);
@@ -304,6 +369,7 @@ void search_query_build(search_query *q, const char *query, const char *search_t
             search_query_add_bind(q, pattern->data);
         }
     }
+    cwist_sstring_destroy(expr);
     cwist_sstring_destroy(pattern);
 }
 

@@ -1191,7 +1191,8 @@ static char *protect_math(const char *md, math_registry_t *blocks,
         i++;
     }
 
-    char *result = strdup(out->data);
+    /* out->data can be NULL for empty input; strdup(NULL) would crash. */
+    char *result = out->data ? strdup(out->data) : strdup("");
     cwist_sstring_destroy(out);
     return result;
 }

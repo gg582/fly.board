@@ -503,7 +503,8 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
             char marker[800];
             if (s3_store_upload(f->data, out->mime_type, marker, sizeof(marker))) {
                 if (s3_config_offload() && db_file_update_file_path(db, fid, marker)) {
-                    snprintf(out->file_path, sizeof(out->file_path), "%s", marker);
+                    snprintf(out->file_path, sizeof(out->file_path), "%.*s",
+                             (int)sizeof(out->file_path) - 1, marker);
                     unlink(f->data);
                 }
             } else {
