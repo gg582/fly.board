@@ -351,6 +351,9 @@ static void *mailjet_register_sender_worker(void *arg) {
         snprintf(payload, sizeof(payload), "{\"Email\":\"%s\",\"DNSID\":%ld}", address, dns_id);
         body = mj_api(key, secret, "POST", "/sender", payload, &code);
         if (body && code >= 200 && code < 300) {
+            /* Freshly created: grab its ID so the activation email below is
+             * triggered for it too. */
+            sender_id = mj_first_id(body, "ID", -1);
             CWIST_LOG_INFO("mailjet: registered sender %s under authenticated domain", address);
         } else if (body && strstr(body, "already existing")) {
             snprintf(path, sizeof(path), "/sender?Email=%s", address);
@@ -364,6 +367,9 @@ static void *mailjet_register_sender_worker(void *arg) {
     }
 
     if (sender_id >= 0) {
+        /* Mailjet activates a sender only after a confirmation step. Linked
+         * to the authenticated domain the validate action delivers that
+         * confirmation to the user's OWN mailbox (self-service, no admin). */
         char payload[128];
         snprintf(payload, sizeof(payload), "{\"DNSID\":%ld}", dns_id);
         snprintf(path, sizeof(path), "/sender/%ld", sender_id);
@@ -371,8 +377,8 @@ static void *mailjet_register_sender_worker(void *arg) {
         free(body);
         snprintf(path, sizeof(path), "/sender/%ld/validate", sender_id);
         body = mj_api(key, secret, "POST", path, NULL, &code);
-        if (body && (code == 200 || strstr(body, "already active")))
-            CWIST_LOG_INFO("mailjet: sender %s active", address);
+        if (body)
+            CWIST_LOG_INFO("mailjet: sender %s activation requested (http %ld)", address, code);
         free(body);
     }
     free(address);
