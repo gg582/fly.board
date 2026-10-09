@@ -1,6 +1,7 @@
 #include "engine/async_route.h"
 #include "engine/bdr.h"
 #include <cwist/core/log.h>
+#include <cwist/core/mem/gc.h>
 #include <cwist/net/http/async.h>
 #include <pthread.h>
 #include <stdbool.h>
@@ -99,6 +100,9 @@ static void run_job(fly_async_job *job) {
     if (!cwist_async_respond_with(job->a, job->res)) {
         FLY_LOG_ERROR("deferred response lost to another completion");
     }
+    /* request_worker threads never exit; sweep this job's tracked leaks now
+     * instead of letting them pile up on the thread's pending-sweep list. */
+    cwist_gc_scope_flush();
     free(job);
 }
 

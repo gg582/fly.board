@@ -4,6 +4,7 @@
 #include "db/db.h"
 #include <cjson/cJSON.h>
 #include <cwist/core/log.h>
+#include <cwist/core/mem/alloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,7 +25,7 @@
 static char *escape_shell_arg(const char *src) {
     if (!src) return NULL;
     size_t len = strlen(src);
-    char *escaped = malloc(len * 4 + 1);
+    char *escaped = (char *)cwist_alloc(len * 4 + 1);
     if (!escaped) return NULL;
     char *dst = escaped;
     for (size_t i = 0; i < len; i++) {
@@ -163,8 +164,8 @@ bool generate_image_thumb(const char *src, const char *dst, int max_w, int max_h
     char *esc_src = escape_shell_arg(src);
     char *esc_dst = escape_shell_arg(dst);
     if (!esc_src || !esc_dst) {
-        free(esc_src);
-        free(esc_dst);
+        cwist_free(esc_src);
+        cwist_free(esc_dst);
         return false;
     }
 
@@ -179,8 +180,8 @@ bool generate_image_thumb(const char *src, const char *dst, int max_w, int max_h
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vf 'scale=%d:%d:force_original_aspect_ratio=decrease' -frames:v 1 -c:v libwebp -quality %d -compression_level %d -y '%s'",
         esc_src, max_w, max_h, quality, compression, esc_dst);
     bool ok = run_ffmpeg(cmd);
-    free(esc_src);
-    free(esc_dst);
+    cwist_free(esc_src);
+    cwist_free(esc_dst);
     return ok;
 }
 
@@ -192,8 +193,8 @@ bool generate_gif_thumb(const char *src, const char *dst, int max_w, int max_h, 
     char *esc_src = escape_shell_arg(src);
     char *esc_dst = escape_shell_arg(dst);
     if (!esc_src || !esc_dst) {
-        free(esc_src);
-        free(esc_dst);
+        cwist_free(esc_src);
+        cwist_free(esc_dst);
         return false;
     }
 
@@ -204,14 +205,14 @@ bool generate_gif_thumb(const char *src, const char *dst, int max_w, int max_h, 
         "[x][p]paletteuse=dither=bayer:bayer_scale=3' -loop 0 -y '%s'",
         esc_src, fps, max_w, max_h, fps, max_w, max_h, esc_dst);
     if (needed <= 0) {
-        free(esc_src);
-        free(esc_dst);
+        cwist_free(esc_src);
+        cwist_free(esc_dst);
         return false;
     }
     char *cmd = (char *)malloc((size_t)needed + 1);
     if (!cmd) {
-        free(esc_src);
-        free(esc_dst);
+        cwist_free(esc_src);
+        cwist_free(esc_dst);
         return false;
     }
     snprintf(cmd, (size_t)needed + 1,
@@ -222,8 +223,8 @@ bool generate_gif_thumb(const char *src, const char *dst, int max_w, int max_h, 
         esc_src, fps, max_w, max_h, fps, max_w, max_h, esc_dst);
     bool ok = run_ffmpeg(cmd);
     free(cmd);
-    free(esc_src);
-    free(esc_dst);
+    cwist_free(esc_src);
+    cwist_free(esc_dst);
     return ok;
 }
 
@@ -313,8 +314,8 @@ bool generate_static_asset_webp(const char *src, const char *dst, int max_w, int
     char *esc_src = escape_shell_arg(src);
     char *esc_dst = escape_shell_arg(dst);
     if (!esc_src || !esc_dst) {
-        free(esc_src);
-        free(esc_dst);
+        cwist_free(esc_src);
+        cwist_free(esc_dst);
         return false;
     }
 
@@ -329,8 +330,8 @@ bool generate_static_asset_webp(const char *src, const char *dst, int max_w, int
         CWIST_LOG_WARN("generate_static_asset_webp: ffmpeg failed for %s; falling back to in-process libwebp", src);
         ok = generate_static_asset_webp_inprocess(src, dst, max_w, max_h);
     }
-    free(esc_src);
-    free(esc_dst);
+    cwist_free(esc_src);
+    cwist_free(esc_dst);
     return ok;
 }
 
@@ -342,8 +343,8 @@ bool generate_video_thumb(const char *src, const char *dst, int max_w, int max_h
     char *esc_src = escape_shell_arg(src);
     char *esc_dst = escape_shell_arg(dst);
     if (!esc_src || !esc_dst) {
-        free(esc_src);
-        free(esc_dst);
+        cwist_free(esc_src);
+        cwist_free(esc_dst);
         return false;
     }
 
@@ -352,8 +353,8 @@ bool generate_video_thumb(const char *src, const char *dst, int max_w, int max_h
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -ss 00:00:01 -vframes 1 -vf 'scale=%d:%d:force_original_aspect_ratio=decrease' -q:v 3 -y '%s'",
         esc_src, max_w, max_h, esc_dst);
     bool ok = run_ffmpeg(cmd);
-    free(esc_src);
-    free(esc_dst);
+    cwist_free(esc_src);
+    cwist_free(esc_dst);
     return ok;
 }
 
@@ -365,8 +366,8 @@ bool generate_video_preview(const char *src, const char *dst, int max_h) {
     char *esc_src = escape_shell_arg(src);
     char *esc_dst = escape_shell_arg(dst);
     if (!esc_src || !esc_dst) {
-        free(esc_src);
-        free(esc_dst);
+        cwist_free(esc_src);
+        cwist_free(esc_dst);
         return false;
     }
 
@@ -375,8 +376,8 @@ bool generate_video_preview(const char *src, const char *dst, int max_h) {
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vf 'scale=-2:min(%d\\,ih)' -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 160k -movflags +faststart -y '%s'",
         esc_src, max_h, esc_dst);
     bool ok = run_ffmpeg(cmd);
-    free(esc_src);
-    free(esc_dst);
+    cwist_free(esc_src);
+    cwist_free(esc_dst);
     return ok;
 }
 
@@ -388,8 +389,8 @@ bool generate_webm_preview(const char *src, const char *dst, int max_h) {
     char *esc_src = escape_shell_arg(src);
     char *esc_dst = escape_shell_arg(dst);
     if (!esc_src || !esc_dst) {
-        free(esc_src);
-        free(esc_dst);
+        cwist_free(esc_src);
+        cwist_free(esc_dst);
         return false;
     }
 
@@ -398,8 +399,8 @@ bool generate_webm_preview(const char *src, const char *dst, int max_h) {
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vf 'scale=-2:min(%d\\,ih)' -c:v libvpx -crf 10 -b:v 1M -an -y '%s'",
         esc_src, max_h, esc_dst);
     bool ok = run_ffmpeg(cmd);
-    free(esc_src);
-    free(esc_dst);
+    cwist_free(esc_src);
+    cwist_free(esc_dst);
     return ok;
 }
 
@@ -411,8 +412,8 @@ bool generate_audio_preview(const char *src, const char *dst, int bitrate_kbps) 
     char *esc_src = escape_shell_arg(src);
     char *esc_dst = escape_shell_arg(dst);
     if (!esc_src || !esc_dst) {
-        free(esc_src);
-        free(esc_dst);
+        cwist_free(esc_src);
+        cwist_free(esc_dst);
         return false;
     }
 
@@ -421,8 +422,8 @@ bool generate_audio_preview(const char *src, const char *dst, int bitrate_kbps) 
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -b:a %dk -f mp3 -y '%s'",
         esc_src, bitrate_kbps, esc_dst);
     bool ok = run_ffmpeg(cmd);
-    free(esc_src);
-    free(esc_dst);
+    cwist_free(esc_src);
+    cwist_free(esc_dst);
     return ok;
 }
 

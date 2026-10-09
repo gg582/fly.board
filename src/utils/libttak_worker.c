@@ -18,6 +18,7 @@
 #include <ttak/thread/pool.h>
 #include <ttak/mem/mem.h>
 #include <ttak/mem/epoch.h>
+#include <cwist/core/mem/gc.h>
 #include <ttak/timing/timing.h>
 #include <ttak/priority/scheduler.h>
 #ifdef _WIN32
@@ -148,6 +149,9 @@ void *ttak_worker_routine(void *arg) {
                 threaded_function_wrapper(self, task);
                 ttak_task_destroy(task, ttak_get_tick_count());
                 ttak_epoch_exit(); epoch_active = 0;
+                /* Pool worker threads are long-lived; sweep per task so a
+                 * forgotten tracked allocation cannot accumulate forever. */
+                cwist_gc_scope_flush();
             } else if (epoch_active) { ttak_epoch_exit(); epoch_active = 0; self->exit_code = TTAK_ERR_FATAL_EXIT; }
         }
     }

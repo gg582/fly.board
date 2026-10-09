@@ -15,6 +15,7 @@
 #include "utils/cert_renewal.h"
 #include "config/config.h"
 #include <cwist/core/log.h>
+#include <cwist/core/mem/gc.h>
 #include <openssl/x509.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
@@ -336,6 +337,9 @@ static void *cert_renewal_worker(void *arg) {
         ssize_t s = read(tfd, &exp, sizeof(exp));
         if (s != sizeof(exp)) continue;
         cert_renewal_check();
+        /* Long-lived thread: sweep per wakeup so tracked allocations from
+         * the renewal checks cannot accumulate on its pending-sweep list. */
+        cwist_gc_scope_flush();
     }
     close(epfd);
     close(tfd);

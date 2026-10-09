@@ -6,6 +6,7 @@
 #include "db/db_internal.h"
 #include "config/config.h"
 #include <cwist/core/log.h>
+#include <cwist/core/mem/alloc.h>
 #include <cwist/core/mem/gc.h>
 #include <cwist/net/http/http.h>
 #include <cjson/cJSON.h>
@@ -820,10 +821,12 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
         cJSON *op = cJSON_GetObjectItem(row, "op");
         cJSON *payload = cJSON_GetObjectItem(row, "payload");
         if (!cJSON_IsNumber(seqj) || !cJSON_IsString(ent) || !cJSON_IsNumber(idj) || !cJSON_IsString(op)) continue;
-        char *payload_str = payload && cJSON_IsObject(payload) ? cJSON_PrintUnformatted(payload) : strdup("");
+        char *payload_str = payload && cJSON_IsObject(payload) ? cJSON_PrintUnformatted(payload) : NULL;
         bool ok = flywire_apply_row(main_conn, (long long)seqj->valuedouble, ent->valuestring, idj->valuedouble,
                                     op->valuestring, payload_str ? payload_str : "");
-        free(payload_str);
+        /* cJSON print allocations route through cwist_malloc: release via
+         * cwist_free so the full-GC sweep can never double-free them. */
+        cwist_free(payload_str);
         /* Only advance the checkpoint on success: a failed row is retried
          * next poll instead of being silently skipped forever. */
         if (ok) {
