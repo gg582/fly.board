@@ -186,7 +186,7 @@ void send_html_res(cwist_http_response *res, cwist_sstring *html) {
     cwist_http_header_add(&res->headers, "Content-Type", "text/html; charset=utf-8");
     cwist_http_header_add(&res->headers, "Cache-Control", "private, no-cache, no-store, must-revalidate");
     cwist_http_header_add(&res->headers, "Pragma", "no-cache");
-    cwist_http_header_add(&res->headers, "Vary", "Cookie, Authorization");
+    cwist_http_header_add(&res->headers, "Vary", "Cookie, Authorization, Accept-Encoding");
     if (html) {
         cwist_sstring_assign_len(res->body, html->data, strlen(html->data));
         cwist_sstring_destroy(html);
@@ -204,7 +204,7 @@ void send_cached_html_res(cwist_http_response *res, const char *html, size_t len
     cwist_http_header_add(&res->headers, "Content-Type", "text/html; charset=utf-8");
     cwist_http_header_add(&res->headers, "Cache-Control", "private, no-cache, no-store, must-revalidate");
     cwist_http_header_add(&res->headers, "Pragma", "no-cache");
-    cwist_http_header_add(&res->headers, "Vary", "Cookie, Authorization");
+    cwist_http_header_add(&res->headers, "Vary", "Cookie, Authorization, Accept-Encoding");
     cwist_sstring_assign(res->body, "");
     cwist_sstring_append_len(res->body, html, len);
     char len_buf[32];

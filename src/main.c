@@ -309,12 +309,23 @@ static int sign_posts_backfill(cwist_db *db) {
 }
 
 /* Per-request full-GC sweep boundary. The event-driven reactor threads that
- * run this chain never exit, so without a flush at the end of every request
- * every tracked allocation a handler forgot to free would accumulate on the
- * serving thread's pending-sweep list for the process lifetime. */
+ * run this chain never exit, so without a flush at the end of requests every
+ * tracked allocation a handler forgot to free would accumulate on the serving
+ * thread's pending-sweep list for the process lifetime. Sweeping costs
+ * O(pending-sweep list length) on the serving thread, so a flush on every
+ * request can make one unlucky request pay the sweep for many earlier ones.
+ * Flush when the list grows past a cap or on a per-thread interval instead:
+ * bounded latency per request, bounded list length between flushes. */
+#define FULL_GC_FLUSH_INTERVAL 16
+#define FULL_GC_FLUSH_PENDING_CAP 256
+static __thread unsigned t_gc_flush_tick = 0;
 static void full_gc_flush_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
     if (next) next(req, res);
-    cwist_gc_scope_flush();
+    if (++t_gc_flush_tick >= FULL_GC_FLUSH_INTERVAL ||
+        cwist_gc_scope_pending_count() >= FULL_GC_FLUSH_PENDING_CAP) {
+        t_gc_flush_tick = 0;
+        cwist_gc_scope_flush();
+    }
 }
 
 int main(int argc, char **argv) {
@@ -568,10 +579,10 @@ int main(int argc, char **argv) {
     /* The async gate must be the outermost middleware (see
      * engine/async_route.c); deferred responses are compressed on the
      * request worker instead of in the chain. */
-    cwist_middleware_func compress_mw = cwist_mw_compress(1024);
+    cwist_middleware_func compress_mw = cwist_mw_compress(512);
     engine_async_init(app, compress_mw, global_middleware_finish);
     cwist_app_use(app, compress_mw);
-    CWIST_LOG_INFO("Compression middleware registered (brotli > zstd > gzip, min 1 KiB)");
+    CWIST_LOG_INFO("Compression middleware registered (brotli > zstd > gzip, min 512 B)");
     cwist_app_use(app, full_gc_flush_middleware);
     cwist_app_use(app, ipban_middleware);
 

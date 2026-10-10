@@ -79,6 +79,16 @@ check /robots.txt 200
 check /login 200
 check /boards 200
 
+# Deferred responses must still be compressed: the compress middleware
+# bails on res->deferred, and async_route used to leave the flag set.
+ce="$(curl -s -D - -o /dev/null --max-time 5 -H 'Accept-Encoding: gzip' "http://127.0.0.1:$PORT/" | tr -d '\r' | awk 'BEGIN{IGNORECASE=1} /^Content-Encoding:/{print $2}')"
+if [ "$ce" = "gzip" ]; then
+    echo "smoke: GET / with Accept-Encoding -> Content-Encoding: gzip OK"
+else
+    echo "smoke: GET / with Accept-Encoding -> Content-Encoding: '$ce' (want gzip) FAIL" >&2
+    fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
     echo "smoke: FAILED" >&2
     exit 1

@@ -14,6 +14,12 @@
 
 #define IPBAN_SLOTS 4096
 #define IPBAN_PROBE 32
+/* The per-request ban check runs under this lock in every worker process, so
+ * a single global mutex convoys across processes on hot pages. Stripe the
+ * table: a key's probe sequence stays inside one region guarded by one
+ * stripe lock, so readers and writers touch at most one lock per call. */
+#define IPBAN_LOCKS 64
+#define IPBAN_SLOTS_PER_LOCK (IPBAN_SLOTS / IPBAN_LOCKS)
 
 /* Binary address key: '4' + 4 bytes, or '6' + 16 bytes. */
 typedef struct {
@@ -28,7 +34,7 @@ typedef struct {
 /* Shared by every worker process (MAP_SHARED before fork), same pattern as
  * the spam guard table. */
 typedef struct {
-    pthread_mutex_t lock;
+    pthread_mutex_t locks[IPBAN_LOCKS];
     ipban_slot_t slots[IPBAN_SLOTS];
 } ipban_table_t;
 
@@ -58,9 +64,15 @@ bool ipban_init(void) {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
-    /* A worker killed while holding the lock must not wedge the others. */
+    /* A worker killed while holding a lock must not wedge the others. */
     pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);
-    bool ok = pthread_mutex_init(&t->lock, &attr) == 0;
+    bool ok = true;
+    for (int i = 0; i < IPBAN_LOCKS; i++) {
+        if (pthread_mutex_init(&t->locks[i], &attr) != 0) {
+            ok = false;
+            break;
+        }
+    }
     pthread_mutexattr_destroy(&attr);
     if (!ok) {
         munmap(mem, sizeof(ipban_table_t));
@@ -120,12 +132,15 @@ static bool addr_matches(const ipban_slot_t *s, const uint8_t *addr, uint8_t add
 
 /* Find the slot for addr, inserting an empty one if requested. Returns NULL
  * when the probe sequence finds neither the key nor a free slot (table
- * saturated; fail open). Caller must hold the lock. */
+ * saturated; fail open). The probe sequence stays inside the stripe selected
+ * by key, so the caller only needs that stripe's lock. Caller must hold it. */
 static ipban_slot_t *slot_for(ipban_table_t *t, uint64_t key,
                               const uint8_t *addr, uint8_t addr_len, bool insert) {
-    size_t start = (size_t)(key % IPBAN_SLOTS);
+    const size_t region = (size_t)(key % IPBAN_LOCKS);
+    const size_t base = region * IPBAN_SLOTS_PER_LOCK;
+    const size_t off = (size_t)((key / IPBAN_LOCKS) % IPBAN_SLOTS_PER_LOCK);
     for (size_t i = 0; i < IPBAN_PROBE; i++) {
-        ipban_slot_t *s = &t->slots[(start + i) % IPBAN_SLOTS];
+        ipban_slot_t *s = &t->slots[base + ((off + i) % IPBAN_SLOTS_PER_LOCK)];
         if (s->key == key) {
             return addr_matches(s, addr, addr_len) ? s : NULL; /* hash collision, different addr */
         }
@@ -141,8 +156,15 @@ static ipban_slot_t *slot_for(ipban_table_t *t, uint64_t key,
     return NULL;
 }
 
-static void lock_table(ipban_table_t *t) {
-    if (pthread_mutex_lock(&t->lock) == EOWNERDEAD) pthread_mutex_consistent(&t->lock);
+/* Stripe index and lock helpers; always take the single stripe a key maps
+ * to. stats/ban-count paths take every stripe in ascending order. */
+static size_t stripe_for(uint64_t key) {
+    return (size_t)(key % IPBAN_LOCKS);
+}
+
+static void lock_stripe(ipban_table_t *t, size_t stripe) {
+    if (pthread_mutex_lock(&t->locks[stripe]) == EOWNERDEAD)
+        pthread_mutex_consistent(&t->locks[stripe]);
 }
 
 /* Log the active-ban count at most once per minute (called when a ban is
@@ -152,10 +174,14 @@ static void stats_log(void) {
     if (now - g_last_stats_log < 60) return;
     g_last_stats_log = now;
     size_t banned = 0;
-    lock_table(g_ipban);
-    for (size_t i = 0; i < IPBAN_SLOTS; i++)
-        if (g_ipban->slots[i].key != 0 && g_ipban->slots[i].banned_until > now) banned++;
-    pthread_mutex_unlock(&g_ipban->lock);
+    for (size_t r = 0; r < IPBAN_LOCKS; r++) {
+        lock_stripe(g_ipban, r);
+        for (size_t i = 0; i < IPBAN_SLOTS_PER_LOCK; i++) {
+            const ipban_slot_t *s = &g_ipban->slots[r * IPBAN_SLOTS_PER_LOCK + i];
+            if (s->key != 0 && s->banned_until > now) banned++;
+        }
+        pthread_mutex_unlock(&g_ipban->locks[r]);
+    }
     CWIST_LOG_WARN("IP ban: %zu address(es) currently banned", banned);
 }
 
@@ -166,7 +192,7 @@ void ipban_note_failure(cwist_http_request *req) {
     uint64_t key = 0;
     if (!peer_key(req, addr, &addr_len, &key)) return;
     time_t now = time(NULL);
-    lock_table(g_ipban);
+    lock_stripe(g_ipban, stripe_for(key));
     ipban_slot_t *s = slot_for(g_ipban, key, addr, addr_len, true);
     if (s) {
         if (s->banned_until > now) {
@@ -183,7 +209,7 @@ void ipban_note_failure(cwist_http_request *req) {
             }
         }
     }
-    pthread_mutex_unlock(&g_ipban->lock);
+    pthread_mutex_unlock(&g_ipban->locks[stripe_for(key)]);
     if (s) stats_log();
 }
 
@@ -193,14 +219,14 @@ void ipban_note_success(cwist_http_request *req) {
     uint8_t addr_len = 0;
     uint64_t key = 0;
     if (!peer_key(req, addr, &addr_len, &key)) return;
-    lock_table(g_ipban);
+    lock_stripe(g_ipban, stripe_for(key));
     ipban_slot_t *s = slot_for(g_ipban, key, addr, addr_len, false);
     if (s) {
         s->fails = 0;
         s->window_start = 0;
         s->banned_until = 0;
     }
-    pthread_mutex_unlock(&g_ipban->lock);
+    pthread_mutex_unlock(&g_ipban->locks[stripe_for(key)]);
 }
 
 void ipban_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
@@ -211,7 +237,7 @@ void ipban_middleware(cwist_http_request *req, cwist_http_response *res, cwist_h
         uint64_t key = 0;
         if (peer_key(req, addr, &addr_len, &key)) {
             time_t now = time(NULL);
-            lock_table(g_ipban);
+            lock_stripe(g_ipban, stripe_for(key));
             ipban_slot_t *s = slot_for(g_ipban, key, addr, addr_len, false);
             if (s && s->banned_until > 0) {
                 if (s->banned_until <= now) {
@@ -224,7 +250,7 @@ void ipban_middleware(cwist_http_request *req, cwist_http_response *res, cwist_h
                     banned = true;
                 }
             }
-            pthread_mutex_unlock(&g_ipban->lock);
+            pthread_mutex_unlock(&g_ipban->locks[stripe_for(key)]);
         }
     }
     if (banned) {
@@ -241,9 +267,13 @@ size_t ipban_banned_count(void) {
     if (!g_ipban) return 0;
     time_t now = time(NULL);
     size_t banned = 0;
-    lock_table(g_ipban);
-    for (size_t i = 0; i < IPBAN_SLOTS; i++)
-        if (g_ipban->slots[i].key != 0 && g_ipban->slots[i].banned_until > now) banned++;
-    pthread_mutex_unlock(&g_ipban->lock);
+    for (size_t r = 0; r < IPBAN_LOCKS; r++) {
+        lock_stripe(g_ipban, r);
+        for (size_t i = 0; i < IPBAN_SLOTS_PER_LOCK; i++) {
+            const ipban_slot_t *s = &g_ipban->slots[r * IPBAN_SLOTS_PER_LOCK + i];
+            if (s->key != 0 && s->banned_until > now) banned++;
+        }
+        pthread_mutex_unlock(&g_ipban->locks[r]);
+    }
     return banned;
 }

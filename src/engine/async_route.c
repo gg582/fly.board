@@ -93,9 +93,15 @@ static void run_job(fly_async_job *job) {
      * under the new version. */
     if (job->mutating) engine_bdr_bump();
     if (g_finish) g_finish(job->req, job->res);
-    /* The compress middleware picks the encoding from the request and
-     * compresses whatever body next() left behind. */
+    /* The compress middleware bails on res->deferred (in the middleware
+     * chain that guards against a response another thread may be completing).
+     * This job owns the exchange exclusively until cwist_async_respond_with()
+     * below, so drop the flag for the duration of the compression call —
+     * otherwise every deferred response reaches clients uncompressed. */
+    bool was_deferred = job->res->deferred;
+    job->res->deferred = false;
     if (g_compress) g_compress(job->req, job->res, noop_next);
+    job->res->deferred = was_deferred;
     if (job->store) engine_bdr_store(job->req, job->res, job->key, job->version);
     if (!cwist_async_respond_with(job->a, job->res)) {
         FLY_LOG_ERROR("deferred response lost to another completion");
