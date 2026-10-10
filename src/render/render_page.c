@@ -878,11 +878,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                         cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=3\" defer></script>");
                     }
                     if (!a->layout_js) {
-                        cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js\" defer></script>");
+                        cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js?v=2\" defer></script>");
                     }
                 } else {
                     cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=3\" defer></script>");
-                    cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js\" defer></script>");
+                    cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js?v=2\" defer></script>");
                 }
                 /* Progressive enhancement only: WebGPU Lanczos-3 upscaling
                  * for high-DPI displays.  Deferred and fully fail-safe, so it

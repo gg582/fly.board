@@ -486,7 +486,10 @@ void handler_themes_json(cwist_http_request *req, cwist_http_response *res) {
     (void)req;
     char *json = theme_build_all_json();
     cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
-    cwist_http_header_add(&res->headers, "Cache-Control", "no-store, no-cache, must-revalidate, private");
+    /* Themes only change when an admin edits settings (which goes through a
+     * POST and bumps the BDR cache), so short public caching is safe — and
+     * keeps this off the critical path on repeat loads. */
+    cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=60");
     if (json) {
         cwist_sstring_assign(res->body, json);
         cwist_free(json);

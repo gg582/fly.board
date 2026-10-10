@@ -175,7 +175,10 @@
     // no hl-theme element) and stale back/forward cache restorations.
     syncHlTheme();
     if (!themes) {
-        fetch('/themes.json',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
+        // First load this session: the response is Cache-Control: public,
+        // max-age=60, so a full navigation within that window is served from
+        // the HTTP cache instead of extending the critical chain.
+        fetch('/themes.json',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
             if(themeGen!==0)return;
             saveThemes(arr);
             themes=arr;
@@ -189,7 +192,10 @@
         var connTheme = navigator.connection || navigator.mozConnection || navigator.webkitConnection || {};
         var isSlowTheme = isMobileTheme || (connTheme.rtt && connTheme.rtt > 1000);
         setTimeout(function() {
-            fetch('/themes.json',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
+            // Background revalidation of possibly-stale cached themes; the
+            // server sends max-age=60, so this only hits the network when the
+            // entry expired (or the HTTP cache was bypassed).
+            fetch('/themes.json',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
                 if(themeGen!==0)return;
                 saveThemes(arr);
                 themes=arr;

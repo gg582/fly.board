@@ -16,7 +16,7 @@ var AUTH_TOKEN_MAX_AGE = 12 * 60 * 60 * 1000;
    for the shell JS/CSS, fonts, and the theme config. */
 var PRECACHE_URLS = [
     '/assets/js/jwt.js',
-    '/assets/js/layout.js',
+    '/assets/js/layout.js?v=2',
     '/assets/js/katex-render.js?v=11',
     /* tasfa-download.js is intentionally not precached: pages include it only
        when they actually render TASFA media/downloads. */
