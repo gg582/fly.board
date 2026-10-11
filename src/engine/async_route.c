@@ -88,6 +88,12 @@ static void run_job(fly_async_job *job) {
         free(job);
         return;
     }
+    /* The gate queues the job before dispatch has unwound: until the
+     * dispatch ack, cwist still reads res (res->deferred above all, which
+     * the compress step below clears for a moment) and may send and free
+     * it. Touch nothing before the ack. Inline runs (the gate's fallback)
+     * are on the dispatch thread and do not wait. */
+    cwist_async_wait_dispatched(job->a);
     job->handler(job->req, job->res);
     /* Bump only after the write landed, so no reader re-caches old data
      * under the new version. */
