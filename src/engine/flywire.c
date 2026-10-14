@@ -1186,7 +1186,9 @@ bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res) {
     }
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, flywire_proxy_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
+    /* Chunked upload POSTs proxy large bodies; a video chunk over a slow
+     * link easily exceeds a minute end-to-end. Allow generous headroom. */
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
