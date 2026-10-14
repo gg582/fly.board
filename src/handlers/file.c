@@ -464,6 +464,31 @@ static bool build_image_preview_variant(cwist_http_request *req, cJSON *file,
         }
     }
 
+    if (strncmp(mime, "video/", 6) == 0) {
+        /* Video poster requests: serve the webp thumbnail so the <video>
+           poster attribute resolves. Generate one from the transcoded
+           preview (or the original) when no thumbnail exists yet. */
+        const char *thumb_ext = thumb_path[0] ? strrchr(thumb_path, '.') : NULL;
+        if (thumb_path[0] && strncmp(thumb_path, "public/uploads/.thumbs/", 23) == 0 &&
+            thumb_ext && strcasecmp(thumb_ext, ".webp") == 0 &&
+            stat(thumb_path, &(struct stat){0}) == 0) {
+            snprintf(path, path_len, "%s", thumb_path);
+            snprintf(mime_buf, mime_len, "image/webp");
+            return true;
+        }
+        char poster_path[PATH_MAX];
+        snprintf(poster_path, sizeof(poster_path), "public/uploads/.thumbs/%d.webp", id);
+        if (stat(poster_path, &(struct stat){0}) != 0) {
+            const char *src = (preview_path[0] && stat(preview_path, &(struct stat){0}) == 0)
+                                  ? preview_path
+                                  : orig_path;
+            if (!generate_video_thumb(src, poster_path, 1024, 1024)) return false;
+            if (req->db) db_file_set_preview_paths(req->db, id, poster_path, preview_path);
+        }
+        snprintf(path, path_len, "%s", poster_path);
+        snprintf(mime_buf, mime_len, "image/webp");
+        return true;
+    }
     if (strncmp(mime, "image/", 6) != 0) return false;
 
     char resolved[PATH_MAX];
