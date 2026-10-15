@@ -18,11 +18,15 @@ USER_AGENT = (
 )
 
 PRETENDARD_SUBSET_CSS = """/*
- * Pretendard Variable — local subset first, full font as CDN fallback.
- * The local file holds basic Latin + KS X 1001 (2,350 Hangul syllables) and
- * common punctuation (~460 KB instead of the full ~2 MB).  Glyphs outside
- * the subset fall through to the CDN face via unicode-range, so browsers
- * only download the 2 MB original when a rare character actually appears.
+ * Pretendard Variable — local subset only, no CDN fallback.
+ * The local file holds basic Latin + KS X 1001 (2,350 Hangul syllables),
+ * Hangul compatibility jamo (ㅋㅎㅇㅜㅠ), and common punctuation
+ * (~460 KB instead of the full ~2 MB).
+ *
+ * Glyphs outside the subset (한자, conjoining jamo) fall through to the
+ * next family in the CSS stack — system fonts ship those glyphs, and a
+ * CDN face here would mean a 2 MB download the moment a single 한자
+ * appears (post titles use them often).
  */
 @font-face {
     font-family: 'Pretendard Variable';
@@ -34,16 +38,6 @@ PRETENDARD_SUBSET_CSS = """/*
                    U+2190-21FF, U+3000-303F, U+FF00-FFEF,
                    U+3130-318F,
                    U+AC00-D7A3;
-}
-
-@font-face {
-    font-family: 'Pretendard Variable';
-    font-weight: 45 920;
-    font-style: normal;
-    font-display: swap;
-    src: url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2/PretendardVariable.woff2') format('woff2-variations');
-    unicode-range: U+1100-11FF, U+A960-A97F, U+D7B0-D7FF,
-                   U+4E00-9FFF, U+F900-FAFF;
 }
 """
 
