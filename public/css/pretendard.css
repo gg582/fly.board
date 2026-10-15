@@ -13,6 +13,7 @@
     src: url('/assets/fonts/PretendardVariable-KR.woff2') format('woff2-variations');
     unicode-range: U+0000-00FF, U+0100-017F, U+2000-206F, U+20AC, U+2122,
                    U+2190-21FF, U+3000-303F, U+FF00-FFEF,
+                   U+3130-318F,
                    U+AC00-D7A3;
 }
 
@@ -22,6 +23,6 @@
     font-style: normal;
     font-display: swap;
     src: url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2/PretendardVariable.woff2') format('woff2-variations');
-    unicode-range: U+1100-11FF, U+3130-318F, U+A960-A97F, U+D7B0-D7FF,
+    unicode-range: U+1100-11FF, U+A960-A97F, U+D7B0-D7FF,
                    U+4E00-9FFF, U+F900-FAFF;
 }

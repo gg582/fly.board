@@ -32,6 +32,7 @@ PRETENDARD_SUBSET_CSS = """/*
     src: url('/assets/fonts/PretendardVariable-KR.woff2') format('woff2-variations');
     unicode-range: U+0000-00FF, U+0100-017F, U+2000-206F, U+20AC, U+2122,
                    U+2190-21FF, U+3000-303F, U+FF00-FFEF,
+                   U+3130-318F,
                    U+AC00-D7A3;
 }
 
@@ -41,7 +42,7 @@ PRETENDARD_SUBSET_CSS = """/*
     font-style: normal;
     font-display: swap;
     src: url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2/PretendardVariable.woff2') format('woff2-variations');
-    unicode-range: U+1100-11FF, U+3130-318F, U+A960-A97F, U+D7B0-D7FF,
+    unicode-range: U+1100-11FF, U+A960-A97F, U+D7B0-D7FF,
                    U+4E00-9FFF, U+F900-FAFF;
 }
 """
@@ -56,6 +57,21 @@ def ksx1001_hangul():
                 chars.append(bytes([b1, b2]).decode("euc_kr"))
             except UnicodeDecodeError:
                 pass
+    return "".join(chars)
+
+
+def korean_extras():
+    """Jamo blocks used constantly in casual Korean text (ㅋㅎㅇㅜㅠ, 초성/중성/종성).
+
+    Without these the CDN fallback face (a 2 MB download) triggers for a
+    single ㅋ — the single most common character in Korean comments.
+    """
+    chars = []
+    # Hangul Compatibility Jamo (ㅋㅎㅇㅅㅜㅠ...), Conjoining Jamo,
+    # Extended-A, and Hangul Syllables Extended-B.
+    for start, end in ((0x3130, 0x3190), (0x1100, 0x1200),
+                       (0xA960, 0xA980), (0xD7B0, 0xD800)):
+        chars.extend(chr(c) for c in range(start, end))
     return "".join(chars)
 
 
@@ -81,7 +97,7 @@ def build_pretendard_subset(full_woff2_url):
         fh.write(data)
     text_path = out_path + ".text.tmp"
     with open(text_path, "w", encoding="utf-8") as fh:
-        fh.write(ksx1001_hangul())
+        fh.write(ksx1001_hangul() + korean_extras())
     try:
         subset.main([
             src_path,
@@ -89,7 +105,8 @@ def build_pretendard_subset(full_woff2_url):
             "--flavor=woff2",
             f"--text-file={text_path}",
             "--unicodes=U+0000-00FF,U+0100-017F,U+2000-206F,U+20AC,U+2122,"
-            "U+2190-21FF,U+3000-303F,U+FF00-FFEF",
+            "U+2190-21FF,U+3000-303F,U+FF00-FFEF,"
+            "U+3130-318F",
             "--layout-features=*",
             "--name-IDs=*",
             "--name-legacy",
