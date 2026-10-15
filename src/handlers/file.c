@@ -538,13 +538,12 @@ static bool build_image_preview_variant(cwist_http_request *req, cJSON *file,
             w = 1024;
             h = 1024;
         }
-        if (w >= h) {
-            if (w < 960) w = 960;
-            if (h < 640) h = 640;
-        } else {
-            if (w < 640) w = 640;
-            if (h < 960) h = 960;
-        }
+        /* Floor at 320px so mobile srcset candidates (e.g. 480w) are
+         * honored; the old 960/640 minimum made every phone download the
+         * desktop-sized variant.  Generation cost is bounded by the 1920
+         * ceiling, and variant files are cached on disk. */
+        if (w < 320) w = 320;
+        if (h < 320) h = 320;
         if (w > 1920) w = 1920;
         if (h > 1920) h = 1920;
         char webp_path[PATH_MAX];

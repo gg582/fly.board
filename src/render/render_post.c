@@ -1771,7 +1771,13 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                             } else {
                                 cwist_sstring_append(b, "<img src='/file/preview/");
                                 cwist_sstring_append(b, fid_buf2);
-                                cwist_sstring_append(b, "' data-tasfa-src='/file/preview/");
+                                cwist_sstring_append(b, "' srcset='/file/preview/");
+                                cwist_sstring_append(b, fid_buf2);
+                                cwist_sstring_append(b, "?w=480&h=480 480w, /file/preview/");
+                                cwist_sstring_append(b, fid_buf2);
+                                cwist_sstring_append(b, "?w=768&h=768 768w, /file/preview/");
+                                cwist_sstring_append(b, fid_buf2);
+                                cwist_sstring_append(b, "' sizes='(max-width: 560px) 94vw, (max-width: 900px) 82vw, 900px' data-tasfa-src='/file/preview/");
                                 cwist_sstring_append(b, fid_buf2);
                                 cwist_sstring_append(b, "' data-tasfa-original='/file/download/");
                                 cwist_sstring_append(b, fid_buf2);

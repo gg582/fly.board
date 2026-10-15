@@ -1462,9 +1462,12 @@ static void rewrite_tasfa_bootstrap(cwist_sstring *html) {
                             long file_id = strtol(download_path + 15, &id_end, 10);
                             if (strcmp(tag_name, "img") == 0 && file_id > 0 && id_end && (*id_end == '\0' || *id_end == '?')) {
                                 snprintf(rewritten, sizeof(rewritten),
-                                         "<%s src=\"/file/preview/%ld?poster=1\" data-tasfa-src=\"/file/preview/%ld?poster=1\" "
+                                         "<%s src=\"/file/preview/%ld?poster=1\" "
+                                         "srcset=\"/file/preview/%ld?poster=1&w=480&h=480 480w, /file/preview/%ld?poster=1&w=768&h=768 768w, /file/preview/%ld?poster=1 1024w\" "
+                                         "sizes=\"(max-width: 560px) 94vw, (max-width: 900px) 82vw, 900px\" "
+                                         "data-tasfa-src=\"/file/preview/%ld?poster=1\" "
                                          "data-tasfa-original=\"%s\" data-tasfa-animation-url=\"/file/download/%ld?preview=1&tasfa_fallback=1\" data-tasfa-fixed-preview=\"1\"",
-                                         tag_name, file_id, file_id, download_path, file_id);
+                                         tag_name, file_id, file_id, file_id, file_id, file_id, download_path, file_id);
                             } else {
                                 snprintf(rewritten, sizeof(rewritten), "<%s data-tasfa-download=\"%s\"", tag_name, download_path);
                             }
