@@ -590,10 +590,28 @@ void handler_static_js(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     char path[PATH_MAX];
-    snprintf(path, sizeof(path), "public/js/%s", filename);
-    if (!send_cached_file_response(req, res, path,
-                                   "application/javascript; charset=utf-8",
-                                   "public, max-age=31536000, immutable", NULL)) {
+    /* Serve the terser-minified sibling when present (committed to the
+     * repo); the URL stays the same so existing ?v= cache-busting and
+     * immutable caching keep working — old cached copies are the same
+     * code, just unminified. */
+    size_t fn_len = strlen(filename);
+    bool served = false;
+    if (fn_len > 3 && strcmp(filename + fn_len - 3, ".js") == 0) {
+        char min_path[PATH_MAX];
+        if (snprintf(min_path, sizeof(min_path), "public/js/%.*s.min.js", (int)(fn_len - 3), filename) < (int)sizeof(min_path) &&
+            access(min_path, R_OK) == 0) {
+            served = send_cached_file_response(req, res, min_path,
+                                               "application/javascript; charset=utf-8",
+                                               "public, max-age=31536000, immutable", NULL);
+        }
+    }
+    if (!served) {
+        snprintf(path, sizeof(path), "public/js/%s", filename);
+        served = send_cached_file_response(req, res, path,
+                                           "application/javascript; charset=utf-8",
+                                           "public, max-age=31536000, immutable", NULL);
+    }
+    if (!served) {
         res->status_code = CWIST_HTTP_NOT_FOUND;
     }
 }

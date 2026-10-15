@@ -2,6 +2,7 @@
 #include "render.h"
 #include "render_internal.h"
 #include "theme.h"
+#include <limits.h>
 #include "config/config.h"
 #include "utils/image_inline.h"
 #include "utils/image_invert.h"
@@ -70,12 +71,13 @@ static inline_assets_t g_inline_assets;
 static pthread_once_t g_inline_assets_once = PTHREAD_ONCE_INIT;
 
 static char *read_file_to_string(const char *path);
+static char *read_js_asset(const char *path);
 
 static char *concat_two_files(const char *a, const char *b);
 
 static void load_inline_assets(void) {
-    g_inline_assets.jwt_js            = read_file_to_string("public/js/jwt.js");
-    g_inline_assets.layout_js         = read_file_to_string("public/js/layout.js");
+    g_inline_assets.jwt_js            = read_js_asset("public/js/jwt.js");
+    g_inline_assets.layout_js         = read_js_asset("public/js/layout.js");
     /* Split font CSS: the Google Fonts file is large and font-heavy, so keep it
      * as a separate cached request.  Only the small local fallback font CSS is
      * inlined into the first payload. */
@@ -84,30 +86,30 @@ static void load_inline_assets(void) {
                                                            "public/css/d2coding.css");
     g_inline_assets.highlight_light_css = read_file_to_string("public/inline_assets/highlight-light.css");
     g_inline_assets.highlight_dark_css  = read_file_to_string("public/inline_assets/highlight-dark.css");
-    g_inline_assets.highlight_js        = read_file_to_string("public/inline_assets/highlight.js");
-    g_inline_assets.highlight_fortran_js  = read_file_to_string("public/inline_assets/highlight-fortran.js");
-    g_inline_assets.highlight_prolog_js   = read_file_to_string("public/inline_assets/highlight-prolog.js");
-    g_inline_assets.highlight_erlang_js   = read_file_to_string("public/inline_assets/highlight-erlang.js");
-    g_inline_assets.highlight_elixir_js   = read_file_to_string("public/inline_assets/highlight-elixir.js");
-    g_inline_assets.highlight_elm_js      = read_file_to_string("public/inline_assets/highlight-elm.js");
-    g_inline_assets.highlight_haskell_js  = read_file_to_string("public/inline_assets/highlight-haskell.js");
-    g_inline_assets.highlight_ocaml_js    = read_file_to_string("public/inline_assets/highlight-ocaml.js");
-    g_inline_assets.highlight_scheme_js   = read_file_to_string("public/inline_assets/highlight-scheme.js");
-    g_inline_assets.highlight_lisp_js     = read_file_to_string("public/inline_assets/highlight-lisp.js");
-    g_inline_assets.highlight_clojure_js  = read_file_to_string("public/inline_assets/highlight-clojure.js");
-    g_inline_assets.highlight_vhdl_js     = read_file_to_string("public/inline_assets/highlight-vhdl.js");
-    g_inline_assets.highlight_verilog_js  = read_file_to_string("public/inline_assets/highlight-verilog.js");
-    g_inline_assets.highlight_matlab_js   = read_file_to_string("public/inline_assets/highlight-matlab.js");
-    g_inline_assets.highlight_r_js        = read_file_to_string("public/inline_assets/highlight-r.js");
-    g_inline_assets.highlight_perl_js     = read_file_to_string("public/inline_assets/highlight-perl.js");
-    g_inline_assets.highlight_groovy_js   = read_file_to_string("public/inline_assets/highlight-groovy.js");
-    g_inline_assets.highlight_nix_js      = read_file_to_string("public/inline_assets/highlight-nix.js");
-    g_inline_assets.highlight_x86asm_js   = read_file_to_string("public/inline_assets/highlight-x86asm.js");
-    g_inline_assets.highlight_llvm_js     = read_file_to_string("public/inline_assets/highlight-llvm.js");
-    g_inline_assets.highlight_sparql_js   = read_file_to_string("public/inline_assets/highlight-sparql.js");
-    g_inline_assets.highlight_brainfuck_js= read_file_to_string("public/inline_assets/highlight-brainfuck.js");
-    g_inline_assets.highlight_freedesktop_js = read_file_to_string("public/inline_assets/highlight-freedesktop.js");
-    g_inline_assets.katex_js              = read_file_to_string("public/inline_assets/katex.js");
+    g_inline_assets.highlight_js        = read_js_asset("public/inline_assets/highlight.js");
+    g_inline_assets.highlight_fortran_js  = read_js_asset("public/inline_assets/highlight-fortran.js");
+    g_inline_assets.highlight_prolog_js   = read_js_asset("public/inline_assets/highlight-prolog.js");
+    g_inline_assets.highlight_erlang_js   = read_js_asset("public/inline_assets/highlight-erlang.js");
+    g_inline_assets.highlight_elixir_js   = read_js_asset("public/inline_assets/highlight-elixir.js");
+    g_inline_assets.highlight_elm_js      = read_js_asset("public/inline_assets/highlight-elm.js");
+    g_inline_assets.highlight_haskell_js  = read_js_asset("public/inline_assets/highlight-haskell.js");
+    g_inline_assets.highlight_ocaml_js    = read_js_asset("public/inline_assets/highlight-ocaml.js");
+    g_inline_assets.highlight_scheme_js   = read_js_asset("public/inline_assets/highlight-scheme.js");
+    g_inline_assets.highlight_lisp_js     = read_js_asset("public/inline_assets/highlight-lisp.js");
+    g_inline_assets.highlight_clojure_js  = read_js_asset("public/inline_assets/highlight-clojure.js");
+    g_inline_assets.highlight_vhdl_js     = read_js_asset("public/inline_assets/highlight-vhdl.js");
+    g_inline_assets.highlight_verilog_js  = read_js_asset("public/inline_assets/highlight-verilog.js");
+    g_inline_assets.highlight_matlab_js   = read_js_asset("public/inline_assets/highlight-matlab.js");
+    g_inline_assets.highlight_r_js        = read_js_asset("public/inline_assets/highlight-r.js");
+    g_inline_assets.highlight_perl_js     = read_js_asset("public/inline_assets/highlight-perl.js");
+    g_inline_assets.highlight_groovy_js   = read_js_asset("public/inline_assets/highlight-groovy.js");
+    g_inline_assets.highlight_nix_js      = read_js_asset("public/inline_assets/highlight-nix.js");
+    g_inline_assets.highlight_x86asm_js   = read_js_asset("public/inline_assets/highlight-x86asm.js");
+    g_inline_assets.highlight_llvm_js     = read_js_asset("public/inline_assets/highlight-llvm.js");
+    g_inline_assets.highlight_sparql_js   = read_js_asset("public/inline_assets/highlight-sparql.js");
+    g_inline_assets.highlight_brainfuck_js= read_js_asset("public/inline_assets/highlight-brainfuck.js");
+    g_inline_assets.highlight_freedesktop_js = read_js_asset("public/inline_assets/highlight-freedesktop.js");
+    g_inline_assets.katex_js              = read_js_asset("public/inline_assets/katex.js");
     g_inline_assets.katex_css             = read_file_to_string("public/inline_assets/katex.css");
 }
 
@@ -279,6 +281,24 @@ static char *read_file_to_string(const char *path) {
     if (n != (size_t)st.st_size) { free(buf); return NULL; }
     buf[n] = '\0';
     return buf;
+}
+
+/* Read a JavaScript asset, preferring the terser-minified "<name>.min.js"
+ * sibling when it exists (checked into the repo; refreshed by
+ * tools/prepare_assets.py when a minifier is available).  Falls back to
+ * the original file so builds without the .min.js files keep working. */
+static char *read_js_asset(const char *path) {
+    char min_path[PATH_MAX];
+    size_t len = strlen(path);
+    if (len > 3 && strcmp(path + len - 3, ".js") == 0 &&
+        snprintf(min_path, sizeof(min_path), "%.*s.min.js", (int)(len - 3), path) < (int)sizeof(min_path)) {
+        struct stat st;
+        if (stat(min_path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) {
+            char *min = read_file_to_string(min_path);
+            if (min) return min;
+        }
+    }
+    return read_file_to_string(path);
 }
 
 static bool body_needs_highlight(const char *html) {

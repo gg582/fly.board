@@ -199,6 +199,42 @@ def save(path, data):
     print(f"  wrote {path}")
 
 
+def minify_js_tree():
+    """Refresh <name>.min.js siblings for all served JavaScript.
+
+    The server prefers the .min.js files at serve/inline time; they are
+    also checked into the repo so builds without a minifier still work.
+    Skips silently when no minifier is available (terser via npx, or a
+    terser/uglifyjs binary on PATH).
+    """
+    import shutil
+    import subprocess
+
+    minifier = shutil.which("terser") or shutil.which("uglifyjs")
+    npx = shutil.which("npx") if not minifier else None
+    if not minifier and not npx:
+        print("  no JS minifier available; keeping existing .min.js files")
+        return
+
+    for directory in ("public/js", INLINE_DIR):
+        for name in sorted(os.listdir(directory)):
+            if not name.endswith(".js") or name.endswith(".min.js"):
+                continue
+            src = os.path.join(directory, name)
+            dst = src[:-3] + ".min.js"
+            try:
+                if minifier:
+                    subprocess.run([minifier, src, "-c", "-m", "-o", dst],
+                                   check=True, capture_output=True, timeout=120)
+                else:
+                    subprocess.run([npx, "--yes", "terser", src, "-c", "-m", "-o", dst],
+                                   check=True, capture_output=True, timeout=180)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                print(f"  skipping minify {name}: {exc}", file=sys.stderr)
+                continue
+    print("  minified public/js and", INLINE_DIR)
+
+
 def main():
     os.makedirs(INLINE_DIR, exist_ok=True)
     print("Downloading static JS/CSS...")
@@ -309,6 +345,7 @@ def main():
     )
     save(os.path.join("public/css", "d2coding.css"), d2coding_css)
 
+    minify_js_tree()
     print("Done.")
 
 
