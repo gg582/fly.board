@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "reqshare.h"
 #include <cwist/core/log.h>
+#include <cwist/core/mem/gc.h>
 #include <errno.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -52,6 +53,13 @@ static cwist_sstring *copy_sstring(const cwist_sstring *src) {
     if (src && src->size > 0) {
         cwist_sstring_append_len(dst, src->data, src->size);
     }
+    /* The entry outlives the allocating request job: cwist's per-thread GC
+     * sweep (cwist_gc_scope_flush at the end of a job) would otherwise free
+     * the copy while waiters or free_entry in another thread still use it.
+     * Disown both the struct and its backing buffer so only
+     * cwist_sstring_destroy() releases them. */
+    cwist_gc_scope_disown(dst);
+    if (dst->data) cwist_gc_scope_disown(dst->base ? dst->base : dst->data);
     return dst;
 }
 
