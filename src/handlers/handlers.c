@@ -431,13 +431,15 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
         cwist_http_header_add(&res->headers, "Link", "<https://fonts.gstatic.com>; rel=dns-prefetch; crossorigin");
         cwist_http_header_add(&res->headers, "Link", "<https://cdnjs.cloudflare.com>; rel=preconnect");
         cwist_http_header_add(&res->headers, "Link", "<https://cdnjs.cloudflare.com>; rel=dns-prefetch");
-        const char *logo_url = image_inline_logo();
-        if (!logo_url) logo_url = "/assets/img/logo.png";
-        /* Only preload external logo URLs; data-URIs are already inline and
-         * preloading them would waste a high-RTT Link header slot. */
-        if (strncmp(logo_url, "data:", 5) != 0) {
-            char logo_link[384];
-            snprintf(logo_link, sizeof(logo_link), "<%s>; rel=preload; as=image; fetchpriority=high", logo_url);
+        /* The footer logo renders at 16-24px; preloading the full-res
+         * variant ships hundreds of KB on every page and competes with the
+         * LCP image on slow links.  Resize the original PNG on demand
+         * (the pipeline cannot re-encode its own webp output, so the
+         * request must target the source file, not an opt* variant). */
+        if (g_config.blog_logo[0] && strncmp(g_config.blog_logo, "data:", 5) != 0) {
+            char logo_link[448];
+            snprintf(logo_link, sizeof(logo_link), "</assets/img/%s?w=128&h=128>; rel=preload; as=image; fetchpriority=low",
+                     g_config.blog_logo);
             cwist_http_header_add(&res->headers, "Link", logo_link);
         }
         if (g_config.use_rss) {
