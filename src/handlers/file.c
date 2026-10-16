@@ -591,6 +591,12 @@ static bool send_static_asset_webp_response(cwist_http_request *req, cwist_http_
     bool is_png = false;
     size_t fn_len = strlen(filename);
     if (fn_len >= 4 && strcasecmp(filename + fn_len - 4, ".png") == 0) is_png = true;
+    /* Vector images cannot be raster-thumbnailed: running them through the
+     * ffmpeg/webp pipeline spawns a decoder process per request, always
+     * fails, and never caches the failure — serve the original file. */
+    if (fn_len >= 4 && strcasecmp(filename + fn_len - 4, ".svg") == 0) {
+        return send_cached_file_response(req, res, path, orig_mime, IMAGE_CACHE_CONTROL, NULL);
+    }
     if (!is_png && !client_accepts_webp(req)) {
         return send_cached_file_response(req, res, path, orig_mime, IMAGE_CACHE_CONTROL, NULL);
     }
