@@ -64,7 +64,10 @@ static bool is_compressible_mime(const char *mime) {
     if (!mime) return false;
     return strncmp(mime, "text/", 5) == 0 ||
            strncmp(mime, "application/javascript", 22) == 0 ||
-           strncmp(mime, "application/json", 16) == 0;
+           strncmp(mime, "application/json", 16) == 0 ||
+           strncmp(mime, "image/svg+xml", 13) == 0 ||
+           strncmp(mime, "application/xml", 15) == 0 ||
+           strncmp(mime, "text/xml", 8) == 0;
 }
 
 
