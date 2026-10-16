@@ -71,6 +71,8 @@ s3.settings
 public/img/opt*w-*.webp
 public/img/oklch-inv*-*.webp
 public/img/luminv*-*.webp
+public/img/oklch-inv*-*.svg
+public/img/luminv*-*.svg
 robots.settings
 upload.settings
 cert-backup-*/
