@@ -267,14 +267,25 @@ void page_cache_clear(void) {
     engine_bdr_bump();
 }
 
-void page_cache_clear_prefix(const char *prefix) {
-    if (!prefix) return;
-    size_t plen = strlen(prefix);
+/* Multi-prefix variant: scans the whole table once under a single mutex hold
+   and bumps the BDR once, instead of one full scan + bump per prefix. */
+static void page_cache_clear_prefixes(const char *const *prefixes, size_t count) {
+    if (!prefixes || count == 0) return;
+    size_t lens[8];
+    if (count > 8) count = 8;
+    for (size_t i = 0; i < count; i++) {
+        if (!prefixes[i]) return;
+        lens[i] = strlen(prefixes[i]);
+    }
     pthread_mutex_lock(&g_mutex);
     for (int i = 0; i < CACHE_BUCKETS; i++) {
         cache_entry_t **prev = &g_buckets[i];
         while (*prev) {
-            if (strncmp((*prev)->key, prefix, plen) == 0) {
+            bool match = false;
+            for (size_t p = 0; p < count; p++) {
+                if (strncmp((*prev)->key, prefixes[p], lens[p]) == 0) { match = true; break; }
+            }
+            if (match) {
                 cache_entry_t *old = *prev;
                 if (old->pin_count > 0) {
                     old->expires_at = 0;
@@ -291,6 +302,11 @@ void page_cache_clear_prefix(const char *prefix) {
     pthread_mutex_unlock(&g_mutex);
     /* Every invalidation is a content change for the route BDR too. */
     engine_bdr_bump();
+}
+
+void page_cache_clear_prefix(const char *prefix) {
+    if (!prefix) return;
+    page_cache_clear_prefixes(&prefix, 1);
 }
 
 void page_cache_key_home(char *out, size_t out_len, bool dark, bool mobile, const char *role, int uid) {
@@ -326,24 +342,26 @@ void page_cache_invalidate_post(const char *slug) {
     if (slug) {
         char prefix[256];
         snprintf(prefix, sizeof(prefix), "post:%s:", slug);
-        page_cache_clear_prefix(prefix);
+        const char *prefixes[4] = {prefix, "home:", "board:", "boards:"};
+        page_cache_clear_prefixes(prefixes, 4);
+        return;
     }
     /* Home and board listings embed post titles/summaries/votes, so they must
      * be invalidated too. */
-    page_cache_clear_prefix("home:");
-    page_cache_clear_prefix("board:");
-    page_cache_clear_prefix("boards:");
+    const char *prefixes[3] = {"home:", "board:", "boards:"};
+    page_cache_clear_prefixes(prefixes, 3);
 }
 
 void page_cache_invalidate_board(const char *slug) {
     if (slug) {
         char prefix[256];
         snprintf(prefix, sizeof(prefix), "board:%s:", slug);
-        page_cache_clear_prefix(prefix);
+        const char *prefixes[4] = {prefix, "board:", "boards:", "home:"};
+        page_cache_clear_prefixes(prefixes, 4);
+        return;
     }
-    page_cache_clear_prefix("board:");
-    page_cache_clear_prefix("boards:");
-    page_cache_clear_prefix("home:");
+    const char *prefixes[3] = {"board:", "boards:", "home:"};
+    page_cache_clear_prefixes(prefixes, 3);
 }
 
 void page_cache_invalidate_all(void) {
