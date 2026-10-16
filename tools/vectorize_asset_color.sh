@@ -34,8 +34,10 @@ magick "$IN" -alpha off \
 
 # Accents: saturated pixels classified by channel dominance in sRGB.
 declare -A RANGE=(
-    ["$RED"]="r - g > 0.15 && r - b > 0.15 && r < 0.99"
-    ["$YELLOW"]="r - b > 0.3 && g - b > 0.2 && abs(r - g) < 0.2"
+    # pure reds only: orange/yellow shading has g well above b and
+    # must not leak into the red layer (it shows through yellow dots)
+    ["$RED"]="r - g > 0.15 && r - b > 0.2 && g - b < 0.1 && r < 0.99"
+    ["$YELLOW"]="r - b > 0.3 && g - b > 0.12"
     ["$GREEN"]="g - r > 0.08 && g - b > 0.08"
     ["$BLUE"]="b - r > 0.15 && b - g > 0.1"
 )

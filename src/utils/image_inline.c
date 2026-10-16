@@ -19,9 +19,13 @@ typedef struct {
     char *home_bg_url;
     char *boards_bg_url;
     char *files_bg_url;
+    char *archive_bg_url;
+    char *mail_bg_url;
     char *home_bg_dark_url;
     char *boards_bg_dark_url;
     char *files_bg_dark_url;
+    char *archive_bg_dark_url;
+    char *mail_bg_dark_url;
     char *logo_url;
     char *logo_dark_url;
     char *favicon_url;
@@ -332,9 +336,13 @@ void image_inline_cache_build(void) {
     build_one(g_config.home_img,   &g_inline_images.home_bg_url,   bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
     build_one(g_config.boards_img, &g_inline_images.boards_bg_url, bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
     build_one(g_config.files_img,  &g_inline_images.files_bg_url,  bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
+    build_one(g_config.archive_img, &g_inline_images.archive_bg_url, bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
+    build_one(g_config.mail_img,   &g_inline_images.mail_bg_url,   bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
     build_one(g_config.home_img_dark,   &g_inline_images.home_bg_dark_url,   bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
     build_one(g_config.boards_img_dark, &g_inline_images.boards_bg_dark_url, bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
     build_one(g_config.files_img_dark,  &g_inline_images.files_bg_dark_url,  bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
+    build_one(g_config.archive_img_dark, &g_inline_images.archive_bg_dark_url, bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
+    build_one(g_config.mail_img_dark,  &g_inline_images.mail_bg_dark_url,  bg_images_inline_enabled(), max_img, OPT_MAX_WIDTH_BG);
 
     /* Logo/favicon are small identity assets; inline with the usual image flag,
      * but still respect the size cap. */
@@ -362,6 +370,8 @@ void image_inline_cache_build(void) {
 const char *image_inline_home_bg(void)   { return g_inline_images.home_bg_url; }
 const char *image_inline_boards_bg(void) { return g_inline_images.boards_bg_url; }
 const char *image_inline_files_bg(void)  { return g_inline_images.files_bg_url; }
+const char *image_inline_archive_bg(void) { return g_inline_images.archive_bg_url; }
+const char *image_inline_mail_bg(void)   { return g_inline_images.mail_bg_url; }
 const char *image_inline_logo(void)      { return g_inline_images.logo_url; }
 const char *image_inline_favicon(void)   { return g_inline_images.favicon_url; }
 
@@ -371,9 +381,13 @@ const char *image_inline_bg_url(const char *filename) {
         { g_config.home_img,        g_inline_images.home_bg_url },
         { g_config.boards_img,      g_inline_images.boards_bg_url },
         { g_config.files_img,       g_inline_images.files_bg_url },
+        { g_config.archive_img,     g_inline_images.archive_bg_url },
+        { g_config.mail_img,        g_inline_images.mail_bg_url },
         { g_config.home_img_dark,   g_inline_images.home_bg_dark_url },
         { g_config.boards_img_dark, g_inline_images.boards_bg_dark_url },
         { g_config.files_img_dark,  g_inline_images.files_bg_dark_url },
+        { g_config.archive_img_dark, g_inline_images.archive_bg_dark_url },
+        { g_config.mail_img_dark,   g_inline_images.mail_bg_dark_url },
         { g_config.blog_logo,       g_inline_images.logo_url },
         { g_config.blog_logo_dark,  g_inline_images.logo_dark_url },
     };
@@ -410,7 +424,9 @@ void image_inline_make_width_variant(const char *basename, int width) {
 void image_inline_build_responsive_bg(void) {
     const char *const names[] = {
         g_config.home_img, g_config.boards_img, g_config.files_img,
+        g_config.archive_img, g_config.mail_img,
         g_config.home_img_dark, g_config.boards_img_dark, g_config.files_img_dark,
+        g_config.archive_img_dark, g_config.mail_img_dark,
         g_config.bg_full_light, g_config.bg_full_dark,
     };
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {

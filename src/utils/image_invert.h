@@ -51,6 +51,13 @@ void hero_bg_resolve_modes(const char *light_img, const char *dark_img, const ch
 void image_logo_resolve_modes(const char **out_l, const char **out_d,
                               bool *out_css_l, bool *out_css_d);
 
+/* Emit the hero opener for a page-level background: when a bg image is
+ * configured for the target, the hero is wrapped in the swap-enabled shell
+ * (theme toggle swaps image/styles client-side); otherwise a plain hero div
+ * with title_html inside.  title_html must not contain a top-level <div>. */
+void hero_bg_page_open(cwist_sstring *b, const char *light_img, const char *dark_img,
+                       const char *target, bool dark, const char *title_html);
+
 /* Emit the hero wrapper div with both modes in data attributes, the hero-bg
  * img for the current mode, and the current mode's overlay.  Returns false
  * (and emits nothing) when the current mode has no background. */

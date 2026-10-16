@@ -6,6 +6,8 @@
 #include "render.h"
 #include "render_internal.h"
 #include "db/db.h"
+#include "config/config.h"
+#include "../utils/image_invert.h"
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
 #include <string.h>
@@ -65,7 +67,7 @@ cwist_sstring *render_mail_list(cJSON *emails, const char *folder, int page, int
     (void)is_mobile;
     cwist_sstring *b = cwist_sstring_create();
     append_mail_css(b);
-    cwist_sstring_append(b, "<div class='hero'><h1>Mail</h1></div>");
+    hero_bg_page_open(b, g_config.mail_img, g_config.mail_img_dark, "mail", dark, "<h1>Mail</h1>");
 
     /* Folder tabs with unread badge on INBOX. */
     cwist_sstring_append(b, "<div class='mail-tabs'>");

@@ -323,6 +323,14 @@ void image_invert_cache_build(void) {
         build_variant(g_config.files_img);
         build_variant(g_config.files_img_dark);
     }
+    if (config_bg_invert_enabled("archive")) {
+        build_variant(g_config.archive_img);
+        build_variant(g_config.archive_img_dark);
+    }
+    if (config_bg_invert_enabled("mail")) {
+        build_variant(g_config.mail_img);
+        build_variant(g_config.mail_img_dark);
+    }
     if (config_bg_invert_enabled("toplevel")) {
         build_variant(g_config.bg_full_light);
         build_variant(g_config.bg_full_dark);
@@ -419,6 +427,21 @@ static void append_attr(cwist_sstring *b, const char *name, const char *value) {
     cwist_sstring_append(b, "=\"");
     cwist_sstring_append_escaped(b, value);
     cwist_sstring_append(b, "\"");
+}
+
+void hero_bg_page_open(cwist_sstring *b, const char *light_img, const char *dark_img,
+                       const char *target, bool dark, const char *title_html) {
+    hero_bg_mode_t modes[2];
+    hero_bg_resolve_modes(light_img, dark_img, target, modes);
+    if (modes[dark ? 1 : 0].url && hero_bg_append_open(b, modes, dark)) {
+        cwist_sstring_append(b, "<div class='hero' style='position:relative;z-index:2;background:none;'>");
+        cwist_sstring_append(b, title_html);
+        cwist_sstring_append(b, "</div></div>");
+    } else {
+        cwist_sstring_append(b, "<div class='hero'>");
+        cwist_sstring_append(b, title_html);
+        cwist_sstring_append(b, "</div>");
+    }
 }
 
 bool hero_bg_append_open(cwist_sstring *b, const hero_bg_mode_t modes[2], bool dark) {

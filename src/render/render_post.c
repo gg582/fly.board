@@ -1038,7 +1038,7 @@ static void append_tag_cloud(cwist_sstring *b, cJSON *tags) {
 cwist_sstring *render_archive(cJSON *months, cJSON *tags, cJSON *series, bool dark, const char *user_role,
                               const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
-    cwist_sstring_assign(b, "<div class='hero'><h1>Archive</h1></div>");
+    hero_bg_page_open(b, g_config.archive_img, g_config.archive_img_dark, "archive", dark, "<h1>Archive</h1>");
 
     if (cJSON_IsArray(tags) && cJSON_GetArraySize(tags) > 0) {
         cwist_sstring_append(b, "<section id='tags' style='margin-bottom:32px'><h2>Tags</h2>");

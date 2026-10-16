@@ -20,6 +20,8 @@ If the file is missing, it is regenerated with the defaults below.
 | `blog_logo`, `blog_logo_dark` | filename | empty | Logo for light/dark mode |
 | `boards_img`, `boards_img_dark` | filename | empty | Boards page image, light/dark |
 | `files_img`, `files_img_dark` | filename | empty | Files page image, light/dark |
+| `archive_img`, `archive_img_dark` | filename | empty | Archive page hero image, light/dark (empty = plain title hero) |
+| `mail_img`, `mail_img_dark` | filename | empty | Mail page hero image, light/dark (empty = plain title hero) |
 | `favicon` | filename | empty | Site favicon |
 | `bg_full_light`, `bg_full_dark` | filename | empty | Full-page background, light/dark |
 | `invert_logo` | bool (`true`/`1`) | `false` | Invert the logo for the missing color mode |

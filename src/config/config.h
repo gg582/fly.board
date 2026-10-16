@@ -31,8 +31,15 @@ typedef struct {
     char home_img_dark[256];
     char boards_img_dark[256];
     char files_img_dark[256];
-    /* Comma-separated targets ("home", "boards", "files", "toplevel") whose
-     * missing light/dark counterpart is filled with the inverted image. */
+    /* Page-level hero backgrounds for the archive and mail pages; empty
+     * (the default) renders those pages with a plain title hero. */
+    char archive_img[256];
+    char archive_img_dark[256];
+    char mail_img[256];
+    char mail_img_dark[256];
+    /* Comma-separated targets ("home", "boards", "files", "archive",
+     * "mail", "toplevel") whose missing light/dark counterpart is filled
+     * with the inverted image. */
     char bg_invert_color[128];
     /* Inversion algorithm for bg_invert_color: "luminv" (default, keeps
      * line-art contrast) or "oklch" (perceptual L-flip, smoother on

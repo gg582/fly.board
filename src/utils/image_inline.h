@@ -11,12 +11,14 @@ void image_inline_cache_build(void);
 const char *image_inline_home_bg(void);
 const char *image_inline_boards_bg(void);
 const char *image_inline_files_bg(void);
+const char *image_inline_archive_bg(void);
+const char *image_inline_mail_bg(void);
 const char *image_inline_logo(void);
 const char *image_inline_favicon(void);
 
-/* Resolve a configured background image filename (home/boards/files, light
- * or dark variant) to its cached URL. Returns NULL when nothing is cached
- * for that filename. */
+/* Resolve a configured background image filename (home/boards/files/
+ * archive/mail, light or dark variant) to its cached URL. Returns NULL when
+ * nothing is cached for that filename. */
 const char *image_inline_bg_url(const char *filename);
 
 /* Generate (when missing/stale) a downscaled WebP variant of a public/img

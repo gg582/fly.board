@@ -41,6 +41,8 @@ the built-in defaults; a missing file is regenerated with them.
 | `home_img` / `home_img_dark` | *(empty)* | Hero image, light/dark; filename inside `public/img/`, must exist or be ignored with a warning |
 | `boards_img` / `boards_img_dark` | *(empty)* | Boards page image, light/dark (same rules) |
 | `files_img` / `files_img_dark` | *(empty)* | Files page image, light/dark (same rules) |
+| `archive_img` / `archive_img_dark` | *(empty)* | Archive page hero, light/dark (same rules; empty renders a plain title hero) |
+| `mail_img` / `mail_img_dark` | *(empty)* | Mail page hero, light/dark (same rules; empty renders a plain title hero) |
 | `blog_logo` / `blog_logo_dark` | *(empty)* | Logo, light/dark (same rules) |
 | `invert_logo` | `false` | Invert the logo for the color mode that has no dedicated image |
 | `favicon` | *(empty)* | Favicon (same validation) |

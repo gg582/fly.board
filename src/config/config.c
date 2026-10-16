@@ -113,6 +113,10 @@ bool blog_config_load(const char *path) {
             fprintf(f, "home_img_dark=%s\n", g_config.home_img_dark);
             fprintf(f, "boards_img_dark=%s\n", g_config.boards_img_dark);
             fprintf(f, "files_img_dark=%s\n", g_config.files_img_dark);
+            fprintf(f, "archive_img=%s\n", g_config.archive_img);
+            fprintf(f, "archive_img_dark=%s\n", g_config.archive_img_dark);
+            fprintf(f, "mail_img=%s\n", g_config.mail_img);
+            fprintf(f, "mail_img_dark=%s\n", g_config.mail_img_dark);
             fprintf(f, "bg_invert_color=%s\n", g_config.bg_invert_color);
             fprintf(f, "bg_invert_algo=%s\n", g_config.bg_invert_algo);
             fprintf(f, "root_url=%s\n", g_config.root_url);
@@ -183,6 +187,14 @@ bool blog_config_load(const char *path) {
             snprintf(g_config.boards_img_dark, sizeof(g_config.boards_img_dark), "%s", val);
         } else if (strcmp(key, "files_img_dark") == 0) {
             snprintf(g_config.files_img_dark, sizeof(g_config.files_img_dark), "%s", val);
+        } else if (strcmp(key, "archive_img") == 0) {
+            snprintf(g_config.archive_img, sizeof(g_config.archive_img), "%s", val);
+        } else if (strcmp(key, "archive_img_dark") == 0) {
+            snprintf(g_config.archive_img_dark, sizeof(g_config.archive_img_dark), "%s", val);
+        } else if (strcmp(key, "mail_img") == 0) {
+            snprintf(g_config.mail_img, sizeof(g_config.mail_img), "%s", val);
+        } else if (strcmp(key, "mail_img_dark") == 0) {
+            snprintf(g_config.mail_img_dark, sizeof(g_config.mail_img_dark), "%s", val);
         } else if (strcmp(key, "bg_invert_color") == 0) {
             snprintf(g_config.bg_invert_color, sizeof(g_config.bg_invert_color), "%s", val);
         } else if (strcmp(key, "bg_invert_algo") == 0) {
@@ -266,6 +278,10 @@ bool blog_config_load(const char *path) {
     validate_image_setting(g_config.home_img_dark, "home_img_dark");
     validate_image_setting(g_config.boards_img_dark, "boards_img_dark");
     validate_image_setting(g_config.files_img_dark, "files_img_dark");
+    validate_image_setting(g_config.archive_img, "archive_img");
+    validate_image_setting(g_config.archive_img_dark, "archive_img_dark");
+    validate_image_setting(g_config.mail_img, "mail_img");
+    validate_image_setting(g_config.mail_img_dark, "mail_img_dark");
     return true;
 }
 
