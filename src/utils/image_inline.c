@@ -402,6 +402,8 @@ static int width_of_file(const char *path) {
 }
 
 void image_inline_make_width_variant(const char *basename, int width) {
+    size_t len = basename ? strlen(basename) : 0;
+    if (len >= 4 && strcasecmp(basename + len - 4, ".svg") == 0) return; /* vector: resolution-independent */
     (void)optimized_webp_url(basename, width);
 }
 
@@ -428,6 +430,21 @@ bool image_file_dimensions_from_url(const char *url, int *out_w, int *out_h) {
     if (!name[0]) return false;
     char path[640];
     snprintf(path, sizeof(path), "public/img/%s", name);
+    size_t nl = strlen(name);
+    if (nl >= 4 && strcasecmp(name + nl - 4, ".svg") == 0) {
+        /* Read the pixel dimensions from the <svg> root attributes. */
+        FILE *f = fopen(path, "rb");
+        if (!f) return false;
+        char head[1024];
+        size_t n = fread(head, 1, sizeof(head) - 1, f);
+        fclose(f);
+        head[n] = '\0';
+        int w = 0, h = 0;
+        if (sscanf(strstr(head, "width=") ? strstr(head, "width=") : "", "width=\"%d\"", &w) != 1) w = 0;
+        if (sscanf(strstr(head, "height=") ? strstr(head, "height=") : "", "height=\"%d\"", &h) != 1) h = 0;
+        if (w > 0 && h > 0) { *out_w = w; *out_h = h; return true; }
+        return false;
+    }
     int w = 0, h = 0, ch = 0;
     if (stbi_info(path, &w, &h, &ch)) { *out_w = w; *out_h = h; return true; }
 #ifdef HAVE_WEBP

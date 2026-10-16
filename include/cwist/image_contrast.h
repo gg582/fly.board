@@ -1,6 +1,7 @@
 #ifndef IMAGE_CONTRAST_H
 #define IMAGE_CONTRAST_H
 
+#include <stdbool.h>
 #include <stddef.h>
 
 /**
@@ -18,9 +19,12 @@
  * @param logo_filter_len  Size of logo_filter_out
  * @param overlay_style_out Buffer to receive overlay CSS (linear-gradient) or empty
  * @param overlay_style_len Size of overlay_style_out
+ * @param dark_bg           True when the page background behind a transparent
+ *                          image is dark (drives SVG analysis; raster images
+ *                          are opaque and ignore it)
  * @return 0 on success, -1 on failure (safe defaults are written to outputs)
  */
-int get_image_text_style(const char *image_path, const char *image_url,
+int get_image_text_style(const char *image_path, const char *image_url, bool dark_bg,
                          char *shell_style_out, size_t shell_style_len,
                          char *text_style_out, size_t text_style_len,
                          char *logo_filter_out, size_t logo_filter_len,

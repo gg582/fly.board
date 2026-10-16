@@ -14,6 +14,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <ctype.h>
 #include <sys/stat.h>
 
 /* Mechanical CSS inversion (invert(1)) flips hue as well as lightness, so
@@ -40,6 +42,105 @@ static size_t g_variant_count;
 
 static bool invert_use_oklch(void) {
     return strcmp(g_config.bg_invert_algo, "oklch") == 0;
+}
+
+/* Shared per-pixel inversion (luminance flip + black-floor lift) so raster
+ * and SVG variants stay visually consistent. */
+static void invert_color_channels(float *r, float *g, float *b, bool use_oklch) {
+    if (use_oklch) {
+        invert_pixel_oklch(r, g, b);
+        return;
+    }
+    invert_pixel_luminance(r, g, b);
+    float Y = 0.2126f * *r + 0.7152f * *g + 0.0722f * *b;
+    const float black_floor = 0.16f;
+    if (Y > 0.0f && Y < black_floor) {
+        float Y2 = (Y - black_floor) / (1.0f - black_floor);
+        if (Y2 < 0.0f) Y2 = 0.0f;
+        float s = Y2 / Y;
+        *r *= s; *g *= s; *b *= s;
+    }
+}
+
+static bool filename_is_svg(const char *name) {
+    size_t len = name ? strlen(name) : 0;
+    return len >= 4 && strcasecmp(name + len - 4, ".svg") == 0;
+}
+
+/* Luminance-invert every hex color in an SVG source (fill/stroke/stop-color
+ * alike) and write a variant file.  Vector assets are tiny, so this is a
+ * straight text transform; #rrggbb and #rgb forms are handled, rgb()/
+ * named colors are left as-is.  Returns true when the variant is usable
+ * (created or fresh enough). */
+static bool build_svg_variant(const char *orig_name, const char *variant, const char *src_path, const char *dst_path) {
+    (void)orig_name;
+    (void)variant;
+    struct stat sst, dst;
+    if (stat(src_path, &sst) != 0) return false;
+    if (stat(dst_path, &dst) == 0 && dst.st_mtime >= sst.st_mtime) return true;
+
+    FILE *f = fopen(src_path, "rb");
+    if (!f) return false;
+    char *buf = (char *)malloc((size_t)sst.st_size + 1);
+    if (!buf) { fclose(f); return false; }
+    size_t n = fread(buf, 1, (size_t)sst.st_size, f);
+    fclose(f);
+    if (n != (size_t)sst.st_size) { free(buf); return false; }
+    buf[n] = '\0';
+
+    bool use_oklch = invert_use_oklch();
+    size_t changed = 0;
+    for (size_t i = 0; i + 1 < n && buf[i]; i++) {
+        if (buf[i] != '#') continue;
+        unsigned int c[3];
+        int hexlen = 0;
+        if (sscanf(buf + i + 1, "%2x%2x%2x%n", &c[0], &c[1], &c[2], &hexlen) == 3 && hexlen == 6
+            && (i + 7 >= n || !isxdigit((unsigned char)buf[i + 7]))) {
+            float r = c[0] / 255.0f, g = c[1] / 255.0f, b = c[2] / 255.0f;
+            invert_color_channels(&r, &g, &b, use_oklch);
+            char repl[8];
+            memcpy(repl, buf + i, 7);
+            snprintf(repl, sizeof(repl), "#%02x%02x%02x",
+                     (int)(r * 255.0f + 0.5f), (int)(g * 255.0f + 0.5f), (int)(b * 255.0f + 0.5f));
+            memcpy(buf + i, repl, 7);
+            changed++;
+            i += 6;
+        } else if (sscanf(buf + i + 1, "%1x%1x%1x%n", &c[0], &c[1], &c[2], &hexlen) == 3 && hexlen == 3
+                   && (i + 4 >= n || !isxdigit((unsigned char)buf[i + 4]))) {
+            float r = (c[0] * 17) / 255.0f, g = (c[1] * 17) / 255.0f, b = (c[2] * 17) / 255.0f;
+            invert_color_channels(&r, &g, &b, use_oklch);
+            unsigned int ir = (unsigned int)(r * 255.0f + 0.5f),
+                         ig = (unsigned int)(g * 255.0f + 0.5f),
+                         ib = (unsigned int)(b * 255.0f + 0.5f);
+            char repl4[4];
+            /* short form only stays short when every inverted channel is an
+             * exact nibble; otherwise leave the source untouched */
+            if (ir < 256 && ig < 256 && ib < 256 &&
+                ir % 17 == 0 && ig % 17 == 0 && ib % 17 == 0) {
+                static const char hexd[] = "0123456789abcdef";
+                repl4[0] = '#';
+                repl4[1] = hexd[ir / 17];
+                repl4[2] = hexd[ig / 17];
+                repl4[3] = hexd[ib / 17];
+                memcpy(buf + i, repl4, 4);
+                changed++;
+            }
+            i += 3;
+        }
+    }
+    if (changed == 0) {
+        free(buf);
+        CWIST_LOG_WARN("bg_invert_color: no hex colors in %s, inversion disabled for it", src_path);
+        return false;
+    }
+
+    FILE *out = fopen(dst_path, "wb");
+    if (!out) { free(buf); return false; }
+    fwrite(buf, 1, n, out);
+    fclose(out);
+    free(buf);
+    CWIST_LOG_INFO("bg_invert_color: generated %s (%zu colors inverted)", dst_path, changed);
+    return true;
 }
 
 #ifdef HAVE_WEBP
@@ -73,13 +174,24 @@ static void build_variant(const char *orig_name) {
      * algorithm or the encoder settings changes the filename, so variants
      * built by older code are never picked up by accident. */
     invert_entry_t *entry = &g_variants[g_variant_count];
-    int n = snprintf(entry->variant, sizeof(entry->variant), "%s-%s.webp",
+    bool is_svg = filename_is_svg(orig_name);
+    int n = snprintf(entry->variant, sizeof(entry->variant), is_svg ? "%s-%s" : "%s-%s.webp",
                      invert_use_oklch() ? "oklch-inv2" : "luminv4", orig_name);
     if (n < 0 || n >= (int)sizeof(entry->variant)) return;
 
     char src_path[600], dst_path[600];
     snprintf(src_path, sizeof(src_path), "public/img/%s", orig_name);
     snprintf(dst_path, sizeof(dst_path), "public/img/%s", entry->variant);
+
+    if (is_svg) {
+        /* Vector assets need no width variants; the text transform is cheap
+         * enough that cache-reuse is handled inside build_svg_variant. */
+        if (build_svg_variant(orig_name, entry->variant, src_path, dst_path)) {
+            snprintf(entry->orig, sizeof(entry->orig), "%s", orig_name);
+            g_variant_count++;
+        }
+        return;
+    }
 
     /* Reuse a previously generated variant while the source is unchanged. */
     struct stat sst, dst;
@@ -291,7 +403,7 @@ void hero_bg_resolve_modes(const char *light_img, const char *dark_img, const ch
              * and pairs with the theme's own foreground instead. */
             char img_path[512];
             snprintf(img_path, sizeof(img_path), "public/img/%s", md->shown_name);
-            get_image_text_style(img_path, md->url,
+            get_image_text_style(img_path, md->url, m == 1,
                                  md->shell_style, sizeof(md->shell_style),
                                  md->text_style, sizeof(md->text_style),
                                  md->logo_filter, sizeof(md->logo_filter),

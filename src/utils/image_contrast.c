@@ -4,8 +4,10 @@
 #include "image_contrast_core.h"
 #include <math.h>
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <sys/stat.h>
 #include <pthread.h>
 
@@ -36,6 +38,63 @@ static int analyze_image(const char *path, double *L_left, double *L_center, dou
     return 0;
 }
 
+/* Vector heroes (traced line art) are transparent single/dual-color shapes
+ * over the page background, which stb cannot sample.  Estimate the visible
+ * blend instead: dominant hex fill blended over the theme background at a
+ * fixed line-art ink coverage.  Returns 0 when at least one fill was found. */
+static int analyze_svg(const char *path, bool dark_bg, double L[3]) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    struct stat st;
+    if (fstat(fileno(f), &st) != 0 || st.st_size <= 0 || st.st_size > 512 * 1024) {
+        fclose(f);
+        return -1;
+    }
+    char *buf = (char *)malloc((size_t)st.st_size + 1);
+    if (!buf) { fclose(f); return -1; }
+    size_t n = fread(buf, 1, (size_t)st.st_size, f);
+    fclose(f);
+    if (n != (size_t)st.st_size) { free(buf); return -1; }
+    buf[n] = '\0';
+
+    /* Dominant #rrggbb fill in the file (first color wins ties). */
+    long best_count = 0;
+    unsigned int br = 0, bg = 0, bb = 0;
+    for (size_t i = 0; i + 7 < n && buf[i]; i++) {
+        if (buf[i] != '#') continue;
+        unsigned int c[3];
+        int hexlen = 0;
+        if (sscanf(buf + i + 1, "%2x%2x%2x%n", &c[0], &c[1], &c[2], &hexlen) != 3 || hexlen != 6
+            || (i + 7 < n && isxdigit((unsigned char)buf[i + 7]))) continue;
+        long count = 0;
+        char needle[8];
+        snprintf(needle, sizeof(needle), "#%02x%02x%02x", c[0], c[1], c[2]);
+        for (const char *p = buf; (p = strstr(p, needle)); p++) count++;
+        if (count > best_count) {
+            best_count = count;
+            br = c[0]; bg = c[1]; bb = c[2];
+        }
+        i += 6;
+    }
+    free(buf);
+    if (best_count == 0) return -1;
+
+    const double coverage = 0.18; /* traced line-art ink share of the canvas */
+    double L_ink, C, H;
+    fb_rgb_to_lch((double)br, (double)bg, (double)bb, &L_ink, &C, &H);
+    /* Page background behind the transparent art: near-white in light mode,
+     * near-black in dark mode (matches the white_L/black_L anchors below). */
+    double L_page = dark_bg ? 5.0 : 95.0;
+    double sample = L_page * (1.0 - coverage) + L_ink * coverage;
+    L[0] = L[1] = L[2] = sample;
+    return 0;
+}
+
+static bool filename_is_svg(const char *path) {
+    size_t len = path ? strlen(path) : 0;
+    return len >= 4 && strcasecmp(path + len - 4, ".svg") == 0;
+}
+
 /* ---------- Caching ---------- */
 
 typedef struct {
@@ -50,7 +109,7 @@ typedef struct {
 
 /* ---------- Public API ---------- */
 
-int get_image_text_style(const char *image_path, const char *image_url,
+int get_image_text_style(const char *image_path, const char *image_url, bool dark_bg,
                          char *shell_style_out, size_t shell_style_len,
                          char *text_style_out, size_t text_style_len,
                          char *logo_filter_out, size_t logo_filter_len,
@@ -78,7 +137,16 @@ int get_image_text_style(const char *image_path, const char *image_url,
     pthread_mutex_unlock(&g_image_contrast_mutex);
 
     double L_left = 50.0, L_center = 50.0, L_right = 50.0;
-    int ok = analyze_image(image_path, &L_left, &L_center, &L_right);
+    int ok;
+    double L_svg[3];
+    if (filename_is_svg(image_path) && analyze_svg(image_path, dark_bg, L_svg) == 0) {
+        L_left = L_svg[0];
+        L_center = L_svg[1];
+        L_right = L_svg[2];
+        ok = 0;
+    } else {
+        ok = analyze_image(image_path, &L_left, &L_center, &L_right);
+    }
 
     if (ok != 0) {
         snprintf(shell_style_out, shell_style_len,
