@@ -43,7 +43,7 @@ jobs:
             git cmake ninja gcc make pkgconf \
             openssl libnghttp3 libngtcp2 zlib \
             sqlite cjson uriparser \
-            libwebp libzstd brotli \
+            libwebp zstd brotli \
             curl wget coreutils python
 
       - uses: actions/checkout@v4
@@ -134,7 +134,7 @@ jobs:
             git cmake ninja gcc make pkgconf \
             openssl libnghttp3 libngtcp2 zlib \
             sqlite cjson uriparser \
-            libwebp libzstd brotli \
+            libwebp zstd brotli \
             curl wget coreutils python
 
       - uses: actions/checkout@v4
