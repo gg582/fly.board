@@ -81,6 +81,10 @@ jobs:
           cd /tmp/cwist
           sed -i 's|FIND_PATH(ZLIB_INCLUDE_DIR NAMES zlib.h)|SET(ZLIB_INCLUDE_DIR /usr/include)|' lib/lsquic/CMakeLists.txt
           sed -i 's|FIND_LIBRARY(ZLIB_LIB libz${LIB_SUFFIX})|SET(ZLIB_LIB /usr/lib/libz.so)|' lib/lsquic/CMakeLists.txt
+          # usrsctp ships -Werror by default (sctp_werror=1); newer GCCs emit
+          # -Wunused-but-set-variable in its netinet/ sources, breaking fresh
+          # CI builds. The vendored dep does not need warnings-as-errors.
+          sed -i 's|option(sctp_werror "Treat warning as error" 1)|option(sctp_werror "Treat warning as error" 0)|' lib/usrsctp/CMakeLists.txt
           make -j"$(nproc)"
           make install
           rm -rf /tmp/cwist
@@ -161,6 +165,10 @@ jobs:
           cd /tmp/cwist
           sed -i 's|FIND_PATH(ZLIB_INCLUDE_DIR NAMES zlib.h)|SET(ZLIB_INCLUDE_DIR /usr/include)|' lib/lsquic/CMakeLists.txt
           sed -i 's|FIND_LIBRARY(ZLIB_LIB libz${LIB_SUFFIX})|SET(ZLIB_LIB /usr/lib/libz.so)|' lib/lsquic/CMakeLists.txt
+          # usrsctp ships -Werror by default (sctp_werror=1); newer GCCs emit
+          # -Wunused-but-set-variable in its netinet/ sources, breaking fresh
+          # CI builds. The vendored dep does not need warnings-as-errors.
+          sed -i 's|option(sctp_werror "Treat warning as error" 1)|option(sctp_werror "Treat warning as error" 0)|' lib/usrsctp/CMakeLists.txt
           make -j"$(nproc)"
           make install
           rm -rf /tmp/cwist
