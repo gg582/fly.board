@@ -471,6 +471,40 @@ static void attach_post_tags(cwist_db *db, cJSON *post) {
     cJSON_AddItemToObject(post, "tags", names);
 }
 
+/* Parallel-load context for handler_post_get: independent per-post reads fan
+ * out to helper threads, each getting its own thread-local SQLite connection
+ * via fly_db_conn(). The post JSON is only mutated on the main thread. */
+typedef struct {
+    cwist_db *db;
+    int post_id, uid, author_id;
+    bool post_public;
+    const char *created_at;
+    cJSON *files, *comments, *vote_counts, *author_user, *adjacent, *related;
+} post_load_ctx;
+
+static void *pl_media_thread(void *arg) {
+    post_load_ctx *c = (post_load_ctx *)arg;
+    c->files = db_file_list_by_post(c->db, c->post_id);
+    c->comments = db_comment_list_by_target(c->db, "post", c->post_id);
+    return NULL;
+}
+
+static void *pl_votes_thread(void *arg) {
+    post_load_ctx *c = (post_load_ctx *)arg;
+    c->vote_counts = db_post_vote_counts(c->db, c->post_id);
+    if (c->author_id > 0) c->author_user = db_user_get_by_id(c->db, c->author_id);
+    return NULL;
+}
+
+static void *pl_related_thread(void *arg) {
+    post_load_ctx *c = (post_load_ctx *)arg;
+    if (c->post_public) {
+        c->adjacent = db_post_adjacent(c->db, c->post_id, c->created_at);
+        c->related = db_post_related_by_tags(c->db, c->post_id, 5);
+    }
+    return NULL;
+}
+
 void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     const char *slug = cwist_query_map_get(req->path_params, "slug");
     if (!slug) { redirect(res, "/"); return; }
@@ -513,11 +547,28 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     }
 
     int post_id = json_int(post, "id", 0);
+    int author_id = json_int(post, "user_id", 0);
+    cJSON *created_json = cJSON_GetObjectItem(post, "created_at");
+    const char *created_at = (cJSON_IsString(created_json)) ? created_json->valuestring : NULL;
+
+    /* Independent reads fan out to helper threads: each gets its own
+     * thread-local SQLite connection (fly_db_conn), so the per-post queries
+     * overlap instead of serializing on one connection. The post JSON is only
+     * mutated on the main thread after the joins. */
+    post_load_ctx pl = { .db = req->db, .post_id = post_id, .uid = uid,
+                         .author_id = author_id, .post_public = post_public,
+                         .created_at = created_at };
+    pthread_t t_media, t_votes, t_related;
+    bool ok_media = pthread_create(&t_media, NULL, pl_media_thread, &pl) == 0;
+    bool ok_votes = pthread_create(&t_votes, NULL, pl_votes_thread, &pl) == 0;
+    bool ok_related = pthread_create(&t_related, NULL, pl_related_thread, &pl) == 0;
+    if (!ok_media) pl_media_thread(&pl);
+    if (!ok_votes) pl_votes_thread(&pl);
+    if (!ok_related) pl_related_thread(&pl);
+
     /* HEAD requests are routed as GET (see global_middleware); they must not
-     * inflate the view count. */
+     * inflate the view count. Runs on the main thread while the reads fly. */
     if (post_id > 0 && post_public && !cwist_http_header_get(req->headers, "X-Fly-Head-Rewrite")) db_post_increment_view(req->db, post_id);
-    cJSON *files = db_file_list_by_post(req->db, post_id);
-    cJSON *comments = db_comment_list_by_target(req->db, "post", post_id);
     bool verified = false;
     cJSON *sig_json = cJSON_GetObjectItem(post, "pqc_signature");
     if (sig_json && sig_json->valuestring && sig_json->valuestring[0]) {
@@ -531,30 +582,33 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
             cwist_free(msg);
         }
     }
-    cJSON *vote_counts = db_post_vote_counts(req->db, post_id);
-    int vote_up = 0, vote_down = 0, user_vote = 0;
-    if (vote_counts) {
-        cJSON *vu = cJSON_GetObjectItem(vote_counts, "up");
-        cJSON *vd = cJSON_GetObjectItem(vote_counts, "down");
+    char *pp = get_profile_pic(req->db, uid, role);
+    int user_vote = 0;
+    if (uid > 0) user_vote = db_post_user_vote(req->db, post_id, uid);
+
+    if (ok_media) pthread_join(t_media, NULL);
+    if (ok_votes) pthread_join(t_votes, NULL);
+    if (ok_related) pthread_join(t_related, NULL);
+
+    cJSON *files = pl.files;
+    cJSON *comments = pl.comments;
+    int vote_up = 0, vote_down = 0;
+    if (pl.vote_counts) {
+        cJSON *vu = cJSON_GetObjectItem(pl.vote_counts, "up");
+        cJSON *vd = cJSON_GetObjectItem(pl.vote_counts, "down");
         if (vu && vu->type == cJSON_Number) vote_up = (int)vu->valuedouble;
         if (vd && vd->type == cJSON_Number) vote_down = (int)vd->valuedouble;
-        cJSON_Delete(vote_counts);
+        cJSON_Delete(pl.vote_counts);
     }
-    if (uid > 0) user_vote = db_post_user_vote(req->db, post_id, uid);
-    char *pp = get_profile_pic(req->db, uid, role);
-    int author_id = json_int(post, "user_id", 0);
     char *author_pp = NULL;
-    if (author_id > 0) {
-        cJSON *author_user = db_user_get_by_id(req->db, author_id);
-        if (author_user) {
-            cJSON *pic = cJSON_GetObjectItem(author_user, "profile_pic");
-            if (pic && pic->valuestring && pic->valuestring[0]) {
-                author_pp = strdup(pic->valuestring);
-            } else if (auth_is_site_admin(author_id)) {
-                author_pp = get_admin_logo();
-            }
-            cJSON_Delete(author_user);
+    if (pl.author_user) {
+        cJSON *pic = cJSON_GetObjectItem(pl.author_user, "profile_pic");
+        if (pic && pic->valuestring && pic->valuestring[0]) {
+            author_pp = strdup(pic->valuestring);
+        } else if (auth_is_site_admin(author_id)) {
+            author_pp = get_admin_logo();
         }
+        cJSON_Delete(pl.author_user);
     }
     attach_post_tags(req->db, post);
     {
@@ -573,11 +627,11 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
         }
     }
     if (post_public) {
-        cJSON *created = cJSON_GetObjectItem(post, "created_at");
-        cJSON_AddItemToObject(post, "adjacent",
-            db_post_adjacent(req->db, post_id, cJSON_IsString(created) ? created->valuestring : NULL));
-        cJSON *related = db_post_related_by_tags(req->db, post_id, 5);
-        if (related) cJSON_AddItemToObject(post, "related", related);
+        if (pl.adjacent) cJSON_AddItemToObject(post, "adjacent", pl.adjacent);
+        if (pl.related) cJSON_AddItemToObject(post, "related", pl.related);
+    } else {
+        if (pl.adjacent) cJSON_Delete(pl.adjacent);
+        if (pl.related) cJSON_Delete(pl.related);
     }
     const char *ephemeral_delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
     cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, author_pp, uid, ephemeral_delete_pin, mobile);
@@ -830,8 +884,11 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
 
     attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
 
-    /* New posts appear on home and board listings, so clear those caches. */
-    page_cache_invalidate_all();
+    /* New posts appear on home and board listings, so clear those caches.
+       The post's own page cannot be cached yet (brand-new slug), so the full
+       clear is unnecessary and would stall every reader behind one big
+       locked scan. */
+    page_cache_invalidate_listings();
 
     cwist_free(sl);
     cwist_free(created_slug);
@@ -1046,12 +1103,10 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
          * announced once through its claim flag. */
         if (public_now && was_public) fly_nats_publish_post(title, post_slug, summary ? summary : "");
         else if (public_now) post_schedule_announce(req->db);
+        /* invalidate_post covers the post page plus home/board/boards
+           listings; no full-cache clear needed. */
         page_cache_invalidate_post(post_slug);
     }
-    if (id_str) {
-        page_cache_invalidate_post(id_str);
-    }
-    page_cache_invalidate_all();
 
     reqshare_write_lock_release(wl_key);
     cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);

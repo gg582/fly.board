@@ -362,6 +362,10 @@ void db_view_counters_flush(void) {
         return;
     }
     db_configure_connection(conn);
+    /* One transaction for the whole batch: a single short WAL write-lock hold
+     * instead of per-row autocommit fsyncs, so concurrent writers only wait
+     * once (and briefly) per flush. */
+    sqlite3_exec(conn, "BEGIN IMMEDIATE", NULL, NULL, NULL);
     const char *sql = "UPDATE posts SET view_count = view_count + ? WHERE id=?";
     sqlite3_stmt *stmt = NULL;
     bool ok = sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) == SQLITE_OK;
@@ -375,6 +379,16 @@ void db_view_counters_flush(void) {
         else applied++;
     }
     if (stmt) sqlite3_finalize(stmt);
+    if (ok) {
+        char *err = NULL;
+        if (sqlite3_exec(conn, "COMMIT", NULL, NULL, &err) != SQLITE_OK) {
+            CWIST_LOG_WARN("View counters: flush commit failed: %s", err ? err : "unknown");
+            sqlite3_free(err);
+            ok = false;
+        }
+    } else {
+        sqlite3_exec(conn, "ROLLBACK", NULL, NULL, NULL);
+    }
     if (!ok) {
         CWIST_LOG_WARN("View counters: flush failed: %s", sqlite3_errmsg(conn));
         /* Return unapplied deltas so no count is lost on the next flush. */

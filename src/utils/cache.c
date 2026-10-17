@@ -368,6 +368,11 @@ void page_cache_invalidate_all(void) {
     page_cache_clear();
 }
 
+void page_cache_invalidate_listings(void) {
+    const char *prefixes[3] = {"home:", "board:", "boards:"};
+    page_cache_clear_prefixes(prefixes, 3);
+}
+
 size_t page_cache_total_bytes(void) {
     size_t total;
     pthread_mutex_lock(&g_mutex);
