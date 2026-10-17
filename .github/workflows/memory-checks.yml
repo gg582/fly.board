@@ -24,6 +24,9 @@ on:
 # code that needs newer cwist API.
 env:
   CWIST_REF: v4
+  # Bump when the post-clone cwist patch set (seds below) changes: the
+  # cache key must not reuse an /usr/local built with the old patches.
+  CWIST_PATCH: 1
 
 concurrency:
   group: memory-checks-${{ github.ref }}
@@ -66,7 +69,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /usr/local
-          key: cwist-${{ env.CWIST_REF }}-${{ runner.os }}-${{ steps.cpu.outputs.model }}
+          key: cwist-${{ env.CWIST_REF }}-p${{ env.CWIST_PATCH }}-${{ runner.os }}-${{ steps.cpu.outputs.model }}
         id: cwist-cache
 
       - name: Build and install cwist
@@ -156,7 +159,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /usr/local
-          key: cwist-${{ env.CWIST_REF }}-${{ runner.os }}-${{ steps.cpu.outputs.model }}
+          key: cwist-${{ env.CWIST_REF }}-p${{ env.CWIST_PATCH }}-${{ runner.os }}-${{ steps.cpu.outputs.model }}
         id: cwist-cache
 
       - name: Build and install cwist
