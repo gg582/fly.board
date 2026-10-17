@@ -1,6 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 #include "cwist/board_tree.h"
+#include "../db/db_internal.h"
+#include <pthread.h>
+#include <stdlib.h>
 
 static int board_depth(int board_id, cJSON *tree) {
     int depth = 0;
@@ -131,11 +134,9 @@ void handler_board_new_get(cwist_http_request *req, cwist_http_response *res) {
     free(pp);
 }
 
-/* Language and translation pairing from the board form. */
-static void apply_board_lang(cwist_db *db, int bid, cwist_query_map *kv) {
+/* Language and translation pairing from raw form values. */
+static void apply_board_lang_strings(cwist_db *db, int bid, const char *lang, const char *pair) {
     if (bid <= 0) return;
-    const char *lang = cwist_query_map_get(kv, "lang");
-    const char *pair = cwist_query_map_get(kv, "translation_of");
     if (lang && !i18n_lang_valid(lang)) lang = NULL;
     int pair_id = pair ? atoi(pair) : 0;
     if (pair_id > 0) {
@@ -145,6 +146,12 @@ static void apply_board_lang(cwist_db *db, int bid, cwist_query_map *kv) {
     } else {
         db_i18n_set(db, "board", bid, lang, pair ? -1 : 0);
     }
+}
+
+/* Language and translation pairing from the board form (edit handler). */
+static void apply_board_lang(cwist_db *db, int bid, cwist_query_map *kv) {
+    apply_board_lang_strings(db, bid, cwist_query_map_get(kv, "lang"),
+                             cwist_query_map_get(kv, "translation_of"));
 }
 
 /* "lang" and "translation_of" on a board, for the edit form. */
@@ -157,6 +164,63 @@ static void attach_board_lang(cwist_db *db, cJSON *board) {
     cJSON *sib = db_i18n_siblings(db, "board", bid, false);
     cJSON_AddNumberToObject(board, "translation_of", cJSON_GetArraySize(sib) > 0 ? json_int(cJSON_GetArrayItem(sib, 0), "id", 0) : 0);
     if (sib) cJSON_Delete(sib);
+}
+
+/* Fire-and-forget continuation of board creation. The HTTP response (a
+ * redirect) no longer waits for the INSERT plus tree/i18n/cache follow-up,
+ * so a slow or contended database write cannot stall the request path. Runs
+ * detached with its own short-lived cwist_db handle: fly_db_conn() and
+ * board_tree_db_conn() open per-thread connections, so nothing here touches
+ * request memory after the handler returns. */
+typedef struct {
+    char db_path[512];
+    char *name;
+    char *slug;
+    char *desc;
+    bool admin_only;
+    int parent_id;
+    char *lang; /* NULL when absent */
+    char *pair; /* NULL when absent */
+} board_create_job;
+
+static void board_create_job_free(board_create_job *j) {
+    if (!j) return;
+    free(j->name);
+    free(j->slug);
+    free(j->desc);
+    free(j->lang);
+    free(j->pair);
+    free(j);
+}
+
+static void *board_create_bg_thread(void *arg) {
+    board_create_job *j = arg;
+    cwist_db local = {0};
+    if (sqlite3_open(j->db_path, &local.conn) != SQLITE_OK) {
+        sqlite3_close(local.conn);
+        CWIST_LOG_ERROR("Async board creation: cannot open %s", j->db_path);
+        board_create_job_free(j);
+        return NULL;
+    }
+    bool ok = db_board_create(&local, j->name, j->slug, j->desc, j->admin_only, 0, 0, 0);
+    if (ok) {
+        cJSON *created = db_board_get_by_slug(&local, j->slug);
+        if (created) {
+            int bid = json_int(created, "id", 0);
+            if (bid > 0) {
+                db_board_tree_set_parent(bid, j->parent_id > 0 ? j->parent_id : 0);
+                apply_board_lang_strings(&local, bid, j->lang, j->pair);
+            }
+            cJSON_Delete(created);
+        }
+        CWIST_LOG_INFO("Board created (async): name='%s' slug='%s'", j->name, j->slug);
+        page_cache_invalidate_board(j->slug);
+    } else {
+        CWIST_LOG_ERROR("Async board creation failed: name='%s' slug='%s'", j->name, j->slug);
+    }
+    sqlite3_close(local.conn);
+    board_create_job_free(j);
+    return NULL;
 }
 
 void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
@@ -215,23 +279,50 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     bool is_admin = (role[0] && strcmp(role, "admin") == 0);
-    if (db_board_create(req->db, name, slug, desc ? desc : "", is_admin && (ao != NULL), 0, 0, 0)) {
-        cJSON *created = db_board_get_by_slug(req->db, slug);
-        if (created) {
-            int bid = json_int(created, "id", 0);
-            int parent_id = parent_id_str ? atoi(parent_id_str) : 0;
-            if (bid > 0 && parent_id > 0) {
-                db_board_tree_set_parent(bid, parent_id);
-            } else if (bid > 0) {
-                db_board_tree_set_parent(bid, 0);
-            }
-            apply_board_lang(req->db, bid, kv);
-            cJSON_Delete(created);
+    /* Queue the create (+ tree/i18n/cache follow-up) on a detached thread and
+     * answer with the redirect immediately; only fall back to the inline path
+     * when the job cannot be spawned. The board shows up on /boards a moment
+     * after the redirect; a background failure is logged, not shown. */
+    board_create_job *job = calloc(1, sizeof(*job));
+    bool queued = false;
+    if (job) {
+        const char *db_path = sqlite3_db_filename(fly_db_conn(req->db), "main");
+        snprintf(job->db_path, sizeof(job->db_path), "%s", db_path ? db_path : "data/blog.db");
+        job->name = strdup(name);
+        job->slug = strdup(slug);
+        job->desc = strdup(desc ? desc : "");
+        job->admin_only = is_admin && (ao != NULL);
+        job->parent_id = parent_id_str ? atoi(parent_id_str) : 0;
+        const char *lang = cwist_query_map_get(kv, "lang");
+        const char *pair = cwist_query_map_get(kv, "translation_of");
+        job->lang = (lang && lang[0]) ? strdup(lang) : NULL;
+        job->pair = (pair && pair[0]) ? strdup(pair) : NULL;
+        pthread_t t;
+        if (job->name && job->slug && job->desc &&
+            pthread_create(&t, NULL, board_create_bg_thread, job) == 0) {
+            pthread_detach(t);
+            queued = true;
+        } else {
+            board_create_job_free(job);
         }
-        CWIST_LOG_INFO("Board created: name='%s' slug='%s'", name, slug);
-        page_cache_invalidate_board(slug);
-    } else {
-        CWIST_LOG_ERROR("Board creation failed: name='%s' slug='%s'", name, slug);
+    }
+    if (!queued) {
+        if (db_board_create(req->db, name, slug, desc ? desc : "", is_admin && (ao != NULL), 0, 0, 0)) {
+            cJSON *created = db_board_get_by_slug(req->db, slug);
+            if (created) {
+                int bid = json_int(created, "id", 0);
+                int parent_id = parent_id_str ? atoi(parent_id_str) : 0;
+                if (bid > 0) db_board_tree_set_parent(bid, parent_id > 0 ? parent_id : 0);
+                const char *lang = cwist_query_map_get(kv, "lang");
+                const char *pair = cwist_query_map_get(kv, "translation_of");
+                apply_board_lang_strings(req->db, bid, lang, pair);
+                cJSON_Delete(created);
+            }
+            CWIST_LOG_INFO("Board created: name='%s' slug='%s'", name, slug);
+            page_cache_invalidate_board(slug);
+        } else {
+            CWIST_LOG_ERROR("Board creation failed: name='%s' slug='%s'", name, slug);
+        }
     }
     cwist_query_map_destroy(kv);
     const char *referer = cwist_http_header_get(req->headers, "Referer");
