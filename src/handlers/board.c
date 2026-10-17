@@ -160,6 +160,7 @@ static void attach_board_lang(cwist_db *db, cJSON *board) {
 }
 
 void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
+    CWIST_LOG_ERROR("boardnew enter method=%s path=%s", req->method ? req->method->data : "?", req->path ? req->path->data : "?");
     int uid = 0; char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
@@ -215,7 +216,12 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     bool is_admin = (role[0] && strcmp(role, "admin") == 0);
+    /* TEMP diagnostic: stage timing for board-creation stalls (ERROR level is
+       always emitted, so this is visible in journald without enabling DEBUG). */
+    struct timespec bt0, bt1; long bt_auth = 0, bt_create = -1, bt_tree = -1, bt_lang = -1, bt_inval = -1;
+    clock_gettime(CLOCK_MONOTONIC, &bt0);
     if (db_board_create(req->db, name, slug, desc ? desc : "", is_admin && (ao != NULL), 0, 0, 0)) {
+        clock_gettime(CLOCK_MONOTONIC, &bt1); bt_create = (bt1.tv_sec - bt0.tv_sec) * 1000L + (bt1.tv_nsec - bt0.tv_nsec) / 1000000L;
         cJSON *created = db_board_get_by_slug(req->db, slug);
         if (created) {
             int bid = json_int(created, "id", 0);
@@ -225,14 +231,19 @@ void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
             } else if (bid > 0) {
                 db_board_tree_set_parent(bid, 0);
             }
+            clock_gettime(CLOCK_MONOTONIC, &bt1); bt_tree = (bt1.tv_sec - bt0.tv_sec) * 1000L + (bt1.tv_nsec - bt0.tv_nsec) / 1000000L;
             apply_board_lang(req->db, bid, kv);
+            clock_gettime(CLOCK_MONOTONIC, &bt1); bt_lang = (bt1.tv_sec - bt0.tv_sec) * 1000L + (bt1.tv_nsec - bt0.tv_nsec) / 1000000L;
             cJSON_Delete(created);
         }
         CWIST_LOG_INFO("Board created: name='%s' slug='%s'", name, slug);
         page_cache_invalidate_board(slug);
+        clock_gettime(CLOCK_MONOTONIC, &bt1); bt_inval = (bt1.tv_sec - bt0.tv_sec) * 1000L + (bt1.tv_nsec - bt0.tv_nsec) / 1000000L;
     } else {
         CWIST_LOG_ERROR("Board creation failed: name='%s' slug='%s'", name, slug);
     }
+    CWIST_LOG_ERROR("boardnew timing: create=%ldms tree=%ldms lang=%ldms inval=%ldms slug='%s'",
+                    bt_create, bt_tree, bt_lang, bt_inval, slug);
     cwist_query_map_destroy(kv);
     const char *referer = cwist_http_header_get(req->headers, "Referer");
     redirect_referer_safe(res, referer, "/boards");
