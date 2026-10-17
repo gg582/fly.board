@@ -13,7 +13,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/file.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -309,6 +311,15 @@ bool backup_spawn(void) {
     if (pid == 0) {
         if (fork() != 0) _exit(0);
         setsid();
+        /* The archive step snapshots and zstd-compresses every database and
+         * upload directory; on single-core boxes that saturated the CPU and
+         * stalled request serving for minutes. Run it at low CPU priority and
+         * in the idle I/O class so the blog always comes first. */
+        setpriority(PRIO_PROCESS, 0, 10);
+#ifdef SYS_ioprio_set
+        const int ioprio_idle = (3 << 13); /* IOPRIO_CLASS_IDLE, best-effort 0 */
+        syscall(SYS_ioprio_set, 1 /* IOPRIO_WHO_PROCESS */, 0, ioprio_idle);
+#endif
         int devnull = open("/dev/null", O_RDWR);
         if (devnull >= 0) { dup2(devnull, STDIN_FILENO); close(devnull); }
         /* Drop every inherited descriptor but stdio: a listening socket

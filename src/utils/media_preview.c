@@ -69,7 +69,9 @@ static void ffmpeg_sem_init(void) {
 static bool run_ffmpeg(const char *cmd) {
     pthread_once(&g_ffmpeg_sem_once, ffmpeg_sem_init);
     char timeout_cmd[8192];
-    snprintf(timeout_cmd, sizeof(timeout_cmd), "timeout 15 %s", cmd);
+    /* nice keeps a transcode from monopolizing a small box's CPU while
+     * request workers are runnable. */
+    snprintf(timeout_cmd, sizeof(timeout_cmd), "timeout 15 nice -n 10 %s", cmd);
     sem_wait(&g_ffmpeg_sem);
     FILE *fp = popen(timeout_cmd, "r");
     if (!fp) {
