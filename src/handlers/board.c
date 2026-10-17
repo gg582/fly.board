@@ -160,7 +160,7 @@ static void attach_board_lang(cwist_db *db, cJSON *board) {
 }
 
 void handler_board_new_post(cwist_http_request *req, cwist_http_response *res) {
-    CWIST_LOG_ERROR("boardnew enter method=%s path=%s", req->method ? req->method->data : "?", req->path ? req->path->data : "?");
+    CWIST_LOG_ERROR("boardnew enter");
     int uid = 0; char role[32] = {0};
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
