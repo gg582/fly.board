@@ -86,6 +86,11 @@ jobs:
           # -Wunused-but-set-variable in its netinet/ sources, breaking fresh
           # CI builds. The vendored dep does not need warnings-as-errors.
           sed -i 's|option(sctp_werror "Treat warning as error" 1)|option(sctp_werror "Treat warning as error" 0)|' lib/usrsctp/CMakeLists.txt
+          # fly.board needs SQLite FTS5 (posts_fts full-text search); cwist's
+          # bundled sqlite3 amalgamation is built without SQLITE_ENABLE_FTS5,
+          # which fails any fresh-database schema init with "no such module:
+          # fts5".
+          sed -i 's|-DSQLITE_ENABLE_DESERIALIZE|-DSQLITE_ENABLE_DESERIALIZE -DSQLITE_ENABLE_FTS5|' Makefile
           make -j"$(nproc)"
           make install
           rm -rf /tmp/cwist
@@ -171,6 +176,11 @@ jobs:
           # -Wunused-but-set-variable in its netinet/ sources, breaking fresh
           # CI builds. The vendored dep does not need warnings-as-errors.
           sed -i 's|option(sctp_werror "Treat warning as error" 1)|option(sctp_werror "Treat warning as error" 0)|' lib/usrsctp/CMakeLists.txt
+          # fly.board needs SQLite FTS5 (posts_fts full-text search); cwist's
+          # bundled sqlite3 amalgamation is built without SQLITE_ENABLE_FTS5,
+          # which fails any fresh-database schema init with "no such module:
+          # fts5".
+          sed -i 's|-DSQLITE_ENABLE_DESERIALIZE|-DSQLITE_ENABLE_DESERIALIZE -DSQLITE_ENABLE_FTS5|' Makefile
           make -j"$(nproc)"
           make install
           rm -rf /tmp/cwist
