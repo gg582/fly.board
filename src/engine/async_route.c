@@ -43,8 +43,6 @@ typedef struct fly_async_job {
     struct fly_async_job *next;
 } fly_async_job;
 
-#define ASYNC_QUEUE_MAX 8192
-
 static cwist_middleware_func g_compress = NULL;
 static engine_async_hit_func g_hit_hook = NULL;
 static cwist_db *g_db = NULL;
@@ -121,6 +119,27 @@ static void log_if_slow(int64_t started_ms, cwist_http_request *req, cwist_http_
                    mode, method_name(req), req->path ? req->path->data : "?",
                    res ? res->status_code : 0, (long long)elapsed);
 }
+
+/* Backlog cap for the defer queue. Deep queues only delay the inevitable:
+ * once the backlog outruns the workers' sustainable rate, latency explodes
+ * while the site still looks "up". Beyond the cap (with workers alive) new
+ * requests are rejected with 503 + Retry-After instead of falling back to
+ * inline execution on the reactor thread, which would stall every
+ * connection that thread multiplexes. */
+static size_t queue_max(void) {
+    static size_t cached = 0;
+    if (cached == 0) {
+        const char *v = getenv("FLY_ASYNC_QUEUE_MAX");
+        long parsed = (v && v[0]) ? strtol(v, NULL, 10) : 0;
+        size_t want = worker_count() * 16;
+        if (want < 64) want = 64;
+        if (want > 8192) want = 8192;
+        if (parsed >= 64 && parsed <= 65536) want = (size_t)parsed;
+        cached = want;
+    }
+    return cached;
+}
+
 
 static void noop_next(cwist_http_request *req, cwist_http_response *res) {
     (void)req;
@@ -220,11 +239,28 @@ static bool ensure_workers_locked(void) {
     return true;
 }
 
-static bool queue_has_room(void) {
+typedef enum { QUEUE_OK, QUEUE_NO_WORKERS, QUEUE_FULL } queue_state_t;
+
+static queue_state_t queue_state(void) {
     pthread_mutex_lock(&g_queue_mtx);
-    bool ok = ensure_workers_locked() && g_queue_len < ASYNC_QUEUE_MAX;
+    queue_state_t st;
+    if (!ensure_workers_locked()) st = QUEUE_NO_WORKERS;
+    else if (g_queue_len >= queue_max()) st = QUEUE_FULL;
+    else st = QUEUE_OK;
     pthread_mutex_unlock(&g_queue_mtx);
-    return ok;
+    return st;
+}
+
+/* Reject instead of blocking: a full defer queue means the workers are
+ * outrun; running the handler inline here would run it on the reactor
+ * thread and stall every connection that thread multiplexes. */
+static void respond_busy(cwist_http_request *req, cwist_http_response *res, const char *why) {
+    res->status_code = CWIST_HTTP_SERVICE_UNAVAILABLE;
+    cwist_sstring_assign(res->status_text, "Server busy");
+    cwist_http_header_add(&res->headers, "Retry-After", "5");
+    cwist_sstring_assign(res->body, "The server is momentarily overloaded; retry in a few seconds.");
+    CWIST_LOG_WARN("async defer unavailable (%s): %s %s", why, method_name(req),
+                   req->path ? req->path->data : "?");
 }
 
 static bool enqueue(fly_async_job *job) {
@@ -256,25 +292,43 @@ static bool can_defer(cwist_http_request *req) {
 static void async_trampoline(void *ctx, cwist_http_request *req, cwist_http_response *res) {
     const fly_async_route *route = (const fly_async_route *)ctx;
     t_route_cacheable = route->cacheable;
-    if (!t_in_gate || t_pending || !can_defer(req) || !queue_has_room()) {
+    if (!t_in_gate || t_pending) {
         int64_t t0 = now_ms();
         route->handler(req, res);
         log_if_slow(t0, req, res, "inline");
         return;
     }
-    fly_async_job *job = calloc(1, sizeof(*job));
-    if (!job) {
+    /* HTTP/3 and in-memory dispatch have no deferred completion path: the
+     * handler can only run on this thread (the slow-request log flags it
+     * when such a run blocks). */
+    if (!can_defer(req)) {
         int64_t t0 = now_ms();
         route->handler(req, res);
         log_if_slow(t0, req, res, "inline");
+        return;
+    }
+    queue_state_t qs = queue_state();
+    if (qs == QUEUE_NO_WORKERS) {
+        /* Worker threads could not start at all: keep serving inline
+         * (degraded) rather than hard-down every route. */
+        int64_t t0 = now_ms();
+        route->handler(req, res);
+        log_if_slow(t0, req, res, "inline");
+        return;
+    }
+    if (qs == QUEUE_FULL) {
+        respond_busy(req, res, "queue full");
+        return;
+    }
+    fly_async_job *job = calloc(1, sizeof(*job));
+    if (!job) {
+        respond_busy(req, res, "allocation failed");
         return;
     }
     job->a = cwist_async_defer(req, res);
     if (!job->a) {
         free(job);
-        int64_t t0 = now_ms();
-        route->handler(req, res);
-        log_if_slow(t0, req, res, "inline");
+        respond_busy(req, res, "defer failed");
         return;
     }
     job->req = req;
@@ -325,7 +379,8 @@ static void async_gate(cwist_http_request *req, cwist_http_response *res, cwist_
         /* The route ran inline. */
         log_if_slow(gate_start, req, res, "inline");
         if (req->method == CWIST_HTTP_POST) engine_bdr_bump();
-        else if (keyed && t_route_cacheable) engine_bdr_store(req, res, key, t_bdr_version);
+        else if (keyed && t_route_cacheable && res->status_code < 500)
+            engine_bdr_store(req, res, key, t_bdr_version);
         return;
     }
     /* Workers vanished between the room check and now: finish inline.
