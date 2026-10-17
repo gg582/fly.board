@@ -9,7 +9,7 @@ under `public/`.
 
 | Dependency | Used for | Detection |
 |---|---|---|
-| **CWIST v3.9** | HTTP server core: TLS 1.3, HTTP/2, HTTP/3 (QUIC), BoringSSL, event-driven C1M reactor | `CWIST_ROOT` (source tree) or `CWIST_PREFIX` (installed prefix); see below |
+| **CWIST v4** | HTTP server core: TLS 1.3, HTTP/2, HTTP/3 (QUIC), BoringSSL, event-driven C1M reactor | `CWIST_ROOT` (source tree) or `CWIST_PREFIX` (installed prefix); see below |
 | gcc or clang, GNU make | build | `CC` / make |
 | pkg-config | locates system libraries | required at build time |
 | OpenSSL 3.x | Argon2id KDF, AES-GCM backup sealing, SHA-512 | `pkg-config openssl`, fallback `-lssl -lcrypto` |

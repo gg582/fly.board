@@ -23,7 +23,7 @@ on:
 # fly.board builds against this cwist release; bump it together with any
 # code that needs newer cwist API.
 env:
-  CWIST_REF: v3.7.1
+  CWIST_REF: v4
 
 concurrency:
   group: memory-checks-${{ github.ref }}
