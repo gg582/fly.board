@@ -205,6 +205,10 @@ cJSON *db_user_list(cwist_db *db) {
 }
 
 bool db_user_delete_with_cascade(cwist_db *db, int id, bool delete_replies) {
+    /* All tables with a foreign key into users.id (PRAGMA foreign_keys=ON on
+     * every connection). Deleting a user that still owns a row in any of them
+     * fails with SQLITE_CONSTRAINT and the account silently survives, so
+     * every referrer must be cleared first. */
     if (delete_replies) {
         const char *sql = "DELETE FROM comments WHERE user_id=? OR parent_id IN (SELECT id FROM comments WHERE user_id=?)";
         sqlite3_stmt *stmt = NULL;
@@ -223,19 +227,17 @@ bool db_user_delete_with_cascade(cwist_db *db, int id, bool delete_replies) {
             sqlite3_finalize(stmt);
         }
     }
-    {
-        const char *sql = "DELETE FROM posts WHERE user_id=?";
+    static const char *const purge_sql[] = {
+        "DELETE FROM posts WHERE user_id=?",
+        "DELETE FROM files WHERE user_id=?",
+        "DELETE FROM post_votes WHERE user_id=?",
+        "DELETE FROM email_tokens WHERE user_id=?",
+        "DELETE FROM emails WHERE owner_id=?",
+        "DELETE FROM board_permissions WHERE user_id=?",
+    };
+    for (size_t i = 0; i < sizeof(purge_sql) / sizeof(purge_sql[0]); i++) {
         sqlite3_stmt *stmt = NULL;
-        if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) == SQLITE_OK) {
-            sqlite3_bind_int(stmt, 1, id);
-            sqlite3_step(stmt);
-            sqlite3_finalize(stmt);
-        }
-    }
-    {
-        const char *sql = "DELETE FROM files WHERE user_id=?";
-        sqlite3_stmt *stmt = NULL;
-        if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) == SQLITE_OK) {
+        if (sqlite3_prepare_v2(fly_db_conn(db), purge_sql[i], -1, &stmt, NULL) == SQLITE_OK) {
             sqlite3_bind_int(stmt, 1, id);
             sqlite3_step(stmt);
             sqlite3_finalize(stmt);
@@ -247,6 +249,8 @@ bool db_user_delete_with_cascade(cwist_db *db, int id, bool delete_replies) {
         if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
         sqlite3_bind_int(stmt, 1, id);
         int rc = sqlite3_step(stmt);
+        if (rc != SQLITE_DONE)
+            CWIST_LOG_ERROR("user delete failed id=%d: %s", id, sqlite3_errmsg(fly_db_conn(db)));
         sqlite3_finalize(stmt);
         return rc == SQLITE_DONE;
     }

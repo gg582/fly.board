@@ -399,8 +399,10 @@ void handler_unregister_post(cwist_http_request *req, cwist_http_response *res) 
         } else if (target > 0 && (target == uid || strcmp(role, "admin") == 0)) {
             const char *cascade = cwist_query_map_get(kv, "cascade");
             bool cascade_del = cascade && atoi(cascade) == 1;
-            db_user_delete_with_cascade(req->db, target, cascade_del);
-            CWIST_LOG_INFO("User unregistered: target_uid=%d by_uid=%d cascade=%d", target, uid, cascade_del);
+            if (!db_user_delete_with_cascade(req->db, target, cascade_del))
+                CWIST_LOG_ERROR("User unregister failed: target_uid=%d by_uid=%d", target, uid);
+            else
+                CWIST_LOG_INFO("User unregistered: target_uid=%d by_uid=%d cascade=%d", target, uid, cascade_del);
             page_cache_invalidate_all();
             if (target == uid) {
                 handler_logout(req, res);
