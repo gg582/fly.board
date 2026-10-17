@@ -40,7 +40,10 @@ void cwist_log_init(void) {
     if (env && (env[0] == '1' || strcmp(env, "true") == 0 || strcmp(env, "yes") == 0)) {
         g_cwist_log_level = CWIST_LOG_LEVEL_DEBUG;
     } else {
-        g_cwist_log_level = CWIST_LOG_LEVEL_ERROR;
+        /* WARN, not ERROR: warnings in this codebase are genuine anomalies
+         * (FlyWire fetch failures, slow requests, journal write errors) that
+         * must be visible in production logs; routine traffic stays silent. */
+        g_cwist_log_level = CWIST_LOG_LEVEL_WARN;
     }
 #endif
 }

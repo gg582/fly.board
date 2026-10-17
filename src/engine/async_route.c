@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 /* Every route handler runs on a request worker instead of the thread that
@@ -37,6 +38,8 @@ typedef struct fly_async_job {
     bool store;         /* Seed the route BDR with the finished reply. */
     uint64_t version;   /* BDR content version read before the route ran. */
     char key[ENGINE_BDR_KEY_MAX];
+    int64_t created_ms; /* When the deferred job was created (queue wait). */
+    int queue_depth;    /* Backlog length when the job was enqueued. */
     struct fly_async_job *next;
 } fly_async_job;
 
@@ -75,6 +78,50 @@ static size_t worker_count(void) {
     return 16;
 }
 
+/* Slow-request observability: any stage (queue wait, worker run, inline
+ * fallback) exceeding FLY_SLOW_REQUEST_MS (default 2000, <=0 disables) is
+ * logged with a per-stage breakdown so a stall can be attributed to
+ * backlog pressure, a slow handler/DB, or the inline fallback that runs
+ * routes on the reactor thread. */
+static int slow_threshold_ms(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *v = getenv("FLY_SLOW_REQUEST_MS");
+        long parsed = (v && v[0]) ? strtol(v, NULL, 10) : 2000;
+        cached = (parsed > 0 && parsed <= 3600000) ? (int)parsed : (parsed <= 0 ? 0 : 3600000);
+    }
+    return cached;
+}
+
+static int64_t now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static const char *method_name(const cwist_http_request *req) {
+    switch (req->method) {
+        case CWIST_HTTP_GET: return "GET";
+        case CWIST_HTTP_POST: return "POST";
+        case CWIST_HTTP_PUT: return "PUT";
+        case CWIST_HTTP_DELETE: return "DELETE";
+        case CWIST_HTTP_PATCH: return "PATCH";
+        case CWIST_HTTP_HEAD: return "HEAD";
+        case CWIST_HTTP_OPTIONS: return "OPTIONS";
+        default: return "?";
+    }
+}
+
+static void log_if_slow(int64_t started_ms, cwist_http_request *req, cwist_http_response *res,
+                        const char *mode) {
+    int threshold = slow_threshold_ms();
+    int64_t elapsed = now_ms() - started_ms;
+    if (threshold <= 0 || elapsed < threshold || !req) return;
+    CWIST_LOG_WARN("slow request (%s): %s %s status=%d total=%lldms",
+                   mode, method_name(req), req->path ? req->path->data : "?",
+                   res ? res->status_code : 0, (long long)elapsed);
+}
+
 static void noop_next(cwist_http_request *req, cwist_http_response *res) {
     (void)req;
     (void)res;
@@ -93,7 +140,9 @@ static void run_job(fly_async_job *job) {
      * the compress step below clears for a moment) and may send and free
      * it. Touch nothing before the ack. Inline runs (the gate's fallback)
      * are on the dispatch thread and do not wait. */
+    int64_t start = now_ms();
     cwist_async_wait_dispatched(job->a);
+    int64_t after_wait = now_ms();
     job->handler(job->req, job->res);
     /* Bump only after the write landed, so no reader re-caches old data
      * under the new version. */
@@ -111,6 +160,19 @@ static void run_job(fly_async_job *job) {
     if (job->store) engine_bdr_store(job->req, job->res, job->key, job->version);
     if (!cwist_async_respond_with(job->a, job->res)) {
         FLY_LOG_ERROR("deferred response lost to another completion");
+    }
+    int threshold = slow_threshold_ms();
+    int64_t total = now_ms();
+    if (threshold > 0 && total - job->created_ms >= threshold) {
+        CWIST_LOG_WARN("slow request (deferred): %s %s status=%d total=%lldms "
+                       "(queue=%lldms run=%lldms depth=%d)",
+                       method_name(job->req),
+                       job->req->path ? job->req->path->data : "?",
+                       job->res->status_code,
+                       (long long)(total - job->created_ms),
+                       (long long)(start - job->created_ms),
+                       (long long)(total - after_wait),
+                       job->queue_depth);
     }
     /* request_worker threads never exit; sweep this job's tracked leaks now
      * instead of letting them pile up on the thread's pending-sweep list. */
@@ -174,6 +236,7 @@ static bool enqueue(fly_async_job *job) {
         else g_queue_head = job;
         g_queue_tail = job;
         g_queue_len++;
+        job->queue_depth = (int)g_queue_len;
         pthread_cond_signal(&g_queue_cond);
     }
     pthread_mutex_unlock(&g_queue_mtx);
@@ -194,23 +257,30 @@ static void async_trampoline(void *ctx, cwist_http_request *req, cwist_http_resp
     const fly_async_route *route = (const fly_async_route *)ctx;
     t_route_cacheable = route->cacheable;
     if (!t_in_gate || t_pending || !can_defer(req) || !queue_has_room()) {
+        int64_t t0 = now_ms();
         route->handler(req, res);
+        log_if_slow(t0, req, res, "inline");
         return;
     }
     fly_async_job *job = calloc(1, sizeof(*job));
     if (!job) {
+        int64_t t0 = now_ms();
         route->handler(req, res);
+        log_if_slow(t0, req, res, "inline");
         return;
     }
     job->a = cwist_async_defer(req, res);
     if (!job->a) {
         free(job);
+        int64_t t0 = now_ms();
         route->handler(req, res);
+        log_if_slow(t0, req, res, "inline");
         return;
     }
     job->req = req;
     job->res = res;
     job->handler = route->handler;
+    job->created_ms = now_ms();
     job->mutating = req->method == CWIST_HTTP_POST;
     if (route->cacheable && t_bdr_key) {
         job->store = true;
@@ -245,6 +315,7 @@ static void async_gate(cwist_http_request *req, cwist_http_response *res, cwist_
     t_bdr_key = keyed ? key : NULL;
     t_bdr_version = keyed ? engine_bdr_version() : 0;
     t_route_cacheable = false;
+    int64_t gate_start = now_ms();
     next(req, res);
     t_in_gate = false;
     t_bdr_key = NULL;
@@ -252,6 +323,7 @@ static void async_gate(cwist_http_request *req, cwist_http_response *res, cwist_
     t_pending = NULL;
     if (!job) {
         /* The route ran inline. */
+        log_if_slow(gate_start, req, res, "inline");
         if (req->method == CWIST_HTTP_POST) engine_bdr_bump();
         else if (keyed && t_route_cacheable) engine_bdr_store(req, res, key, t_bdr_version);
         return;
