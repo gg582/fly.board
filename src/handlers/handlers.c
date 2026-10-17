@@ -535,8 +535,16 @@ void global_middleware_finish(cwist_http_request *req, cwist_http_response *res)
                              (strncmp(path2, "/assets/uploads/", 16) == 0) ||
                              (strncmp(path2, "/assets/profile/", 16) == 0);
         if (!is_image_path) {
+            /* Only treat the request as an image fetch when an image is the
+               preferred response type. Browser page navigations send Accept
+               headers that list image/avif,image/webp after text/html; a 404
+               on such a navigation must stay a normal HTML error page, not
+               silently become a 1x1 transparent PNG (a white dot in the tab). */
             const char *accept = cwist_http_header_get(req->headers, "Accept");
-            is_image_path = accept && strstr(accept, "image/") != NULL;
+            if (accept) {
+                while (*accept == ' ' || *accept == '\t') accept++;
+                is_image_path = strncmp(accept, "image/", 6) == 0;
+            }
         }
         if (is_image_path) {
             static const unsigned char empty_png[67] = {
