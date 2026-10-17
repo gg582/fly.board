@@ -1172,11 +1172,18 @@ bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res) {
     flywire_proxy_ctx ctx = { .body = res->body };
     cwist_sstring_assign(res->body, "");
 
-    CURL *curl = curl_easy_init();
+    /* Thread-local easy handle: curl_easy_reset keeps the connection cache
+     * (and TLS session) alive, so repeated writes to the primary skip the
+     * ~0.3s handshake and pay one request RTT instead. Handles never escape
+     * their worker thread, so no locking is needed. */
+    static __thread CURL *t_curl = NULL;
+    if (!t_curl) t_curl = curl_easy_init();
+    CURL *curl = t_curl;
     if (!curl) {
         curl_slist_free_all(headers);
         return false;
     }
+    curl_easy_reset(curl);
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -1198,7 +1205,10 @@ bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res) {
     if (rc == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     if (rc != CURLE_OK || status <= 0) {
         CWIST_LOG_WARN("flywire: write proxy to %s %s failed: %s", method, url, curl_easy_strerror(rc));
+        /* A handle that hit a transport error may hold a stale connection;
+         * drop it so the next call starts clean. */
         curl_easy_cleanup(curl);
+        t_curl = NULL;
         curl_slist_free_all(headers);
         return false;
     }
@@ -1213,7 +1223,7 @@ bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res) {
         prev = h;
     }
     CWIST_LOG_INFO("flywire: proxied %s %s -> %ld (%zu bytes)", method, path, status, res->body->size);
-    curl_easy_cleanup(curl);
+    /* Keep t_curl (and its warm connection cache) for the next write. */
     curl_slist_free_all(headers);
     return true;
 }

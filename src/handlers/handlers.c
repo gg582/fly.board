@@ -460,9 +460,19 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
     /* FlyWire replica mode: writes are transparently forwarded to the
      * primary (write-through proxy) so the replica behaves like the main
      * site behind a shared hostname. Local flywire endpoints stay on the
-     * replica. When the primary cannot be reached, fall back to 503. */
+     * replica. When the primary cannot be reached, fall back to 503.
+     *
+     * A few legacy mutations are GET routes (/post/delete/:id and friends):
+     * they must be proxied too, otherwise the delete lands on the replica's
+     * copy, never reaches the primary, and the next sync re-applies the row
+     * from the primary's journal — the deletion silently "does not work". */
+    bool mutating_get = (strncmp(path, "/post/delete/", 13) == 0 ||
+                         strncmp(path, "/board/", 7) == 0) && strstr(path, "/delete") != NULL;
+    if (!mutating_get && strncmp(path, "/comment/", 9) == 0 && strstr(path, "/delete") != NULL)
+        mutating_get = true;
     if (flywire_is_replica() &&
-        req->method != CWIST_HTTP_GET && req->method != CWIST_HTTP_HEAD &&
+        (req->method != CWIST_HTTP_GET || mutating_get) &&
+        req->method != CWIST_HTTP_HEAD &&
         strncmp(path, "/flywire/", 9) != 0) {
         if (!flywire_proxy_write(req, res)) {
             res->status_code = CWIST_HTTP_SERVICE_UNAVAILABLE;
