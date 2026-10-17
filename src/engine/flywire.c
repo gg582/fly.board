@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "engine/bdr.h"
 #include "engine/flywire.h"
 #include "engine/forkgate.h"
 #include "auth/auth.h"
@@ -932,6 +933,12 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
     }
     if (applied > 0) {
         CWIST_LOG_INFO("flywire: applied %d journal rows (now at seq %lld)", applied, flywire_checkpoint_read());
+        /* Stale every cached reply in every worker process. Without this a
+         * replica keeps serving its pre-apply pages (home/board listings
+         * embedding the old content) indefinitely: the per-worker page cache
+         * self-heals by TTL, but the route BDR is version-gated and nothing
+         * on the apply path used to bump it. */
+        engine_bdr_bump();
     }
     /* Replica drift monitoring: the feed carries the primary's newest
      * journal seq; a large gap means this replica is silently serving stale
