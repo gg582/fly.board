@@ -84,3 +84,4 @@ docs/mail.md
 *.db-shm
 *.db-wal
 flywire.settings
+data/.compress/
