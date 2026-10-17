@@ -153,9 +153,9 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
             if (user_role && strcmp(user_role, "admin") == 0) {
                 char bid_buf[32];
                 snprintf(bid_buf, sizeof(bid_buf), "%d", json_int(bo, "id", 0));
-                cwist_sstring_append(b, "<a href='/board/");
+                cwist_sstring_append(b, "<form action='/board/");
                 cwist_sstring_append(b, bid_buf);
-                cwist_sstring_append(b, "/delete' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Delete this board? This action cannot be undone.'>Delete</a>");
+                cwist_sstring_append(b, "/delete' method='post' style='display:inline' data-confirm='Delete this board? This action cannot be undone.'><button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Delete</button></form>");
             }
             cwist_sstring_append(b, "</div>");
             cwist_sstring_append(b, "<p class='board-card-desc'>");

@@ -209,6 +209,14 @@ void handler_comment_delete_get(cwist_http_request *req, cwist_http_response *re
     if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     const char *id_str = cwist_query_map_get(req->path_params, "id");
     const char *referer = cwist_http_header_get(req->headers, "Referer");
+    if (id_str && req->method != CWIST_HTTP_POST) {
+        /* GET shows a confirmation page; the page's form POSTs the delete
+         * (one-click GET deletes are a CSRF hole under SameSite=Lax). */
+        char action[96];
+        snprintf(action, sizeof(action), "/comment/%s/delete", id_str);
+        send_delete_confirm_page(req, res, action, "Delete this comment?", NULL);
+        return;
+    }
     if (id_str) {
         int cid = atoi(id_str);
         cJSON *comment = db_comment_get_by_id(req->db, cid);

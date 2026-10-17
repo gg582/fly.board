@@ -473,6 +473,14 @@ void handler_board_edit_post(cwist_http_request *req, cwist_http_response *res) 
 void handler_board_delete(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
     const char *id_str = cwist_query_map_get(req->path_params, "id");
+    if (id_str && req->method != CWIST_HTTP_POST) {
+        /* GET shows a confirmation page; the page's form POSTs the delete
+         * (one-click GET deletes are a CSRF hole under SameSite=Lax). */
+        char action[96];
+        snprintf(action, sizeof(action), "/board/%s/delete", id_str);
+        send_delete_confirm_page(req, res, action, "Delete this board? Posts in it are kept.", NULL);
+        return;
+    }
     if (id_str) {
         int bid = atoi(id_str);
         cJSON *board = db_board_get_by_id(req->db, bid);

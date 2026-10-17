@@ -75,6 +75,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/board/edit", handler_board_list);
     engine_async_post(app, "/board/edit", handler_board_edit_post);
     engine_async_get(app, "/board/:id/delete", handler_board_delete);
+    engine_async_post(app, "/board/:id/delete", handler_board_delete);
     engine_async_get(app, "/board/:id/perms", handler_board_perms_get);
     engine_async_get(app, "/board/perms", handler_board_list);
     engine_async_post(app, "/board/perms", handler_board_perms_post);
@@ -88,6 +89,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/post/new", handler_post_new_get);
     engine_async_post(app, "/post/new", handler_post_new_post);
     engine_async_get(app, "/post/delete/:id", handler_post_delete);
+    engine_async_post(app, "/post/delete/:id", handler_post_delete);
     engine_async_get(app, "/post/:id/edit", handler_post_edit_get);
     engine_async_post(app, "/post/:id/edit", handler_post_edit_post);
     engine_async_get_cached(app, "/post/:slug", handler_post_get);
@@ -115,6 +117,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_post(app, "/comment/new", handler_comment_new_post);
     engine_async_post(app, "/comment/edit", handler_comment_edit_post);
     engine_async_get(app, "/comment/:id/delete", handler_comment_delete_get);
+    engine_async_post(app, "/comment/:id/delete", handler_comment_delete_get);
 
     engine_async_get(app, "/notifications", handler_notifications_get);
     engine_async_get(app, "/notification", handler_notifications_get);

@@ -199,6 +199,40 @@ void send_html_res(cwist_http_response *res, cwist_sstring *html) {
     cwist_http_header_add(&res->headers, "Content-Length", len_buf);
 }
 
+/* Confirmation interstitial for mutations that used to be GET routes.
+ * Deleting via GET is a CSRF hole (a cross-site link/top-level navigation
+ * carries the SameSite=Lax session cookie): the GET now renders this page
+ * and only the POST form it contains performs the delete. @p pin_placeholder
+ * non-NULL adds a delete-PIN input for anonymous flows. */
+void send_delete_confirm_page(cwist_http_request *req, cwist_http_response *res,
+                              const char *action, const char *what,
+                              const char *pin_placeholder) {
+    int uid = 0;
+    char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    char *pp = get_profile_pic(req->db, uid, role);
+    cwist_sstring *b = cwist_sstring_create();
+    cwist_sstring_append(b, "<div style='max-width:560px;margin:48px auto;padding:0 16px;text-align:center'>");
+    cwist_sstring_append(b, "<h1 style='margin-bottom:12px'>Confirm delete</h1><p style='color:var(--muted);margin-bottom:24px'>");
+    cwist_sstring_append_escaped(b, what);
+    cwist_sstring_append(b, "</p><form method='post' action='");
+    cwist_sstring_append(b, action);
+    cwist_sstring_append(b, "' data-confirm='Delete? This action cannot be undone.'>");
+    if (pin_placeholder) {
+        cwist_sstring_append(b, "<input type='text' name='delete_pin' placeholder='");
+        cwist_sstring_append(b, pin_placeholder);
+        cwist_sstring_append(b, "' required style='margin-bottom:12px'>");
+    }
+    cwist_sstring_append(b, "<div style='display:flex;gap:8px;justify-content:center'>");
+    cwist_sstring_append(b, "<button type='submit' class='btn'>Delete</button>");
+    cwist_sstring_append(b, "<a href='#' class='btn btn-outline' onclick='history.back();return false'>Cancel</a>");
+    cwist_sstring_append(b, "</div></form></div>");
+    cwist_sstring *page = render_page("Confirm delete", b->data, is_dark(req), role, pp, is_mobile_request(req));
+    cwist_sstring_destroy(b);
+    free(pp);
+    send_html_res(res, page);
+}
+
 void send_cached_html_res(cwist_http_response *res, const char *html, size_t len, uint32_t ttl_remaining) {
     (void)ttl_remaining;
     cwist_http_header_add(&res->headers, "Content-Type", "text/html; charset=utf-8");

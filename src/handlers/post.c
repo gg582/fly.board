@@ -1155,7 +1155,21 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     char role[32] = {0};
     bool logged_in = auth_is_logged_in(req, &uid, role, sizeof(role));
     const char *id_str = cwist_query_map_get(req->path_params, "id");
+    /* The delete PIN may arrive in the query string (legacy GET flow) or in
+     * the POSTed form body (anonymous delete). */
+    char pin_buf[128] = {0};
     const char *delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
+    if ((!delete_pin || !delete_pin[0]) && req->method == CWIST_HTTP_POST &&
+        req->body && req->body->data && req->body->data[0]) {
+        cwist_query_map *form = cwist_query_map_create();
+        if (form) {
+            cwist_query_map_parse(form, req->body->data);
+            const char *bp = cwist_query_map_get(form, "delete_pin");
+            if (bp) snprintf(pin_buf, sizeof(pin_buf), "%s", bp);
+            cwist_query_map_destroy(form);
+            if (pin_buf[0]) delete_pin = pin_buf;
+        }
+    }
 
     /* A request that carried a session cookie but failed verification is a
      * logged-in flow that lost auth, not an anonymous delete attempt. */
@@ -1167,6 +1181,27 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     if (!id_str) { redirect(res, "/"); return; }
     cJSON *post = db_post_get_by_id(req->db, atoi(id_str));
     if (!post) { CWIST_LOG_WARN("Post delete failed: not found id=%s uid=%d", id_str, uid); redirect(res, "/"); return; }
+
+    if (req->method != CWIST_HTTP_POST) {
+        /* GET only shows a confirmation page that POSTs the actual delete:
+         * one-click GET deletes are a CSRF hole under SameSite=Lax. */
+        cJSON *pin_hash = cJSON_GetObjectItem(post, "delete_pin_hash");
+        bool pin_flow = pin_hash && cJSON_IsString(pin_hash) && pin_hash->valuestring && pin_hash->valuestring[0];
+        if (!is_author_or_admin(post, uid, role) && !pin_flow) {
+            cJSON_Delete(post);
+            redirect(res, "/");
+            return;
+        }
+        char action[128];
+        snprintf(action, sizeof(action), "/post/delete/%s", id_str);
+        cJSON *title = cJSON_GetObjectItem(post, "title");
+        const char *t = cJSON_IsString(title) && title->valuestring ? title->valuestring : "this post";
+        char what[256];
+        snprintf(what, sizeof(what), "Delete \"%s\"?", t);
+        send_delete_confirm_page(req, res, action, what, pin_flow ? "Delete PIN" : NULL);
+        cJSON_Delete(post);
+        return;
+    }
     cJSON *pin_hash = cJSON_GetObjectItem(post, "delete_pin_hash");
     bool pin_ok = delete_pin && pin_hash && pin_hash->valuestring && pin_hash->valuestring[0] &&
                   auth_verify_password(delete_pin, pin_hash->valuestring);
