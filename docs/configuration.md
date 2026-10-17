@@ -179,6 +179,7 @@ unset.
 | `FLY_REQUEST_WORKERS` | `16` | Async route worker count, must be 1–256 (`src/engine/async_route.c`) |
 | `CWIST_WORKER_THREADS` | `cores*4`, clamped 16–128 | HTTP worker threads spawned by the CWIST framework (see TUNABLES.md) |
 | `FLY_SLOW_REQUEST_MS` | `2000` | Log a WARN with per-stage breakdown (queue wait / worker run / queue depth) for any request slower than this; `0` disables. `inline` mode marks runs on the reactor thread (`src/engine/async_route.c`) |
+| `FLYWIRE_LAG_ALERT_ROWS` | `200` | Replica poll logs a WARN when the primary's newest journal seq is this many rows ahead of the applied checkpoint (`src/engine/flywire.c`) |
 
 ### Caching / inlining / media
 

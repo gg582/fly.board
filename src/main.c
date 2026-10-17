@@ -356,6 +356,11 @@ int main(int argc, char **argv) {
     int backup_rc = fly_backup_cli(argc, argv);
     if (backup_rc >= 0) return backup_rc;
 
+    if (argc > 1 && strcmp(argv[1], "--flywire-status") == 0) {
+        flywire_config_load("flywire.settings");
+        return flywire_status_cli();
+    }
+
     if (argc > 1 && strcmp(argv[1], "--sweep-uploads") == 0) {
         bool dry = argc > 2 && strcmp(argv[2], "--dry-run") == 0;
         unsigned long long freed = 0;

@@ -84,6 +84,19 @@ static bool flywire_token_eq(const char *a, const char *b) {
 
 /* ---- Site version (advertised in the feed for auto-upgrade) ---- */
 
+/* Journal-row gap (primary's MAX(seq) minus the applied checkpoint) at which
+ * a replica logs a WARN. Normal poll cadence keeps this near zero; a large
+ * gap means the replica is silently serving stale content. */
+static long long flywire_lag_alert_rows(void) {
+    static long long cached = -1;
+    if (cached < 0) {
+        const char *v = getenv("FLYWIRE_LAG_ALERT_ROWS");
+        long parsed = (v && v[0]) ? strtol(v, NULL, 10) : 200;
+        cached = (parsed > 0) ? parsed : 200;
+    }
+    return cached;
+}
+
 /* Resolved lazily on first use and cached in a static: data/.flywire_version
  * if present, else `git rev-parse --short HEAD` when running from a git
  * checkout, else "unknown". */
@@ -256,6 +269,18 @@ void handler_flywire_feed(cwist_http_request *req, cwist_http_response *res) {
         sqlite3_finalize(st);
     }
     cJSON_AddNumberToObject(doc, "next_since", (double)next_since);
+    /* Replica drift monitoring: advertise the newest journal row so a
+     * replica can tell "caught up" from "primary is far ahead". */
+    long long latest_seq = next_since;
+    {
+        sqlite3_stmt *st2 = NULL;
+        if (sqlite3_prepare_v2(conn, "SELECT MAX(seq) FROM sync_journal", -1, &st2, NULL) == SQLITE_OK) {
+            if (sqlite3_step(st2) == SQLITE_ROW && sqlite3_column_type(st2, 0) != SQLITE_NULL)
+                latest_seq = sqlite3_column_int64(st2, 0);
+            sqlite3_finalize(st2);
+        }
+    }
+    cJSON_AddNumberToObject(doc, "latest_seq", (double)latest_seq);
     cJSON_AddStringToObject(doc, "version", flywire_site_version());
     flywire_send_json(res, doc, CWIST_HTTP_OK);
     cJSON_Delete(doc);
@@ -684,6 +709,70 @@ static size_t flywire_feed_write(void *ptr, size_t size, size_t nmemb, void *use
     return size * nmemb;
 }
 
+/* fly_board --flywire-status: one-shot operator view of replication state.
+ * Exit code 0 on success (lag warnings are informational), 1 when the
+ * primary could not be queried from a replica. */
+int flywire_status_cli(void) {
+    bool primary = flywire_is_primary();
+    printf("mode: %s\n", primary ? "primary" : "replica");
+    printf("version: %s\n", flywire_site_version());
+    if (primary) return 0;
+
+    long long cp = flywire_checkpoint_read();
+    printf("checkpoint seq: %lld\n", cp);
+    const char *base = flywire_primary_url();
+    if (!base || !base[0]) {
+        printf("primary url: (not configured)\n");
+        return 0;
+    }
+    char url[768];
+    size_t bl = strlen(base);
+    snprintf(url, sizeof(url), "%s%s/flywire/feed?since=%lld&limit=1",
+             base, (bl > 0 && base[bl - 1] == '/') ? "" : "", cp);
+
+    flywire_buf buf = {0};
+    CURL *curl = curl_easy_init();
+    if (!curl) return 1;
+    char token_hdr[192];
+    snprintf(token_hdr, sizeof(token_hdr), "X-FlyWire-Token: %s", flywire_token());
+    struct curl_slist *headers = curl_slist_append(NULL, token_hdr);
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, flywire_feed_write);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+    CURLcode rc = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    if (rc != CURLE_OK || status != 200) {
+        free(buf.data);
+        printf("primary: UNREACHABLE (curl=%d http=%ld)\n", (int)rc, status);
+        return 1;
+    }
+    cJSON *doc = cJSON_Parse(buf.data ? buf.data : "");
+    free(buf.data);
+    if (!doc) {
+        printf("primary: unparseable feed response\n");
+        return 1;
+    }
+    cJSON *latest = cJSON_GetObjectItem(doc, "latest_seq");
+    if (!cJSON_IsNumber(latest)) {
+        printf("primary: feed does not advertise latest_seq (older primary?)\n");
+        cJSON_Delete(doc);
+        return 1;
+    }
+    long long latest_seq = (long long)latest->valuedouble;
+    long long lag = latest_seq - cp;
+    printf("primary seq: %lld\n", latest_seq);
+    printf("lag: %lld journal rows%s\n", lag,
+           lag >= flywire_lag_alert_rows() ? "  <-- RESEED or check connectivity" : "");
+    cJSON_Delete(doc);
+    return 0;
+}
+
 /* Apply one journal row to the local databases. Unknown entities are skipped
  * (logged, checkpoint advanced) rather than wedging the loop: a replica that
  * predates a feature must keep syncing everything it does know. Individual
@@ -843,6 +932,19 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
     }
     if (applied > 0) {
         CWIST_LOG_INFO("flywire: applied %d journal rows (now at seq %lld)", applied, flywire_checkpoint_read());
+    }
+    /* Replica drift monitoring: the feed carries the primary's newest
+     * journal seq; a large gap means this replica is silently serving stale
+     * content. */
+    cJSON *latest = cJSON_GetObjectItem(doc, "latest_seq");
+    if (cJSON_IsNumber(latest)) {
+        long long applied_seq = flywire_checkpoint_read();
+        long long lag = (long long)latest->valuedouble - applied_seq;
+        if (lag >= flywire_lag_alert_rows()) {
+            CWIST_LOG_WARN("flywire: replica is %lld journal rows behind the primary "
+                           "(applied seq %lld, primary seq %lld); check connectivity or reseed",
+                           lag, applied_seq, (long long)latest->valuedouble);
+        }
     }
     cJSON_Delete(doc);
     return 0;

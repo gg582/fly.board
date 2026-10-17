@@ -9,6 +9,10 @@ long long flywire_checkpoint_read(void);
 /* Atomically persist the replica checkpoint (temp file + rename). */
 bool flywire_checkpoint_write(long long seq);
 
+/* fly_board --flywire-status: print mode, site version, replica checkpoint
+ * and lag to the primary's newest journal seq. Returns a process exit code. */
+int flywire_status_cli(void);
+
 /* This site's version string (cached): data/.flywire_version, else the short
  * git HEAD when running from a checkout, else "unknown". Advertised by the
  * primary in the feed so replicas can auto-upgrade. */

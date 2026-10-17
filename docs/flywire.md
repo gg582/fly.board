@@ -98,3 +98,20 @@ always requires an operator decision.
   `backup.settings`) across `git reset --hard`, rebuilds with
   `make -j2 fly_board mail-tools`, and restarts the service. Untracked state
   (`data/`, `public/uploads/`, secrets, certs) is never touched by git.
+
+## Drift monitoring
+
+The feed advertises the primary's newest journal seq (`latest_seq`), and
+each replica compares it against its applied checkpoint after every poll.
+When the gap reaches `FLYWIRE_LAG_ALERT_ROWS` (default 200) the replica
+logs a WARN — a replica that drifts silently serves stale content, which
+no error path used to reveal.
+
+For a one-shot operator view run:
+
+```
+./fly_board --flywire-status
+```
+
+It prints the mode, site version, replica checkpoint seq and the lag to
+the primary's newest seq (exit 1 when the primary cannot be queried).
