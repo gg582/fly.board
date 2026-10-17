@@ -296,14 +296,17 @@ def main():
     os.makedirs("public/css", exist_ok=True)
 
     print("Downloading Google Fonts CSS...")
-    # Body/UI Korean coverage is provided by the Pretendard Variable font below,
-    # so IBM Plex Sans KR is intentionally omitted here to avoid loading two
-    # large Korean families on every page.
+    # IBM Plex Sans KR is the primary Korean face (with 'IBM Plex Sans' for
+    # Cyrillic); both load as variable fonts sliced by unicode-range, so the
+    # browser only fetches the blocks a page actually uses. Outfit covers
+    # display Latin and loads as a variable font for the 550/650 heading
+    # weights. Pretendard Variable (below) stays as the final fallback.
     google_fonts_url = (
         "https://fonts.googleapis.com/css2"
-        "?family=Space+Grotesk:wght@400;500;700"
+        "?family=IBM+Plex+Sans+KR:wght@300;400;500;600;700"
+        "&family=IBM+Plex+Sans:wght@100..700"
         "&family=Inter:wght@400;500;600;700"
-        "&family=Outfit:wght@400;500;600;700;800"
+        "&family=Outfit:wght@100..900"
         "&family=Source+Serif+4:ital,wght@0,400;0,600;1,400"
         "&display=swap"
     )

@@ -651,15 +651,15 @@ static void font_set_default(void) {
     g_font_settings.face_src[0] = '\0';
     g_font_settings.download_count = 0;
     snprintf(g_font_settings.body, sizeof(g_font_settings.body),
-             "'Space Grotesk', 'IBM Plex Sans KR', 'Pretendard Variable', 'Pretendard', sans-serif");
-    snprintf(g_font_settings.heading, sizeof(g_font_settings.heading), "'Outfit', sans-serif");
+             "'IBM Plex Sans KR', 'IBM Plex Sans', 'Pretendard Variable', 'Pretendard', sans-serif");
+    snprintf(g_font_settings.heading, sizeof(g_font_settings.heading), "'Outfit', 'IBM Plex Sans KR', 'IBM Plex Sans', sans-serif");
     snprintf(g_font_settings.ui, sizeof(g_font_settings.ui),
-             "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+             "'Inter', 'IBM Plex Sans KR', 'IBM Plex Sans', 'Pretendard Variable', sans-serif");
     snprintf(g_font_settings.code, sizeof(g_font_settings.code),
              "'JetBrains Mono', 'Fira Code', 'D2Coding', Consolas, Monaco, 'Courier New', monospace");
     snprintf(g_font_settings.blockquote, sizeof(g_font_settings.blockquote),
-             "'Source Serif 4', 'IBM Plex Sans KR', serif");
-    snprintf(g_font_settings.display, sizeof(g_font_settings.display), "'Outfit', sans-serif");
+             "'Source Serif 4', 'IBM Plex Sans KR', 'Pretendard Variable', serif");
+    snprintf(g_font_settings.display, sizeof(g_font_settings.display), "'Outfit', 'IBM Plex Sans KR', 'IBM Plex Sans', sans-serif");
     snprintf(g_font_settings.letter_spacing_body, sizeof(g_font_settings.letter_spacing_body), "-0.01em");
     snprintf(g_font_settings.letter_spacing_h1, sizeof(g_font_settings.letter_spacing_h1), "-0.05em");
     snprintf(g_font_settings.letter_spacing_h2, sizeof(g_font_settings.letter_spacing_h2), "-0.04em");

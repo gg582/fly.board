@@ -89,7 +89,7 @@ void rule_root(cJSON *vars, theme_color_t *t) {
     cJSON_AddStringToObject(vars, "--glass-border", t->glass_border);
     cJSON_AddStringToObject(vars, "--shadow-base", t->shadow_base);
     cJSON_AddStringToObject(vars, "--overlay", "color-mix(in srgb, var(--bg) 72%, transparent)");
-    cJSON_AddStringToObject(vars, "--font-display", g_font_settings.display[0] ? g_font_settings.display : "'Outfit', sans-serif");
+    cJSON_AddStringToObject(vars, "--font-display", g_font_settings.display[0] ? g_font_settings.display : "'Outfit', 'IBM Plex Sans KR', 'IBM Plex Sans', sans-serif");
     cJSON_AddStringToObject(vars, "--tikz-ink", t->fg);
 
     const char *background_filename = NULL;
@@ -148,7 +148,7 @@ void rule_base(cJSON *rules) {
     add_decl(body, "background", "var(--bg)");
     add_decl(body, "min-height", "100vh");
     add_decl(body, "color", "var(--fg)");
-    add_decl(body, "font-family", g_font_settings.body[0] ? g_font_settings.body : "'Space Grotesk', 'IBM Plex Sans KR', 'Pretendard Variable', 'Pretendard', sans-serif");
+    add_decl(body, "font-family", g_font_settings.body[0] ? g_font_settings.body : "'IBM Plex Sans KR', 'IBM Plex Sans', 'Pretendard Variable', 'Pretendard', sans-serif");
     add_decl(body, "font-size", "16px");
     add_decl(body, "line-height", "1.7");
     add_decl(body, "font-weight", g_font_settings.font_weight_body[0] ? g_font_settings.font_weight_body : "450");
@@ -175,7 +175,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, body_bg);
 
     cJSON *h1 = create_rule("h1, .hero h1");
-    add_decl(h1, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
+    add_decl(h1, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'IBM Plex Sans KR', 'IBM Plex Sans', sans-serif");
     add_decl(h1, "font-weight", g_font_settings.font_weight_h1[0] ? g_font_settings.font_weight_h1 : "800");
     add_decl(h1, "letter-spacing", g_font_settings.letter_spacing_h1[0] ? g_font_settings.letter_spacing_h1 : "-0.05em");
     add_decl(h1, "line-height", "1.1");
@@ -183,7 +183,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h1);
 
     cJSON *h2 = create_rule("h2, .board-line-title, .board-card h2");
-    add_decl(h2, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
+    add_decl(h2, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'IBM Plex Sans KR', 'IBM Plex Sans', sans-serif");
     add_decl(h2, "font-weight", g_font_settings.font_weight_h2[0] ? g_font_settings.font_weight_h2 : "750");
     add_decl(h2, "letter-spacing", g_font_settings.letter_spacing_h2[0] ? g_font_settings.letter_spacing_h2 : "-0.04em");
     add_decl(h2, "line-height", "1.15");
@@ -191,7 +191,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h2);
 
     cJSON *h3 = create_rule("h3");
-    add_decl(h3, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
+    add_decl(h3, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'IBM Plex Sans KR', 'IBM Plex Sans', sans-serif");
     add_decl(h3, "font-weight", g_font_settings.font_weight_h3[0] ? g_font_settings.font_weight_h3 : "700");
     add_decl(h3, "letter-spacing", g_font_settings.letter_spacing_h3[0] ? g_font_settings.letter_spacing_h3 : "-0.03em");
     add_decl(h3, "line-height", "1.2");
@@ -199,7 +199,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h3);
 
     cJSON *h4 = create_rule("h4");
-    add_decl(h4, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
+    add_decl(h4, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'IBM Plex Sans KR', 'IBM Plex Sans', sans-serif");
     add_decl(h4, "font-weight", g_font_settings.font_weight_h4[0] ? g_font_settings.font_weight_h4 : "600");
     add_decl(h4, "letter-spacing", g_font_settings.letter_spacing_h4[0] ? g_font_settings.letter_spacing_h4 : "-0.02em");
     add_decl(h4, "line-height", "1.25");
@@ -207,7 +207,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h4);
 
     cJSON *h5h6 = create_rule("h5, h6");
-    add_decl(h5h6, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
+    add_decl(h5h6, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'IBM Plex Sans KR', 'IBM Plex Sans', sans-serif");
     add_decl(h5h6, "font-weight", g_font_settings.font_weight_h5h6[0] ? g_font_settings.font_weight_h5h6 : "500");
     add_decl(h5h6, "letter-spacing", g_font_settings.letter_spacing_h5h6[0] ? g_font_settings.letter_spacing_h5h6 : "-0.01em");
     add_decl(h5h6, "line-height", "1.3");
@@ -215,7 +215,7 @@ void rule_base(cJSON *rules) {
     cJSON_AddItemToArray(rules, h5h6);
 
     cJSON *topbar_title = create_rule(".topbar-title");
-    add_decl(topbar_title, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', sans-serif");
+    add_decl(topbar_title, "font-family", g_font_settings.heading[0] ? g_font_settings.heading : "'Outfit', 'IBM Plex Sans KR', 'IBM Plex Sans', sans-serif");
     add_decl(topbar_title, "font-weight", g_font_settings.font_weight_topbar_title[0] ? g_font_settings.font_weight_topbar_title : "800");
     add_decl(topbar_title, "letter-spacing", g_font_settings.letter_spacing_topbar_title[0] ? g_font_settings.letter_spacing_topbar_title : "-0.04em");
     add_decl(topbar_title, "line-height", "1.2");
@@ -311,7 +311,7 @@ void rule_layout(cJSON *rules) {
     add_decl(navitem, "padding", "8px 10px");
     add_decl(navitem, "border-radius", radius_str(8));
     add_decl(navitem, "border-bottom", "1px solid transparent");
-    add_decl(navitem, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(navitem, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'IBM Plex Sans', 'Pretendard Variable', sans-serif");
     add_decl(navitem, "font-weight", "500");
     add_decl(navitem, "font-size", "14px");
     add_decl(navitem, "color", "var(--fg)");
@@ -583,7 +583,7 @@ void rule_components(cJSON *rules) {
     add_decl(btn, "border-radius", radius_str(8));
     add_decl(btn, "background", "var(--accent)");
     add_decl(btn, "color", "var(--panel)");
-    add_decl(btn, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(btn, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'IBM Plex Sans', 'Pretendard Variable', sans-serif");
     add_decl(btn, "font-weight", g_font_settings.font_weight_btn[0] ? g_font_settings.font_weight_btn : "600");
     add_decl(btn, "letter-spacing", g_font_settings.letter_spacing_btn[0] ? g_font_settings.letter_spacing_btn : "0.02em");
     add_decl(btn, "cursor", "pointer");
@@ -988,7 +988,7 @@ void rule_components(cJSON *rules) {
     cJSON *cmeta = create_rule(".comment-meta");
     add_decl(cmeta, "font-size", "13px");
     add_decl(cmeta, "color", "var(--muted)");
-    add_decl(cmeta, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(cmeta, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'IBM Plex Sans', 'Pretendard Variable', sans-serif");
     add_decl(cmeta, "font-weight", "500");
     cJSON_AddItemToArray(rules, cmeta);
 
@@ -1019,7 +1019,7 @@ void rule_components(cJSON *rules) {
     add_decl(tdp, "box-shadow", "0 8px 32px var(--shadow)");
     add_decl(tdp, "backdrop-filter", "blur(12px) saturate(140%)");
     add_decl(tdp, "-webkit-backdrop-filter", "blur(12px) saturate(140%)");
-    add_decl(tdp, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', sans-serif");
+    add_decl(tdp, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'IBM Plex Sans', 'Pretendard Variable', sans-serif");
     cJSON_AddItemToArray(rules, tdp);
 
     cJSON *tdpt = create_rule(".tasfa-download-progress-text");
@@ -1357,7 +1357,7 @@ void rule_home(cJSON *rules) {
     add_decl(tag, "border-radius", radius_str(4));
     add_decl(tag, "background", "var(--hover)");
     add_decl(tag, "border", "1px solid var(--border)");
-    add_decl(tag, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(tag, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'IBM Plex Sans', 'Pretendard Variable', sans-serif");
     add_decl(tag, "font-size", "12px");
     add_decl(tag, "font-weight", "600");
     add_decl(tag, "color", "var(--accent-low)");
@@ -1681,7 +1681,7 @@ void rule_boards(cJSON *rules) {
     add_decl(prow_meta, "justify-content", "flex-start");
     add_decl(prow_meta, "padding", "12px 0 0");
     add_decl(prow_meta, "color", "var(--muted)");
-    add_decl(prow_meta, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(prow_meta, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'IBM Plex Sans', 'Pretendard Variable', sans-serif");
     add_decl(prow_meta, "font-size", "13px");
     add_decl(prow_meta, "letter-spacing", "0.02em");
     cJSON_AddItemToArray(rules, prow_meta);
@@ -1758,7 +1758,7 @@ void rule_boards(cJSON *rules) {
     add_decl(meta, "align-items", "center");
     add_decl(meta, "justify-content", "flex-start");
     add_decl(meta, "padding", "8px 0 0");
-    add_decl(meta, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(meta, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'IBM Plex Sans', 'Pretendard Variable', sans-serif");
     add_decl(meta, "font-size", "12px");
     cJSON_AddItemToArray(rules, meta);
 
@@ -1770,7 +1770,7 @@ void rule_boards(cJSON *rules) {
     add_decl(badge, "border-radius", radius_str(4));
     add_decl(badge, "background", "color-mix(in srgb, var(--glass-bg) 85%, transparent)");
     add_decl(badge, "border", "1px solid var(--glass-border)");
-    add_decl(badge, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'Pretendard Variable', sans-serif");
+    add_decl(badge, "font-family", g_font_settings.ui[0] ? g_font_settings.ui : "'Inter', 'IBM Plex Sans KR', 'IBM Plex Sans', 'Pretendard Variable', sans-serif");
     add_decl(badge, "font-size", "12px");
     add_decl(badge, "color", "var(--muted)");
     add_decl(badge, "font-weight", "600");
@@ -2004,7 +2004,7 @@ void rule_markdown(cJSON *rules) {
     add_decl(md_blockquote, "border-left-color", "var(--accent)");
     add_decl(md_blockquote, "backdrop-filter", "blur(4px) saturate(120%)");
     add_decl(md_blockquote, "-webkit-backdrop-filter", "blur(4px) saturate(120%)");
-    add_decl(md_blockquote, "font-family", g_font_settings.blockquote[0] ? g_font_settings.blockquote : "'Source Serif 4', 'IBM Plex Sans KR', serif");
+    add_decl(md_blockquote, "font-family", g_font_settings.blockquote[0] ? g_font_settings.blockquote : "'Source Serif 4', 'IBM Plex Sans KR', 'Pretendard Variable', serif");
     add_decl(md_blockquote, "font-style", "italic");
     add_decl(md_blockquote, "font-size", "1.05rem");
     add_decl(md_blockquote, "line-height", "1.7");
