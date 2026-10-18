@@ -1,8 +1,10 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#include "db/db_internal.h"
 #include "db/sql_escape.h"
 #include "config/write_policy.h"
 #include "utils/post_schedule.h"
+#include "engine/pool.h"
 #include <openssl/rand.h>
 
 #define MAX_POST_TITLE_LEN   200
@@ -689,6 +691,58 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     free(pp);
 }
 
+/* Background NATS broadcast so a post create/edit redirect never blocks on
+ * broker round-trips or socket flushes. */
+typedef struct {
+    char *title;
+    char *slug;
+    char *summary;
+    char db_path[512];
+    bool claim_unannounced;
+} post_announce_job_t;
+
+static void *post_announce_worker(void *arg) {
+    post_announce_job_t *j = (post_announce_job_t *)arg;
+    if (!j) return NULL;
+    if (j->claim_unannounced) {
+        sqlite3 *conn = NULL;
+        if (sqlite3_open(j->db_path, &conn) == SQLITE_OK && db_configure_connection(conn)) {
+            cwist_db local = { .conn = conn };
+            post_schedule_announce(&local);
+        }
+        if (conn) sqlite3_close(conn);
+    } else if (j->title && j->slug) {
+        fly_nats_publish_post(j->title, j->slug, j->summary ? j->summary : "");
+    }
+    free(j->title);
+    free(j->slug);
+    free(j->summary);
+    free(j);
+    return NULL;
+}
+
+static void schedule_post_announce(cwist_db *db, const char *title, const char *slug,
+                                   const char *summary, bool claim_unannounced) {
+    post_announce_job_t *j = calloc(1, sizeof(*j));
+    if (!j) {
+        if (claim_unannounced) post_schedule_announce(db);
+        else if (title && slug) fly_nats_publish_post(title, slug, summary ? summary : "");
+        return;
+    }
+    j->claim_unannounced = claim_unannounced;
+    if (claim_unannounced) {
+        const char *p = sqlite3_db_filename(fly_db_conn(db), "main");
+        snprintf(j->db_path, sizeof(j->db_path), "%s", p ? p : "data/blog.db");
+    } else {
+        j->title = strdup(title ? title : "");
+        j->slug = strdup(slug ? slug : "");
+        j->summary = strdup(summary ? summary : "");
+    }
+    if (!engine_pool_schedule(post_announce_worker, j, 0, TTAK_TASK_DOMAIN_IO, 1)) {
+        post_announce_worker(j);
+    }
+}
+
 void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -842,8 +896,16 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         multipart_free(files);
         return;
     }
+    /* Group tags, series/i18n, and media attachments into a single transaction
+     * so they commit in one WAL write-lock hold instead of 10-20 autocommit
+     * cycles that stall concurrent readers and writers. */
+    sqlite3 *conn_new = fly_db_conn(req->db);
+    bool sp_new = conn_new && sqlite3_exec(conn_new, "SAVEPOINT post_new_follow", NULL, NULL, NULL) == SQLITE_OK;
     db_tag_set_for_post(req->db, created_id, tags_in);
     apply_series_and_lang(req->db, created_id, uid, role, series_in, series_pos_in, lang_in, translation_in);
+    attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
+    if (sp_new) sqlite3_exec(conn_new, "RELEASE post_new_follow", NULL, NULL, NULL);
+
     CWIST_LOG_INFO("Post created: uid=%d slug='%s' board_id=%d status=%s publish_at=%s", uid, created_slug, board_id,
                    pub.status, pub.publish_at ? pub.publish_at : "now");
     if (sig_b64) cwist_free(sig_b64);
@@ -851,7 +913,6 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     if (!public_now) {
         /* Drafts and scheduled posts are not on any listing yet. */
         if (pub.publish_at) post_schedule_note(pub.publish_at);
-        attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
         cwist_free(sl);
         cwist_free(created_slug);
         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
@@ -868,8 +929,8 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             (void)db_post_set_delete_pin_hash(req->db, created_id, delete_pin_hash);
             char redirect_with_pin[1024];
             snprintf(redirect_with_pin, sizeof(redirect_with_pin), "/post/%s?delete_pin=%s", created_slug, delete_pin);
-            post_schedule_announce(req->db);
-            attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
+            page_cache_invalidate_listings();
+            schedule_post_announce(req->db, NULL, NULL, NULL, true);
             cwist_free(sl);
             cwist_free(created_slug);
             cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
@@ -879,16 +940,14 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         }
     }
 
-    /* Publish post metadata to NATS for distributed subscribers */
-    post_schedule_announce(req->db);
-
-    attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
-
     /* New posts appear on home and board listings, so clear those caches.
        The post's own page cannot be cached yet (brand-new slug), so the full
        clear is unnecessary and would stall every reader behind one big
        locked scan. */
     page_cache_invalidate_listings();
+
+    /* Publish post metadata to NATS off the request path */
+    schedule_post_announce(req->db, NULL, NULL, NULL, true);
 
     cwist_free(sl);
     cwist_free(created_slug);
@@ -1081,7 +1140,14 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     char *sig_b642 = NULL;
     fly_crypto_sign((const uint8_t *)msg2, strlen(msg2), &sig_b642);
     cwist_free(msg2);
-    if (db_post_update(req->db, atoi(id_str), board_id, title, content, summary ? summary : "", sig_b642 ? sig_b642 : "", 0, 0, "", pub.status, pub.publish_at)) {
+
+    /* Coalesce the post UPDATE, FTS5 re-index, sync_journal, media attaches,
+     * tag replacements, and series/i18n updates into a single transaction so
+     * SQLite holds the WAL write lock once instead of ~15 autocommit cycles. */
+    int edit_id = atoi(id_str);
+    sqlite3 *conn_edit = fly_db_conn(req->db);
+    bool sp_edit = conn_edit && sqlite3_exec(conn_edit, "SAVEPOINT post_edit_tx", NULL, NULL, NULL) == SQLITE_OK;
+    if (db_post_update(req->db, edit_id, board_id, title, content, summary ? summary : "", sig_b642 ? sig_b642 : "", 0, 0, "", pub.status, pub.publish_at)) {
         CWIST_LOG_INFO("Post updated: id=%s uid=%d board_id=%d status=%s publish_at=%s", id_str, uid, board_id,
                        pub.status, pub.publish_at ? pub.publish_at : "kept");
         if (pub.publish_at) post_schedule_note(pub.publish_at);
@@ -1090,22 +1156,26 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     }
     if (sig_b642) cwist_free(sig_b642);
 
-    attach_media_meta_to_post(req->db, media_meta, atoi(id_str), uid, role);
-    if (tags_in) db_tag_set_for_post(req->db, atoi(id_str), tags_in);
-    apply_series_and_lang(req->db, atoi(id_str), uid, role, series_in, series_pos_in, lang_in, translation_in);
+    attach_media_meta_to_post(req->db, media_meta, edit_id, uid, role);
+    if (tags_in) db_tag_set_for_post(req->db, edit_id, tags_in);
+    apply_series_and_lang(req->db, edit_id, uid, role, series_in, series_pos_in, lang_in, translation_in);
+    if (sp_edit) sqlite3_exec(conn_edit, "RELEASE post_edit_tx", NULL, NULL, NULL);
 
-    cJSON *saved = db_post_get_by_id(req->db, atoi(id_str));
+    cJSON *saved = db_post_get_by_id(req->db, edit_id);
     bool public_now = post_is_public(saved);
     if (saved) cJSON_Delete(saved);
     if (public_now != was_public) post_schedule_bump();
     if (post_slug) {
-        /* A live post's edit is re-broadcast; a newly public one is
-         * announced once through its claim flag. */
-        if (public_now && was_public) fly_nats_publish_post(title, post_slug, summary ? summary : "");
-        else if (public_now) post_schedule_announce(req->db);
         /* invalidate_post covers the post page plus home/board/boards
            listings; no full-cache clear needed. */
         page_cache_invalidate_post(post_slug);
+        /* A live post's edit is re-broadcast; a newly public one is
+         * announced once through its claim flag (off the request path). */
+        if (public_now && was_public) {
+            schedule_post_announce(req->db, title, post_slug, summary ? summary : "", false);
+        } else if (public_now) {
+            schedule_post_announce(req->db, NULL, NULL, NULL, true);
+        }
     }
 
     reqshare_write_lock_release(wl_key);
