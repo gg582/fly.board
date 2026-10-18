@@ -35,8 +35,9 @@ static void on_post_msg(const char *subject, const char *data, size_t len, void 
     FLY_LOG_DEBUG("[fly_nats] received post broadcast slug=%s sig=%s", slug ? slug : "(unknown)", has_sig ? "present" : "missing");
     if (slug && slug[0]) {
         page_cache_invalidate_post(slug);
+    } else {
+        page_cache_invalidate_all();
     }
-    page_cache_invalidate_all();
     if (obj) cJSON_Delete(obj);
 }
 

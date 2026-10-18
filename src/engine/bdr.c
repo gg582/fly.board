@@ -16,9 +16,28 @@
 #define BDR_BODY_MAX ((size_t)8 << 20)
 
 static bool g_enabled = false;
-/* MAP_SHARED before fork: every worker process sees every bump. */
-static _Atomic uint64_t *g_version = NULL;
 static time_t g_ttl_sec = 30;
+
+/* Shared version table across all worker processes (MAP_SHARED before fork).
+ *
+ * Instead of a single global counter that wipes every cached route on any
+ * write, versions are split into:
+ *  - global_ver: bumped by full invalidations (theme/policy/admin changes)
+ *  - listings_ver: bumped when posts or boards change (home, /boards, /board/*,
+ *    feeds, archives, tags, series)
+ *  - post_ver[BDR_POST_BUCKETS]: hashed by post slug so editing or commenting
+ *    on /post/<slug> only invalidates that slug's bucket plus listings, while
+ *    other cached /post/* pages and static routes (/theme.json, /robots.txt)
+ *    stay valid. */
+#define BDR_POST_BUCKETS 256u
+
+typedef struct {
+    _Atomic uint64_t global_ver;
+    _Atomic uint64_t listings_ver;
+    _Atomic uint64_t post_ver[BDR_POST_BUCKETS];
+} bdr_shared_versions_t;
+
+static bdr_shared_versions_t *g_versions = NULL;
 
 /* Reply store, one per worker process.
  *
@@ -70,7 +89,7 @@ static long env_long(const char *name, long fallback) {
 
 void engine_bdr_init(cwist_app *app) {
     g_enabled = app != NULL;
-    void *mem = mmap(NULL, sizeof(*g_version), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS,
+    void *mem = mmap(NULL, sizeof(*g_versions), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS,
                      -1, 0);
     if (mem == MAP_FAILED) {
         /* Without a shared counter, other processes could not see a bump. */
@@ -78,8 +97,12 @@ void engine_bdr_init(cwist_app *app) {
         g_enabled = false;
         return;
     }
-    g_version = mem;
-    atomic_init(g_version, 1);
+    g_versions = mem;
+    atomic_init(&g_versions->global_ver, 1);
+    atomic_init(&g_versions->listings_ver, 1);
+    for (size_t i = 0; i < BDR_POST_BUCKETS; i++) {
+        atomic_init(&g_versions->post_ver[i], 1);
+    }
     long ttl = env_long("FLY_BDR_TTL", (long)g_ttl_sec);
     if (ttl >= 0 && ttl <= 86400) g_ttl_sec = (time_t)ttl;
     if (g_ttl_sec == 0) g_enabled = false; /* FLY_BDR_TTL=0 turns the layer off. */
@@ -106,6 +129,15 @@ static uint64_t key_hash(const char *key) {
         h *= 1099511628211ull;
     }
     return h ? h : 1; /* 0 marks an empty slot */
+}
+
+static size_t post_bucket_of_len(const char *slug, size_t len) {
+    uint64_t h = 1469598103934665603ull;
+    for (size_t i = 0; i < len; i++) {
+        h ^= (unsigned char)slug[i];
+        h *= 1099511628211ull;
+    }
+    return (size_t)(h & (BDR_POST_BUCKETS - 1));
 }
 
 static size_t group_of(uint64_t h) {
@@ -178,16 +210,66 @@ static void store_put(const char *key, const void *data, size_t len) {
     if (!stored) free(blob);
 }
 
-static uint64_t current_version(void) {
-    return g_version ? atomic_load_explicit(g_version, memory_order_acquire) : 0;
+/* Map a BDR key ("fb|<path>?<query>|...") to its composite version token.
+ * Every route mixes in global_ver so full invalidations still clear all
+ * entries; /post/<slug> mixes in its slug bucket, and listing/feed routes
+ * mix in listings_ver. */
+uint64_t engine_bdr_version_for_key(const char *key) {
+    if (!g_versions) return 0;
+    uint64_t g = atomic_load_explicit(&g_versions->global_ver, memory_order_acquire);
+    if (!key || strncmp(key, "fb|", 3) != 0) {
+        uint64_t l = atomic_load_explicit(&g_versions->listings_ver, memory_order_acquire);
+        return (g << 32) ^ l;
+    }
+    const char *path = key + 3;
+    const char *q = strchr(path, '?');
+    size_t path_len = q ? (size_t)(q - path) : strlen(path);
+
+    if (path_len > 6 && strncmp(path, "/post/", 6) == 0) {
+        const char *slug = path + 6;
+        size_t slug_len = path_len - 6;
+        size_t bucket = post_bucket_of_len(slug, slug_len);
+        uint64_t p = atomic_load_explicit(&g_versions->post_ver[bucket], memory_order_acquire);
+        return (g << 32) ^ p;
+    }
+    if (path_len == 11 && strncmp(path, "/theme.json", 11) == 0) return g;
+    if (path_len == 12 && strncmp(path, "/themes.json", 12) == 0) return g;
+    if (path_len == 11 && strncmp(path, "/robots.txt", 11) == 0) return g;
+
+    uint64_t l = atomic_load_explicit(&g_versions->listings_ver, memory_order_acquire);
+    return (g << 32) ^ l;
 }
 
 uint64_t engine_bdr_version(void) {
-    return current_version();
+    return engine_bdr_version_for_key(NULL);
 }
 
 void engine_bdr_bump(void) {
-    if (g_version) atomic_fetch_add_explicit(g_version, 1, memory_order_acq_rel);
+    if (!g_versions) return;
+    atomic_fetch_add_explicit(&g_versions->global_ver, 1, memory_order_acq_rel);
+    atomic_fetch_add_explicit(&g_versions->listings_ver, 1, memory_order_acq_rel);
+}
+
+void engine_bdr_bump_listings(void) {
+    if (!g_versions) return;
+    atomic_fetch_add_explicit(&g_versions->listings_ver, 1, memory_order_acq_rel);
+}
+
+void engine_bdr_bump_post(const char *slug) {
+    if (!g_versions) return;
+    atomic_fetch_add_explicit(&g_versions->listings_ver, 1, memory_order_acq_rel);
+    if (slug && slug[0]) {
+        size_t b = post_bucket_of_len(slug, strlen(slug));
+        atomic_fetch_add_explicit(&g_versions->post_ver[b], 1, memory_order_acq_rel);
+    } else {
+        atomic_fetch_add_explicit(&g_versions->global_ver, 1, memory_order_acq_rel);
+    }
+}
+
+void engine_bdr_bump_board(const char *slug) {
+    (void)slug;
+    if (!g_versions) return;
+    atomic_fetch_add_explicit(&g_versions->listings_ver, 1, memory_order_acq_rel);
 }
 
 /* Static files and TASFA transfers have their own caches or must never be
@@ -302,9 +384,9 @@ bool engine_bdr_serve(cwist_http_request *req, cwist_http_response *res, const c
               rd(&r, &status, sizeof(status)) && rd_span(&r, &stored_key, &key_len) &&
               key_len == strlen(key) && memcmp(stored_key, key, key_len) == 0 &&
               rd(&r, &count, sizeof(count));
-    /* Stale after any content bump or past the TTL (view counts and other
+    /* Stale after a domain content bump or past the TTL (view counts and other
      * counters render into pages without bumping). */
-    if (ok && (version != current_version() || time(NULL) - (time_t)created > g_ttl_sec)) ok = false;
+    if (ok && (version != engine_bdr_version_for_key(key) || time(NULL) - (time_t)created > g_ttl_sec)) ok = false;
     const unsigned char *headers_at = r.p;
     for (uint32_t i = 0; ok && i < count; i++) {
         const char *k, *v;
