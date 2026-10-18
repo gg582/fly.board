@@ -268,8 +268,8 @@ void page_cache_clear(void) {
 }
 
 /* Multi-prefix variant: scans the whole table once under a single mutex hold
-   and bumps the BDR once, instead of one full scan + bump per prefix. */
-static void page_cache_clear_prefixes(const char *const *prefixes, size_t count) {
+   without forcing a global BDR bump; callers invoke the matching domain bump. */
+static void page_cache_clear_prefixes_raw(const char *const *prefixes, size_t count) {
     if (!prefixes || count == 0) return;
     size_t lens[8];
     if (count > 8) count = 8;
@@ -300,13 +300,12 @@ static void page_cache_clear_prefixes(const char *const *prefixes, size_t count)
         }
     }
     pthread_mutex_unlock(&g_mutex);
-    /* Every invalidation is a content change for the route BDR too. */
-    engine_bdr_bump();
 }
 
 void page_cache_clear_prefix(const char *prefix) {
     if (!prefix) return;
-    page_cache_clear_prefixes(&prefix, 1);
+    page_cache_clear_prefixes_raw(&prefix, 1);
+    engine_bdr_bump();
 }
 
 void page_cache_key_home(char *out, size_t out_len, bool dark, bool mobile, const char *role, int uid) {
@@ -343,13 +342,15 @@ void page_cache_invalidate_post(const char *slug) {
         char prefix[256];
         snprintf(prefix, sizeof(prefix), "post:%s:", slug);
         const char *prefixes[4] = {prefix, "home:", "board:", "boards:"};
-        page_cache_clear_prefixes(prefixes, 4);
+        page_cache_clear_prefixes_raw(prefixes, 4);
+        engine_bdr_bump_post(slug);
         return;
     }
     /* Home and board listings embed post titles/summaries/votes, so they must
      * be invalidated too. */
     const char *prefixes[3] = {"home:", "board:", "boards:"};
-    page_cache_clear_prefixes(prefixes, 3);
+    page_cache_clear_prefixes_raw(prefixes, 3);
+    engine_bdr_bump_post(NULL);
 }
 
 void page_cache_invalidate_board(const char *slug) {
@@ -357,11 +358,13 @@ void page_cache_invalidate_board(const char *slug) {
         char prefix[256];
         snprintf(prefix, sizeof(prefix), "board:%s:", slug);
         const char *prefixes[4] = {prefix, "board:", "boards:", "home:"};
-        page_cache_clear_prefixes(prefixes, 4);
+        page_cache_clear_prefixes_raw(prefixes, 4);
+        engine_bdr_bump_board(slug);
         return;
     }
     const char *prefixes[3] = {"board:", "boards:", "home:"};
-    page_cache_clear_prefixes(prefixes, 3);
+    page_cache_clear_prefixes_raw(prefixes, 3);
+    engine_bdr_bump_board(NULL);
 }
 
 void page_cache_invalidate_all(void) {
@@ -370,7 +373,8 @@ void page_cache_invalidate_all(void) {
 
 void page_cache_invalidate_listings(void) {
     const char *prefixes[3] = {"home:", "board:", "boards:"};
-    page_cache_clear_prefixes(prefixes, 3);
+    page_cache_clear_prefixes_raw(prefixes, 3);
+    engine_bdr_bump_listings();
 }
 
 size_t page_cache_total_bytes(void) {

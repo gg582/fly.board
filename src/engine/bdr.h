@@ -27,6 +27,13 @@ void engine_bdr_init(cwist_app *app);
 /* Content changed somewhere: stale every cached reply in every process. */
 void engine_bdr_bump(void);
 
+/* Narrower invalidations: only bump the BDR domain(s) affected by a post,
+ * board, or listing change so unrelated cached routes (other posts, static
+ * meta endpoints, user profiles) keep hitting across worker processes. */
+void engine_bdr_bump_listings(void);
+void engine_bdr_bump_post(const char *slug);
+void engine_bdr_bump_board(const char *slug);
+
 /* Build the cache key for @p req. Returns false when the request must not
  * touch the cache (logged in, conditional/range request, non-GET, ...). */
 bool engine_bdr_key(cwist_http_request *req, char *out, size_t out_len);
@@ -34,10 +41,12 @@ bool engine_bdr_key(cwist_http_request *req, char *out, size_t out_len);
 /* Fill @p res from the cache. Returns false on a miss or stale entry. */
 bool engine_bdr_serve(cwist_http_request *req, cwist_http_response *res, const char *key);
 
-/* Content version to pass to engine_bdr_store(). Read it before the route
- * runs: a bump during rendering then leaves the stored reply already stale
- * instead of labelling old content with the new version. */
+/* Content version for @p key (or the global generation when @p key is NULL)
+ * to pass to engine_bdr_store(). Read it before the route runs: a bump
+ * during rendering then leaves the stored reply already stale instead of
+ * labelling old content with the new version. */
 uint64_t engine_bdr_version(void);
+uint64_t engine_bdr_version_for_key(const char *key);
 
 /* Store a finished response (status, final headers, encoded body). */
 void engine_bdr_store(cwist_http_request *req, cwist_http_response *res, const char *key,

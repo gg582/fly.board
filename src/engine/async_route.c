@@ -163,9 +163,6 @@ static void run_job(fly_async_job *job) {
     cwist_async_wait_dispatched(job->a);
     int64_t after_wait = now_ms();
     job->handler(job->req, job->res);
-    /* Bump only after the write landed, so no reader re-caches old data
-     * under the new version. */
-    if (job->mutating) engine_bdr_bump();
     if (g_finish) g_finish(job->req, job->res);
     /* The compress middleware bails on res->deferred (in the middleware
      * chain that guards against a response another thread may be completing).
@@ -367,7 +364,7 @@ static void async_gate(cwist_http_request *req, cwist_http_response *res, cwist_
 
     t_in_gate = true;
     t_bdr_key = keyed ? key : NULL;
-    t_bdr_version = keyed ? engine_bdr_version() : 0;
+    t_bdr_version = keyed ? engine_bdr_version_for_key(key) : 0;
     t_route_cacheable = false;
     int64_t gate_start = now_ms();
     next(req, res);
@@ -378,8 +375,7 @@ static void async_gate(cwist_http_request *req, cwist_http_response *res, cwist_
     if (!job) {
         /* The route ran inline. */
         log_if_slow(gate_start, req, res, "inline");
-        if (req->method == CWIST_HTTP_POST) engine_bdr_bump();
-        else if (keyed && t_route_cacheable && res->status_code < 500)
+        if (keyed && t_route_cacheable && res->status_code < 500)
             engine_bdr_store(req, res, key, t_bdr_version);
         return;
     }

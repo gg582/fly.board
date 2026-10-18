@@ -737,7 +737,12 @@ void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
     int vote_type = atoi(vote_type_str);
     cJSON *target = db_post_get_by_id(req->db, post_id);
     bool votable = post_is_public(target);
-    if (target) cJSON_Delete(target);
+    char target_slug[256] = {0};
+    if (target) {
+        cJSON *s = cJSON_GetObjectItem(target, "slug");
+        if (cJSON_IsString(s) && s->valuestring) snprintf(target_slug, sizeof(target_slug), "%s", s->valuestring);
+        cJSON_Delete(target);
+    }
     if (!votable) {
         res->status_code = CWIST_HTTP_NOT_FOUND;
         cwist_sstring_assign(res->body, "Not found");
@@ -773,6 +778,7 @@ void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
             CWIST_LOG_INFO("Anon vote cast: post_id=%d vote_type=%d", post_id, vote_type);
         }
     }
+    if (target_slug[0]) page_cache_invalidate_post(target_slug);
     cJSON *counts = db_post_vote_counts(req->db, post_id);
     int user_vote = logged_in ? db_post_user_vote(req->db, post_id, uid) : 0;
     cJSON *obj = cJSON_CreateObject();
