@@ -53,21 +53,10 @@ static bool schedule_on_pool(ttak_thread_pool_t *pool,
 
 bool engine_pool_init(void) {
     pthread_rwlock_wrlock(&g_pool_lock);
-    if (g_accepting_work) {
-        pthread_rwlock_unlock(&g_pool_lock);
-        return true;
-    }
-    g_work_pool = ttak_thread_pool_create(work_pool_size(), 0, ttak_get_tick_count());
-    if (!g_work_pool) {
-        ttak_thread_pool_t *work_pool = g_work_pool;
-        g_work_pool = NULL;
-        pthread_rwlock_unlock(&g_pool_lock);
-        ttak_thread_pool_destroy(work_pool);
-        FLY_LOG_ERROR("Failed to initialize engine worker pools");
-        return false;
-    }
+    /* Defer actual ttak_thread_pool_t creation to the first engine_pool_schedule()
+     * call in each process so cwist_app_listen() forks with a clean single-threaded
+     * parent and does not leak pre-fork pool descriptors into worker children. */
     g_accepting_work = true;
-    g_pool_owner = getpid();
     pthread_rwlock_unlock(&g_pool_lock);
     return true;
 }
@@ -89,20 +78,16 @@ bool engine_pool_schedule(ttak_task_func_t func,
                           ttak_task_domain_t domain,
                           uint8_t urgency) {
     pthread_rwlock_rdlock(&g_pool_lock);
-    if (g_accepting_work && g_pool_owner != getpid()) {
-        /* cwist_app_listen() forks serving processes after
-         * engine_pool_init(), and threads do not survive fork: the inherited
-         * pool handle has worker threads only in the original process, so a
-         * task scheduled from a serving process would sit in the queue
-         * forever (TASFA finalizes never completing is how this surfaced).
-         * Abandon the inherited handle — destroying it would join threads
-         * that do not exist here — and spawn a pool owned by this process. */
+    if (g_accepting_work && (!g_work_pool || g_pool_owner != getpid())) {
         pthread_rwlock_unlock(&g_pool_lock);
         pthread_rwlock_wrlock(&g_pool_lock);
-        if (g_accepting_work && g_pool_owner != getpid()) {
-            g_work_pool = NULL;
+        if (g_accepting_work && (!g_work_pool || g_pool_owner != getpid())) {
             g_work_pool = ttak_thread_pool_create(work_pool_size(), 0, ttak_get_tick_count());
-            if (g_work_pool) g_pool_owner = getpid();
+            if (g_work_pool) {
+                g_pool_owner = getpid();
+            } else {
+                FLY_LOG_ERROR("Failed to lazily initialize engine worker pool");
+            }
         }
     }
     bool ok = g_accepting_work && schedule_on_pool(g_work_pool, func, arg, hash, domain, urgency);
