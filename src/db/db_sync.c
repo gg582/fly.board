@@ -79,19 +79,16 @@ bool db_sync_journal_row(cwist_db *db, const char *table, const char *entity, in
 }
 
 /* Journal write for mutations that run on a database without a cwist_db
- * handle at hand (board_tree.db). Opens a short-lived connection to the main
- * database, inserts, closes. Low-frequency path only. */
+ * handle at hand (comments.db, board_tree.db). Reuses the calling thread's
+ * cached main-DB connection via fly_db_conn(NULL) instead of opening and
+ * closing a fresh sqlite3 handle on every mutation. */
 bool db_sync_journal_external(const char *entity, int entity_id, const char *op, const char *payload) {
-    sqlite3 *conn = NULL;
-    if (sqlite3_open(FLY_DB_MAIN_PATH, &conn) != SQLITE_OK) {
-        sqlite3_close(conn);
+    sqlite3 *conn = fly_db_conn(NULL);
+    if (!conn) {
         CWIST_LOG_ERROR("sync_journal: cannot open %s", FLY_DB_MAIN_PATH);
         return false;
     }
-    sqlite3_busy_timeout(conn, 5000);
-    bool ok = db_sync_journal_conn(conn, entity, entity_id, op, payload);
-    sqlite3_close(conn);
-    return ok;
+    return db_sync_journal_conn(conn, entity, entity_id, op, payload);
 }
 
 /* Journal a full-row snapshot of a row that lives in an auxiliary database
