@@ -152,6 +152,7 @@ cJSON *db_post_list_by_tag(cwist_db *db, const char *tag, int limit, int offset)
 int db_post_count_by_tag(cwist_db *db, const char *tag);
 /* [{slug, title, created_at, shared}] public posts sharing tags with post_id. */
 cJSON *db_post_related_by_tags(cwist_db *db, int post_id, int limit);
+cJSON *db_post_related_by_board(cwist_db *db, int post_id, int board_id, int limit);
 
 /* Files */
 bool db_file_create_volume(cwist_db *db, int post_id, int user_id, const char *filename, const char *mime_type, const char *file_path, size_t len);

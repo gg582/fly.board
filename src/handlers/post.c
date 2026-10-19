@@ -496,7 +496,7 @@ static void attach_post_tags(cwist_db *db, cJSON *post) {
  * via fly_db_conn(). The post JSON is only mutated on the main thread. */
 typedef struct {
     cwist_db *db;
-    int post_id, uid, author_id;
+    int post_id, uid, author_id, board_id;
     bool post_public;
     const char *created_at;
     cJSON *files, *comments, *vote_counts, *author_user, *adjacent, *related;
@@ -521,6 +521,12 @@ static void *pl_related_thread(void *arg) {
     if (c->post_public) {
         c->adjacent = db_post_adjacent(c->db, c->post_id, c->created_at);
         c->related = db_post_related_by_tags(c->db, c->post_id, 5);
+        /* Untagged posts have no shared-tag neighbours; fall back to the
+         * newest posts from the same board so the section isn't blank. */
+        if (!c->related || cJSON_GetArraySize(c->related) == 0) {
+            if (c->related) cJSON_Delete(c->related);
+            c->related = db_post_related_by_board(c->db, c->post_id, c->board_id, 5);
+        }
     }
     return NULL;
 }
@@ -576,7 +582,8 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
      * overlap instead of serializing on one connection. The post JSON is only
      * mutated on the main thread after the joins. */
     post_load_ctx pl = { .db = req->db, .post_id = post_id, .uid = uid,
-                         .author_id = author_id, .post_public = post_public,
+                         .author_id = author_id, .board_id = json_int(post, "board_id", 0),
+                         .post_public = post_public,
                          .created_at = created_at };
     pthread_t t_media, t_votes, t_related;
     bool ok_media = pthread_create(&t_media, NULL, pl_media_thread, &pl) == 0;

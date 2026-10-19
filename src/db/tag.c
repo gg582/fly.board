@@ -196,3 +196,17 @@ cJSON *db_post_related_by_tags(cwist_db *db, int post_id, int limit) {
     sqlite3_bind_int(stmt, 2, limit);
     return db_sqlite3_rows_to_json(stmt);
 }
+
+cJSON *db_post_related_by_board(cwist_db *db, int post_id, int board_id, int limit) {
+    if (board_id <= 0) return NULL;
+    const char *sql =
+        "SELECT p.slug AS slug, p.title AS title, p.created_at AS created_at, 0 AS shared"
+        " FROM posts p WHERE p.id<>? AND p.board_id=? AND " POST_PUBLIC_SQL
+        " ORDER BY p.created_at DESC LIMIT ?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_int(stmt, 1, post_id);
+    sqlite3_bind_int(stmt, 2, board_id);
+    sqlite3_bind_int(stmt, 3, limit);
+    return db_sqlite3_rows_to_json(stmt);
+}
