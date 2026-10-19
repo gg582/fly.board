@@ -1159,10 +1159,15 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     bool was_public = post_is_public(post);
     /* Snapshot the version about to be replaced, for the revision history.
      * Copies are taken before the post JSON is released; stored inside the
-     * edit savepoint below so the revision commits with the edit. */
+     * edit savepoint below so the revision commits with the edit. The same
+     * capture preserves the notice/secret/category flags through the update
+     * (passing literal 0/0 here used to silently clear them). */
     char *rev_title = strdup(json_string_or_empty(post, "title"));
     char *rev_content = strdup(json_string_or_empty(post, "content"));
     char *rev_summary = strdup(json_string_or_empty(post, "summary"));
+    char *rev_category = strdup(json_string_or_empty(post, "category"));
+    int old_is_notice = json_int(post, "is_notice", 0);
+    int old_is_secret = json_int(post, "is_secret", 0);
     publish_choice_t pub;
     choose_publish(&pub, uid, post_action, publish_at_in, was_public);
     cJSON_Delete(post);
@@ -1186,7 +1191,8 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     if (content_changed)
         db_revision_save(req->db, edit_id, rev_title, rev_content, rev_summary, uid);
     free(rev_title); free(rev_content); free(rev_summary);
-    if (db_post_update(req->db, edit_id, board_id, title, content, summary ? summary : "", sig_b642 ? sig_b642 : "", 0, 0, "", pub.status, pub.publish_at)) {
+    if (db_post_update(req->db, edit_id, board_id, title, content, summary ? summary : "", sig_b642 ? sig_b642 : "",
+                       old_is_notice, old_is_secret, rev_category, pub.status, pub.publish_at)) {
         CWIST_LOG_INFO("Post updated: id=%s uid=%d board_id=%d status=%s publish_at=%s", id_str, uid, board_id,
                        pub.status, pub.publish_at ? pub.publish_at : "kept");
         if (pub.publish_at) post_schedule_note(pub.publish_at);
@@ -1194,6 +1200,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         CWIST_LOG_ERROR("Post update failed: id=%s uid=%d", id_str, uid);
     }
     if (sig_b642) cwist_free(sig_b642);
+    free(rev_category);
 
     attach_media_meta_to_post(req->db, media_meta, edit_id, uid, role);
     if (tags_in) db_tag_set_for_post(req->db, edit_id, tags_in);

@@ -89,11 +89,26 @@ static void send_simple_page(cwist_http_response *res, const char *heading, cons
     if (b) cwist_sstring_destroy(b);
 }
 
+/* On a FlyWire replica, subscription state belongs on the primary (it is the
+ * only node that confirms and sends), so both handlers point the reader at
+ * the primary's subscribe page instead of writing into a local DB the
+ * primary never reads. Unsubscribe stays local-by-token and always works. */
+static bool replica_redirect(cwist_http_response *res) {
+    if (!flywire_is_replica()) return false;
+    const char *primary = flywire_primary_url();
+    if (!primary || !primary[0]) return false;
+    char url[600];
+    snprintf(url, sizeof(url), "%s%ssubscribe", primary, primary[strlen(primary) - 1] == '/' ? "" : "/");
+    redirect(res, url);
+    return true;
+}
+
 /* GET /subscribe — the standalone subscription form. */
 void handler_subscribe_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
+    if (replica_redirect(res)) return;
     if (!g_config.newsletter_enabled) {
         res->status_code = CWIST_HTTP_NOT_FOUND;
         cwist_sstring_assign(res->body, "Not found");
@@ -109,6 +124,7 @@ void handler_subscribe_post(cwist_http_request *req, cwist_http_response *res) {
     auth_is_logged_in(req, &uid, role, sizeof(role));
     bool dark = is_dark(req);
     bool mobile = is_mobile_request(req);
+    if (replica_redirect(res)) return;
     if (!g_config.newsletter_enabled) {
         res->status_code = CWIST_HTTP_NOT_FOUND;
         cwist_sstring_assign(res->body, "Not found");

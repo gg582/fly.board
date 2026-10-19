@@ -978,15 +978,27 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     }
 
     /* Email subscription: a compact form on the post lists (home, /search,
-     * /board pages). Hidden unless the newsletter is enabled. */
+     * /board pages). Hidden unless the newsletter is enabled. On a FlyWire
+     * replica the form would post into a local DB the primary never reads,
+     * so it links to the primary's subscribe page instead. */
     if (g_config.newsletter_enabled) {
+        const char *primary = (flywire_is_replica() && flywire_primary_url()[0]) ? flywire_primary_url() : NULL;
         cwist_sstring_append(b, "<section class='board-line fade-in' style='margin-top:24px;text-align:center'><h3 style='margin-bottom:6px'>New posts by email</h3>");
         cwist_sstring_append(b, "<p style='color:var(--muted);font-size:13px;margin-bottom:10px'>One plain-text email per published post. Unsubscribe any time.</p>");
-        cwist_sstring_append(b, "<form action='/subscribe' method='post' style='display:flex;gap:8px;justify-content:center;flex-wrap:wrap'>");
-        cwist_sstring_append(b, "<input type='email' name='email' required placeholder='you@example.com' style='max-width:280px'>");
-        spam_guard_append_fields(b);
-        cwist_sstring_append(b, "<button type='submit' class='btn'>Subscribe</button>");
-        cwist_sstring_append(b, "</form></section>");
+        if (primary) {
+            char sub_url[600];
+            snprintf(sub_url, sizeof(sub_url), "%s%ssubscribe", primary, primary[strlen(primary) - 1] == '/' ? "" : "/");
+            cwist_sstring_append(b, "<a href='");
+            cwist_sstring_append_escaped(b, sub_url);
+            cwist_sstring_append(b, "' class='btn'>Subscribe on the main site</a>");
+        } else {
+            cwist_sstring_append(b, "<form action='/subscribe' method='post' style='display:flex;gap:8px;justify-content:center;flex-wrap:wrap'>");
+            cwist_sstring_append(b, "<input type='email' name='email' required placeholder='you@example.com' style='max-width:280px'>");
+            spam_guard_append_fields(b);
+            cwist_sstring_append(b, "<button type='submit' class='btn'>Subscribe</button>");
+            cwist_sstring_append(b, "</form>");
+        }
+        cwist_sstring_append(b, "</section>");
     }
 
     if (board_lang && board_lang[0]) {

@@ -297,8 +297,21 @@ src/crypto/fly_crypto.o: src/crypto/fly_crypto.c
 # must rebuild every consumer, not just the files edited in the same commit.
 -include $(OBJS:.o=.d)
 
+# The static handler serves *.min.js when it exists, so a stale min file
+# silently ships old client code. Regenerate minified siblings from their
+# sources before linking; fall back to a plain copy when no minifier is
+# installed (feature-correct, just uncompressed).
+MINJS := $(patsubst %.js,%.min.js,$(filter-out %.min.js,$(wildcard public/js/*.js)))
+
+minjs: $(MINJS)
+
+public/js/%.min.js: public/js/%.js
+	@if command -v terser >/dev/null 2>&1; then terser $< -c -m -o $@; \
+	elif command -v uglifyjs >/dev/null 2>&1; then uglifyjs $< -c -m -o $@; \
+	else cp $< $@; fi
+
 # Relink when the cwist archive changes (e.g. after `brew upgrade cwist`).
-$(TARGET): $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A) $(CWIST_LIB)
+$(TARGET): minjs $(OBJS) $(MD4C_LIB) $(LIBMAGIC_A) $(CWIST_LIB)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS) $(LIBS)
 
 setup:

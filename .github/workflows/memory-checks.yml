@@ -115,6 +115,18 @@ jobs:
             -I${{ github.workspace }}/third_party/libttak/include
             -fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer -O0 -g
 
+      # The static handler serves *.min.js preferentially, so a min file that
+      # was not regenerated after its source change would silently ship old
+      # client code. Rebuild all minified siblings and fail on any drift.
+      - name: Check committed min.js files are fresh
+        run: |
+          touch public/js/*.js
+          make minjs
+          git diff --exit-code -- public/js || {
+            echo "::error::Stale public/js/*.min.js — run 'make minjs' and commit the result."
+            exit 1
+          }
+
       - name: Run ASan leak stress test
         run: ./tools/asan_leak_stress.sh
         env:
