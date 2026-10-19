@@ -2459,7 +2459,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
              user_id,
              g_config.use_tasfa ? "true" : "false");
     cwist_sstring_append(b, numbuf);
-    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=7' defer></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=8' defer></script>");
     cwist_sstring_append(b, "<script src='/assets/js/tag-input.js?v=1' defer></script>");
 
     cwist_sstring *page = render_page(post ? "Edit Post" : "New Post", b->data, dark, user_role, profile_pic, is_mobile);

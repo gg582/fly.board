@@ -699,7 +699,7 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     const char *ephemeral_delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
     cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, author_pp, uid, ephemeral_delete_pin, mobile);
     if (page) {
-        page_cache_set(key, page->data, page->size, 60);
+        if (post_public) page_cache_set(key, page->data, page->size, 60);
         reqshare_finish(key, page);
     } else {
         reqshare_finish(key, NULL);
@@ -822,6 +822,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     char *title = NULL, *content = NULL, *summary = NULL, *board_id_str = NULL, *media_meta = NULL;
     char *post_action = NULL, *publish_at_in = NULL, *tags_in = NULL;
     char *series_in = NULL, *series_pos_in = NULL, *lang_in = NULL, *translation_in = NULL;
+    char *autosave_draft_id_str = NULL;
     char *spam_trap = NULL, *spam_token = NULL;
     form_field_t *files = NULL;
 
@@ -857,6 +858,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             series_pos_in = dup_form_field(files, "series_pos");
             lang_in = dup_form_field(files, "lang");
             translation_in = dup_form_field(files, "translation_of");
+            autosave_draft_id_str = dup_form_field(files, "autosave_draft_id");
             spam_trap = dup_form_field(files, SPAM_FIELD_TRAP);
             spam_token = dup_form_field(files, SPAM_FIELD_TOKEN);
             FLY_LOG_DEBUG("multipart parsed: title=%s content_len=%zu board_id=%s", title ? title : "NULL", content ? strlen(content) : 0, board_id_str ? board_id_str : "NULL");
@@ -884,10 +886,13 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         series_pos_in = dup_query_field(kv, "series_pos");
         lang_in = dup_query_field(kv, "lang");
         translation_in = dup_query_field(kv, "translation_of");
+        autosave_draft_id_str = dup_query_field(kv, "autosave_draft_id");
         spam_trap = dup_query_field(kv, SPAM_FIELD_TRAP);
         spam_token = dup_query_field(kv, SPAM_FIELD_TOKEN);
         cwist_query_map_destroy(kv);
     }
+    int autosave_draft_id = autosave_draft_id_str ? atoi(autosave_draft_id_str) : 0;
+    cwist_free(autosave_draft_id_str);
 
     spam_verdict_t verdict = spam_guard_check(req, uid, role, spam_trap, spam_token);
     cwist_free(spam_trap);
@@ -943,6 +948,18 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     post_utc_now(now);
     bool public_now = strcmp(pub.status, POST_STATUS_PUBLISHED) == 0 &&
                       (!pub.publish_at || strcmp(pub.publish_at, now) <= 0);
+
+    /* If an autosave draft row was created in this editor session right as the
+     * form submitted to /post/new, remove that temporary draft row first so it
+     * neither steals the base slug nor lingers as an orphan draft. */
+    if (autosave_draft_id > 0 && uid > 0) {
+        cJSON *ad = db_post_get_by_id(req->db, autosave_draft_id);
+        if (ad && is_author_or_admin(ad, uid, role) &&
+            strcmp(json_string_or_empty(ad, "status"), POST_STATUS_DRAFT) == 0) {
+            db_post_delete(req->db, autosave_draft_id);
+        }
+        if (ad) cJSON_Delete(ad);
+    }
 
     int created_id = 0;
     char *created_slug = NULL;

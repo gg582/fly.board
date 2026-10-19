@@ -158,6 +158,20 @@
     var serverDraftEnabled = Number(window.CURRENT_USER_ID || 0) > 0;
     var serverDraftSaving = false;
     var serverDraftTimer = null;
+    var serverDraftAbort = null;
+
+    function syncAutosaveDraftInput(id) {
+        if (!ta || !ta.form) return;
+        var input = document.getElementById('autosave-draft-id');
+        if (!input) {
+            input = document.createElement('input');
+            input.type = 'hidden';
+            input.id = 'autosave-draft-id';
+            input.name = 'autosave_draft_id';
+            ta.form.appendChild(input);
+        }
+        input.value = String(Number(id || 0));
+    }
 
     function fieldValue(id) {
         var el = document.getElementById(id);
@@ -165,7 +179,7 @@
     }
 
     function scheduleServerDraftSave() {
-        if (!serverDraftEnabled || !ta || !ta.form) return;
+        if (!serverDraftEnabled || isSubmitting || !ta || !ta.form) return;
         if (serverDraftTimer) clearTimeout(serverDraftTimer);
         serverDraftTimer = setTimeout(saveServerDraft, 2000);
     }
@@ -185,9 +199,13 @@
             tags: fieldValue('tags-input'),
             board_id: fieldValue('board-id-input') || '0'
         };
+        if (typeof AbortController === 'function') {
+            serverDraftAbort = new AbortController();
+        }
         fetch('/api/autosave', {
             method: 'POST',
             credentials: 'same-origin',
+            signal: serverDraftAbort ? serverDraftAbort.signal : undefined,
             headers: {
                 'X-Requested-With': 'XMLHttpRequest',
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -197,9 +215,10 @@
             if (!response.ok) return null;
             return response.json().catch(function() { return null; });
         }).then(function(payload) {
-            if (!payload || !payload.ok || !payload.id) return;
+            if (isSubmitting || !payload || !payload.ok || !payload.id) return;
             if (Number(window.POST_ID || 0) !== payload.id) {
                 window.POST_ID = payload.id;
+                syncAutosaveDraftInput(payload.id);
                 if (ta.form) ta.form.action = '/post/' + payload.id + '/edit';
             }
             clearDraft();
@@ -211,6 +230,7 @@
             }
         }).catch(function() {}).then(function() {
             serverDraftSaving = false;
+            serverDraftAbort = null;
         });
     }
 
@@ -224,7 +244,7 @@
     }
 
     function saveDraft() {
-        if (!ta) return;
+        if (!ta || isSubmitting) return;
         try {
             localStorage.setItem(draftKey, JSON.stringify({
                 title: titleInput ? titleInput.value : '',
@@ -241,6 +261,7 @@
     }
 
     function scheduleDraftSave() {
+        if (isSubmitting) return;
         if (draftTimer) clearTimeout(draftTimer);
         draftTimer = setTimeout(saveDraft, 800);
         scheduleServerDraftSave();
@@ -4057,6 +4078,15 @@
                 return;
             }
             isSubmitting = true;
+            if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; }
+            if (serverDraftTimer) { clearTimeout(serverDraftTimer); serverDraftTimer = null; }
+            if (serverDraftAbort) {
+                try { serverDraftAbort.abort(); } catch (err) {}
+                serverDraftAbort = null;
+            }
+            if (Number(window.POST_ID || 0) > 0) {
+                syncAutosaveDraftInput(window.POST_ID);
+            }
             syncMediaMeta();
             clearDraft();
         });
