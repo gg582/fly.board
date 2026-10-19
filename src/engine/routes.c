@@ -60,6 +60,8 @@ void engine_routes_register(cwist_app *app) {
 
     engine_async_get(app, "/login", handler_login_get);
     engine_async_post(app, "/login", handler_login_post);
+    engine_async_post(app, "/login/2fa", handler_login_2fa_post);
+    engine_async_post(app, "/account/totp", handler_account_totp_post);
     engine_async_get(app, "/logout", handler_logout);
     engine_async_get(app, "/register", handler_register_get);
     engine_async_post(app, "/register", handler_register_post);
@@ -154,6 +156,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/admin/users", handler_admin_users);
     engine_async_get(app, "/admin/user/role", handler_admin_users);
     engine_async_post(app, "/admin/user/role", handler_admin_user_role);
+    engine_async_post(app, "/admin/user/totp-reset", handler_admin_user_totp_reset_post);
     engine_async_get(app, "/admin/files/drop", handler_file_repo);
     engine_async_post(app, "/admin/files/drop", handler_admin_files_drop);
     engine_async_get(app, "/admin/boards", handler_admin_boards_get);

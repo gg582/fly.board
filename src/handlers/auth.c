@@ -2,7 +2,11 @@
 #include "handlers_internal.h"
 #include "utils/email.h"
 #include "utils/ipban.h"
+#include "../auth/totp.h"
+#include "render/render.h"
+#include <cwist/security/jwt/jwt.h>
 #include <ctype.h>
+#include <openssl/evp.h>
 #include <openssl/rand.h>
 
 /* Copy of the hex-token idiom used elsewhere; 64 hex chars for 32 bytes. */
@@ -205,6 +209,31 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
+    /* Two-factor: password is proven, but the TOTP step still stands. Issue
+     * a 5-minute pending token (purpose claim "2fa") and render the code
+     * entry form; handler_login_2fa_post completes the login. */
+    if (json_int(user, "totp_enabled", 0) == 1 && json_string_or_empty(user, "totp_secret")[0]) {
+        const char *secret = auth_jwt_secret();
+        char payload[96];
+        /* cwist_jwt_claims_get only returns string claims, so the uid rides
+         * in "sub" (same convention as the session tokens). */
+        snprintf(payload, sizeof(payload), "{\"p\":\"2fa\",\"sub\":\"%d\"}", user_id);
+        char *pending = secret ? cwist_jwt_sign(payload, secret, 300) : NULL;
+        if (!pending) {
+            CWIST_LOG_ERROR("Login 2FA pending token failed username='%s'", username);
+            cJSON_Delete(user);
+            send_html_res(res, render_login(dark, "Server error", mobile, redirect_target));
+            cwist_query_map_destroy(kv);
+            return;
+        }
+        CWIST_LOG_INFO("Login 2FA step issued: username='%s'", username);
+        send_html_res(res, render_login_2fa(dark, pending, redirect_target, mobile, NULL));
+        cwist_free(pending);
+        cJSON_Delete(user);
+        cwist_query_map_destroy(kv);
+        return;
+    }
+
     char *token = auth_jwt_issue(user_id, uname->valuestring, role->valuestring);
     if (!token) {
         CWIST_LOG_ERROR("User login failed: token issue error username='%s'", username);
@@ -228,6 +257,280 @@ void handler_logout(cwist_http_request *req, cwist_http_response *res) {
     clear_auth_cookies(res, req_is_tls(req));
     page_cache_invalidate_all();
     redirect(res, "/");
+}
+
+/* ---- Two-factor (TOTP) ----
+ *
+ * Recovery codes: 5 one-time codes generated at enable time, shown once,
+ * stored as comma-separated SHA-256 hex. A code is removed from the stored
+ * set when used. They exist so a lost phone never means a lockout (and an
+ * admin can always clear the columns via /admin/user/totp-reset).
+ */
+
+/* Settings-page renderer wrapper: derives the TOTP display state (enabled /
+ * pending-with-secret / off) from the user row so every caller does not
+ * repeat it. The one-time recovery-code notice is passed explicitly by the
+ * confirm handler. */
+static cwist_sstring *render_account_settings_totp(cJSON *user, bool dark, const char *role,
+                                                   const char *pp, const char *error, bool mobile,
+                                                   int drafts) {
+    bool enabled = user && json_int(user, "totp_enabled", 0) == 1;
+    const char *secret = json_string_or_empty(user, "totp_secret");
+    bool pending = !enabled && secret[0];
+    return render_account_settings(user, dark, role, pp, error, mobile, drafts,
+                                   enabled, pending, secret, "");
+}
+
+#define TOTP_RECOVERY_COUNT 5
+
+static void sha256_hex(const char *input, char out_hex[65]) {
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int len = 0;
+    EVP_Digest(input, strlen(input), digest, &len, EVP_sha256(), NULL);
+    for (unsigned int i = 0; i < len && i < 32; i++) snprintf(out_hex + i * 2, 3, "%02x", digest[i]);
+    out_hex[64] = '\0';
+}
+
+/* Generate TOTP_RECOVERY_COUNT fresh codes (formatted ABCDE-12345) and store
+ * their hashes. Fills `shown` (TOTP_RECOVERY_COUNT * 12 bytes) with the
+ * plain codes for the one-time display. Returns false on RNG/DB failure. */
+static bool totp_recovery_generate(cwist_db *db, int uid, char *shown) {
+    char hashes[TOTP_RECOVERY_COUNT * 65 + TOTP_RECOVERY_COUNT] = {0};
+    for (int i = 0; i < TOTP_RECOVERY_COUNT; i++) {
+        unsigned char raw[5];
+        if (RAND_bytes(raw, sizeof(raw)) != 1) return false;
+        char code[11];
+        for (int j = 0; j < 5; j++) snprintf(code + j * 2, 3, "%02X", raw[j]);
+        code[10] = '\0';
+        snprintf(shown + i * 12, 12, "%.5s-%.5s", code, code + 5);
+        shown[i * 12 + 11] = '\0';
+        char hex[65];
+        char normalized[11];
+        snprintf(normalized, sizeof(normalized), "%.5s%.5s", code, code + 5);
+        sha256_hex(normalized, hex);
+        if (i) strncat(hashes, ",", sizeof(hashes) - strlen(hashes) - 1);
+        strncat(hashes, hex, sizeof(hashes) - strlen(hashes) - 1);
+    }
+    return db_user_update_totp_recovery(db, uid, hashes);
+}
+
+/* Check a user-typed code against the stored recovery hashes. On match the
+ * used code is removed from the stored set (one-time use) and true is
+ * returned. */
+static bool totp_recovery_consume(cwist_db *db, int uid, const char *stored_csv, const char *code) {
+    if (!code || strlen(code) != 11 || code[5] != '-') return false;
+    char normalized[11];
+    snprintf(normalized, sizeof(normalized), "%.5s%.5s", code, code + 6);
+    for (int i = 0; i < 5; i++) normalized[i] = (char)toupper((unsigned char)normalized[i]);
+    for (int i = 6; i < 10; i++) normalized[i] = (char)toupper((unsigned char)normalized[i]);
+    normalized[10] = '\0';
+    char hex[65];
+    sha256_hex(normalized, hex);
+
+    char copy[600];
+    snprintf(copy, sizeof(copy), "%s", stored_csv ? stored_csv : "");
+    bool found = false;
+    char remaining[600] = {0};
+    char *save = NULL;
+    for (char *tok = strtok_r(copy, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+        if (!found && strcmp(tok, hex) == 0) { found = true; continue; }
+        if (remaining[0]) strncat(remaining, ",", sizeof(remaining) - strlen(remaining) - 1);
+        strncat(remaining, tok, sizeof(remaining) - strlen(remaining) - 1);
+    }
+    if (found) db_user_update_totp_recovery(db, uid, remaining);
+    return found;
+}
+
+/* Shared tail of a successful authentication: full session + redirect. */
+static void complete_login(cwist_http_request *req, cwist_http_response *res,
+                           int uid, const char *username, const char *role,
+                           const char *redirect_target) {
+    char *token = auth_jwt_issue(uid, username, role);
+    if (!token) {
+        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
+        cwist_sstring_assign(res->body, "Server error");
+        return;
+    }
+    CWIST_LOG_INFO("User login success: username='%s'", username);
+    ipban_note_success(req);
+    set_auth_cookies(res, token, req_is_tls(req));
+    cwist_free(token);
+    page_cache_invalidate_all();
+    redirect_referer_safe(res, redirect_target, "/");
+}
+
+/* POST /login/2fa — completes a login that stopped at the TOTP step.
+ * Expects the 5-minute pending token from the password step plus a 6-digit
+ * TOTP code or an 11-char recovery code (ABCDE-12345). */
+void handler_login_2fa_post(cwist_http_request *req, cwist_http_response *res) {
+    bool dark = is_dark(req);
+    bool mobile = is_mobile_request(req);
+    cwist_query_map *kv = cwist_query_map_create();
+    if (!kv || !req->body || !req->body->data) {
+        if (kv) cwist_query_map_destroy(kv);
+        redirect(res, "/login");
+        return;
+    }
+    cwist_query_map_parse(kv, req->body->data);
+    const char *pending = cwist_query_map_get(kv, "token");
+    const char *code = cwist_query_map_get(kv, "code");
+    const char *redirect_target = cwist_query_map_get(kv, "redirect");
+
+    bool fail = false;
+    int uid = 0;
+    const char *secret = auth_jwt_secret();
+    cwist_jwt_claims *claims = (pending && secret) ? cwist_jwt_verify(pending, secret) : NULL;
+    if (!claims || !cwist_jwt_claims_get(claims, "p") ||
+        strcmp(cwist_jwt_claims_get(claims, "p"), "2fa") != 0) {
+        fail = true;
+    } else {
+        const char *uid_s = cwist_jwt_claims_get(claims, "sub");
+        uid = uid_s ? atoi(uid_s) : 0;
+    }
+    if (claims) cwist_jwt_claims_destroy(claims);
+
+    cJSON *user = uid > 0 ? db_user_get_by_id(req->db, uid) : NULL;
+    const char *totp_secret = user ? json_string_or_empty(user, "totp_secret") : "";
+    if (!fail && user && totp_secret[0]) {
+        if (totp_verify(totp_secret, code)) {
+            complete_login(req, res, uid, json_string_or_empty(user, "username"),
+                           json_string_or_empty(user, "role"), redirect_target);
+            if (user) cJSON_Delete(user);
+            cwist_query_map_destroy(kv);
+            return;
+        }
+        const char *recovery = json_string_or_empty(user, "totp_recovery");
+        if (recovery[0] && totp_recovery_consume(req->db, uid, recovery, code)) {
+            CWIST_LOG_WARN("Login via recovery code: uid=%d", uid);
+            complete_login(req, res, uid, json_string_or_empty(user, "username"),
+                           json_string_or_empty(user, "role"), redirect_target);
+            if (user) cJSON_Delete(user);
+            cwist_query_map_destroy(kv);
+            return;
+        }
+    }
+    fail = true;
+
+    if (user) cJSON_Delete(user);
+    ipban_note_failure(req);
+    CWIST_LOG_WARN("Login 2FA failed: uid=%d", uid);
+    send_html_res(res, render_login_2fa(dark, pending ? pending : "", redirect_target, mobile, "Invalid code. Try again."));
+    cwist_query_map_destroy(kv);
+}
+
+/* POST /account/totp — the settings-page two-factor controls.
+ *   action=enable   start setup: store a fresh secret (pending, not active)
+ *   action=confirm  prove possession with a code; activates 2FA and shows
+ *                   the one-time recovery codes
+ *   action=disable  requires the current password plus a TOTP or recovery
+ *                   code, so a hijacked session alone cannot strip 2FA */
+void handler_account_totp_post(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    bool dark = is_dark(req);
+    bool mobile = is_mobile_request(req);
+
+    cwist_query_map *kv = cwist_query_map_create();
+    if (!kv || !req->body || !req->body->data) {
+        if (kv) cwist_query_map_destroy(kv);
+        redirect(res, "/account/settings");
+        return;
+    }
+    cwist_query_map_parse(kv, req->body->data);
+    const char *action = cwist_query_map_get(kv, "action");
+    char *pp = get_profile_pic(req->db, uid, role);
+    int draft_count = db_post_count_drafts(req->db, uid);
+
+    cJSON *user = db_user_get_by_id(req->db, uid);
+    if (!user) {
+        cwist_query_map_destroy(kv);
+        free(pp);
+        redirect(res, "/account/settings");
+        return;
+    }
+
+    if (action && strcmp(action, "enable") == 0) {
+        char secret_b32[TOTP_B32_LEN + 1];
+        if (totp_secret_generate(secret_b32) &&
+            db_user_update_totp(req->db, uid, secret_b32, false)) {
+            CWIST_LOG_INFO("TOTP setup started: uid=%d", uid);
+        } else {
+            send_html_res(res, render_account_settings(user, dark, role, pp,
+                "Could not start two-factor setup. Try again.", mobile, draft_count,
+                false, false, "", ""));
+        }
+        cJSON_Delete(user);
+        cwist_query_map_destroy(kv);
+        free(pp);
+        redirect(res, "/account/settings");
+        return;
+    }
+
+    if (action && strcmp(action, "confirm") == 0) {
+        const char *code = cwist_query_map_get(kv, "code");
+        const char *secret_stored = json_string_or_empty(user, "totp_secret");
+        bool ok = secret_stored[0] && totp_verify(secret_stored, code);
+        if (ok) {
+            char shown[TOTP_RECOVERY_COUNT * 12 + 1];
+            if (db_user_update_totp(req->db, uid, secret_stored, true) &&
+                totp_recovery_generate(req->db, uid, shown)) {
+                char notice[1024];
+                snprintf(notice, sizeof(notice),
+                    "Two-factor authentication is ON. Recovery codes (shown once — store them safely):<br>"
+                    "<code>%.*s</code> <code>%.*s</code> <code>%.*s</code> <code>%.*s</code> <code>%.*s</code>",
+                    11, shown, 11, shown + 12, 11, shown + 24, 11, shown + 36, 11, shown + 48);
+                CWIST_LOG_INFO("TOTP enabled: uid=%d", uid);
+                send_html_res(res, render_account_settings(user, dark, role, pp, NULL, mobile,
+                    draft_count, true, false, "", notice));
+            } else {
+                send_html_res(res, render_account_settings(user, dark, role, pp,
+                    "Could not finish two-factor setup. Try again.", mobile, draft_count,
+                    false, true, secret_stored, ""));
+            }
+        } else {
+            send_html_res(res, render_account_settings(user, dark, role, pp,
+                "That code does not match. Check your app's clock and try again.", mobile,
+                draft_count, false, true, secret_stored, ""));
+        }
+        cJSON_Delete(user);
+        cwist_query_map_destroy(kv);
+        free(pp);
+        return;
+    }
+
+    if (action && strcmp(action, "disable") == 0) {
+        const char *password = cwist_query_map_get(kv, "password");
+        const char *code = cwist_query_map_get(kv, "code");
+        const char *secret_stored = json_string_or_empty(user, "totp_secret");
+        cJSON *hash = cJSON_GetObjectItem(user, "password_hash");
+        bool password_ok = hash && hash->valuestring && password &&
+                           auth_verify_password(password, hash->valuestring);
+        bool code_ok = (secret_stored[0] && totp_verify(secret_stored, code)) ||
+                       totp_recovery_consume(req->db, uid, json_string_or_empty(user, "totp_recovery"), code);
+        if (password_ok && code_ok) {
+            db_user_update_totp(req->db, uid, "", false);
+            db_user_update_totp_recovery(req->db, uid, "");
+            CWIST_LOG_INFO("TOTP disabled: uid=%d", uid);
+            cJSON_Delete(user);
+            cwist_query_map_destroy(kv);
+            free(pp);
+            redirect(res, "/account/settings");
+            return;
+        }
+        send_html_res(res, render_account_settings(user, dark, role, pp,
+            "Two-factor was NOT disabled: the password or code did not match.", mobile,
+            draft_count, true, false, "", ""));
+        cJSON_Delete(user);
+        cwist_query_map_destroy(kv);
+        free(pp);
+        return;
+    }
+
+    cJSON_Delete(user);
+    cwist_query_map_destroy(kv);
+    free(pp);
+    redirect(res, "/account/settings");
 }
 
 void handler_register_get(cwist_http_request *req, cwist_http_response *res) {
@@ -487,7 +790,7 @@ void handler_account_settings_get(cwist_http_request *req, cwist_http_response *
     } else if (msg && strcmp(msg, "admin_request_failed") == 0) {
         notice = "Could not send the admin promotion request to the primary site. Please try again later.";
     }
-    send_html_res(res, render_account_settings(user, is_dark(req), role, pp, notice, is_mobile_request(req), draft_count));
+    send_html_res(res, render_account_settings_totp(user, is_dark(req), role, pp, notice, is_mobile_request(req), draft_count));
     cJSON_Delete(user);
     free(pp);
 }
@@ -622,7 +925,7 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
         cJSON *user = db_user_get_by_id(req->db, target_uid);
         char *pp = get_profile_pic(req->db, uid, role);
         int draft_count = db_post_count_drafts(req->db, target_uid);
-        send_html_res(res, render_account_settings(user, is_dark(req), role, pp, "Invalid form data", is_mobile_request(req), draft_count));
+        send_html_res(res, render_account_settings_totp(user, is_dark(req), role, pp, "Invalid form data", is_mobile_request(req), draft_count));
         if (user) cJSON_Delete(user);
         free(pp);
         cwist_free(nickname); cwist_free(bio); cwist_free(profile_pic_url);

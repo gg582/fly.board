@@ -45,6 +45,8 @@ bool db_user_update_profile(cwist_db *db, int id, const char *nickname, const ch
 bool db_user_update_password(cwist_db *db, int id, const char *password_hash);
 cJSON *db_user_list(cwist_db *db);
 bool db_user_set_email_verified(cwist_db *db, int id, bool verified);
+bool db_user_update_totp(cwist_db *db, int id, const char *secret_b32, bool enabled);
+bool db_user_update_totp_recovery(cwist_db *db, int id, const char *recovery_csv);
 bool db_email_token_create(cwist_db *db, int user_id, const char *token, long expires_at);
 bool db_email_token_delete_for_user(cwist_db *db, int user_id);
 int db_email_token_consume(cwist_db *db, const char *token);

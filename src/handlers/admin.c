@@ -287,6 +287,26 @@ void handler_admin_user_role(cwist_http_request *req, cwist_http_response *res) 
     redirect_referer_safe(res, referer, "/admin/users");
 }
 
+/* Lockout recovery: clear a user's TOTP secret, enabled flag, and recovery
+ * codes so they can sign in with the password alone and set 2FA up again. */
+void handler_admin_user_totp_reset_post(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    cwist_query_map *kv = cwist_query_map_create();
+    if (!kv) { redirect(res, "/admin/users"); return; }
+    cwist_query_map_parse(kv, req->body->data);
+    int target_uid = atoi(cwist_query_map_get(kv, "id") ? cwist_query_map_get(kv, "id") : "0");
+    cwist_query_map_destroy(kv);
+    if (target_uid > 0 && !auth_is_site_admin(target_uid) &&
+        db_user_update_totp(req->db, target_uid, "", false) &&
+        db_user_update_totp_recovery(req->db, target_uid, "")) {
+        CWIST_LOG_INFO("Admin reset TOTP: uid=%d", target_uid);
+    } else {
+        CWIST_LOG_WARN("Admin TOTP reset refused/failed: uid=%d", target_uid);
+    }
+    const char *referer = cwist_http_header_get(req->headers, "Referer");
+    redirect_referer_safe(res, referer, "/admin/users");
+}
+
 void handler_admin_files_drop(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
     int count = db_file_drop_all(req->db);

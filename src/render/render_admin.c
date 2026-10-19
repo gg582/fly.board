@@ -39,6 +39,14 @@ cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pi
             cwist_sstring_append(b, " <a href='/account/settings?id=");
             cwist_sstring_append(b, uid_buf);
             cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px;text-decoration:none'>Edit</a>");
+            if (json_int(u, "totp_enabled", 0) == 1) {
+                cwist_sstring_append(b, " <span class='tag' style='font-size:11px;padding:3px 8px'>2FA</span>");
+                cwist_sstring_append(b, " <form class='admin-totp-reset-form' action='/admin/user/totp-reset' method='post' style='display:inline'>");
+                cwist_sstring_append(b, "<input type='hidden' name='id' value='");
+                cwist_sstring_append(b, uid_buf);
+                cwist_sstring_append(b, "'>");
+                cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Reset two-factor for this user? They can sign in with their password alone.'>Reset 2FA</button></form>");
+            }
             cwist_sstring_append(b, " <form class='admin-delete-form' action='/unregister' method='post' style='display:inline'>");
             cwist_sstring_append(b, "<input type='hidden' name='id' value='");
             cwist_sstring_append(b, uid_buf);

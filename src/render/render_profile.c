@@ -125,7 +125,7 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
     return res;
 }
 
-cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewer_role, const char *profile_pic, const char *error, bool is_mobile, int draft_count) {
+cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewer_role, const char *profile_pic, const char *error, bool is_mobile, int draft_count, bool totp_enabled, bool totp_pending, const char *totp_secret_b32, const char *totp_notice) {
     cwist_sstring *b = cwist_sstring_create();
     const char *username = cJSON_GetObjectItem(user, "username")->valuestring;
     const char *email = cJSON_GetObjectItem(user, "email")->valuestring;
@@ -187,6 +187,54 @@ cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewe
     snprintf(draft_btn, sizeof(draft_btn), "<a href='/account/drafts' class='btn btn-outline'>Drafts &amp; Scheduled (%d)</a>", draft_count > 0 ? draft_count : 0);
     cwist_sstring_append(b, draft_btn);
     cwist_sstring_append(b, "</div>");
+
+    /* Two-factor authentication. One checkbox turns it on (setup stores a
+     * pending secret and asks for a confirming code) and off (which needs the
+     * password plus a code, so a hijacked session alone cannot strip it). */
+    cwist_sstring_append(b, "<hr style='margin:24px 0;border:0;border-top:1px solid var(--border)'>");
+    cwist_sstring_append(b, "<h3 style='margin-bottom:6px'>Two-Factor Authentication</h3>");
+    if (totp_notice && totp_notice[0]) {
+        cwist_sstring_append(b, "<div class='alert' style='word-break:break-all'>");
+        cwist_sstring_append(b, totp_notice);
+        cwist_sstring_append(b, "</div>");
+    }
+    if (totp_pending) {
+        char otpauth[700];
+        const char *acc = username;
+        snprintf(otpauth, sizeof(otpauth),
+                 "otpauth://totp/%s%%3A%s?secret=%s&issuer=%s",
+                 "fly.board", acc, totp_secret_b32 ? totp_secret_b32 : "", "fly.board");
+        cwist_sstring_append(b, "<p style='font-size:14px'>Add this secret to your authenticator app"
+                                " (or scan the otpauth URL in an app that accepts URLs), then enter"
+                                " the 6-digit code it shows to finish enabling:</p>");
+        cwist_sstring_append(b, "<p style='font-size:15px'><code style='user-select:all'>");
+        cwist_sstring_append(b, totp_secret_b32 ? totp_secret_b32 : "");
+        cwist_sstring_append(b, "</code></p>");
+        cwist_sstring_append(b, "<p style='font-size:12px;color:var(--muted);word-break:break-all'><code>");
+        cwist_sstring_append_escaped(b, otpauth);
+        cwist_sstring_append(b, "</code></p>");
+        cwist_sstring_append(b, "<form action='/account/totp' method='post'>");
+        cwist_sstring_append(b, "<input type='hidden' name='action' value='confirm'>");
+        cwist_sstring_append(b, "<label>Code from app</label><input name='code' inputmode='numeric' autocomplete='one-time-code' placeholder='123456' required>");
+        cwist_sstring_append(b, "<div style='margin-top:12px'><button type='submit' class='btn'>Confirm &amp; Enable</button></div>");
+        cwist_sstring_append(b, "</form>");
+    } else if (totp_enabled) {
+        cwist_sstring_append(b, "<form action='/account/totp' method='post'>");
+        cwist_sstring_append(b, "<input type='hidden' name='action' value='disable'>");
+        cwist_sstring_append(b, "<p style='font-size:14px'><label style='display:flex;align-items:center;gap:8px'>");
+        cwist_sstring_append(b, "<input type='checkbox' checked disabled> <b>Enabled</b> — your account asks for an authenticator code at sign-in.</label></p>");
+        cwist_sstring_append(b, "<label>Password</label><input name='password' type='password' autocomplete='current-password' required>");
+        cwist_sstring_append(b, "<label>Code (authenticator or recovery)</label><input name='code' required>");
+        cwist_sstring_append(b, "<div style='margin-top:12px'><button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Disable two-factor</button></div>");
+        cwist_sstring_append(b, "</form>");
+    } else {
+        cwist_sstring_append(b, "<form action='/account/totp' method='post'>");
+        cwist_sstring_append(b, "<input type='hidden' name='action' value='enable'>");
+        cwist_sstring_append(b, "<p style='font-size:14px'><label style='display:flex;align-items:center;gap:8px'>");
+        cwist_sstring_append(b, "<input type='checkbox' name='totp_on' value='1' checked> <b>Enable two-factor</b> — ask for an authenticator code at sign-in.</label></p>");
+        cwist_sstring_append(b, "<div style='margin-top:12px'><button type='submit' class='btn'>Start setup</button></div>");
+        cwist_sstring_append(b, "</form>");
+    }
 
     cwist_sstring_append(b, "<hr style='margin:24px 0;border:0;border-top:1px solid var(--border)'>");
     cwist_sstring_append(b, "<p style='color:var(--muted);font-size:13px'>Username: ");

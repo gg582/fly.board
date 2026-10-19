@@ -112,10 +112,34 @@ bool db_user_update_password(cwist_db *db, int id, const char *password_hash) {
     return rc == SQLITE_DONE;
 }
 
-bool db_user_set_email_verified(cwist_db *db, int id, bool verified) {
-    const char *sql = "UPDATE users SET email_verified=? WHERE id=?";
+bool db_user_update_totp(cwist_db *db, int id, const char *secret_b32, bool enabled) {
+    const char *sql = "UPDATE users SET totp_secret=?, totp_enabled=? WHERE id=?";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, secret_b32 ? secret_b32 : "", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, enabled ? 1 : 0);
+    sqlite3_bind_int(stmt, 3, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) journal_user_row(db, id);
+    return rc == SQLITE_DONE;
+}
+
+bool db_user_update_totp_recovery(cwist_db *db, int id, const char *recovery_csv) {
+    const char *sql = "UPDATE users SET totp_recovery=? WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, recovery_csv ? recovery_csv : "", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) journal_user_row(db, id);
+    return rc == SQLITE_DONE;
+}
+
+bool db_user_set_email_verified(cwist_db *db, int id, bool verified) {
+    const char *sql = "UPDATE users SET email_verified=? WHERE id=?";
+    sqlite3_stmt *stmt = NULL;    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, verified ? 1 : 0);
     sqlite3_bind_int(stmt, 2, id);
     int rc = sqlite3_step(stmt);
@@ -198,7 +222,7 @@ int db_user_delete_unverified_expired(cwist_db *db) {
 }
 
 cJSON *db_user_list(cwist_db *db) {
-    const char *sql = "SELECT id, username, email, role, profile_pic, created_at, active FROM users ORDER BY id";
+    const char *sql = "SELECT id, username, email, role, profile_pic, created_at, active, totp_enabled FROM users ORDER BY id";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     return db_sqlite3_rows_to_json(stmt);

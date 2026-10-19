@@ -57,6 +57,35 @@ cwist_sstring *render_login(bool dark, const char *error, bool is_mobile, const 
     return page;
 }
 
+/* Second login step: the password step issued a 5-minute pending token; the
+ * reader proves possession with a TOTP code or a recovery code. */
+cwist_sstring *render_login_2fa(bool dark, const char *pending_token, const char *redirect_target, bool is_mobile, const char *error) {
+    cwist_sstring *b = cwist_sstring_create();
+    cwist_sstring_append(b, "<div class='card' style='max-width:420px;margin:40px auto'>");
+    cwist_sstring_append(b, "<h2 style='margin-top:0'>Two-Step Verification</h2>");
+    cwist_sstring_append(b, "<p style='color:var(--muted);font-size:14px'>Enter the 6-digit code from your authenticator app, or a recovery code.</p>");
+    if (error && error[0]) {
+        cwist_sstring_append(b, "<div class='alert'>");
+        cwist_sstring_append_escaped(b, error);
+        cwist_sstring_append(b, "</div>");
+    }
+    cwist_sstring_append(b, "<form action='/login/2fa' method='post'>");
+    cwist_sstring_append(b, "<input type='hidden' name='token' value='");
+    cwist_sstring_append_escaped(b, pending_token ? pending_token : "");
+    cwist_sstring_append(b, "'>");
+    if (redirect_target && redirect_target[0]) {
+        cwist_sstring_append(b, "<input type='hidden' name='redirect' value='");
+        cwist_sstring_append_escaped(b, redirect_target);
+        cwist_sstring_append(b, "'>");
+    }
+    cwist_sstring_append(b, "<label>Code</label><input name='code' inputmode='numeric' autocomplete='one-time-code' placeholder='123456' required autofocus>");
+    cwist_sstring_append(b, "<div style='margin-top:16px'><button type='submit' class='btn'>Verify &amp; Sign In</button></div>");
+    cwist_sstring_append(b, "</form></div>");
+    cwist_sstring *page = render_page("Two-Step Verification", b->data, dark, NULL, NULL, is_mobile);
+    cwist_sstring_destroy(b);
+    return page;
+}
+
 cwist_sstring *render_register(bool dark, const char *error, bool is_mobile, cJSON *legal_docs) {
     const char *tmpl =
         "<div class='card' style='max-width:420px;margin:40px auto;'>"

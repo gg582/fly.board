@@ -455,6 +455,12 @@ bool db_migrate(cwist_db *db) {
      * visitors (author_uid NULL, author_name is their chosen display name).
      * Entries replicate through the FlyWire "guestbook" journal entity. */
     db_exec_sql(db, "ALTER TABLE users ADD COLUMN guestbook_anon INTEGER NOT NULL DEFAULT 0");
+    /* TOTP two-factor: base32 secret (empty = not set), enabled flag, and
+     * comma-separated SHA-256 hex of unused recovery codes (empty = none).
+     * Secrets travel to replicas with the regular user-row journal. */
+    db_exec_sql(db, "ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''");
+    db_exec_sql(db, "ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0");
+    db_exec_sql(db, "ALTER TABLE users ADD COLUMN totp_recovery TEXT NOT NULL DEFAULT ''");
     db_exec_sql(db,
         "CREATE TABLE IF NOT EXISTS guestbook ("
         "  id INTEGER PRIMARY KEY AUTOINCREMENT,"

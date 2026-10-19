@@ -209,7 +209,7 @@ LIBS := $(CWIST_LIB) \
 
 SRCS := src/main.c \
         src/db/db.c src/db/db_sync.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/notification.c src/db/vote.c src/db/tag.c src/db/search.c src/db/fts5_mecab_tokenizer.c src/db/report.c src/db/pqc_keys.c src/db/series.c src/db/sql_escape.c src/db/orm.c src/db/db_email.c src/db/guestbook.c src/db/subscriber.c src/db/revision.c \
-        src/auth/auth.c \
+        src/auth/auth.c src/auth/totp.c \
         src/crypto/fly_crypto.c \
         src/wasm_host/tasfa_crypto_wasm.c \
         src/render/theme/theme.c src/render/theme/rules.c src/render/theme/json.c src/render/theme/css.c \

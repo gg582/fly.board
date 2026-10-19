@@ -45,6 +45,8 @@ void handler_post_vote(cwist_http_request *req, cwist_http_response *res);
 
 void handler_login_get(cwist_http_request *req, cwist_http_response *res);
 void handler_login_post(cwist_http_request *req, cwist_http_response *res);
+void handler_login_2fa_post(cwist_http_request *req, cwist_http_response *res);
+void handler_account_totp_post(cwist_http_request *req, cwist_http_response *res);
 void handler_logout(cwist_http_request *req, cwist_http_response *res);
 void handler_register_get(cwist_http_request *req, cwist_http_response *res);
 void handler_register_post(cwist_http_request *req, cwist_http_response *res);
@@ -123,6 +125,7 @@ void handler_dashboard(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_users(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_user_role(cwist_http_request *req, cwist_http_response *res);
+void handler_admin_user_totp_reset_post(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_files_drop(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_boards_get(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_write_policy_post(cwist_http_request *req, cwist_http_response *res);
