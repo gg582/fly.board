@@ -83,6 +83,7 @@ int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, c
 /* status NULL keeps the column default (published); publish_at NULL means
  * now on create and "keep the current value" on update. */
 int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const char *title, const char *slug_base, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category, const char *status, const char *publish_at, char **out_slug);
+bool db_post_refresh_auto_slug(cwist_db *db, int id, const char *slug_base, char **out_slug);
 bool db_post_update(cwist_db *db, int id, int board_id, const char *title, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category, const char *status, const char *publish_at);
 void post_utc_now(char out[POST_TIME_LEN]);
 bool post_is_public(cJSON *post);

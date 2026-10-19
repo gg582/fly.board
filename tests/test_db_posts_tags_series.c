@@ -150,6 +150,24 @@ int main(void) {
     CHECK(json_array_count(tags) == 0 || tags == NULL, "tags of deleted post gone");
     if (tags) cJSON_Delete(tags);
 
+    /* ---- auto slug + refresh auto slug (autosave/draft -> publish) ---- */
+    char *s1 = NULL, *s2 = NULL, *s3 = NULL;
+    int d1 = db_post_create_with_auto_slug(db, 1, uid, "Untitled", "untitled", "body", "", NULL, 0, 0, "", "draft", NULL, &s1);
+    CHECK(d1 > 0 && s1 && strcmp(s1, "untitled") == 0, "draft auto slug initial");
+    free(s1);
+    CHECK(db_post_refresh_auto_slug(db, d1, "heron-formula", &s2) && s2 && strcmp(s2, "heron-formula") == 0,
+          "refresh auto slug updates draft to title slug");
+    free(s2);
+    /* refreshing again with the same base keeps the same slug (does not self-collide to heron-formula1) */
+    CHECK(db_post_refresh_auto_slug(db, d1, "heron-formula", &s3) && s3 && strcmp(s3, "heron-formula") == 0,
+          "refresh auto slug is idempotent on own slug");
+    free(s3);
+    /* another post colliding with heron-formula gets heron-formula1 on refresh */
+    char *s4 = NULL;
+    CHECK(db_post_refresh_auto_slug(db, pid2, "heron-formula", &s4) && s4 && strcmp(s4, "heron-formula1") == 0,
+          "refresh auto slug increments suffix when another post holds base");
+    free(s4);
+
     sqlite3_close(g_db.conn);
     g_db.conn = NULL;
     remove("/tmp/flytest_posts.db");

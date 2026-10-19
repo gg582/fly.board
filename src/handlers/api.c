@@ -481,11 +481,19 @@ void handler_api_autosave_post(cwist_http_request *req, cwist_http_response *res
             return;
         }
         if (board_id <= 0) board_id = json_int(post, "board_id", 0);
-        bool ok = db_post_update(req->db, draft_id, board_id, title, content, summary,
+        const char *eff_title = title[0] ? title : "Untitled";
+        bool ok = db_post_update(req->db, draft_id, board_id, eff_title, content, summary,
                                  json_string_or_empty(post, "pqc_signature"),
                                  json_int(post, "is_notice", 0), json_int(post, "is_secret", 0),
                                  json_string_or_empty(post, "category"), NULL, NULL);
-        if (ok && tags) db_tag_set_for_post(req->db, draft_id, tags);
+        if (ok) {
+            char *sl = generate_slug(eff_title);
+            if (sl) {
+                db_post_refresh_auto_slug(req->db, draft_id, sl, NULL);
+                cwist_free(sl);
+            }
+            if (tags) db_tag_set_for_post(req->db, draft_id, tags);
+        }
         id = ok ? draft_id : 0;
         cJSON_Delete(post);
     } else {
@@ -495,10 +503,13 @@ void handler_api_autosave_post(cwist_http_request *req, cwist_http_response *res
             cwist_sstring_assign(res->body, "{\"ok\":false,\"error\":\"board required\"}");
             return;
         }
+        const char *eff_title = title[0] ? title : "Untitled";
+        char *sl = generate_slug(eff_title);
         char *slug = NULL;
         id = db_post_create_with_auto_slug(req->db, board_id, uid,
-                                           title[0] ? title : "Untitled", "autosave",
+                                           eff_title, sl ? sl : "post",
                                            content, summary, NULL, 0, 0, "", "draft", NULL, &slug);
+        if (sl) cwist_free(sl);
         if (id > 0 && tags) db_tag_set_for_post(req->db, id, tags);
         if (slug) cwist_free(slug);
     }

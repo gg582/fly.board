@@ -1229,8 +1229,24 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     free(rev_title); free(rev_content); free(rev_summary);
     if (db_post_update(req->db, edit_id, board_id, title, content, summary ? summary : "", sig_b642 ? sig_b642 : "",
                        old_is_notice, old_is_secret, rev_category, pub.status, pub.publish_at)) {
-        CWIST_LOG_INFO("Post updated: id=%s uid=%d board_id=%d status=%s publish_at=%s", id_str, uid, board_id,
-                       pub.status, pub.publish_at ? pub.publish_at : "kept");
+        bool broken_slug = !post_slug || !post_slug[0] ||
+                           strncmp(post_slug, "autosave", 8) == 0 ||
+                           strncmp(post_slug, "untitled", 8) == 0;
+        if (!was_public || broken_slug) {
+            char *sl = generate_slug(title);
+            char *new_slug = NULL;
+            if (sl && db_post_refresh_auto_slug(req->db, edit_id, sl, &new_slug) && new_slug) {
+                if (post_slug) {
+                    page_cache_invalidate_post(post_slug);
+                    free(post_slug);
+                }
+                post_slug = strdup(new_slug);
+                cwist_free(new_slug);
+            }
+            if (sl) cwist_free(sl);
+        }
+        CWIST_LOG_INFO("Post updated: id=%s uid=%d board_id=%d status=%s publish_at=%s slug=%s", id_str, uid, board_id,
+                       pub.status, pub.publish_at ? pub.publish_at : "kept", post_slug ? post_slug : "");
         if (pub.publish_at) post_schedule_note(pub.publish_at);
     } else {
         CWIST_LOG_ERROR("Post update failed: id=%s uid=%d", id_str, uid);

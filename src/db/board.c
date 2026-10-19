@@ -285,3 +285,76 @@ int db_post_create_with_auto_slug(cwist_db *db, int board_id, int user_id, const
     db_sync_journal_row(db, "posts", "post", (int)id);
     return (int)id;
 }
+
+bool db_post_refresh_auto_slug(cwist_db *db, int id, const char *slug_base, char **out_slug) {
+    if (out_slug) *out_slug = NULL;
+    if (!db || !fly_db_conn(db) || id <= 0 || !slug_base || !slug_base[0]) return false;
+
+    const char *next_sql =
+        "WITH used(n) AS ("
+        "  SELECT 0 FROM posts WHERE slug=? AND id!=?"
+        "  UNION"
+        "  SELECT CAST(substr(slug, ?) AS INTEGER) FROM posts"
+        "  WHERE id!=? AND slug GLOB ?"
+        "    AND substr(slug, ?) NOT GLOB '*[^0-9]*'"
+        "    AND CAST(substr(slug, ?) AS INTEGER) > 0"
+        "    AND substr(slug, ?) = printf('%d', CAST(substr(slug, ?) AS INTEGER))"
+        "), candidate(n) AS ("
+        "  SELECT 0"
+        "  UNION"
+        "  SELECT n+1 FROM used"
+        ")"
+        "SELECT MIN(n) FROM candidate WHERE n NOT IN (SELECT n FROM used)";
+    sqlite3_stmt *next_stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), next_sql, -1, &next_stmt, NULL) != SQLITE_OK) {
+        return false;
+    }
+
+    size_t base_len = strlen(slug_base);
+    char *pattern = (char *)cwist_alloc(base_len + 7);
+    if (!pattern) {
+        sqlite3_finalize(next_stmt);
+        return false;
+    }
+    snprintf(pattern, base_len + 7, "%s[0-9]*", slug_base);
+    sqlite3_bind_text(next_stmt, 1, slug_base, -1, SQLITE_STATIC);
+    sqlite3_bind_int(next_stmt, 2, id);
+    sqlite3_bind_int(next_stmt, 3, (int)base_len + 1);
+    sqlite3_bind_int(next_stmt, 4, id);
+    sqlite3_bind_text(next_stmt, 5, pattern, -1, SQLITE_STATIC);
+    sqlite3_bind_int(next_stmt, 6, (int)base_len + 1);
+    sqlite3_bind_int(next_stmt, 7, (int)base_len + 1);
+    sqlite3_bind_int(next_stmt, 8, (int)base_len + 1);
+    sqlite3_bind_int(next_stmt, 9, (int)base_len + 1);
+
+    int next_suffix = -1;
+    if (sqlite3_step(next_stmt) == SQLITE_ROW) next_suffix = sqlite3_column_int(next_stmt, 0);
+    sqlite3_finalize(next_stmt);
+    cwist_free(pattern);
+    if (next_suffix < 0) return false;
+
+    char suffix[32] = {0};
+    if (next_suffix > 0) snprintf(suffix, sizeof(suffix), "%d", next_suffix);
+    char *final_slug = (char *)cwist_alloc(base_len + strlen(suffix) + 1);
+    if (!final_slug) return false;
+    snprintf(final_slug, base_len + strlen(suffix) + 1, "%s%s", slug_base, suffix);
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), "UPDATE posts SET slug=? WHERE id=?", -1, &stmt, NULL) != SQLITE_OK) {
+        cwist_free(final_slug);
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, final_slug, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        cwist_free(final_slug);
+        return false;
+    }
+    if (out_slug) *out_slug = final_slug;
+    else cwist_free(final_slug);
+    db_sync_journal_row(db, "posts", "post", id);
+    return true;
+}
+
