@@ -4,6 +4,7 @@
 #include "config/config.h"
 #include "utils/image_inline.h"
 #include "utils/utils.h"
+#include "../../third_party/qrcodegen/qrcodegen.h"
 #include <cwist/core/sstring/sstring.h>
 #include <cwist/core/mem/alloc.h>
 #include <stdio.h>
@@ -125,6 +126,56 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
     return res;
 }
 
+/* Percent-encode one label/query segment of an otpauth URL (unreserved
+ * characters only), so site titles and usernames with spaces or non-ASCII
+ * still produce a scannable payload. */
+static void url_encode_segment(const char *in, char *out, size_t out_cap) {
+    static const char hex[] = "0123456789ABCDEF";
+    size_t o = 0;
+    for (const unsigned char *p = (const unsigned char *)(in ? in : ""); *p && o + 4 < out_cap; p++) {
+        if ((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') ||
+            *p == '-' || *p == '.' || *p == '_' || *p == '~') {
+            out[o++] = (char)*p;
+        } else {
+            out[o++] = '%';
+            out[o++] = hex[*p >> 4];
+            out[o++] = hex[*p & 0xF];
+        }
+    }
+    out[o] = '\0';
+}
+
+/* Render `text` as an inline SVG QR code (vendored Project Nayuki
+ * qrcodegen, third_party/qrcodegen). Self-contained: no JS, no external
+ * image request, prints identically in light and dark mode. */
+static void append_qr_svg(cwist_sstring *b, const char *text) {
+    uint8_t temp[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
+    uint8_t code[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
+    if (!qrcodegen_encodeText(text, temp, code, qrcodegen_Ecc_QUARTILE, 4, 10, qrcodegen_Mask_AUTO, true)) {
+        cwist_sstring_append(b, "<p style='color:var(--muted);font-size:13px'>(QR unavailable - enter the secret manually.)</p>");
+        return;
+    }
+    int size = qrcodegen_getSize(code);
+    int quiet = 4;
+    int total = size + quiet * 2;
+    int scale = 6;
+    char hdr[160];
+    snprintf(hdr, sizeof(hdr),
+             "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 %d %d' width='%d' height='%d'"
+             " style='background:#fff;border-radius:8px;display:block;margin:0 auto' role='img' aria-label='TOTP setup QR code'>",
+             total, total, total * scale, total * scale);
+    cwist_sstring_append(b, hdr);
+    for (int y = 0; y < size; y++) {
+        for (int x = 0; x < size; x++) {
+            if (qrcodegen_getModule(code, x, y)) {
+                snprintf(hdr, sizeof(hdr), "<rect x='%d' y='%d' width='1' height='1'/>", x + quiet, y + quiet);
+                cwist_sstring_append(b, hdr);
+            }
+        }
+    }
+    cwist_sstring_append(b, "</svg>");
+}
+
 cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewer_role, const char *profile_pic, const char *error, bool is_mobile, int draft_count, bool totp_enabled, bool totp_pending, const char *totp_secret_b32, const char *totp_notice) {
     cwist_sstring *b = cwist_sstring_create();
     const char *username = cJSON_GetObjectItem(user, "username")->valuestring;
@@ -199,19 +250,21 @@ cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewe
         cwist_sstring_append(b, "</div>");
     }
     if (totp_pending) {
+        /* otpauth://totp/<issuer>:<account>?secret=..&issuer=.. with both
+         * label parts percent-encoded; the issuer defaults to the site
+         * title so the entry in the app is recognizable. */
+        char issuer_enc[160] = {0}, acc_enc[160] = {0};
+        url_encode_segment(g_config.title[0] ? g_config.title : "fly.board", issuer_enc, sizeof(issuer_enc));
+        url_encode_segment(username, acc_enc, sizeof(acc_enc));
         char otpauth[700];
-        const char *acc = username;
         snprintf(otpauth, sizeof(otpauth),
-                 "otpauth://totp/%s%%3A%s?secret=%s&issuer=%s",
-                 "fly.board", acc, totp_secret_b32 ? totp_secret_b32 : "", "fly.board");
-        cwist_sstring_append(b, "<p style='font-size:14px'>Add this secret to your authenticator app"
-                                " (or scan the otpauth URL in an app that accepts URLs), then enter"
-                                " the 6-digit code it shows to finish enabling:</p>");
-        cwist_sstring_append(b, "<p style='font-size:15px'><code style='user-select:all'>");
+                 "otpauth://totp/%s:%s?secret=%s&issuer=%s",
+                 issuer_enc, acc_enc, totp_secret_b32 ? totp_secret_b32 : "", issuer_enc);
+        cwist_sstring_append(b, "<p style='font-size:14px'>Scan the QR code with your authenticator app"
+                                " (or enter the secret manually), then type the 6-digit code it shows:</p>");
+        append_qr_svg(b, otpauth);
+        cwist_sstring_append(b, "<p style='font-size:15px;margin-top:10px'>Secret: <code style='user-select:all'>");
         cwist_sstring_append(b, totp_secret_b32 ? totp_secret_b32 : "");
-        cwist_sstring_append(b, "</code></p>");
-        cwist_sstring_append(b, "<p style='font-size:12px;color:var(--muted);word-break:break-all'><code>");
-        cwist_sstring_append_escaped(b, otpauth);
         cwist_sstring_append(b, "</code></p>");
         cwist_sstring_append(b, "<form action='/account/totp' method='post'>");
         cwist_sstring_append(b, "<input type='hidden' name='action' value='confirm'>");
@@ -222,7 +275,7 @@ cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewe
         cwist_sstring_append(b, "<form action='/account/totp' method='post'>");
         cwist_sstring_append(b, "<input type='hidden' name='action' value='disable'>");
         cwist_sstring_append(b, "<p style='font-size:14px'><label style='display:flex;align-items:center;gap:8px'>");
-        cwist_sstring_append(b, "<input type='checkbox' checked disabled> <b>Enabled</b> — your account asks for an authenticator code at sign-in.</label></p>");
+        cwist_sstring_append(b, "<input type='checkbox' checked disabled> <b>Enabled</b> - your account asks for an authenticator code at sign-in.</label></p>");
         cwist_sstring_append(b, "<label>Password</label><input name='password' type='password' autocomplete='current-password' required>");
         cwist_sstring_append(b, "<label>Code (authenticator or recovery)</label><input name='code' required>");
         cwist_sstring_append(b, "<div style='margin-top:12px'><button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Disable two-factor</button></div>");
@@ -231,7 +284,7 @@ cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewe
         cwist_sstring_append(b, "<form action='/account/totp' method='post'>");
         cwist_sstring_append(b, "<input type='hidden' name='action' value='enable'>");
         cwist_sstring_append(b, "<p style='font-size:14px'><label style='display:flex;align-items:center;gap:8px'>");
-        cwist_sstring_append(b, "<input type='checkbox' name='totp_on' value='1' checked> <b>Enable two-factor</b> — ask for an authenticator code at sign-in.</label></p>");
+        cwist_sstring_append(b, "<input type='checkbox' name='totp_on' value='1' checked> <b>Enable two-factor</b> - ask for an authenticator code at sign-in.</label></p>");
         cwist_sstring_append(b, "<div style='margin-top:12px'><button type='submit' class='btn'>Start setup</button></div>");
         cwist_sstring_append(b, "</form>");
     }

@@ -237,6 +237,7 @@ SRCS := src/main.c \
         src/utils/font_fetch.c \
         src/nats/fly_nats.c \
         src/core/log.c \
+        third_party/qrcodegen/qrcodegen.c \
         src/config/config.c \
         src/config/write_policy.c \
         src/engine/pool.c \

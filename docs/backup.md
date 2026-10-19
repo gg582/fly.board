@@ -18,13 +18,13 @@ Run from the site root (where `public/` and `data/` live):
 
 Options:
 
-- `--with-secrets` — additionally seals the secret files into the archive
+- `--with-secrets` - additionally seals the secret files into the archive
   (see below). Requires a passphrase of at least 12 characters, from
   `--passphrase-file <file>`, the `FLY_BACKUP_PASSPHRASE` environment
   variable, or an interactive prompt (entered twice).
-- `--passphrase-file <file>` — non-interactive passphrase for `--backup`,
+- `--passphrase-file <file>` - non-interactive passphrase for `--backup`,
   `--verify` and `--restore`.
-- `--force` (restore only) — replace an existing site. Without it, restore
+- `--force` (restore only) - replace an existing site. Without it, restore
   refuses to touch a site whose `data/blog.db` already exists.
 
 Other content tools: `--export-markdown <dir> [--rewrite-links]`,
@@ -52,7 +52,7 @@ What is included:
   `upload.settings`.
 - **Secrets** (only with `--with-secrets`): the post-signing seed
   (`data/.pqc_mldsa65_seed`), `data/.jwt_secret`, `admin.settings`,
-  `s3.settings`, `backup.settings` — sealed as JSON with AES-256-GCM under a
+  `s3.settings`, `backup.settings` - sealed as JSON with AES-256-GCM under a
   key derived with scrypt (N=2^17, r=8, p=1, ≤256 MiB) from the passphrase.
 
 Integrity: `--verify` and `--restore` refuse an archive whose ML-DSA-65
@@ -68,7 +68,7 @@ that has ever signed on the site.
 ## Scheduled backups (`backup_schedule`)
 
 Register a target in **Dashboard → Scheduled Backups** (or write
-`backup.settings` by hand; mode 0600, keep private — it can hold S3
+`backup.settings` by hand; mode 0600, keep private - it can hold S3
 credentials and the archive passphrase):
 
 ```
@@ -123,10 +123,45 @@ Notes:
 
 - Restore works without the signing seed; the first startup mints a new one
   (which is why `--restore` runs before crypto init in `main()`).
-- If the archive carries secrets, give the passphrase — otherwise restore
+- If the archive carries secrets, give the passphrase - otherwise restore
   proceeds without them and the site gets a new signing key.
 - After restoring a **replica**, see [flywire.md](flywire.md) for resuming
   or reseeding sync.
+
+## Recovery drills (prove backups restore)
+
+An archive that has never been restored is a promise, not a backup.
+`tools/backup_drill.sh` exercises the whole recovery path against the live
+binary, into a throwaway directory, without touching the site:
+
+```sh
+tools/backup_drill.sh                       # newest *.fbk from the configured dir target
+tools/backup_drill.sh --archive site.fbk    # a specific archive
+```
+
+Stages (any failure exits non-zero):
+
+1. `fly_board --verify` - manifest signature and every blob hash.
+2. `fly_board --restore` into a fresh `mktemp -d` site root (the binary is
+   copied there first, since it resolves site files relative to itself).
+3. Sanity checks on the restored `data/blog.db`: core tables, row counts,
+   `site_settings`, and (when the host sqlite has the tokenizer) FTS5.
+
+Notes:
+
+- Secrets-bearing archives need the passphrase via `FLY_BACKUP_PASSPHRASE`
+  or `--passphrase-file` in `BACKUP_DRILL_PASSPHRASE_FILE`.
+- Results append to `backup-drill.log` in the project root (override with
+  `BACKUP_DRILL_LOG`). `--keep-temp` leaves the restored tree for poking.
+- FTS5/mecab checks skip with a note when the host sqlite3 lacks the
+  tokenizer; stage 1/2 already covered content integrity, and the server
+  binary always has it.
+
+Schedule it (weekly example, cron):
+
+```cron
+30 4 * * 0 /path/to/fly.board/tools/backup_drill.sh >> /var/log/flyboard-drill.log 2>&1
+```
 
 ## Related maintenance
 

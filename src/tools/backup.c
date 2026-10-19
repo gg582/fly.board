@@ -1,6 +1,7 @@
 #include "backup.h"
 #include "crypto/fly_crypto.h"
 #include "db/db_internal.h"
+#include "db/fts5_mecab.h"
 #include <cjson/cJSON.h>
 #include <cwist/core/mem/alloc.h>
 #include <dirent.h>
@@ -1159,6 +1160,10 @@ static int cmd_restore(const char *in_path, bool force, const char *pass_file) {
     int posts = 0, valid = 0;
     bool db_ok = false;
     if (sqlite3_open_v2("data/blog.db", &conn, SQLITE_OPEN_READWRITE, NULL) == SQLITE_OK) {
+        /* The schema can reference the mecab FTS5 tokenizer; without
+         * registering it per connection, integrity_check fails with "no
+         * such tokenizer" even on a perfectly healthy database. */
+        fts5_search_register_conn(conn);
         sqlite3_stmt *st = NULL;
         if (sqlite3_prepare_v2(conn, "PRAGMA integrity_check", -1, &st, NULL) == SQLITE_OK &&
             sqlite3_step(st) == SQLITE_ROW) {
