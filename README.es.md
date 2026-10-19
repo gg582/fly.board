@@ -99,12 +99,12 @@ Líneas simples de tipo `key=value`. Las claves desconocidas se ignoran; los val
 | `use_tls` | `true` | `true`/`false` - HTTPS activado/desactivado (ejecuta `./keygen.sh` primero) |
 | `use_http2` | `true` | HTTP/2 sobre TLS |
 | `use_http3` | `true` | HTTP/3 (QUIC) sobre UDP |
-| `use_tasfa` | `true` | Pipeline multimedia TASFA (miniaturas/vistas previas de vídeo vía ffmpeg) |
+| `use_tasfa` | `true` | Pipeline TASFA de subida/descarga reanudable por chunks (ver docs/tasfa.md) |
 | `use_rss` | `false` | Expone `/rss.xml` |
 | `roundness` | `0.0` | Redondez de esquinas de la interfaz, `0.0`–`1.0` |
 | `max_upload_size` | `1G` | Límite de subida por archivo. Acepta sufijos `K/M/G/T` (p. ej. `500M`) |
 | `max_total_parallel_uploads` | `8` | Subidas concurrentes en total (1–512) |
-| `max_upload_parallel_chunks` | `32` | Chunks paralelos por subida (1–64) |
+| `max_upload_parallel_chunks` | `48` | Chunks paralelos por subida (1–64) |
 | `max_concurrent_downloads` | `128` | Descargas concurrentes (1–512) |
 | `vote_only` | *(vacío = `all`)* | Quién puede votar en las publicaciones: `all` (cualquiera, incl. anónimos), `authorized` (solo usuarios con sesión iniciada), `admin` (solo administradores) |
 | `use_special_modes` | *(vacío)* | Sustituye los temas claro/oscuro: `lightTheme,darkTheme` (o un solo tema). Temas disponibles: `light`, `dark`, `ocean`, `forest`, `sepia`. P. ej. `ocean,forest` |

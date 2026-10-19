@@ -1,5 +1,10 @@
 # TASFA chunk compression policy
 
+This document covers only the compression selection policy and its benchmarks.
+The full transfer protocol (endpoints, sessions, encryption layout, FEC,
+client and service worker behavior) is documented in
+[tasfa.md](tasfa.md).
+
 This follow-up replaces the sampling policy merged in PR #26 with one fast,
 full-chunk compression attempt. It addresses issue #25's redundant codec passes
 without making sampling decisions that can miss useful compression elsewhere

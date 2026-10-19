@@ -99,12 +99,12 @@ NATS_URL=nats://localhost:4222 ./fly_board
 | `use_tls` | `true` | `true`/`false` - 开启/关闭 HTTPS（先运行 `./keygen.sh`） |
 | `use_http2` | `true` | 基于 TLS 的 HTTP/2 |
 | `use_http3` | `true` | 基于 UDP 的 HTTP/3（QUIC） |
-| `use_tasfa` | `true` | TASFA 媒体管线（通过 ffmpeg 生成视频缩略图/预览） |
+| `use_tasfa` | `true` | TASFA 可断点续传的分块上传/下载管线（见 docs/tasfa.md） |
 | `use_rss` | `false` | 暴露 `/rss.xml` |
 | `roundness` | `0.0` | UI 圆角程度，`0.0`–`1.0` |
 | `max_upload_size` | `1G` | 单文件上传上限。支持后缀 `K/M/G/T`（如 `500M`） |
 | `max_total_parallel_uploads` | `8` | 全局并发上传数（1–512） |
-| `max_upload_parallel_chunks` | `32` | 每次上传的并行分块数（1–64） |
+| `max_upload_parallel_chunks` | `48` | 每次上传的并行分块数（1–64） |
 | `max_concurrent_downloads` | `128` | 并发下载数（1–512） |
 | `vote_only` | *(空 = `all`)* | 谁可以对文章投票：`all`（任何人，含匿名）、`authorized`（仅登录用户）、`admin`（仅管理员） |
 | `use_special_modes` | *(空)* | 替换浅色/深色主题：`lightTheme,darkTheme`（或单个主题）。可用主题：`light`、`dark`、`ocean`、`forest`、`sepia`。例如 `ocean,forest` |

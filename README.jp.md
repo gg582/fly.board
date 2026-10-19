@@ -99,12 +99,12 @@ NATS_URL=nats://localhost:4222 ./fly_board
 | `use_tls` | `true` | `true`/`false` - HTTPS のオン/オフ（先に `./keygen.sh` を実行してください） |
 | `use_http2` | `true` | TLS 上の HTTP/2 |
 | `use_http3` | `true` | UDP 上の HTTP/3（QUIC） |
-| `use_tasfa` | `true` | TASFA メディアパイプライン（ffmpeg による動画サムネイル/プレビュー） |
+| `use_tasfa` | `true` | TASFA 再開可能チャンク転送パイプライン（詳細: docs/tasfa.md） |
 | `use_rss` | `false` | `/rss.xml` を公開 |
 | `roundness` | `0.0` | UI の角丸、`0.0`–`1.0` |
 | `max_upload_size` | `1G` | ファイルごとのアップロード上限。サフィックス `K/M/G/T` が使用可能（例: `500M`） |
 | `max_total_parallel_uploads` | `8` | 全体の同時アップロード数（1–512） |
-| `max_upload_parallel_chunks` | `32` | アップロードごとの並列チャンク数（1–64） |
+| `max_upload_parallel_chunks` | `48` | アップロードごとの並列チャンク数（1–64） |
 | `max_concurrent_downloads` | `128` | 同時ダウンロード数（1–512） |
 | `vote_only` | *（空 = `all`）* | 投稿に投票できるユーザー: `all`（匿名含む全員）、`authorized`（ログインユーザーのみ）、`admin`（管理者のみ） |
 | `use_special_modes` | *（空）* | ライト/ダークテーマを置き換え: `lightTheme,darkTheme`（または単一テーマ）。利用可能なテーマ: `light`、`dark`、`ocean`、`forest`、`sepia`。例: `ocean,forest` |

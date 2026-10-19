@@ -99,12 +99,12 @@ NATS_URL=nats://localhost:4222 ./fly_board
 | `use_tls` | `true` | `true`/`false` - HTTPS вкл/выкл (сначала выполните `./keygen.sh`) |
 | `use_http2` | `true` | HTTP/2 поверх TLS |
 | `use_http3` | `true` | HTTP/3 (QUIC) поверх UDP |
-| `use_tasfa` | `true` | Медиаконвейер TASFA (видео-миниатюры/превью через ffmpeg) |
+| `use_tasfa` | `true` | Конвейер TASFA для возобновляемой чанковой загрузки/выгрузки (см. docs/tasfa.md) |
 | `use_rss` | `false` | Публикация `/rss.xml` |
 | `roundness` | `0.0` | Скругление углов интерфейса, `0.0`–`1.0` |
 | `max_upload_size` | `1G` | Лимит размера одного файла при загрузке. Поддерживаются суффиксы `K/M/G/T` (например, `500M`) |
 | `max_total_parallel_uploads` | `8` | Одновременные загрузки всего (1–512) |
-| `max_upload_parallel_chunks` | `32` | Параллельные чанки на одну загрузку (1–64) |
+| `max_upload_parallel_chunks` | `48` | Параллельные чанки на одну загрузку (1–64) |
 | `max_concurrent_downloads` | `128` | Одновременные скачивания (1–512) |
 | `vote_only` | *(пусто = `all`)* | Кто может голосовать за посты: `all` (все, включая анонимов), `authorized` (только вошедшие пользователи), `admin` (только администраторы) |
 | `use_special_modes` | *(пусто)* | Заменяет светлую/тёмную темы: `lightTheme,darkTheme` (или одна тема). Доступные темы: `light`, `dark`, `ocean`, `forest`, `sepia`. Например, `ocean,forest` |

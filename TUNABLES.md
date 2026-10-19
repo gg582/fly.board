@@ -75,7 +75,7 @@ Accepted boolean values for the flags above: `1`, `true`, `on`.
 | `roundness` | `0.5` | UI corner radius (0–1). |
 | `max_upload_size` | `1G` | Maximum single upload size. |
 | `max_total_parallel_uploads` | `8` | Global cap on concurrent TASFA uploads. |
-| `max_upload_parallel_chunks` | `32` | Max concurrent chunks per upload session. |
+| `max_upload_parallel_chunks` | `48` | Max concurrent chunks per upload session. |
 | `max_concurrent_downloads` | `128` | Global cap on concurrent TASFA downloads. |
 
 ### `fonts.settings`

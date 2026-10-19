@@ -99,12 +99,12 @@ Plain `key=value` lines. Unknown keys are ignored; invalid values fall back to d
 | `use_tls` | `true` | `true`/`false` - HTTPS on/off (run `./keygen.sh` first) |
 | `use_http2` | `true` | HTTP/2 over TLS |
 | `use_http3` | `true` | HTTP/3 (QUIC) over UDP |
-| `use_tasfa` | `true` | TASFA media pipeline (video thumbnails/previews via ffmpeg) |
+| `use_tasfa` | `true` | TASFA resumable chunked upload/download pipeline (see docs/tasfa.md) |
 | `use_rss` | `false` | Expose `/rss.xml` |
 | `roundness` | `0.0` | UI corner roundness, `0.0`–`1.0` |
 | `max_upload_size` | `1G` | Per-file upload limit. Accepts suffixes `K/M/G/T` (e.g. `500M`) |
 | `max_total_parallel_uploads` | `8` | Concurrent uploads overall (1–512) |
-| `max_upload_parallel_chunks` | `32` | Parallel chunks per upload (1–64) |
+| `max_upload_parallel_chunks` | `48` | Parallel chunks per upload (1–64) |
 | `max_concurrent_downloads` | `128` | Concurrent downloads (1–512) |
 | `vote_only` | *(empty = `all`)* | Who may vote on posts: `all` (anyone, incl. anonymous), `authorized` (logged-in users only), `admin` (admins only) |
 | `use_special_modes` | *(empty)* | Replaces the light/dark themes: `lightTheme,darkTheme` (or a single theme). Available themes: `light`, `dark`, `ocean`, `forest`, `sepia`. E.g. `ocean,forest` |

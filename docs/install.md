@@ -14,7 +14,7 @@ under `public/`.
 | pkg-config | locates system libraries | required at build time |
 | OpenSSL 3.x | Argon2id KDF, AES-GCM backup sealing, SHA-512 | `pkg-config openssl`, fallback `-lssl -lcrypto` |
 | libcurl | SMTP outbound, Mailjet API, FlyWire replica feed, S3 | `pkg-config libcurl`, fallback `-lcurl` |
-| brotli (`libbrotlienc`, `libbrotlicommon`, `libbrotlidec`) | response compression, backup-independent TASFA crypto tests | `pkg-config`, fallback `-lbrotli*` |
+| brotli (`libbrotlienc`, `libbrotlicommon`, `libbrotlidec`) | response compression, TASFA chunk compression | `pkg-config`, fallback `-lbrotli*` |
 | zstd | response compression, backup archive compression | `pkg-config libzstd`, fallback `-lzstd` |
 | libwebp + libwebpmux | image thumbnailing/previews | `pkg-config`; falls back to `-lwebp -lwebpmux` and defines `HAVE_WEBP` |
 | libnghttp2 | HTTP/2 | `pkg-config libnghttp2` |
@@ -22,6 +22,7 @@ under `public/`.
 | SQLite3 | all data | bundled with CWIST / system |
 | python3 | `tools/prepare_assets.py` at build time; test suites | build-time only |
 | ffmpeg (optional, runtime) | TASFA video thumbnails/previews | found on `PATH` at runtime |
+| wasmtime (optional, runtime) | sandboxed TASFA crypto when `TASFA_CRYPTO_WASM` is set | `TASFA_WASMTIME` overrides the binary path |
 
 ## Build
 

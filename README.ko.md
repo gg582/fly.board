@@ -100,12 +100,12 @@ NATS_URL=nats://localhost:4222 ./fly_board
 | `use_tls` | `true` | HTTPS on/off(먼저 `./keygen.sh` 실행 필요) |
 | `use_http2` | `true` | TLS 위 HTTP/2 |
 | `use_http3` | `true` | UDP 위 HTTP/3 (QUIC) |
-| `use_tasfa` | `true` | TASFA 미디어 파이프라인(ffmpeg 썸네일/프리뷰) |
+| `use_tasfa` | `true` | TASFA 재개 가능 청크 업로드/다운로드 파이프라인(프로토콜 상세: [docs/tasfa.md](docs/tasfa.md)) |
 | `use_rss` | `false` | `/rss.xml` 노출 |
 | `roundness` | `0.0` | UI 모서리 둥글기, `0.0`–`1.0` |
 | `max_upload_size` | `1G` | 파일당 업로드 한도. `K/M/G/T` 접미사 사용 가능(예: `500M`) |
 | `max_total_parallel_uploads` | `8` | 전체 동시 업로드 수(1–512) |
-| `max_upload_parallel_chunks` | `32` | 업로드당 병렬 청크 수(1–64) |
+| `max_upload_parallel_chunks` | `48` | 업로드당 병렬 청크 수(1–64) |
 | `max_concurrent_downloads` | `128` | 동시 다운로드 수(1–512) |
 | `vote_only` | *(비어 있으면 `all`)* | 글 추천 가능 범위: `all`(익명 포함 전체), `authorized`(로그인 사용자만), `admin`(관리자만) |
 | `use_special_modes` | *(비어 있음)* | 라이트/다크 테마 대체: `라이트테마,다크테마`(또는 단일 테마). 사용 가능한 테마: `light`, `dark`, `ocean`, `forest`, `sepia`. 예: `ocean,forest` |

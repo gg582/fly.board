@@ -111,7 +111,8 @@ both TCP and UDP in the firewall. Full install walkthrough:
 | [docs/mail.md](docs/mail.md) | Built-in mail server: Postfix/Dovecot integration, DNS, Mailjet relay |
 | [docs/flywire.md](docs/flywire.md) | Primary/replica site synchronization |
 | [docs/backup.md](docs/backup.md) | Scheduled backups, archive format, restore procedure |
-| [docs/tasfa-compression.md](docs/tasfa-compression.md) | TASFA resumable transfer protocol and compression |
+| [docs/tasfa.md](docs/tasfa.md) | TASFA transfer protocol: endpoints, sessions, encryption layout, FEC, client and service worker |
+| [docs/tasfa-compression.md](docs/tasfa-compression.md) | TASFA chunk compression policy and benchmark methodology |
 | [SETTINGS.md](SETTINGS.md) | Settings files reference (same content as docs/configuration.md, repo-root form) |
 | [TUNABLES.md](TUNABLES.md) | Performance knobs and benchmark environment |
 | [INSTALL.debian.md](INSTALL.debian.md) | Debian-specific package list and setup sequence |
@@ -184,7 +185,7 @@ Plain `key=value` lines. Unknown keys are ignored; invalid values fall back to d
 | `use_tls` | `true` | `true`/`false` - HTTPS on/off (run `./keygen.sh` first) |
 | `use_http2` | `true` | HTTP/2 over TLS |
 | `use_http3` | `true` | HTTP/3 (QUIC) over UDP |
-| `use_tasfa` | `true` | TASFA media pipeline (video thumbnails/previews via ffmpeg) |
+| `use_tasfa` | `true` | TASFA resumable chunked upload/download pipeline (see [docs/tasfa.md](docs/tasfa.md)) |
 | `use_rss` | `false` | Expose `/rss.xml` |
 | `roundness` | `0.0` | UI corner roundness, `0.0`–`1.0` |
 | `max_upload_size` | `1G` | Per-file upload limit. Accepts suffixes `K/M/G/T` (e.g. `500M`) |
