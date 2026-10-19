@@ -34,7 +34,7 @@ the built-in defaults; a missing file is regenerated with them.
 | `subtitle` | `Explore boards and read stories.` | Hero subtitle |
 | `brand_footer` | `Built with c4punks/CWIST \| Served in Finland, Helsinki 🇫🇮` | Footer line |
 | `language` | `ko` | Site default language (`<html lang>`) |
-| `root_url` | *(empty)* | Canonical base URL — RSS links, verification emails, cert renewal domain, mail domain fallback |
+| `root_url` | *(empty)* | Canonical base URL - RSS links, verification emails, cert renewal domain, mail domain fallback |
 | `port` | `8443` | Listen port (TCP and UDP/HTTP3); out-of-range values fall back to 8443 |
 | `accent` | `#3b82f6` | Theme accent color (hex) |
 | `roundness` | `0.0` | UI corner radius, clamped 0.0–1.0 |
@@ -69,14 +69,14 @@ Typography. Loaded by `font_settings_load()` with built-in defaults; a
 missing file is regenerated with every key, so the generated file is the
 reference. Key groups:
 
-- `font_import_url`, `font_face_family`, `font_face_src` — external font CSS
-- `font_file=<basename> <http(s)://url>` — fonts downloaded at startup into
+- `font_import_url`, `font_face_family`, `font_face_src` - external font CSS
+- `font_file=<basename> <http(s)://url>` - fonts downloaded at startup into
   `public/fonts/` when missing (basename must not contain `/` or `\`)
 - `font_body`, `font_heading`, `font_ui`, `font_code`, `font_blockquote`,
-  `font_display` — font stacks
-- `letter_spacing_*` — per-element tracking (body, h1–h5h6, topbar title,
+  `font_display` - font stacks
+- `letter_spacing_*` - per-element tracking (body, h1–h5h6, topbar title,
   btn, board line, hero, md headings, post h1)
-- `font_weight_*` — per-element weights
+- `font_weight_*` - per-element weights
 
 ## s3.settings (optional)
 
@@ -115,7 +115,7 @@ libmagic content sniffing, not extension:
 
 ## flywire.settings (optional)
 
-FlyWire primary/replica sync — full documentation in [flywire.md](flywire.md):
+FlyWire primary/replica sync - full documentation in [flywire.md](flywire.md):
 
 | Key | Default | Effect |
 |---|---|---|
@@ -127,7 +127,7 @@ FlyWire primary/replica sync — full documentation in [flywire.md](flywire.md):
 
 ## backup.settings (written by the admin dashboard)
 
-Scheduled backup target — full documentation in [backup.md](backup.md):
+Scheduled backup target - full documentation in [backup.md](backup.md):
 `target` (`s3` or `dir`), `enabled`, `endpoint`, `region`, `bucket`,
 `access_key`, `secret_key`, `prefix`, `use_path_style`, `path` (absolute
 directory for `dir`), `keep` (default 14 archives), `passphrase`. File mode
@@ -143,8 +143,8 @@ hand-rolled trigram table. Two tokenizers are supported:
 - **mecab** (default when available): requires `libmecab-dev` at build time
   (linked via pkg-config, `-lmecab` fallback) and the `mecab-ko-dic`
   dictionary at runtime. Korean text is indexed by morpheme, and compound
-  queries are branched — e.g. `개발일지` becomes
-  `("개발일지" OR (개발 AND 일지))` — so it matches both the exact surface and
+  queries are branched - e.g. `개발일지` becomes
+  `("개발일지" OR (개발 AND 일지))` - so it matches both the exact surface and
   text written with different eojeol spacing (`개발 일지`).
 - **trigram**: built into SQLite, used when MeCab is unavailable. Substring
   matching; terms shorter than 3 characters fall back to pure LIKE filtering.
@@ -159,19 +159,19 @@ version in `src/db/search.c`) forces a rebuild on the next start.
 
 ## Environment variables
 
-Enumerated from `getenv()` calls across `src/`. "—" means no default /
+Enumerated from `getenv()` calls across `src/`. "-" means no default /
 unset.
 
 ### Core
 
 | Variable | Default | Effect |
 |---|---|---|
-| `BLOG_ROOT` | — | Site root override when `public/` is not in the current directory |
-| `DEBUG` | — | Any value enables verbose CWIST/FLY logging (src/core/log.c) |
-| `MV_DEBUG` | — | Debug flag in the media preview path |
+| `BLOG_ROOT` | - | Site root override when `public/` is not in the current directory |
+| `DEBUG` | - | Any value enables verbose CWIST/FLY logging (src/core/log.c) |
+| `MV_DEBUG` | - | Debug flag in the media preview path |
 | `CWIST_C1M_MODE` | `1` (set by the app itself) | Event-driven C1M reactor; set `0` to force the legacy thread-pool path |
-| `NATS_URL` | — | e.g. `nats://localhost:4222`; enables the NATS messaging gateway |
-| `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | — | ECH (Encrypted Client Hello) key file / directory |
+| `NATS_URL` | - | e.g. `nats://localhost:4222`; enables the NATS messaging gateway |
+| `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | - | ECH (Encrypted Client Hello) key file / directory |
 
 ### Threading / workers
 
@@ -210,10 +210,10 @@ unset.
 | Variable | Default | Effect |
 |---|---|---|
 | `FLY_EMAIL_CERT` | off | `1`/`true`/`on`: new signups must verify their email within 24 h before logging in |
-| `FLY_SMTP_HOST` | — | SMTP relay. Without it, local Postfix on 127.0.0.1:25 is used |
+| `FLY_SMTP_HOST` | - | SMTP relay. Without it, local Postfix on 127.0.0.1:25 is used |
 | `FLY_SMTP_PORT` | `25` (465 with implicit TLS) | SMTP port |
-| `FLY_SMTP_TLS` | — | `starttls` or `implicit` |
-| `FLY_SMTP_USER` / `FLY_SMTP_PASS` | — | AUTH LOGIN credentials. Also used as the Mailjet API key pair for sender auto-registration (see mail.md) |
+| `FLY_SMTP_TLS` | - | `starttls` or `implicit` |
+| `FLY_SMTP_USER` / `FLY_SMTP_PASS` | - | AUTH LOGIN credentials. Also used as the Mailjet API key pair for sender auto-registration (see mail.md) |
 | `FLY_SMTP_FROM` | `FLY_SMTP_USER` else `noreply@<mail_domain>` | Envelope/header sender |
 
 ### Mail stack (mail server integration)
@@ -222,9 +222,9 @@ unset.
 |---|---|---|
 | `FLY_MAIL_DOMAIN` | resolved (see blog.settings) | Overrides the local mail domain |
 | `FLY_MAILDIR_ROOT` | `/var/mail/fly` | Maildir root for IMAP-visible mail |
-| `FLY_MAIL_USER` | — | Used by the webmail spool sweep |
+| `FLY_MAIL_USER` | - | Used by the webmail spool sweep |
 | `FLY_DB_PATH` | `data/blog.db` (exe-relative fallback) | Database path override for `mail-verify` / `mail-import` / `mail-alias-build` when invoked by Postfix/Dovecot from another cwd |
-| `DOVECOT_USERDB_LOOKUP` | — | Selects Dovecot userdb mode in `mail-verify` |
+| `DOVECOT_USERDB_LOOKUP` | - | Selects Dovecot userdb mode in `mail-verify` |
 
 ### Newsletter (email subscription)
 
@@ -241,13 +241,13 @@ Sending new-post announcement emails is gated twice:
 
 | Variable | Default | Effect |
 |---|---|---|
-| `FLY_BACKUP_PASSPHRASE` | — | Passphrase for `--with-secrets` / restore / verify when not prompting |
+| `FLY_BACKUP_PASSPHRASE` | - | Passphrase for `--with-secrets` / restore / verify when not prompting |
 
 ### WASM sandboxing (experimental, opt-in)
 
 | Variable | Default | Effect |
 |---|---|---|
-| `TASFA_CRYPTO_WASM` | — | Path to `tasfa_crypto.wasm`; runs TASFA crypto in a WASI sandbox |
+| `TASFA_CRYPTO_WASM` | - | Path to `tasfa_crypto.wasm`; runs TASFA crypto in a WASI sandbox |
 | `TASFA_WASMTIME` | `wasmtime` on PATH | wasmtime binary used by the sandbox |
 
 ### HTTP/3 advertisement

@@ -26,20 +26,20 @@ make -j2 fly_board mail-tools
 
 `fly_board` is the server; `mail-tools` builds the three mail-stack helpers
 (`mail-verify`, `mail-import`, `mail-alias-build`) needed for the built-in
-mail server — see [docs/mail.md](docs/mail.md). Plain `make` builds both plus
+mail server - see [docs/mail.md](docs/mail.md). Plain `make` builds both plus
 the vendored third-party libraries.
 
 Dependencies:
-- [CWIST](https://github.com/religiya-serdtsa/cwist) v3.9 — TLS 1.3 / HTTP/3 (QUIC) is handled by the embedded BoringSSL inside CWIST; no extra setup required.
+- [CWIST](https://github.com/religiya-serdtsa/cwist) v3.9 - TLS 1.3 / HTTP/3 (QUIC) is handled by the embedded BoringSSL inside CWIST; no extra setup required.
 - OpenSSL 3.x (Argon2id KDF)
 - ngtcp2 / nghttp3 (HTTP/3)
 - cJSON, SQLite3
 
 The Makefile locates CWIST in this order:
 
-1. `CWIST_ROOT` — a cwist source tree (defaults to `../cwist`, i.e. a checkout
+1. `CWIST_ROOT` - a cwist source tree (defaults to `../cwist`, i.e. a checkout
    next to this repository; override with `make CWIST_ROOT=/path/to/cwist`).
-2. `CWIST_PREFIX` — an installed prefix holding `lib/libcwist.a` and
+2. `CWIST_PREFIX` - an installed prefix holding `lib/libcwist.a` and
    `include/cwist` (defaults to `/usr/local`; the Homebrew/Linuxbrew
    `opt/cwist` keg is auto-detected).
 3. Homebrew/Linuxbrew locations, probed automatically.
@@ -53,7 +53,7 @@ make -j2 fly_board mail-tools
 ./keygen.sh                       # self-signed server.crt / server.key (or install real certs)
 
 # Site admin account: line 1 = username, line 2 = password.
-# Auto-created as admin / fly.board if the file is missing — change it before going public.
+# Auto-created as admin / fly.board if the file is missing - change it before going public.
 printf 'admin\nchange-me-now\n' > admin.settings
 
 # Edit the generated settings, at minimum root_url, port, and language.
@@ -65,7 +65,7 @@ $EDITOR blog.settings
 ```
 
 On startup the admin account from `admin.settings` is created (or re-synced)
-in the `users` table as the site admin — no separate account-registration
+in the `users` table as the site admin - no separate account-registration
 step is needed. Opening the site and logging in with those credentials lands
 on `/admin`.
 
@@ -178,10 +178,10 @@ Plain `key=value` lines. Unknown keys are ignored; invalid values fall back to d
 | `title` | `CWIST Docker Blog` | Site title shown in the top bar |
 | `subtitle` | `Explore boards and read stories.` | Hero subtitle |
 | `brand_footer` | `Built with CWIST C Framework` | Footer text |
-| `root_url` | `https://localhost:8888/` | Canonical site URL (trailing `/`). Used for RSS links, verification emails, and cert renewal — set this to the public URL in production |
+| `root_url` | `https://localhost:8888/` | Canonical site URL (trailing `/`). Used for RSS links, verification emails, and cert renewal - set this to the public URL in production |
 | `port` | `8443` | TCP/UDP listen port (HTTP/3 uses the same port over UDP) |
 | `accent` | `#3b82f6` | Accent color (hex) |
-| `use_tls` | `true` | `true`/`false` — HTTPS on/off (run `./keygen.sh` first) |
+| `use_tls` | `true` | `true`/`false` - HTTPS on/off (run `./keygen.sh` first) |
 | `use_http2` | `true` | HTTP/2 over TLS |
 | `use_http3` | `true` | HTTP/3 (QUIC) over UDP |
 | `use_tasfa` | `true` | TASFA media pipeline (video thumbnails/previews via ffmpeg) |
@@ -208,7 +208,7 @@ Typography overrides: `font_body`, `font_heading`, `font_ui`, `font_code`, `font
 
 ### `s3.settings` (optional)
 
-S3-compatible object storage for uploaded files (AWS S3, MinIO, R2, B2). Entirely optional — when empty, files stay on local disk under `public/uploads/`. Supports `mode=mirror` (keep local copy + S3 backup) and `mode=offload` (move to S3, serve downloads via presigned redirects). Full reference and example configurations: [S3.md](S3.md).
+S3-compatible object storage for uploaded files (AWS S3, MinIO, R2, B2). Entirely optional - when empty, files stay on local disk under `public/uploads/`. Supports `mode=mirror` (keep local copy + S3 backup) and `mode=offload` (move to S3, serve downloads via presigned redirects). Full reference and example configurations: [S3.md](S3.md).
 
 ### Environment variables
 
@@ -218,7 +218,7 @@ S3-compatible object storage for uploaded files (AWS S3, MinIO, R2, B2). Entirel
 |----------|---------|-------------|
 | `BLOG_ROOT` | *(unset)* | Project root; used when the binary is started outside it. Otherwise the directory containing `public/` is auto-detected |
 | `DEBUG` | *(off)* | `1`/`true`/`yes` enables DEBUG/INFO logs; otherwise only warnings/errors are printed |
-| `NATS_URL` | *(unset)* | e.g. `nats://localhost:4222` — enables the NATS messaging gateway |
+| `NATS_URL` | *(unset)* | e.g. `nats://localhost:4222` - enables the NATS messaging gateway |
 | `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | *(unset)* | ECH (Encrypted Client Hello) key file / key directory |
 | `CWIST_C1M_MODE` | `1` | Event-driven C1M reactor. Set to `0` to force the legacy thread-pool path |
 
@@ -259,7 +259,7 @@ The watchdog derives the domain from `root_url` and runs lego with the HTTP-01 c
 | `FLY_SMTP_USER` / `FLY_SMTP_PASS` | *(unset)* | AUTH LOGIN credentials (optional) |
 | `FLY_SMTP_FROM` | `FLY_SMTP_USER` | Envelope/header sender |
 
-Example — production with verified signup and auto cert renewal:
+Example - production with verified signup and auto cert renewal:
 
 ```sh
 FLY_CERT_RENEWAL=true FLY_CERT_EMAIL=admin@example.com \
@@ -402,8 +402,8 @@ PSS summed over every server process (master and forked workers).
 
 | Case | Server total | Per connection |
 |---|---|---|
-| Idle, 1 worker | 117 MB | — |
-| Idle, 4 workers | 409 MB | — |
+| Idle, 1 worker | 117 MB | - |
+| Idle, 4 workers | 409 MB | - |
 | ~91k TLS/HTTP/2 connections (h2load C100k, sampled at 91,286 established) | 7.58 GB | ~83 KB |
 | 1M cleartext HTTP/1.1 connections (connhold) | 16.0 GiB | ~16 KB |
 | 1M TLS HTTP/1.1 connections (connhold) | 18.7 GiB | ~19 KB |
@@ -438,6 +438,6 @@ The two tools use different protocols and are not directly comparable. In 2026-0
 
 **Key Takeaways**
 
-- **C1M:** 1,000,000 concurrent connections held and served on one desktop-class host over cleartext HTTP/1.1, TLS HTTP/1.1 and TLS HTTP/2, zero failures — re-verified on CWIST v3.9 (2026-10-07) with the kernel limits in the tuning table raised.
+- **C1M:** 1,000,000 concurrent connections held and served on one desktop-class host over cleartext HTTP/1.1, TLS HTTP/1.1 and TLS HTTP/2, zero failures - re-verified on CWIST v3.9 (2026-10-07) with the kernel limits in the tuning table raised.
 - **Per-connection memory is real:** ~16–28 KB per held connection on the server; plan RAM accordingly.
 - **TLS connect rate is bounded by handshakes:** use an ECDSA certificate; on this host ~8,000 full handshakes/s completed without misses.

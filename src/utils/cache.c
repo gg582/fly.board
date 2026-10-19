@@ -78,7 +78,7 @@ bool page_cache_set(const char *key, const char *data, size_t len, uint32_t ttl_
     /* Remove existing entry with the same key.  A pinned entry is being read
      * by another thread right now; freeing it here is a use-after-free (and
      * corrupts the tcache once the chunk is reused).  Mark it expired instead
-     * and skip the write — the last reader's release will reclaim it, and the
+     * and skip the write - the last reader's release will reclaim it, and the
      * next request can populate the cache fresh. */
     cache_entry_t **prev = &g_buckets[h];
     while (*prev) {

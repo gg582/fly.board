@@ -204,7 +204,7 @@
     }
     /* Hero backgrounds carry both modes in data attributes (image URL,
      * contrast-analysis styles, overlay, logo filter), so the toggle can
-     * swap them client-side — no reload, exactly like the toplevel
+     * swap them client-side - no reload, exactly like the toplevel
      * wallpaper follows the toggle through its CSS variable. */
     function swapHeroBgs(name){
         var suffix=(modeBase(name)==='light')?'light':'dark';
@@ -548,7 +548,7 @@
     })();
 
     /* Prefetch both light/dark hero images once the page is idle.  The first
-     * toggle otherwise pays a fresh fetch for the alternate mode — and on
+     * toggle otherwise pays a fresh fetch for the alternate mode - and on
      * high-RTT links that late request can land after a second toggle,
      * reordering the visible state.  The currently visible image is already
      * in flight, so the browser dedupes it. */

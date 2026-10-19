@@ -20,7 +20,7 @@ static void guestbook_redirect(cwist_http_response *res, int owner_uid, int page
     redirect(res, url);
 }
 
-/* GET /guestbook/list?owner=<uid>&page=<n> — partial HTML for the profile
+/* GET /guestbook/list?owner=<uid>&page=<n> - partial HTML for the profile
  * page's guestbook section. Same-origin fetch() from the profile page sends
  * the session cookie, so viewer permissions are evaluated exactly like any
  * other authenticated request. */
@@ -47,7 +47,7 @@ void handler_guestbook_list_get(cwist_http_request *req, cwist_http_response *re
     send_html_res(res, render_guestbook_section(req->db, owner_uid, viewer_uid, viewer_role, page));
 }
 
-/* POST /guestbook/post — fields: owner, content, optional name. Logged-in
+/* POST /guestbook/post - fields: owner, content, optional name. Logged-in
  * visitors post as themselves; anonymous posts are accepted only when the
  * owner's guestbook_anon flag is set. */
 void handler_guestbook_post(cwist_http_request *req, cwist_http_response *res) {
@@ -120,7 +120,7 @@ void handler_guestbook_post(cwist_http_request *req, cwist_http_response *res) {
     guestbook_redirect(res, owner_uid, 1);
 }
 
-/* POST /guestbook/delete — field: id. Permission: profile owner, site admin,
+/* POST /guestbook/delete - field: id. Permission: profile owner, site admin,
  * or the entry's author (see db_guestbook_delete). */
 void handler_guestbook_delete_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
@@ -144,7 +144,7 @@ void handler_guestbook_delete_post(cwist_http_request *req, cwist_http_response 
     guestbook_redirect(res, owner_uid, page);
 }
 
-/* POST /guestbook/settings — owner only. The checkbox posts guestbook_anon=1
+/* POST /guestbook/settings - owner only. The checkbox posts guestbook_anon=1
  * when checked and nothing when unchecked. */
 void handler_guestbook_settings_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;

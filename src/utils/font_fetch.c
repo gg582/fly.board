@@ -4,7 +4,7 @@
  *
  * fonts.settings may declare font_file=<filename> <url> entries.  At startup
  * each declared file is fetched into public/fonts/ unless it already exists,
- * so deployments only need the settings file — the server pulls the fonts
+ * so deployments only need the settings file - the server pulls the fonts
  * itself.  Files present in the repo (or previously downloaded) are left
  * untouched.  Uses libcurl, already linked for the translation API.
  */

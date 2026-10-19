@@ -25,7 +25,7 @@ make
 ```
 
 依存関係:
-- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3（QUIC）は CWIST に組み込まれた BoringSSL で処理されます。別途インストールは不要です。
+- [CWIST](https://github.com/religiya-serdtsa/cwist) - TLS 1.3 / HTTP/3（QUIC）は CWIST に組み込まれた BoringSSL で処理されます。別途インストールは不要です。
 - OpenSSL 3.x（Argon2id KDF）
 - ngtcp2 / nghttp3（HTTP/3）
 - cJSON、SQLite3
@@ -93,10 +93,10 @@ NATS_URL=nats://localhost:4222 ./fly_board
 | `title` | `CWIST Docker Blog` | トップバーに表示されるサイトタイトル |
 | `subtitle` | `Explore boards and read stories.` | ヒーロー部分のサブタイトル |
 | `brand_footer` | `Built with CWIST C Framework` | フッターテキスト |
-| `root_url` | `https://localhost:8888/` | サイトの正規 URL（末尾に `/`）。RSS リンク、確認メール、証明書更新に使用 — 本番環境では公開 URL を設定してください |
+| `root_url` | `https://localhost:8888/` | サイトの正規 URL（末尾に `/`）。RSS リンク、確認メール、証明書更新に使用 - 本番環境では公開 URL を設定してください |
 | `port` | `8443` | TCP/UDP リッスンポート（HTTP/3 は同じポートを UDP で使用） |
 | `accent` | `#3b82f6` | アクセントカラー（hex） |
-| `use_tls` | `true` | `true`/`false` — HTTPS のオン/オフ（先に `./keygen.sh` を実行してください） |
+| `use_tls` | `true` | `true`/`false` - HTTPS のオン/オフ（先に `./keygen.sh` を実行してください） |
 | `use_http2` | `true` | TLS 上の HTTP/2 |
 | `use_http3` | `true` | UDP 上の HTTP/3（QUIC） |
 | `use_tasfa` | `true` | TASFA メディアパイプライン（ffmpeg による動画サムネイル/プレビュー） |
@@ -133,7 +133,7 @@ NATS_URL=nats://localhost:4222 ./fly_board
 |----------|---------|-------------|
 | `BLOG_ROOT` | *（未設定）* | プロジェクトルート。バイナリがその外部から起動された場合に使用。それ以外では `public/` を含むディレクトリが自動検出されます |
 | `DEBUG` | *（オフ）* | `1`/`true`/`yes` で DEBUG/INFO ログを有効化。それ以外は警告/エラーのみ出力 |
-| `NATS_URL` | *（未設定）* | 例: `nats://localhost:4222` — NATS メッセージングゲートウェイを有効化 |
+| `NATS_URL` | *（未設定）* | 例: `nats://localhost:4222` - NATS メッセージングゲートウェイを有効化 |
 | `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | *（未設定）* | ECH（Encrypted Client Hello）キーファイル / キーディレクトリ |
 | `CWIST_C1M_MODE` | `1` | イベント駆動 C1M リアクター。`0` に設定すると従来のスレッドプール経路を強制 |
 
@@ -174,7 +174,7 @@ NATS_URL=nats://localhost:4222 ./fly_board
 | `FLY_SMTP_USER` / `FLY_SMTP_PASS` | *（未設定）* | AUTH LOGIN 認証情報（オプション） |
 | `FLY_SMTP_FROM` | `FLY_SMTP_USER` | エンベロープ/ヘッダーの送信者 |
 
-例 — メール確認付きサインアップと証明書自動更新を有効にした本番環境:
+例 - メール確認付きサインアップと証明書自動更新を有効にした本番環境:
 
 ```sh
 FLY_CERT_RENEWAL=true FLY_CERT_EMAIL=admin@example.com \
@@ -283,8 +283,8 @@ C1M の実行前に `fs.file-max` と `nf_conntrack_max` を sudo で上げて�
 
 | ケース | サーバー合計 | 1 接続あたり |
 |---|---|---|
-| アイドル、ワーカー 1 | 117 MB | — |
-| アイドル、ワーカー 4 | 409 MB | — |
+| アイドル、ワーカー 1 | 117 MB | - |
+| アイドル、ワーカー 4 | 409 MB | - |
 | TLS/HTTP/2 接続約 9.1 万（h2load C100k、91,286 確立時点のサンプル） | 7.58 GB | 約 83 KB |
 | 平文 HTTP/1.1 接続 100 万（connhold） | 16.0 GiB | 約 16 KB |
 | TLS HTTP/1.1 接続 100 万（connhold） | 18.7 GiB | 約 19 KB |

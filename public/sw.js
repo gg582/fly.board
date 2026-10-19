@@ -390,7 +390,7 @@ function fetchWithRetry(request, options) {
                 } catch (e) {}
             }
             // Network errors (ERR_CONNECTION_RESET, ERR_CONNECTION_REFUSED,
-            // ERR_NETWORK_CHANGED, etc.) — always retry with backoff.
+            // ERR_NETWORK_CHANGED, etc.) - always retry with backoff.
             if (retries < maxRetries) {
                 retries++;
                 return delay().then(attempt);

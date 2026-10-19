@@ -698,7 +698,7 @@ int main(int argc, char **argv) {
      *   default          Postfix pipe delivery: write Maildir + spool; also
      *                    insert into the webmail DB when running as root
      *                    (direct local delivery). Non-root (the default
-     *                    flymail pipe user) skips the DB — the web server
+     *                    flymail pipe user) skips the DB - the web server
      *                    later sweeps the spool into the DB.
      *   dbonly [rcpt]    Re-import one raw message from stdin into the webmail
      *                    DB only (used by the fly_board spool sweep, as root).
@@ -754,7 +754,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    /* Localpart of the recipient — names the mailbox without needing the DB. */
+    /* Localpart of the recipient - names the mailbox without needing the DB. */
     char username[128] = {0};
     snprintf(username, sizeof(username), "%s", rcpt);
     char *at = strrchr(username, '@');

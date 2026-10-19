@@ -50,15 +50,15 @@ TASFA 是本项目用于文件上传和下载的传输协议。
 
 `init` 端点返回包含以下字段的响应：
 
-- `chunk_size` — 协商后的分块大小
-- `current_parallel_chunks` — 服务器批准的当前上传窗口
-- `max_parallel_chunks` — 客户端可同时上传的分块数量
-- `dispatch_pacing_ms` — 仅在测量到的链路较差时应用的小发送间隔
-- `upload_secret` — 用于加密流验证的辅助服务器密钥
-- `stream_key_hex`, `stream_iv_seed_hex`, `stream_mode` — 会话加密密钥 (`aes-256-gcm`)
-- `modulus_M` — 本会话使用的 HTP 模数
-- `group_count` — 完整 6 槽 HTP 组的数量
-- `client_stripes` — 客户端工作调度器使用的固定值 `32`
+- `chunk_size` - 协商后的分块大小
+- `current_parallel_chunks` - 服务器批准的当前上传窗口
+- `max_parallel_chunks` - 客户端可同时上传的分块数量
+- `dispatch_pacing_ms` - 仅在测量到的链路较差时应用的小发送间隔
+- `upload_secret` - 用于加密流验证的辅助服务器密钥
+- `stream_key_hex`, `stream_iv_seed_hex`, `stream_mode` - 会话加密密钥 (`aes-256-gcm`)
+- `modulus_M` - 本会话使用的 HTP 模数
+- `group_count` - 完整 6 槽 HTP 组的数量
+- `client_stripes` - 客户端工作调度器使用的固定值 `32`
 
 客户端将 `chunk_size` 视为会话契约，因为它定义了每个分块的文件偏移。在活跃上传期间，它调整并发和重试行为，同时学习到的分块大小提示将应用于下一个 TASFA 会话：在持续快速连续完成（3 个干净分块，EWMA `>= 8 Mbps` 或单个分块时间低于 30 秒）后，下一个提示翻倍；在失败后降低四分之一（`* 0.75`，按 `1 MiB` 步长取整，`8 MiB` 下限）。
 
@@ -116,8 +116,8 @@ v5_balanced = (v5_raw + delta3) mod M
 
 其余所有顶点保持其原始标量。客户端同时发送两者:
 
-- `X-TASFA-Raw-Scalar` — 未修改的 `raw_scalar`
-- `X-TASFA-Magic-Scalar` — 平衡值 (`v3_balanced` 或 `v5_balanced`，其余与 raw 相同)
+- `X-TASFA-Raw-Scalar` - 未修改的 `raw_scalar`
+- `X-TASFA-Magic-Scalar` - 平衡值 (`v3_balanced` 或 `v5_balanced`，其余与 raw 相同)
 
 服务器将两个标量分别存储在 `htp.bin` 中，从而可以在不受人工平衡约束影响的情况下分析原始拓扑。
 
@@ -248,7 +248,7 @@ TASFA 针对一般高带宽服务器部署进行调优，而非嵌入式/航空�
 
 上传客户端测量块完成时间、重试、超时，以及可用时的 Network Information API 提示。它将这些输入发送到 `/file/upload/init` 和 `/file/upload/renegotiate`；服务器返回当前并行窗口和最大窗口。干净的完成会将活动窗口以 `*1.15` 提升到协商的最大值（在掉线后 5 秒快速恢复窗口内为 `*1.3`），而反复的、可预测的失败模式以 `*0.85` 降低，在良好链路上最低降至 `4`（移动端）/ `8`（桌面）。AES-GCM 回退也在自适应窗口内运行。
 
-每个分块设置绝对超时，以防止连接接收部分数据但永不关闭导致的停滞。看门狗每 2 秒采样一次上传活动：在软停滞（`30 s` 无分块进展）时执行**软恢复**——重新协商、提升并行度并开启 5 秒快速恢复窗口——且不拆除活动连接；在硬停滞（`90 s`）时执行**激进重启（aggressive restart）**：中止在途 XHR，并从服务器位图恢复上传，从完整的 `maxParallel` 窗口重新协商（高性能传输配置还会将 `targetParallel` 重置为 `maxParallel`，将 `dispatchPacingMs` 设为 `0`）。学习到的分块大小提示仅在**会话本地**保持，不会立即持久化到 `localStorage`；仅应用于下一个 TASFA 会话。
+每个分块设置绝对超时，以防止连接接收部分数据但永不关闭导致的停滞。看门狗每 2 秒采样一次上传活动：在软停滞（`30 s` 无分块进展）时执行**软恢复**--重新协商、提升并行度并开启 5 秒快速恢复窗口--且不拆除活动连接；在硬停滞（`90 s`）时执行**激进重启（aggressive restart）**：中止在途 XHR，并从服务器位图恢复上传，从完整的 `maxParallel` 窗口重新协商（高性能传输配置还会将 `targetParallel` 重置为 `maxParallel`，将 `dispatchPacingMs` 设为 `0`）。学习到的分块大小提示仅在**会话本地**保持，不会立即持久化到 `localStorage`；仅应用于下一个 TASFA 会话。
 
 下载也使用相同的高吞吐偏向：握手携带客户端的首选块大小提示，活动下载在成功的块组之后将 `span` 和并行度增长 `*1.2`。失败时两者均按 `*0.8` 降低。短响应、超时和网络错误按块索引重新排队；在相同块耗尽高重试预算之前，整个下载不会失败。
 
@@ -292,11 +292,11 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 
 会话元数据还存储逐顶点数组：
 
-- `hash_tags` — 每个分块的 SHA-512 十六进制字符串数组
-- `magic_scalars` — 每个分块的平衡标量数组
-- `htp_retry_targets` — 当前服务器发出的重试目标列表
-- `htp_suspicion_scores` — 当前嫌疑排序
-- `htp_contraction_level` — 已应用的服务器端收缩遍数
+- `hash_tags` - 每个分块的 SHA-512 十六进制字符串数组
+- `magic_scalars` - 每个分块的平衡标量数组
+- `htp_retry_targets` - 当前服务器发出的重试目标列表
+- `htp_suspicion_scores` - 当前嫌疑排序
+- `htp_contraction_level` - 已应用的服务器端收缩遍数
 
 这些在每次分块上传时更新，并在完成时验证。
 
@@ -312,7 +312,7 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 4. 客户端在浏览器中使用 **Web Crypto API** 和会话密钥解密分块。
 5. 浏览器将响应组装成一个连续的缓冲区。
 6. **负载压缩（Zstd/Brotli/Gzip 回退）**：
-   在下传过程中，客户端使用 `X-TASFA-Accept-Encoding` 标头宣告支持的解压算法（例如 `br, zstd, gzip`；TASFA 标头缺失时服务器回退到 `Accept-Encoding`）。该标头是能力列表而非优先级顺序：服务器在 GCM 加密**之前**应用压缩，使用其最偏好的受支持编解码器做且仅做一次全缓冲区处理，偏好顺序为 **Zstd（level 1）→ Brotli（quality 1）→ gzip（best speed）**；这是偏好顺序而非回退链——如果选定的编解码器未能节省足够字节，则直接提供原始负载，不再尝试其他编解码器。这避免了双重压缩，并确保客户端只收到可原生解压（使用 `DecompressionStream`）的负载。如果压缩收益不足（`TASFA_COMPRESS_MIN_GAIN_BYTES`，1,024 字节；要求严格大于该值），服务器跳过压缩并直接提供原始二进制负载。压缩后的分块响应携带 `X-TASFA-Content-Encoding` 和 `X-TASFA-Uncompressed-Length`，以便客户端在解密前解压。
+   在下传过程中，客户端使用 `X-TASFA-Accept-Encoding` 标头宣告支持的解压算法（例如 `br, zstd, gzip`；TASFA 标头缺失时服务器回退到 `Accept-Encoding`）。该标头是能力列表而非优先级顺序：服务器在 GCM 加密**之前**应用压缩，使用其最偏好的受支持编解码器做且仅做一次全缓冲区处理，偏好顺序为 **Zstd（level 1）→ Brotli（quality 1）→ gzip（best speed）**；这是偏好顺序而非回退链--如果选定的编解码器未能节省足够字节，则直接提供原始负载，不再尝试其他编解码器。这避免了双重压缩，并确保客户端只收到可原生解压（使用 `DecompressionStream`）的负载。如果压缩收益不足（`TASFA_COMPRESS_MIN_GAIN_BYTES`，1,024 字节；要求严格大于该值），服务器跳过压缩并直接提供原始二进制负载。压缩后的分块响应携带 `X-TASFA-Content-Encoding` 和 `X-TASFA-Uncompressed-Length`，以便客户端在解密前解压。
 
 ## 可选 WASM 沙箱块加密
 

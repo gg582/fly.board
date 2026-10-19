@@ -234,7 +234,7 @@ static char *translate_text_via_mymemory(CURL *curl, const char *text, const cha
         cJSON *rs = root ? cJSON_GetObjectItemCaseSensitive(root, "responseStatus") : NULL;
         /* MyMemory reports failures (bad langpair, quota, limits) as HTTP 200
          * with responseStatus != 200 and the error text stuffed into
-         * translatedText — never present those as a translation. */
+         * translatedText - never present those as a translation. */
         bool status_ok = true;
         if (cJSON_IsNumber(rs)) {
             status_ok = ((int)cJSON_GetNumberValue(rs) == 200);
@@ -435,7 +435,7 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
     if (json) cwist_free(json);
 }
 
-/* POST /api/autosave — server-side draft autosave from the markdown editor.
+/* POST /api/autosave - server-side draft autosave from the markdown editor.
  * First save creates a draft row owned by the caller; later saves update it.
  * Only draft posts can be updated: a published/scheduled post is never
  * touched, so a stray autosave cannot corrupt live content. Login required;
@@ -513,7 +513,7 @@ void handler_api_autosave_post(cwist_http_request *req, cwist_http_response *res
     cwist_sstring_assign(res->body, json);
 }
 
-/* GET /api/revisions?post_id=N — revision list for the editor page.
+/* GET /api/revisions?post_id=N - revision list for the editor page.
  * Author or admin only; the list carries no content. */
 void handler_api_revisions_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
@@ -539,7 +539,7 @@ void handler_api_revisions_get(cwist_http_request *req, cwist_http_response *res
     if (json) cwist_free(json);
 }
 
-/* GET /api/revision?id=N — one full revision (content included), for the
+/* GET /api/revision?id=N - one full revision (content included), for the
  * editor's "Load" button. Same author/admin gate as the list. */
 void handler_api_revision_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
@@ -626,7 +626,7 @@ void handler_themes_json(cwist_http_request *req, cwist_http_response *res) {
     char *json = theme_build_all_json();
     cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
     /* Themes only change when an admin edits settings (which goes through a
-     * POST and bumps the BDR cache), so short public caching is safe — and
+     * POST and bumps the BDR cache), so short public caching is safe - and
      * keeps this off the critical path on repeat loads. */
     cwist_http_header_add(&res->headers, "Cache-Control", "public, max-age=60");
     if (json) {

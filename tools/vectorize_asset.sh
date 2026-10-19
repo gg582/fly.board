@@ -5,7 +5,7 @@
 #
 # Every pixel that is not (near-)white becomes part of the traced silhouette;
 # the result is a single fill color on a transparent background. Designed for
-# the flat line-art hero/background assets in public/img/ — it is not a
+# the flat line-art hero/background assets in public/img/ - it is not a
 # general photo vectorizer.
 #
 # Requires: ImageMagick (magick), potrace (https://potrace.sourceforge.net).

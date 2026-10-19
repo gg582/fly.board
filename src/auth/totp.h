@@ -6,7 +6,7 @@
 #include <time.h>
 
 /* RFC 6238 TOTP (HMAC-SHA1, 30-second steps, 6 digits) plus the base32
- * encoding authenticator apps expect. The site JWT secret is NOT involved —
+ * encoding authenticator apps expect. The site JWT secret is NOT involved -
  * each user gets their own random secret at enable time. */
 
 #define TOTP_SECRET_BYTES 20          /* 160 bits, the RFC 4226 recommendation */

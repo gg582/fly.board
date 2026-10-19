@@ -1,4 +1,4 @@
-/* jwt.js — client-side JWT lifetime manager for fly.board
+/* jwt.js - client-side JWT lifetime manager for fly.board
  *
  * Reads the JS-readable `jwt_access` cookie set at login and injects the
  * token as `Authorization: Bearer <token>` on every fetch() and

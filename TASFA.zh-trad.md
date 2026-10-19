@@ -50,15 +50,15 @@ TASFA 是本專案用於檔案上傳與下載的傳輸協定。
 
 `init` 端點傳回包含以下欄位的回應：
 
-- `chunk_size` — 協商後的分塊大小
-- `current_parallel_chunks` — 伺服器核准的目前上傳視窗
-- `max_parallel_chunks` — 用戶端可同時上傳的分塊數量
-- `dispatch_pacing_ms` — 僅在測量到的鏈路較差時套用的小傳送間隔
-- `upload_secret` — 用於加密串流驗證的輔助伺服器金鑰
-- `stream_key_hex`, `stream_iv_seed_hex`, `stream_mode` — 工作階段加密金鑰 (`aes-256-gcm`)
-- `modulus_M` — 本工作階段使用的 HTP 模數
-- `group_count` — 完整 6 槽 HTP 組的數量
-- `client_stripes` — 用戶端工作排程器使用的固定值 `32`
+- `chunk_size` - 協商後的分塊大小
+- `current_parallel_chunks` - 伺服器核准的目前上傳視窗
+- `max_parallel_chunks` - 用戶端可同時上傳的分塊數量
+- `dispatch_pacing_ms` - 僅在測量到的鏈路較差時套用的小傳送間隔
+- `upload_secret` - 用於加密串流驗證的輔助伺服器金鑰
+- `stream_key_hex`, `stream_iv_seed_hex`, `stream_mode` - 工作階段加密金鑰 (`aes-256-gcm`)
+- `modulus_M` - 本工作階段使用的 HTP 模數
+- `group_count` - 完整 6 槽 HTP 組的數量
+- `client_stripes` - 用戶端工作排程器使用的固定值 `32`
 
 用戶端將 `chunk_size` 視為工作階段契約，因為它定義了每個分塊的檔案偏移。在活躍上傳期間，它調整並行和重試行為，同時學習到的分塊大小提示將套用於下一個 TASFA 工作階段：在持續的快速連勝（3 個乾淨分塊且 EWMA `>= 8 Mbps` 或單分塊時間低於 30 秒）之後，下一個提示加倍；失敗後則縮減四分之一（`* 0.75`，取整至 `1 MiB` 步進，`8 MiB` 下限）。
 
@@ -116,8 +116,8 @@ v5_balanced = (v5_raw + delta3) mod M
 
 其餘所有頂點保持其原始純量。客戶端同時發送兩者:
 
-- `X-TASFA-Raw-Scalar` — 未修改的 `raw_scalar`
-- `X-TASFA-Magic-Scalar` — 平衡值 (`v3_balanced` 或 `v5_balanced`，其餘與 raw 相同)
+- `X-TASFA-Raw-Scalar` - 未修改的 `raw_scalar`
+- `X-TASFA-Magic-Scalar` - 平衡值 (`v3_balanced` 或 `v5_balanced`，其餘與 raw 相同)
 
 伺服器將兩個純量分別儲存在 `htp.bin` 中，從而可以在不受人工平衡約束影響的情況下分析原始拓撲。
 
@@ -248,7 +248,7 @@ TASFA 針對一般高頻寬伺服器部署調校，而非嵌入式/航太低頻�
 
 上傳客戶端測量分塊完成時間、重試、逾時，以及可用時的 Network Information API 提示。它將這些輸入傳送到 `/file/upload/init` 和 `/file/upload/renegotiate`；伺服器傳回目前並行視窗和最大視窗。乾淨的完成會將活動視窗以 `*1.15` 提升到協商的最大值（在掉線後 5 秒的快速恢復視窗內為 `*1.3`），而重複且可預測的失敗模式以 `*0.85` 降低，在良好鏈路上最低至行動裝置 `4` / 桌面 `8` 的下限。AES-GCM 後援也在自適應視窗內執行。
 
-每個分塊設定絕對逾時，以防止連線接收部分資料但永不關閉導致的停滯。看門狗每 2 秒取樣一次上傳活動：在軟停滯（`30 s` 無分塊進度）時執行**軟恢復**——重新協商、並行度提升以及 5 秒快速恢復視窗——但不拆毀存活連線；在硬停滯（`90 s`）時執行**激進重啟（aggressive restart）**：中止進行中的 XHR，從伺服器位元圖恢復上傳，並從完整的 `maxParallel` 視窗重新協商（高效能傳輸設定檔還會將 `targetParallel` 重設為 `maxParallel`、將 `dispatchPacingMs` 設為 `0`）。學習到的分塊大小提示僅在**工作階段本地**保持，不會立即持久化到 `localStorage`；僅套用於下一個 TASFA 工作階段。
+每個分塊設定絕對逾時，以防止連線接收部分資料但永不關閉導致的停滯。看門狗每 2 秒取樣一次上傳活動：在軟停滯（`30 s` 無分塊進度）時執行**軟恢復**--重新協商、並行度提升以及 5 秒快速恢復視窗--但不拆毀存活連線；在硬停滯（`90 s`）時執行**激進重啟（aggressive restart）**：中止進行中的 XHR，從伺服器位元圖恢復上傳，並從完整的 `maxParallel` 視窗重新協商（高效能傳輸設定檔還會將 `targetParallel` 重設為 `maxParallel`、將 `dispatchPacingMs` 設為 `0`）。學習到的分塊大小提示僅在**工作階段本地**保持，不會立即持久化到 `localStorage`；僅套用於下一個 TASFA 工作階段。
 
 下載也使用相同的高吞吐量偏向：握手攜帶用戶端的首選分塊大小提示，活動下載在成功的分塊群組之後以 `*1.2` 增加 `span` 和並行度。失敗時兩者均以 `*0.8` 縮減。短回應、逾時和網路錯誤按分塊索引重新排隊；在相同分塊耗盡高重試預算之前，整個下載不會失敗。
 
@@ -292,11 +292,11 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 
 工作階段中繼資料還儲存逐頂點陣列：
 
-- `hash_tags` — 每個分塊的 SHA-512 十六進位字串陣列
-- `magic_scalars` — 每個分塊的平衡純量陣列
-- `htp_retry_targets` — 目前伺服器發出的重試目標列表
-- `htp_suspicion_scores` — 目前嫌疑排序
-- `htp_contraction_level` — 已應用的伺服器端收縮遍數
+- `hash_tags` - 每個分塊的 SHA-512 十六進位字串陣列
+- `magic_scalars` - 每個分塊的平衡純量陣列
+- `htp_retry_targets` - 目前伺服器發出的重試目標列表
+- `htp_suspicion_scores` - 目前嫌疑排序
+- `htp_contraction_level` - 已應用的伺服器端收縮遍數
 
 這些在每次分塊上傳時更新，並在完成時驗證。
 
@@ -312,7 +312,7 @@ S_hat = S0 - ((S1 - S0)^2 / (S2 - 2*S1 + S0))
 4. 用戶端在瀏覽器中使用 **Web Crypto API** 和工作階段金鑰解密分塊。
 5. 瀏覽器將回應組裝為單個連續緩衝區。
 6. **負載壓縮（Zstd/Brotli/Gzip 後援）**：
-   在下鏈傳輸期間，用戶端使用 `X-TASFA-Accept-Encoding` 標頭宣告支援的解壓縮演算法（例如 `br, zstd, gzip`；缺少 TASFA 標頭時伺服器回退到 `Accept-Encoding`）。該標頭是能力清單而非優先順序：伺服器在 GCM 加密**之前**套用壓縮，使用其最偏好的支援編解碼器進行恰好一次全緩衝區遍歷，偏好順序為 **Zstd（level 1）→ Brotli（quality 1）→ gzip（best speed）**；這是偏好順序而非後備鏈——若選定的編解碼器未能節省足夠位元組，則直接提供原始負載，不再嘗試其他編解碼器。這避免了雙重壓縮，並確保用戶端只收到可使用 `DecompressionStream` 原生解壓縮的負載。若壓縮收益不足（`TASFA_COMPRESS_MIN_GAIN_BYTES`，1,024 位元組；要求嚴格大於），伺服器跳過壓縮並直接提供原始二進位負載。壓縮分塊回應攜帶 `X-TASFA-Content-Encoding` 和 `X-TASFA-Uncompressed-Length`，以便用戶端在解密前解壓縮。
+   在下鏈傳輸期間，用戶端使用 `X-TASFA-Accept-Encoding` 標頭宣告支援的解壓縮演算法（例如 `br, zstd, gzip`；缺少 TASFA 標頭時伺服器回退到 `Accept-Encoding`）。該標頭是能力清單而非優先順序：伺服器在 GCM 加密**之前**套用壓縮，使用其最偏好的支援編解碼器進行恰好一次全緩衝區遍歷，偏好順序為 **Zstd（level 1）→ Brotli（quality 1）→ gzip（best speed）**；這是偏好順序而非後備鏈--若選定的編解碼器未能節省足夠位元組，則直接提供原始負載，不再嘗試其他編解碼器。這避免了雙重壓縮，並確保用戶端只收到可使用 `DecompressionStream` 原生解壓縮的負載。若壓縮收益不足（`TASFA_COMPRESS_MIN_GAIN_BYTES`，1,024 位元組；要求嚴格大於），伺服器跳過壓縮並直接提供原始二進位負載。壓縮分塊回應攜帶 `X-TASFA-Content-Encoding` 和 `X-TASFA-Uncompressed-Length`，以便用戶端在解密前解壓縮。
 
 ## 選用 WASM 沙箱化區塊加密
 

@@ -1,4 +1,4 @@
-# fly.board mail stack — Postfix main.cf additions for oborona.zip
+# fly.board mail stack - Postfix main.cf additions for oborona.zip
 # Install: append to /etc/postfix/main.cf (see deploy/mail/install.sh).
 
 # --- Identity -------------------------------------------------------------

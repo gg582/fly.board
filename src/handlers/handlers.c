@@ -504,7 +504,7 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
      * A few legacy mutations are GET routes (/post/delete/:id and friends):
      * they must be proxied too, otherwise the delete lands on the replica's
      * copy, never reaches the primary, and the next sync re-applies the row
-     * from the primary's journal — the deletion silently "does not work". */
+     * from the primary's journal - the deletion silently "does not work". */
     bool mutating_get = (strncmp(path, "/post/delete/", 13) == 0 ||
                          strncmp(path, "/board/", 7) == 0) && strstr(path, "/delete") != NULL;
     if (!mutating_get && strncmp(path, "/comment/", 9) == 0 && strstr(path, "/delete") != NULL)
@@ -649,7 +649,7 @@ void handler_static_js(cwist_http_request *req, cwist_http_response *res) {
     char path[PATH_MAX];
     /* Serve the terser-minified sibling when present (committed to the
      * repo); the URL stays the same so existing ?v= cache-busting and
-     * immutable caching keep working — old cached copies are the same
+     * immutable caching keep working - old cached copies are the same
      * code, just unminified. */
     size_t fn_len = strlen(filename);
     bool served = false;

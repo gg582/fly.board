@@ -123,7 +123,7 @@ jobs:
           touch public/js/*.js
           make minjs
           git diff --exit-code -- public/js || {
-            echo "::error::Stale public/js/*.min.js — run 'make minjs' and commit the result."
+            echo "::error::Stale public/js/*.min.js - run 'make minjs' and commit the result."
             exit 1
           }
 

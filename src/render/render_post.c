@@ -665,7 +665,7 @@ static void append_search_page_query(cwist_sstring *b, const char *search,
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const search_filters *filters, const char *profile_pic, int user_id, bool is_mobile, cJSON *children) {
     cwist_sstring *b = cwist_sstring_create();
     /* Both modes are resolved and analyzed up front and emitted as data
-     * attributes, so the theme toggle can swap the hero client-side — the
+     * attributes, so the theme toggle can swap the hero client-side - the
      * same way the toplevel wallpaper follows the toggle via a CSS var. */
     hero_bg_mode_t home_modes[2];
     hero_bg_resolve_modes(g_config.home_img, g_config.home_img_dark, "home", home_modes);
@@ -2265,7 +2265,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
     }
     cwist_sstring_append(b, "</textarea></div>");
     cwist_sstring_append(b, "<div data-editor-pane='preview' style='display:none;background:var(--bg)'>");
-    cwist_sstring_append(b, "<div class='preview-edit-hint' style='font-size:12px;color:var(--muted);padding:12px 16px 0;border-bottom:1px dashed var(--border);margin-bottom:-1px'>Live Preview — edit Markdown in Write; Preview never rewrites your source.</div>");
+    cwist_sstring_append(b, "<div class='preview-edit-hint' style='font-size:12px;color:var(--muted);padding:12px 16px 0;border-bottom:1px dashed var(--border);margin-bottom:-1px'>Live Preview - edit Markdown in Write; Preview never rewrites your source.</div>");
     cwist_sstring_append(b, "<div id='md-preview-wrapper' style='padding:24px 32px;min-height:500px;height:60vh;overflow:auto;background:var(--bg)'>");
     cwist_sstring_append(b, "<article class='velog-preview-article' style='max-width:768px;margin:0 auto'>");
     cwist_sstring_append(b, "<h1 id='velog-preview-title' style='margin-bottom:12px;font-size:2.25rem;font-weight:800;letter-spacing:-0.03em;line-height:1.2;color:var(--fg)'>(Title)</h1>");
@@ -2402,7 +2402,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
     cwist_sstring_append(b, "</div>");
     /* Editor bootstrap: post id under edit (0 on a fresh form), the signed-in
      * user (0 = guest; server autosave is login-only), and the real tasfa
-     * flag — without it the uploader would attempt the streamed path for
+     * flag - without it the uploader would attempt the streamed path for
      * >4MB files even on deployments with use_tasfa=false. */
     cwist_sstring_append(b, "<script>window.POST_ID=");
     char numbuf[96];

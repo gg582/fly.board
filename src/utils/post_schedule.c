@@ -75,7 +75,7 @@ void post_schedule_note(const char *publish_at) {
 /* ---- Newsletter: plain-text new-post email to active subscribers ----
  *
  * Gated twice: g_config.newsletter_enabled (blog.settings, replicated) and
- * FLY_NEWSLETTER_SEND (env, primary node only) — so replica nodes that also
+ * FLY_NEWSLETTER_SEND (env, primary node only) - so replica nodes that also
  * claim announced posts never double-send. Each claimed post gets a detached
  * thread: it reads the subscriber list on its own sqlite connection under the
  * fork gate, then does the blocking SMTP sends off the scheduler tick. */

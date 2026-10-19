@@ -40,7 +40,7 @@ The goal is to reliably achieve one of the following outcomes:
 
 - [x] Add hysteresis so one or two transient failures cannot cause a large parallelism drop.
 - [x] On good 5G/4G links, do not sharply reduce `targetParallel` for short throughput drops unless a timeout occurs.
-- [x] Reduce parallelism slowly and recover quickly. For example, experiment with `-1` on failure and `+2` or `+4` after clean successes. (Resolved: parallelism now moves multiplicatively — `*0.85` on predictable failure patterns only, `*1.15` per clean success and `*1.3` inside the 5-second fast-recovery window, always at least `+1` on success.)
+- [x] Reduce parallelism slowly and recover quickly. For example, experiment with `-1` on failure and `+2` or `+4` after clean successes. (Resolved: parallelism now moves multiplicatively - `*0.85` on predictable failure patterns only, `*1.15` per clean success and `*1.3` inside the 5-second fast-recovery window, always at least `+1` on success.)
 - [x] If `current_parallel_chunks` drops below the previous value after renegotiation, give it a chance to rise again within at least `5 s`.
 - [x] Since `dispatch_pacing_ms` can create long stalls, keep it at 0 on high-quality links and cap it tightly on low-quality links.
 - [x] Make Tier 1 a send-as-much-as-possible strategy, and move to Tier 2 slowdown/guarded mode only after repeated and predictable error patterns are confirmed.

@@ -503,7 +503,7 @@ bool image_logo_srcset(const char *base_url, int iw, int ih, char *out, size_t o
 
 /* Compose a srcset value for a hero/background URL from the on-disk width
  * variants (768/1280/1920 plus the file itself).  Returns false when fewer
- * than two candidates exist — then the caller keeps the plain src. */
+ * than two candidates exist - then the caller keeps the plain src. */
 bool image_inline_srcset(const char *url, char *out, size_t out_sz) {
     if (!url || !out || out_sz == 0) return false;
     out[0] = '\0';

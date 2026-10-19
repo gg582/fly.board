@@ -6,7 +6,7 @@ axis-aligned tiles of a few flat tones; line art should use potrace instead
 
 Usage: mosaic_to_svg.py <input.pgm> <output.svg> [max-levels]
 
-The input must be an 8-bit PGM (P5) — produce it with, e.g.:
+The input must be an 8-bit PGM (P5) - produce it with, e.g.:
     magick in.png -alpha off -colorspace Gray +dither -colors N out.pgm
 
 Pixels are quantized to at most `max-levels` (default 8) gray tones; runs of

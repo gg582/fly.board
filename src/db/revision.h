@@ -9,7 +9,7 @@
  * the edit savepoint, so each accepted edit leaves one snapshot of the
  * version it replaced. The list feeds the editor's "Revision history"
  * section; loading a revision fills the form and a normal Update applies
- * it (which itself stores another snapshot — reverting is non-destructive).
+ * it (which itself stores another snapshot - reverting is non-destructive).
  * Kept local per node, like the rest of the editor experience. */
 
 #define DB_REVISION_KEEP 30

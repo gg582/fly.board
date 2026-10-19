@@ -25,7 +25,7 @@ make
 ```
 
 依赖：
-- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3（QUIC）由 CWIST 内置的 BoringSSL 处理，无需额外配置。
+- [CWIST](https://github.com/religiya-serdtsa/cwist) - TLS 1.3 / HTTP/3（QUIC）由 CWIST 内置的 BoringSSL 处理，无需额外配置。
 - OpenSSL 3.x（Argon2id KDF）
 - ngtcp2 / nghttp3（HTTP/3）
 - cJSON、SQLite3
@@ -93,10 +93,10 @@ NATS_URL=nats://localhost:4222 ./fly_board
 | `title` | `CWIST Docker Blog` | 顶栏显示的网站标题 |
 | `subtitle` | `Explore boards and read stories.` | 主视觉区副标题 |
 | `brand_footer` | `Built with CWIST C Framework` | 页脚文本 |
-| `root_url` | `https://localhost:8888/` | 站点规范 URL（以 `/` 结尾）。用于 RSS 链接、验证邮件和证书续期——生产环境中请设置为公网 URL |
+| `root_url` | `https://localhost:8888/` | 站点规范 URL（以 `/` 结尾）。用于 RSS 链接、验证邮件和证书续期--生产环境中请设置为公网 URL |
 | `port` | `8443` | TCP/UDP 监听端口（HTTP/3 在同一端口上走 UDP） |
 | `accent` | `#3b82f6` | 强调色（十六进制） |
-| `use_tls` | `true` | `true`/`false` — 开启/关闭 HTTPS（先运行 `./keygen.sh`） |
+| `use_tls` | `true` | `true`/`false` - 开启/关闭 HTTPS（先运行 `./keygen.sh`） |
 | `use_http2` | `true` | 基于 TLS 的 HTTP/2 |
 | `use_http3` | `true` | 基于 UDP 的 HTTP/3（QUIC） |
 | `use_tasfa` | `true` | TASFA 媒体管线（通过 ffmpeg 生成视频缩略图/预览） |
@@ -123,7 +123,7 @@ NATS_URL=nats://localhost:4222 ./fly_board
 
 ### `s3.settings`（可选）
 
-S3 兼容的对象存储，用于存放上传的文件（AWS S3、MinIO、R2、B2）。完全可选——留空时文件保留在本地磁盘的 `public/uploads/` 下。支持 `mode=mirror`（保留本地副本 + S3 备份）和 `mode=offload`（移至 S3，通过预签名重定向提供下载）。完整参考和示例配置见 [S3.md](S3.md)。
+S3 兼容的对象存储，用于存放上传的文件（AWS S3、MinIO、R2、B2）。完全可选--留空时文件保留在本地磁盘的 `public/uploads/` 下。支持 `mode=mirror`（保留本地副本 + S3 备份）和 `mode=offload`（移至 S3，通过预签名重定向提供下载）。完整参考和示例配置见 [S3.md](S3.md)。
 
 ### 环境变量
 
@@ -133,7 +133,7 @@ S3 兼容的对象存储，用于存放上传的文件（AWS S3、MinIO、R2、B
 |----------|---------|-------------|
 | `BLOG_ROOT` | *(未设置)* | 项目根目录；当二进制文件在项目根之外启动时使用。否则会自动检测包含 `public/` 的目录 |
 | `DEBUG` | *(关闭)* | `1`/`true`/`yes` 启用 DEBUG/INFO 日志；否则仅输出警告/错误 |
-| `NATS_URL` | *(未设置)* | 例如 `nats://localhost:4222` — 启用 NATS 消息网关 |
+| `NATS_URL` | *(未设置)* | 例如 `nats://localhost:4222` - 启用 NATS 消息网关 |
 | `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | *(未设置)* | ECH（Encrypted Client Hello）密钥文件 / 密钥目录 |
 | `CWIST_C1M_MODE` | `1` | 事件驱动的 C1M reactor。设为 `0` 可强制使用传统的线程池路径 |
 
@@ -174,7 +174,7 @@ S3 兼容的对象存储，用于存放上传的文件（AWS S3、MinIO、R2、B
 | `FLY_SMTP_USER` / `FLY_SMTP_PASS` | *(未设置)* | AUTH LOGIN 凭据（可选） |
 | `FLY_SMTP_FROM` | `FLY_SMTP_USER` | 信封/邮件头发件人 |
 
-示例 — 生产环境启用邮箱验证注册与证书自动续期：
+示例 - 生产环境启用邮箱验证注册与证书自动续期：
 
 ```sh
 FLY_CERT_RENEWAL=true FLY_CERT_EMAIL=admin@example.com \
@@ -283,8 +283,8 @@ C1M 运行前必须通过 sudo 调高 `fs.file-max` 和 `nf_conntrack_max`；202
 
 | 场景 | 服务器合计 | 每连接 |
 |---|---|---|
-| 空闲，1 个 worker | 117 MB | — |
-| 空闲，4 个 worker | 409 MB | — |
+| 空闲，1 个 worker | 117 MB | - |
+| 空闲，4 个 worker | 409 MB | - |
 | 约 9.1 万个 TLS/HTTP/2 连接（h2load C100k，在 91,286 个已建立连接时采样） | 7.58 GB | 约 83 KB |
 | 100 万个明文 HTTP/1.1 连接（connhold） | 16.0 GiB | 约 16 KB |
 | 100 万个 TLS HTTP/1.1 连接（connhold） | 18.7 GiB | 约 19 KB |

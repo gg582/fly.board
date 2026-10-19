@@ -168,7 +168,7 @@ bool db_configure_connection(sqlite3 *conn) {
         err = NULL;
     }
 
-    /* FTS5 tokenizers are registered per connection; failures are fine —
+    /* FTS5 tokenizers are registered per connection; failures are fine -
      * search falls back to the built-in trigram tokenizer. */
     fts5_search_register_conn(conn);
 

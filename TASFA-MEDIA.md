@@ -7,7 +7,7 @@ These extensions do not change the baseline upload/download chunk contract or th
 
 ## Media Routes
 
-- `GET /file/download/:id` — supports `Range` header with TASFA session authentication (`X-TASFA-Session-ID`, `X-TASFA-Session-Token`) for native media streaming.
+- `GET /file/download/:id` - supports `Range` header with TASFA session authentication (`X-TASFA-Session-ID`, `X-TASFA-Session-Token`) for native media streaming.
 - `GET /assets/tasfa/img/:filename/handshake`
 - `GET /assets/tasfa/img/:filename/chunk/:chunk_index`
 - `GET /assets/tasfa/uploads/:filename/handshake`

@@ -11,8 +11,8 @@ feed and apply rows to their own databases. Implemented in
 | Key | Default | Effect |
 |---|---|---|
 | `mode` | *(empty = off)* | `primary`: serve `/flywire/feed`, journal mutations. `replica`: poll the primary, apply deltas locally. Unknown values disable FlyWire with a warning |
-| `primary_url` | — | Base URL of the primary for a replica, e.g. `https://example.com` (no trailing slash needed) |
-| `token` | — | Shared secret. Replicas send it as the `X-FlyWire-Token` header; the primary refuses the feed without a matching token. Primary mode is only active when the token is non-empty |
+| `primary_url` | - | Base URL of the primary for a replica, e.g. `https://example.com` (no trailing slash needed) |
+| `token` | - | Shared secret. Replicas send it as the `X-FlyWire-Token` header; the primary refuses the feed without a matching token. Primary mode is only active when the token is non-empty |
 | `poll_seconds` | `2` | Replica poll interval, clamped to 1–60 |
 | `auto_upgrade` | *(off)* | `1`: when the primary advertises a different version, the replica spawns `./flywire-upgrade.sh` (git fetch/reset to origin/main, preserving instance settings, rebuild, `systemctl restart`). The script must exist and be executable; `FLYWIRE_SERVICE` selects the unit name (default `flyboard`) |
 
@@ -63,7 +63,7 @@ A replica is read-only locally: every non-GET/HEAD request that is not under
 (`src/handlers/handlers.c`), including Cookie/Authorization credentials, and
 the primary's status, `Location`, `Set-Cookie` and `Content-Type` are relayed
 back. This makes the replica behave like the primary behind a shared
-hostname. If the primary is unreachable the request fails with 503 — logins
+hostname. If the primary is unreachable the request fails with 503 - logins
 and logouts on a replica therefore require the primary to be up.
 
 ## Reseeding after `journal_purged`
@@ -104,7 +104,7 @@ always requires an operator decision.
 The feed advertises the primary's newest journal seq (`latest_seq`), and
 each replica compares it against its applied checkpoint after every poll.
 When the gap reaches `FLYWIRE_LAG_ALERT_ROWS` (default 200) the replica
-logs a WARN — a replica that drifts silently serves stale content, which
+logs a WARN - a replica that drifts silently serves stale content, which
 no error path used to reveal.
 
 For a one-shot operator view run:

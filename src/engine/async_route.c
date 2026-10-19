@@ -167,7 +167,7 @@ static void run_job(fly_async_job *job) {
     /* The compress middleware bails on res->deferred (in the middleware
      * chain that guards against a response another thread may be completing).
      * This job owns the exchange exclusively until cwist_async_respond_with()
-     * below, so drop the flag for the duration of the compression call —
+     * below, so drop the flag for the duration of the compression call -
      * otherwise every deferred response reaches clients uncompressed. */
     bool was_deferred = job->res->deferred;
     job->res->deferred = false;

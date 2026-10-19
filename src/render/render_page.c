@@ -674,7 +674,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
     cwist_html_element_add_child(nav, navlinks);
 
-    /* Theme toggle — simple click-to-toggle button */
+    /* Theme toggle - simple click-to-toggle button */
     cwist_html_element_t *theme_wrapper = cwist_html_element_create("div");
     cwist_html_element_add_class(theme_wrapper, "theme-switch");
 

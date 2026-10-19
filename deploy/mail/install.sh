@@ -11,7 +11,7 @@
 #   5. (optionally) generates an OpenDKIM key and prints the DNS TXT record;
 #   6. restarts services.
 #
-# Leaves relayhost EMPTY on purpose — see docs/mail.md for relay setup.
+# Leaves relayhost EMPTY on purpose - see docs/mail.md for relay setup.
 set -euo pipefail
 
 SITE_ROOT="${FLY_SITE_ROOT:-/home/yjlee/fly.board}"
@@ -25,7 +25,7 @@ fi
 
 for bin in mail-verify mail-import mail-alias-build; do
     if [ ! -x "$SITE_ROOT/$bin" ]; then
-        echo "missing $SITE_ROOT/$bin — build it first: make mail-tools" >&2
+        echo "missing $SITE_ROOT/$bin - build it first: make mail-tools" >&2
         exit 1
     fi
 done
@@ -38,7 +38,7 @@ apt-get install -y -qq postfix dovecot-core dovecot-imapd opendkim opendkim-tool
 echo "==> Creating Maildir root /var/mail/fly"
 mkdir -p /var/mail/fly/spool
 # Postfix refuses to run pipe transports as root, so delivery runs as an
-# unprivileged user that can only reach the Maildir and the spool — the
+# unprivileged user that can only reach the Maildir and the spool - the
 # fly_board web server (root) sweeps the spool into the webmail DB.
 id "$MAIL_USER" >/dev/null 2>&1 || useradd -r -m -s /usr/sbin/nologin "$MAIL_USER"
 chown -R "$MAIL_USER:$MAIL_USER" /var/mail/fly
@@ -108,7 +108,7 @@ systemctl restart opendkim 2>/dev/null || true
 
 echo
 echo "Done. Postfix listens on :25, Dovecot IMAP on 143/993."
-echo "NOTE: relayhost is EMPTY — outbound goes by direct MX lookup."
+echo "NOTE: relayhost is EMPTY - outbound goes by direct MX lookup."
 echo "      If port 25 outbound is blocked, set a relay in /etc/postfix/main.cf:"
 echo "        relayhost = [your.relay.example]:587"
 echo "Next: add the DNS records listed in docs/mail.md (MX, SPF, DKIM, DMARC)."

@@ -25,7 +25,7 @@ make
 ```
 
 相依套件：
-- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3（QUIC）由 CWIST 內建的 BoringSSL 處理，無需額外設定。
+- [CWIST](https://github.com/religiya-serdtsa/cwist) - TLS 1.3 / HTTP/3（QUIC）由 CWIST 內建的 BoringSSL 處理，無需額外設定。
 - OpenSSL 3.x（Argon2id KDF）
 - ngtcp2 / nghttp3（HTTP/3）
 - cJSON、SQLite3
@@ -93,10 +93,10 @@ NATS_URL=nats://localhost:4222 ./fly_board
 | `title` | `CWIST Docker Blog` | 顯示於頂欄的網站標題 |
 | `subtitle` | `Explore boards and read stories.` | Hero 副標題 |
 | `brand_footer` | `Built with CWIST C Framework` | 頁尾文字 |
-| `root_url` | `https://localhost:8888/` | 站點的正式 URL（結尾需帶 `/`）。用於 RSS 連結、驗證信與憑證續期 —— 正式環境中請設為公開 URL |
+| `root_url` | `https://localhost:8888/` | 站點的正式 URL（結尾需帶 `/`）。用於 RSS 連結、驗證信與憑證續期 -- 正式環境中請設為公開 URL |
 | `port` | `8443` | TCP/UDP 監聽埠號（HTTP/3 在同一埠號上使用 UDP） |
 | `accent` | `#3b82f6` | 強調色（hex） |
-| `use_tls` | `true` | `true`/`false` —— HTTPS 開關（請先執行 `./keygen.sh`） |
+| `use_tls` | `true` | `true`/`false` -- HTTPS 開關（請先執行 `./keygen.sh`） |
 | `use_http2` | `true` | TLS 上的 HTTP/2 |
 | `use_http3` | `true` | UDP 上的 HTTP/3（QUIC） |
 | `use_tasfa` | `true` | TASFA 媒體管線（透過 ffmpeg 產生影片縮圖/預覽） |
@@ -123,7 +123,7 @@ NATS_URL=nats://localhost:4222 ./fly_board
 
 ### `s3.settings`（選用）
 
-S3 相容物件儲存，用於存放上傳的檔案（AWS S3、MinIO、R2、B2）。完全選用——留空時，檔案會保留在本機磁碟的 `public/uploads/` 下。支援 `mode=mirror`（保留本機副本並備份至 S3）與 `mode=offload`（移至 S3，透過預先簽署的重導向提供下載）。完整參考與設定範例：[S3.md](S3.md)。
+S3 相容物件儲存，用於存放上傳的檔案（AWS S3、MinIO、R2、B2）。完全選用--留空時，檔案會保留在本機磁碟的 `public/uploads/` 下。支援 `mode=mirror`（保留本機副本並備份至 S3）與 `mode=offload`（移至 S3，透過預先簽署的重導向提供下載）。完整參考與設定範例：[S3.md](S3.md)。
 
 ### 環境變數
 
@@ -133,7 +133,7 @@ S3 相容物件儲存，用於存放上傳的檔案（AWS S3、MinIO、R2、B2�
 |----------|---------|-------------|
 | `BLOG_ROOT` | *(未設定)* | 專案根目錄；當執行檔在專案根目錄以外啟動時使用。否則會自動偵測包含 `public/` 的目錄 |
 | `DEBUG` | *(關閉)* | `1`/`true`/`yes` 啟用 DEBUG/INFO 日誌；否則只輸出警告/錯誤 |
-| `NATS_URL` | *(未設定)* | 例如 `nats://localhost:4222` —— 啟用 NATS 訊息閘道 |
+| `NATS_URL` | *(未設定)* | 例如 `nats://localhost:4222` -- 啟用 NATS 訊息閘道 |
 | `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | *(未設定)* | ECH（Encrypted Client Hello）金鑰檔案 / 金鑰目錄 |
 | `CWIST_C1M_MODE` | `1` | 事件驅動的 C1M reactor。設為 `0` 可強制使用舊式執行緒池路徑 |
 
@@ -174,7 +174,7 @@ Watchdog 會從 `root_url` 推導網域，並以 HTTP-01 挑戰執行 lego，因
 | `FLY_SMTP_USER` / `FLY_SMTP_PASS` | *(未設定)* | AUTH LOGIN 憑證（可選） |
 | `FLY_SMTP_FROM` | `FLY_SMTP_USER` | 信封/標頭寄件者 |
 
-範例 —— 啟用驗證註冊與自動憑證續期的正式環境：
+範例 -- 啟用驗證註冊與自動憑證續期的正式環境：
 
 ```sh
 FLY_CERT_RENEWAL=true FLY_CERT_EMAIL=admin@example.com \
@@ -283,8 +283,8 @@ C1M 執行前必須透過 sudo 調高 `fs.file-max` 和 `nf_conntrack_max`；202
 
 | 情境 | 伺服器合計 | 每連線 |
 |---|---|---|
-| 閒置，1 個 worker | 117 MB | — |
-| 閒置，4 個 worker | 409 MB | — |
+| 閒置，1 個 worker | 117 MB | - |
+| 閒置，4 個 worker | 409 MB | - |
 | 約 9.1 萬個 TLS/HTTP/2 連線（h2load C100k，在 91,286 個已建立連線時取樣） | 7.58 GB | 約 83 KB |
 | 100 萬個明文 HTTP/1.1 連線（connhold） | 16.0 GiB | 約 16 KB |
 | 100 萬個 TLS HTTP/1.1 連線（connhold） | 18.7 GiB | 約 19 KB |

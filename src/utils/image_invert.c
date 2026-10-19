@@ -221,7 +221,7 @@ static void build_variant(const char *orig_name) {
             invert_pixel_luminance(&r, &g, &b);
             /* Black-floor lift: linear-luminance inversion maps near-white
              * paper (e.g. 253/255) to a few percent of linear light, which
-             * the sRGB gamma expands into a visible ~10% gray — with every
+             * the sRGB gamma expands into a visible ~10% gray - with every
              * speck of source noise spread across it.  Subtract a small
              * floor (chromaticity preserved) so near-white sources land on
              * true black while darker content keeps its gradient. */
@@ -405,8 +405,8 @@ void hero_bg_resolve_modes(const char *light_img, const char *dark_img, const ch
         md->url = image_bg_resolve(light_img, dark_img, target, m == 1,
                                    &md->shown_name, &md->css_filter);
         if (md->url && !md->css_filter) {
-            /* Analyze the image actually shown — the inverted variant when
-             * there is one — so text/overlay stay correct after inversion.
+            /* Analyze the image actually shown - the inverted variant when
+             * there is one - so text/overlay stay correct after inversion.
              * The CSS-filter fallback cannot be analyzed (no inverted file)
              * and pairs with the theme's own foreground instead. */
             char img_path[512];

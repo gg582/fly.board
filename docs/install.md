@@ -41,11 +41,11 @@ make -j2 fly_board mail-tools
 
 The Makefile resolves CWIST in this order (first match wins):
 
-1. `CWIST_ROOT` — defaults to `../cwist` (a cwist checkout next to this
+1. `CWIST_ROOT` - defaults to `../cwist` (a cwist checkout next to this
    repository, already built: it must contain `libcwist.a`).
-2. `CWIST_PREFIX` — defaults to `/usr/local`; expects
+2. `CWIST_PREFIX` - defaults to `/usr/local`; expects
    `$CWIST_PREFIX/lib/libcwist.a` and `$CWIST_PREFIX/include/cwist`.
-3. Homebrew/Linuxbrew — `brew` is resolved from `PATH` and the standard
+3. Homebrew/Linuxbrew - `brew` is resolved from `PATH` and the standard
    install locations (`/home/linuxbrew/.linuxbrew`, `~/.linuxbrew`,
    `/opt/homebrew`, `/usr/local`), then `<brew prefix>/opt/cwist` or a
    `lib/libcwist.a`-carrying prefix is used.
@@ -126,11 +126,11 @@ If `use_tls=true` and `server.crt`/`server.key` are missing it exits with
 
 ## Troubleshooting
 
-- **`libcwist.a: No such file or directory` / CWIST headers not found** —
+- **`libcwist.a: No such file or directory` / CWIST headers not found** -
   the Makefile could not find CWIST. Point it explicitly:
   `make CWIST_ROOT=/path/to/cwist` (source tree with `libcwist.a` already
   built) or `make CWIST_PREFIX=/usr/local` (installed layout).
-- **Old hardcoded Linuxbrew paths error** — checkouts from before the
+- **Old hardcoded Linuxbrew paths error** - checkouts from before the
   Homebrew/Linuxbrew fallback probed fixed paths
   (`/home/linuxbrew/.linuxbrew/...`) and failed on machines without
   Linuxbrew with "No such file or directory" errors mentioning those paths.
@@ -138,13 +138,13 @@ If `use_tls=true` and `server.crt`/`server.key` are missing it exits with
   overrides. Fix: update the checkout, or override explicitly with
   `make CWIST_PREFIX=<prefix>` so the fallback block is skipped entirely.
 - **LTO version mismatch** (`bytecode stream ... generated with LTO version
-  X instead of the expected Y`) — the installed `libcwist.a` was built by a
+  X instead of the expected Y`) - the installed `libcwist.a` was built by a
   different GCC major. Install the matching `gcc-<major>` package (the
   Makefile picks it up automatically) or build CWIST with your local GCC.
-- **`autoreconf: command not found`** (libmagic build) — install
+- **`autoreconf: command not found`** (libmagic build) - install
   `autoconf automake libtool` (Debian) or `autoconf automake libtool`
   (Fedora).
-- **Port already in use** — change `port` in `blog.settings`; HTTP/3 binds
+- **Port already in use** - change `port` in `blog.settings`; HTTP/3 binds
   the same port over UDP.
-- **HTTPS init failed** — run `./keygen.sh` or install a real certificate as
+- **HTTPS init failed** - run `./keygen.sh` or install a real certificate as
   `server.crt` / `server.key` in the site root.

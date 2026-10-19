@@ -15,7 +15,7 @@
 # only ~19 served at a time.  The cleartext HTTP/1.1 path is event-driven
 # and held and served 1,000,000/1,000,000 in the same run.
 #
-# What this script measures instead: C1M-scale CHURN — 1,000,000 requests
+# What this script measures instead: C1M-scale CHURN - 1,000,000 requests
 # (20 processes x 50k) over 100,000 concurrently held TLS connections.
 # The connect rate is deliberately kept at the C100K-proven 1,000 conn/s
 # per process: higher aggregate rates (>= ~50k/s) drive the TLS accept

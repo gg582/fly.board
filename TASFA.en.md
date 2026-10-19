@@ -50,15 +50,15 @@ If the file size is not a multiple of the chunk size, the last chunk is a **rema
 
 The `init` endpoint returns, among other fields:
 
-- `chunk_size` — negotiated chunk size
-- `current_parallel_chunks` — the server-approved active upload window
-- `max_parallel_chunks` — how many chunks the client may upload concurrently
-- `dispatch_pacing_ms` — a small pacing delay only when the measured link is poor
-- `upload_secret` — a secondary server-secret for encrypted stream verification
-- `stream_key_hex`, `stream_iv_seed_hex`, `stream_mode` — session encryption keys (`aes-256-gcm`)
-- `modulus_M` — the HTP modulus used for this session
-- `group_count` — number of complete 6-slot HTP groups
-- `client_stripes` — fixed value `32`, used by the client worker scheduler
+- `chunk_size` - negotiated chunk size
+- `current_parallel_chunks` - the server-approved active upload window
+- `max_parallel_chunks` - how many chunks the client may upload concurrently
+- `dispatch_pacing_ms` - a small pacing delay only when the measured link is poor
+- `upload_secret` - a secondary server-secret for encrypted stream verification
+- `stream_key_hex`, `stream_iv_seed_hex`, `stream_mode` - session encryption keys (`aes-256-gcm`)
+- `modulus_M` - the HTP modulus used for this session
+- `group_count` - number of complete 6-slot HTP groups
+- `client_stripes` - fixed value `32`, used by the client worker scheduler
 
 The client treats `chunk_size` as a session contract because it defines each chunk's file offset. During an active upload it tunes concurrency and retry behavior, while the learned chunk-size hint is applied to the next TASFA session: after a sustained fast streak (3 clean chunks at `>= 8 Mbps` EWMA or sub-30-second chunk times) the next hint is doubled, and after failures it is reduced by a quarter (`* 0.75`, rounded to `1 MiB` steps, `8 MiB` floor).
 
@@ -116,8 +116,8 @@ v5_balanced = (v5_raw + delta3) mod M
 
 All other vertices keep their raw scalar. The client sends both:
 
-- `X-TASFA-Raw-Scalar` — the unmodified `raw_scalar`
-- `X-TASFA-Magic-Scalar` — the balanced value (`v3_balanced` or `v5_balanced`, otherwise same as raw)
+- `X-TASFA-Raw-Scalar` - the unmodified `raw_scalar`
+- `X-TASFA-Magic-Scalar` - the balanced value (`v3_balanced` or `v5_balanced`, otherwise same as raw)
 
 The server stores both scalars separately in `htp.bin` so that analysis can reference the original topology independently of the artificial balancing constraints.
 
@@ -248,7 +248,7 @@ TASFA is tuned for general high-bandwidth server deployments, not an embedded/ae
 
 The upload client measures chunk completion time, retries, timeouts, and Network Information API hints when available. It sends those inputs to `/file/upload/init` and `/file/upload/renegotiate`; the server answers with a current parallel window and max window. Clean completions increase the active window by `*1.15` up to the negotiated max (`*1.3` inside a 5-second fast-recovery window right after a drop), while repeated, predictable failure patterns reduce it by `*0.85` down to a floor of `4` mobile / `8` desktop on good links. AES-GCM fallback also runs inside the adaptive window.
 
-A per-chunk absolute timeout prevents stalls caused by connections that receive partial data but never close. A watchdog samples upload activity every 2 seconds: at a soft stall (`30 s` without chunk progress) it performs **soft recovery** — renegotiation, a parallelism bump, and a 5-second fast-recovery window — without tearing down live connections; at a hard stall (`90 s`) it performs an **aggressive restart**: in-flight XHRs are aborted and the upload resumes from the server bitmap, renegotiating from the full `maxParallel` window (high-performance transfer profiles also reset `targetParallel` to `maxParallel` and `dispatchPacingMs` to `0`). The learned chunk-size hint is kept **session-local** and is not immediately persisted to `localStorage`; it is only applied to the next TASFA session.
+A per-chunk absolute timeout prevents stalls caused by connections that receive partial data but never close. A watchdog samples upload activity every 2 seconds: at a soft stall (`30 s` without chunk progress) it performs **soft recovery** - renegotiation, a parallelism bump, and a 5-second fast-recovery window - without tearing down live connections; at a hard stall (`90 s`) it performs an **aggressive restart**: in-flight XHRs are aborted and the upload resumes from the server bitmap, renegotiating from the full `maxParallel` window (high-performance transfer profiles also reset `targetParallel` to `maxParallel` and `dispatchPacingMs` to `0`). The learned chunk-size hint is kept **session-local** and is not immediately persisted to `localStorage`; it is only applied to the next TASFA session.
 
 Download uses the same high-throughput bias: the handshake carries the client's preferred chunk-size hint, and active downloads grow `span` and parallelism by `*1.2` after successful chunk groups. On failure both are reduced by `*0.8`. Short reads, timeouts, and network errors are requeued by chunk index; a failed group does not fail the whole download until the same chunk has exhausted a high retry budget.
 
@@ -292,11 +292,11 @@ Completed files can additionally be stored in an S3-compatible bucket configured
 
 Session metadata also stores per-vertex arrays:
 
-- `hash_tags` — array of SHA-512 hex strings, one per chunk
-- `magic_scalars` — array of balanced scalars, one per chunk
-- `htp_retry_targets` — current server-issued retry target list
-- `htp_suspicion_scores` — current suspicion ranking
-- `htp_contraction_level` — number of server-side contraction passes applied
+- `hash_tags` - array of SHA-512 hex strings, one per chunk
+- `magic_scalars` - array of balanced scalars, one per chunk
+- `htp_retry_targets` - current server-issued retry target list
+- `htp_suspicion_scores` - current suspicion ranking
+- `htp_contraction_level` - number of server-side contraction passes applied
 
 These are updated on every chunk upload and validated at completion.
 
@@ -312,7 +312,7 @@ Completed uploads receive a one-time delete PIN. The clear PIN is a 12-character
 4. Client decrypts chunks in the browser using the **Web Crypto API** and the session keys.
 5. Browser assembles the response into one contiguous buffer.
 6. **Payload Compression (Zstd/Brotli/Gzip Fallback)**:
-   During downlinks, the client advertises supported decompression algorithms using the `X-TASFA-Accept-Encoding` header (e.g. `br, zstd, gzip`; the server falls back to `Accept-Encoding` when the TASFA header is absent). The header is a capability list, not a priority order: the server applies compression **before** GCM encryption using exactly one full-buffer pass of the supported codec it prefers most, ordered **Zstd (level 1) → Brotli (quality 1) → gzip (best speed)**; it is a preference order, not a fallback chain — if the selected codec does not save enough bytes, the raw payload is served and no other codec is tried. This avoids double-compression and ensures clients only receive payloads they can decompress natively (using `DecompressionStream`). If compression does not yield enough gains (`TASFA_COMPRESS_MIN_GAIN_BYTES`, 1,024 bytes; strictly less is required), the server skips compression and serves the raw binary payload directly. Compressed chunk responses carry `X-TASFA-Content-Encoding` and `X-TASFA-Uncompressed-Length` so the client can decompress before decryption.
+   During downlinks, the client advertises supported decompression algorithms using the `X-TASFA-Accept-Encoding` header (e.g. `br, zstd, gzip`; the server falls back to `Accept-Encoding` when the TASFA header is absent). The header is a capability list, not a priority order: the server applies compression **before** GCM encryption using exactly one full-buffer pass of the supported codec it prefers most, ordered **Zstd (level 1) → Brotli (quality 1) → gzip (best speed)**; it is a preference order, not a fallback chain - if the selected codec does not save enough bytes, the raw payload is served and no other codec is tried. This avoids double-compression and ensures clients only receive payloads they can decompress natively (using `DecompressionStream`). If compression does not yield enough gains (`TASFA_COMPRESS_MIN_GAIN_BYTES`, 1,024 bytes; strictly less is required), the server skips compression and serves the raw binary payload directly. Compressed chunk responses carry `X-TASFA-Content-Encoding` and `X-TASFA-Uncompressed-Length` so the client can decompress before decryption.
 
 ## Optional WASM-Sandboxed Block Crypto
 
@@ -325,7 +325,7 @@ Both upload and download state are tracked with a **dense binary bitmap** (one b
 ### Upload side
 
 - The server rejects any chunk whose index is already marked `'1'` in `state.bin`, **unless the chunk is explicitly in the server's retry target list**. An attacker cannot replay arbitrary chunks to burn disk I/O.
-- `state.bin` is updated with `pwrite(..., 1, chunk_index)` — an O(1) atomic write. There is no JSON parsing on the hot path.
+- `state.bin` is updated with `pwrite(..., 1, chunk_index)` - an O(1) atomic write. There is no JSON parsing on the hot path.
 - The `complete` handler re-opens the bitmap, counts set bits, and refuses finalisation until `received_chunks == chunk_count`. This prevents truncated-file attacks.
 
 ### Session hardening

@@ -18,13 +18,13 @@ USER_AGENT = (
 )
 
 PRETENDARD_SUBSET_CSS = """/*
- * Pretendard Variable — local subset only, no CDN fallback.
+ * Pretendard Variable - local subset only, no CDN fallback.
  * The local file holds basic Latin + KS X 1001 (2,350 Hangul syllables),
  * Hangul compatibility jamo (ㅋㅎㅇㅜㅠ), and common punctuation
  * (~460 KB instead of the full ~2 MB).
  *
  * Glyphs outside the subset (한자, conjoining jamo) fall through to the
- * next family in the CSS stack — system fonts ship those glyphs, and a
+ * next family in the CSS stack - system fonts ship those glyphs, and a
  * CDN face here would mean a 2 MB download the moment a single 한자
  * appears (post titles use them often).
  */
@@ -58,7 +58,7 @@ def korean_extras():
     """Jamo blocks used constantly in casual Korean text (ㅋㅎㅇㅜㅠ, 초성/중성/종성).
 
     Without these the CDN fallback face (a 2 MB download) triggers for a
-    single ㅋ — the single most common character in Korean comments.
+    single ㅋ - the single most common character in Korean comments.
     """
     chars = []
     # Hangul Compatibility Jamo (ㅋㅎㅇㅅㅜㅠ...), Conjoining Jamo,

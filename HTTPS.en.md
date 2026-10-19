@@ -6,19 +6,19 @@ fly.board enables both `cwist_app_use_https2()` and `cwist_app_use_https3()`, an
 
 ## Why Support All Three "Even at the Cost of Performance"
 
-### 1. HTTP/3 (QUIC) — Ideal but Environmentally Constrained
+### 1. HTTP/3 (QUIC) - Ideal but Environmentally Constrained
 
 - **Pros**: 0-RTT handshake, complete elimination of TCP Head-of-Line Blocking, connection migration (session persists across network changes).
 - **Performance cost**: UDP-based QUIC introduces extra encryption, packet reassembly, and congestion-control overhead, resulting in **higher CPU usage than HTTP/2**. Additionally, the BoringSSL + ngtcp2/nghttp3 stack inside CWIST occupies more memory and code paths than a plain HTTP/2 TCP stack.
 - **Why keep it**: Modern browsers prefer HTTP/3, but **enterprise firewalls, certain NATs, legacy proxies, and mobile carrier networks block or QoS-throttle UDP**. Supporting only HTTP/3 would make the service unreachable for users behind such restrictions.
 
-### 2. HTTP/2 (TLS 1.3) — The Stable "Greatest Common Denominator"
+### 2. HTTP/2 (TLS 1.3) - The Stable "Greatest Common Denominator"
 
 - **Pros**: Multiplexing over a single TCP connection solves HTTP/1.1 connection waste; optional server push; header compression (HPACK).
-- **Performance cost**: HTTP/2 has a more complex state machine than HTTP/1.1, consuming CPU cycles on stream prioritization and flow-control window updates. Notably, **fly.board's benchmarks were measured on HTTP/2** — implying that HTTP/3 does not yet produce predictable, reproducible results across all benchmark tools and network conditions.
+- **Performance cost**: HTTP/2 has a more complex state machine than HTTP/1.1, consuming CPU cycles on stream prioritization and flow-control window updates. Notably, **fly.board's benchmarks were measured on HTTP/2** - implying that HTTP/3 does not yet produce predictable, reproducible results across all benchmark tools and network conditions.
 - **Why keep it**: It serves as the **primary fallback** when HTTP/3 is blocked. Performance tools such as `h2load` standardize on HTTP/2, and the debugging/monitoring ecosystem is far more mature than for HTTP/3.
 
-### 3. HTTP/1.1 — The "Last Resort" and Compatibility Baseline
+### 3. HTTP/1.1 - The "Last Resort" and Compatibility Baseline
 
 - **Pros**: Simplicity. Text-based protocol makes debugging trivial; every load balancer, reverse proxy, and health-check tool supports it perfectly.
 - **Performance cost**: One request-response per connection (pipelining is effectively broken). As connection count rises, memory and file-descriptor consumption explodes. **Concurrency efficiency is drastically lower** than HTTP/2 multiplexing.

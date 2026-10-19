@@ -103,7 +103,7 @@ static bool replica_redirect(cwist_http_response *res) {
     return true;
 }
 
-/* GET /subscribe — the standalone subscription form. */
+/* GET /subscribe - the standalone subscription form. */
 void handler_subscribe_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -117,7 +117,7 @@ void handler_subscribe_get(cwist_http_request *req, cwist_http_response *res) {
     send_subscribe_page(res, NULL, NULL, NULL, is_dark(req), role, is_mobile_request(req));
 }
 
-/* POST /subscribe — store a pending subscription and mail the confirm link. */
+/* POST /subscribe - store a pending subscription and mail the confirm link. */
 void handler_subscribe_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -175,7 +175,7 @@ void handler_subscribe_post(cwist_http_request *req, cwist_http_response *res) {
     cwist_query_map_destroy(kv);
 }
 
-/* GET /confirm-subscription?token=... — activate the subscription. */
+/* GET /confirm-subscription?token=... - activate the subscription. */
 void handler_subscribe_confirm_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -194,7 +194,7 @@ void handler_subscribe_confirm_get(cwist_http_request *req, cwist_http_response 
     }
 }
 
-/* GET /unsubscribe?token=... — confirmation interstitial (never mutates on
+/* GET /unsubscribe?token=... - confirmation interstitial (never mutates on
  * GET; the form below posts the token). */
 void handler_unsubscribe_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
@@ -219,7 +219,7 @@ void handler_unsubscribe_get(cwist_http_request *req, cwist_http_response *res) 
     if (b) cwist_sstring_destroy(b);
 }
 
-/* POST /unsubscribe — delete the subscription holding the token. */
+/* POST /unsubscribe - delete the subscription holding the token. */
 void handler_unsubscribe_post(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};

@@ -25,7 +25,7 @@ make
 ```
 
 의존성:
-- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3 (QUIC)는 CWIST에 내장된 BoringSSL에서 처리되며 별도 설정이 필요 없습니다.
+- [CWIST](https://github.com/religiya-serdtsa/cwist) - TLS 1.3 / HTTP/3 (QUIC)는 CWIST에 내장된 BoringSSL에서 처리되며 별도 설정이 필요 없습니다.
 - OpenSSL 3.x (Argon2id KDF)
 - ngtcp2 / nghttp3 (HTTP/3)
 - cJSON, SQLite3
@@ -94,7 +94,7 @@ NATS_URL=nats://localhost:4222 ./fly_board
 | `title` | `CWIST Docker Blog` | 상단 바에 표시되는 사이트 제목 |
 | `subtitle` | `Explore boards and read stories.` | 히어로 부제목 |
 | `brand_footer` | `Built with CWIST C Framework` | 푸터 문구 |
-| `root_url` | `https://localhost:8888/` | 사이트의 정규 URL(끝에 `/` 필수). RSS 링크, 인증 메일, 인증서 갱신에 사용 — 운영 시 공개 URL로 설정 |
+| `root_url` | `https://localhost:8888/` | 사이트의 정규 URL(끝에 `/` 필수). RSS 링크, 인증 메일, 인증서 갱신에 사용 - 운영 시 공개 URL로 설정 |
 | `port` | `8443` | TCP/UDP 리슨 포트(HTTP/3는 같은 포트를 UDP로 사용) |
 | `accent` | `#3b82f6` | 강조 색상(hex) |
 | `use_tls` | `true` | HTTPS on/off(먼저 `./keygen.sh` 실행 필요) |
@@ -134,7 +134,7 @@ NATS_URL=nats://localhost:4222 ./fly_board
 |------|--------|------|
 | `BLOG_ROOT` | *(없음)* | 프로젝트 루트. 바이너리를 다른 디렉터리에서 실행할 때 사용. 미설정 시 `public/`이 있는 위치를 자동 탐색 |
 | `DEBUG` | *(끔)* | `1`/`true`/`yes`면 DEBUG/INFO 로그 출력, 아니면 경고/에러만 |
-| `NATS_URL` | *(없음)* | 예: `nats://localhost:4222` — NATS 메시징 게이트웨이 활성화 |
+| `NATS_URL` | *(없음)* | 예: `nats://localhost:4222` - NATS 메시징 게이트웨이 활성화 |
 | `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | *(없음)* | ECH(Encrypted Client Hello) 키 파일 / 키 디렉터리 |
 | `CWIST_C1M_MODE` | `1` | 이벤트 기반 C1M 리액터. `0`으로 설정하면 레거시 스레드 풀 경로 사용 |
 
@@ -153,7 +153,7 @@ NATS_URL=nats://localhost:4222 ./fly_board
 | `FLY_MEDIA_MAX_CONCURRENT` | `2` | 미디어 프리뷰용 ffmpeg 동시 변환 수 |
 | `FLYBOARD_MEDIA_BACKFILL_ON_START` | *(끔)* | 시작 시 레거시 미디어 프리뷰 전체 재생성(유지보수용) |
 
-**TLS 인증서 자동 갱신** — 로컬 ACME 클라이언트 사용. `keygen.sh`의 자가서명 임시 인증서는 자동으로 감지해 건드리지 않음
+**TLS 인증서 자동 갱신** - 로컬 ACME 클라이언트 사용. `keygen.sh`의 자가서명 임시 인증서는 자동으로 감지해 건드리지 않음
 
 | 변수 | 기본값 | 설명 |
 |------|--------|------|
@@ -164,7 +164,7 @@ NATS_URL=nats://localhost:4222 ./fly_board
 
 도메인은 `root_url`에서 추출하며 HTTP-01 챌린지를 사용하므로 80번 포트가 서버에 도달해야 합니다. 상태는 `.lego/`에 저장되고, 갱신된 인증서는 `server.crt`/`server.key`에 설치됩니다.
 
-**이메일 인증 가입** — 기본은 꺼짐(자유 가입)
+**이메일 인증 가입** - 기본은 꺼짐(자유 가입)
 
 | 변수 | 기본값 | 설명 |
 |------|--------|------|
@@ -175,7 +175,7 @@ NATS_URL=nats://localhost:4222 ./fly_board
 | `FLY_SMTP_USER` / `FLY_SMTP_PASS` | *(없음)* | AUTH LOGIN 자격 증명(선택) |
 | `FLY_SMTP_FROM` | `FLY_SMTP_USER` | envelope/헤더 발신자 |
 
-예시 — 이메일 인증 가입 + 인증서 자동 갱신 운영:
+예시 - 이메일 인증 가입 + 인증서 자동 갱신 운영:
 
 ```sh
 FLY_CERT_RENEWAL=true FLY_CERT_EMAIL=admin@example.com \
@@ -284,8 +284,8 @@ C1M 실행 전에 `fs.file-max`와 `nf_conntrack_max`를 sudo로 올려 두어�
 
 | 경우 | 서버 합계 | 연결당 |
 |---|---|---|
-| idle, 워커 1개 | 117 MB | — |
-| idle, 워커 4개 | 409 MB | — |
+| idle, 워커 1개 | 117 MB | - |
+| idle, 워커 4개 | 409 MB | - |
 | TLS/HTTP/2 연결 약 9.1만 개 (h2load C100k, 91,286 유지 시점 샘플) | 7.58 GB | 약 83 KB |
 | 평문 HTTP/1.1 연결 100만 개 (connhold) | 16.0 GiB | 약 16 KB |
 | TLS HTTP/1.1 연결 100만 개 (connhold) | 18.7 GiB | 약 19 KB |

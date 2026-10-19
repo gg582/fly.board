@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* RFC 6238 / RFC 4648 implementations — see totp.h. */
+/* RFC 6238 / RFC 4648 implementations - see totp.h. */
 
 static const char k_b32_alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 

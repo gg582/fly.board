@@ -359,7 +359,7 @@ static void complete_login(cwist_http_request *req, cwist_http_response *res,
     redirect_referer_safe(res, redirect_target, "/");
 }
 
-/* POST /login/2fa — completes a login that stopped at the TOTP step.
+/* POST /login/2fa - completes a login that stopped at the TOTP step.
  * Expects the 5-minute pending token from the password step plus a 6-digit
  * TOTP code or an 11-char recovery code (ABCDE-12345). */
 void handler_login_2fa_post(cwist_http_request *req, cwist_http_response *res) {
@@ -418,7 +418,7 @@ void handler_login_2fa_post(cwist_http_request *req, cwist_http_response *res) {
     cwist_query_map_destroy(kv);
 }
 
-/* POST /account/totp — the settings-page two-factor controls.
+/* POST /account/totp - the settings-page two-factor controls.
  *   action=enable   start setup: store a fresh secret (pending, not active)
  *   action=confirm  prove possession with a code; activates 2FA and shows
  *                   the one-time recovery codes
@@ -477,7 +477,7 @@ void handler_account_totp_post(cwist_http_request *req, cwist_http_response *res
                 totp_recovery_generate(req->db, uid, shown)) {
                 char notice[1024];
                 snprintf(notice, sizeof(notice),
-                    "Two-factor authentication is ON. Recovery codes (shown once — store them safely):<br>"
+                    "Two-factor authentication is ON. Recovery codes (shown once - store them safely):<br>"
                     "<code>%.*s</code> <code>%.*s</code> <code>%.*s</code> <code>%.*s</code> <code>%.*s</code>",
                     11, shown, 11, shown + 12, 11, shown + 24, 11, shown + 36, 11, shown + 48);
                 CWIST_LOG_INFO("TOTP enabled: uid=%d", uid);

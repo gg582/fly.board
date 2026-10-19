@@ -15,7 +15,7 @@
  * feed is protected by TLS + the shared token.
  *
  * UPSERTS ONLY: user deletions (db_user_delete, db_user_delete_with_cascade,
- * expired-unverified sweeps) are deliberately NOT journaled — a replica keeps
+ * expired-unverified sweeps) are deliberately NOT journaled - a replica keeps
  * its local accounts even when the primary deletes them, and the replica's
  * own admin.settings account must survive regardless. */
 

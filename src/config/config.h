@@ -86,7 +86,7 @@ bool config_bg_invert_enabled(const char *target);
  * in dark mode when present, otherwise falls back to whichever variant is
  * configured.  *out_invert is set when the target is listed in
  * bg_invert_color, only one of light/dark is configured, and the current
- * mode is the one without its own image — i.e. the image must be shown with
+ * mode is the one without its own image - i.e. the image must be shown with
  * inverted colors.  When both variants are explicitly configured, inversion
  * is void and *out_invert is always false. */
 void config_resolve_bg(const char *light_img, const char *dark_img, const char *target,

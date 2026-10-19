@@ -50,15 +50,15 @@ Si el tamaño del archivo no es múltiplo del tamaño del fragmento, el último 
 
 El endpoint `init` devuelve, entre otros campos:
 
-- `chunk_size` — tamaño de fragmento negociado
-- `current_parallel_chunks` — ventana activa de carga aprobada por el servidor
-- `max_parallel_chunks` — cuántos fragmentos el cliente puede cargar concurrentemente
-- `dispatch_pacing_ms` — pequeño retardo de envío aplicado solo cuando el enlace medido es deficiente
-- `upload_secret` — secreto secundario del servidor para verificación de flujo cifrado
-- `stream_key_hex`, `stream_iv_seed_hex`, `stream_mode` — claves de cifrado de sesión (`aes-256-gcm`)
-- `modulus_M` — módulo HTP utilizado para esta sesión
-- `group_count` — número de grupos HTP completos de 6 ranuras
-- `client_stripes` — valor fijo `32`, utilizado por el planificador de trabajadores del cliente
+- `chunk_size` - tamaño de fragmento negociado
+- `current_parallel_chunks` - ventana activa de carga aprobada por el servidor
+- `max_parallel_chunks` - cuántos fragmentos el cliente puede cargar concurrentemente
+- `dispatch_pacing_ms` - pequeño retardo de envío aplicado solo cuando el enlace medido es deficiente
+- `upload_secret` - secreto secundario del servidor para verificación de flujo cifrado
+- `stream_key_hex`, `stream_iv_seed_hex`, `stream_mode` - claves de cifrado de sesión (`aes-256-gcm`)
+- `modulus_M` - módulo HTP utilizado para esta sesión
+- `group_count` - número de grupos HTP completos de 6 ranuras
+- `client_stripes` - valor fijo `32`, utilizado por el planificador de trabajadores del cliente
 
 El cliente trata a `chunk_size` como un contrato de sesión porque define el desplazamiento de cada fragmento en el archivo. Durante una carga activa ajusta la concurrencia y el comportamiento de reintento, mientras que la pista aprendida de tamaño de fragmento se aplica a la siguiente sesión TASFA: después de una racha rápida sostenida (3 fragmentos limpios con EWMA `>= 8 Mbps` o tiempos de fragmento inferiores a 30 segundos) la siguiente pista se duplica, y después de fallos se reduce una cuarta parte (`* 0.75`, redondeada a pasos de `1 MiB`, con piso de `8 MiB`).
 
@@ -116,8 +116,8 @@ v5_balanced = (v5_raw + delta3) mod M
 
 Todos los demás vértices mantienen su escalar en bruto. El cliente envía ambos:
 
-- `X-TASFA-Raw-Scalar` — el `raw_scalar` sin modificar
-- `X-TASFA-Magic-Scalar` — el valor equilibrado (`v3_balanced` o `v5_balanced`; en otros casos, igual que raw)
+- `X-TASFA-Raw-Scalar` - el `raw_scalar` sin modificar
+- `X-TASFA-Magic-Scalar` - el valor equilibrado (`v3_balanced` o `v5_balanced`; en otros casos, igual que raw)
 
 El servidor almacena ambos escalares por separado en `htp.bin`, de modo que el análisis puede referenciar la topología original independientemente de las restricciones de equilibrio artificiales.
 
@@ -248,7 +248,7 @@ TASFA está ajustado para despliegues de servidores de alto ancho de banda gener
 
 El cliente de carga mide el tiempo de finalización del fragmento, reintentos, tiempos de espera, y pistas de la API de Información de Red cuando están disponibles. Envía esas entradas a `/file/upload/init` y `/file/upload/renegotiate`; el servidor responde con una ventana paralela actual y una ventana máxima. Las finalizaciones limpias aumentan la ventana activa por `*1.15` hasta el máximo negociado (`*1.3` dentro de una ventana de recuperación rápida de 5 segundos justo después de una caída), mientras que los patrones de fallo repetidos y predecibles la reducen por `*0.85` hasta un piso de `4` móvil / `8` escritorio en enlaces buenos. El respaldo AES-GCM también se ejecuta dentro de la ventana adaptativa.
 
-Un tiempo de espera absoluto por fragmento previene bloqueos causados por conexiones que reciben datos parciales pero nunca cierran. Un watchdog muestrea la actividad de carga cada 2 segundos: ante un bloqueo suave (`30 s` sin progreso de fragmentos) realiza una **recuperación suave** — renegociación, un incremento de paralelismo y una ventana de recuperación rápida de 5 segundos — sin desarmar las conexiones vivas; ante un bloqueo duro (`90 s`) realiza un **reinicio agresivo**: los XHR en vuelo se abortan y la carga se reanuda desde el bitmap del servidor, renegociando desde la ventana completa `maxParallel` (los perfiles de transferencia de alto rendimiento también restablecen `targetParallel` a `maxParallel` y `dispatchPacingMs` a `0`). La pista aprendida del tamaño de fragmento se mantiene **local a la sesión** y no se persiste inmediatamente en `localStorage`; solo se aplica a la siguiente sesión TASFA.
+Un tiempo de espera absoluto por fragmento previene bloqueos causados por conexiones que reciben datos parciales pero nunca cierran. Un watchdog muestrea la actividad de carga cada 2 segundos: ante un bloqueo suave (`30 s` sin progreso de fragmentos) realiza una **recuperación suave** - renegociación, un incremento de paralelismo y una ventana de recuperación rápida de 5 segundos - sin desarmar las conexiones vivas; ante un bloqueo duro (`90 s`) realiza un **reinicio agresivo**: los XHR en vuelo se abortan y la carga se reanuda desde el bitmap del servidor, renegociando desde la ventana completa `maxParallel` (los perfiles de transferencia de alto rendimiento también restablecen `targetParallel` a `maxParallel` y `dispatchPacingMs` a `0`). La pista aprendida del tamaño de fragmento se mantiene **local a la sesión** y no se persiste inmediatamente en `localStorage`; solo se aplica a la siguiente sesión TASFA.
 
 La descarga usa el mismo sesgo de alto rendimiento: el handshake lleva la pista de tamaño de fragmento preferida del cliente, y las descargas activas aumentan el `span` y el paralelismo por `*1.2` después de grupos de fragmentos exitosos. En caso de fallo ambos se reducen por `*0.8`. Las lecturas cortas, tiempos de espera y errores de red se reencolan por índice de fragmento; un grupo fallido no falla toda la descarga hasta que el mismo fragmento haya agotado un alto presupuesto de reintentos.
 
@@ -292,11 +292,11 @@ Los archivos completados pueden almacenarse adicionalmente en un bucket compatib
 
 Los metadatos de sesión también almacenan arrays por vértice:
 
-- `hash_tags` — array de cadenas hexadecimales SHA-512, uno por fragmento
-- `magic_scalars` — array de escalares equilibrados, uno por fragmento
-- `htp_retry_targets` — lista de objetivos de reintento emitida actualmente por el servidor
-- `htp_suspicion_scores` — clasificación de sospecha actual
-- `htp_contraction_level` — número de pasadas de contracción del lado del servidor aplicadas
+- `hash_tags` - array de cadenas hexadecimales SHA-512, uno por fragmento
+- `magic_scalars` - array de escalares equilibrados, uno por fragmento
+- `htp_retry_targets` - lista de objetivos de reintento emitida actualmente por el servidor
+- `htp_suspicion_scores` - clasificación de sospecha actual
+- `htp_contraction_level` - número de pasadas de contracción del lado del servidor aplicadas
 
 Estos se actualizan en cada carga de fragmento y se validan al completar.
 
@@ -312,7 +312,7 @@ Las cargas completadas reciben un PIN de eliminación de un solo uso. El PIN en 
 4. El cliente descifra los fragmentos en el navegador utilizando la **Web Crypto API** y las claves de sesión.
 5. El navegador ensambla la respuesta en un búfer contiguo.
 6. **Compresión de Carga Útil (Respaldo Zstd/Brotli/Gzip)**:
-   Durante las bajadas, el cliente anuncia los algoritmos de descompresión soportados mediante el encabezado `X-TASFA-Accept-Encoding` (ej. `br, zstd, gzip`; el servidor recurre a `Accept-Encoding` cuando falta el encabezado TASFA). El encabezado es una lista de capacidades, no un orden de prioridad: el servidor aplica la compresión **antes** del cifrado GCM usando exactamente una pasada de búfer completo del códec soportado que más prefiere, ordenado **Zstd (nivel 1) → Brotli (calidad 1) → gzip (best speed)**; es un orden de preferencia, no una cadena de respaldo — si el códec seleccionado no ahorra suficientes bytes, se sirve la carga útil en bruto y no se prueba ningún otro códec. Esto evita la doble compresión y garantiza que los clientes solo reciban cargas útiles que pueden descomprimir de forma nativa (usando `DecompressionStream`). Si la compresión no produce ganancias suficientes (`TASFA_COMPRESS_MIN_GAIN_BYTES`, 1,024 bytes; se requiere estrictamente menos), el servidor omite la compresión y sirve la carga útil binaria en bruto directamente. Las respuestas de fragmento comprimidas llevan `X-TASFA-Content-Encoding` y `X-TASFA-Uncompressed-Length` para que el cliente pueda descomprimir antes del descifrado.
+   Durante las bajadas, el cliente anuncia los algoritmos de descompresión soportados mediante el encabezado `X-TASFA-Accept-Encoding` (ej. `br, zstd, gzip`; el servidor recurre a `Accept-Encoding` cuando falta el encabezado TASFA). El encabezado es una lista de capacidades, no un orden de prioridad: el servidor aplica la compresión **antes** del cifrado GCM usando exactamente una pasada de búfer completo del códec soportado que más prefiere, ordenado **Zstd (nivel 1) → Brotli (calidad 1) → gzip (best speed)**; es un orden de preferencia, no una cadena de respaldo - si el códec seleccionado no ahorra suficientes bytes, se sirve la carga útil en bruto y no se prueba ningún otro códec. Esto evita la doble compresión y garantiza que los clientes solo reciban cargas útiles que pueden descomprimir de forma nativa (usando `DecompressionStream`). Si la compresión no produce ganancias suficientes (`TASFA_COMPRESS_MIN_GAIN_BYTES`, 1,024 bytes; se requiere estrictamente menos), el servidor omite la compresión y sirve la carga útil binaria en bruto directamente. Las respuestas de fragmento comprimidas llevan `X-TASFA-Content-Encoding` y `X-TASFA-Uncompressed-Length` para que el cliente pueda descomprimir antes del descifrado.
 
 ## Cifrado de Bloques en Sandbox WASM (Opcional)
 
@@ -325,7 +325,7 @@ Tanto el estado de carga como el de descarga se rastrean con un **bitmap binario
 ### Lado de carga
 
 - El servidor rechaza cualquier fragmento cuyo índice ya esté marcado `'1'` en `state.bin`, **a menos que el fragmento esté explícitamente en la lista de objetivos de reintento del servidor**. Un atacante no puede reproducir fragmentos arbitrarios para consumir I/O de disco.
-- `state.bin` se actualiza con `pwrite(..., 1, chunk_index)` — una escritura atómica en O(1). No hay análisis JSON en la ruta crítica.
+- `state.bin` se actualiza con `pwrite(..., 1, chunk_index)` - una escritura atómica en O(1). No hay análisis JSON en la ruta crítica.
 - El manejador `complete` reabre el bitmap, cuenta los bits establecidos, y se niega a finalizar hasta que `received_chunks == chunk_count`. Esto previene ataques de archivos truncados.
 
 ### Endurecimiento de sesión

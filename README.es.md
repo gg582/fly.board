@@ -25,7 +25,7 @@ make
 ```
 
 Dependencias:
-- [CWIST](https://github.com/religiya-serdtsa/cwist) — TLS 1.3 / HTTP/3 (QUIC) se gestiona mediante BoringSSL embebido en CWIST; no requiere configuración adicional.
+- [CWIST](https://github.com/religiya-serdtsa/cwist) - TLS 1.3 / HTTP/3 (QUIC) se gestiona mediante BoringSSL embebido en CWIST; no requiere configuración adicional.
 - OpenSSL 3.x (Argon2id KDF)
 - ngtcp2 / nghttp3 (HTTP/3)
 - cJSON, SQLite3
@@ -93,10 +93,10 @@ Líneas simples de tipo `key=value`. Las claves desconocidas se ignoran; los val
 | `title` | `CWIST Docker Blog` | Título del sitio mostrado en la barra superior |
 | `subtitle` | `Explore boards and read stories.` | Subtítulo del hero |
 | `brand_footer` | `Built with CWIST C Framework` | Texto del pie de página |
-| `root_url` | `https://localhost:8888/` | URL canónica del sitio (con `/` final). Se usa para enlaces RSS, correos de verificación y renovación de certificados — configúrala con la URL pública en producción |
+| `root_url` | `https://localhost:8888/` | URL canónica del sitio (con `/` final). Se usa para enlaces RSS, correos de verificación y renovación de certificados - configúrala con la URL pública en producción |
 | `port` | `8443` | Puerto de escucha TCP/UDP (HTTP/3 usa el mismo puerto sobre UDP) |
 | `accent` | `#3b82f6` | Color de acento (hex) |
-| `use_tls` | `true` | `true`/`false` — HTTPS activado/desactivado (ejecuta `./keygen.sh` primero) |
+| `use_tls` | `true` | `true`/`false` - HTTPS activado/desactivado (ejecuta `./keygen.sh` primero) |
 | `use_http2` | `true` | HTTP/2 sobre TLS |
 | `use_http3` | `true` | HTTP/3 (QUIC) sobre UDP |
 | `use_tasfa` | `true` | Pipeline multimedia TASFA (miniaturas/vistas previas de vídeo vía ffmpeg) |
@@ -133,7 +133,7 @@ Almacenamiento de objetos compatible con S3 para los archivos subidos (AWS S3, M
 |----------|----------------|-------------|
 | `BLOG_ROOT` | *(sin definir)* | Raíz del proyecto; se usa cuando el binario se inicia fuera de ella. De lo contrario se detecta automáticamente el directorio que contiene `public/` |
 | `DEBUG` | *(desactivado)* | `1`/`true`/`yes` activa los registros DEBUG/INFO; en caso contrario solo se muestran advertencias/errores |
-| `NATS_URL` | *(sin definir)* | p. ej. `nats://localhost:4222` — activa la pasarela de mensajería NATS |
+| `NATS_URL` | *(sin definir)* | p. ej. `nats://localhost:4222` - activa la pasarela de mensajería NATS |
 | `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | *(sin definir)* | Archivo de clave / directorio de claves ECH (Encrypted Client Hello) |
 | `CWIST_C1M_MODE` | `1` | Reactor C1M orientado a eventos. Ponlo en `0` para forzar la ruta clásica basada en thread-pool |
 
@@ -174,7 +174,7 @@ El vigilante deriva el dominio de `root_url` y ejecuta lego con el desafío HTTP
 | `FLY_SMTP_USER` / `FLY_SMTP_PASS` | *(sin definir)* | Credenciales AUTH LOGIN (opcional) |
 | `FLY_SMTP_FROM` | `FLY_SMTP_USER` | Remitente de sobre/cabecera |
 
-Ejemplo — producción con registro verificado y renovación automática de certificados:
+Ejemplo - producción con registro verificado y renovación automática de certificados:
 
 ```sh
 FLY_CERT_RENEWAL=true FLY_CERT_EMAIL=admin@example.com \
@@ -283,8 +283,8 @@ PSS sumado sobre todos los procesos del servidor (maestro y workers bifurcados).
 
 | Caso | Total del servidor | Por conexión |
 |---|---|---|
-| En reposo, 1 worker | 117 MB | — |
-| En reposo, 4 workers | 409 MB | — |
+| En reposo, 1 worker | 117 MB | - |
+| En reposo, 4 workers | 409 MB | - |
 | ~91k conexiones TLS/HTTP/2 (h2load C100k, muestra a 91.286 establecidas) | 7,58 GB | ~83 KB |
 | 1M de conexiones HTTP/1.1 en claro (connhold) | 16,0 GiB | ~16 KB |
 | 1M de conexiones TLS HTTP/1.1 (connhold) | 18,7 GiB | ~19 KB |
@@ -319,6 +319,6 @@ Las dos herramientas usan protocolos distintos y no son directamente comparables
 
 **Conclusiones clave**
 
-- **C1M:** 1.000.000 de conexiones concurrentes mantenidas y atendidas en un solo host de escritorio sobre HTTP/1.1 en claro, TLS HTTP/1.1 y TLS HTTP/2, cero fallos — reverificado con CWIST v3.9 el 2026-10-07 con los límites del kernel de la tabla elevados.
+- **C1M:** 1.000.000 de conexiones concurrentes mantenidas y atendidas en un solo host de escritorio sobre HTTP/1.1 en claro, TLS HTTP/1.1 y TLS HTTP/2, cero fallos - reverificado con CWIST v3.9 el 2026-10-07 con los límites del kernel de la tabla elevados.
 - **La memoria por conexión es real:** ~16–28 KB por conexión mantenida en el servidor; dimensiona la RAM en consecuencia.
 - **La tasa de conexión TLS la limitan los handshakes:** usa un certificado ECDSA; en este host ~8.000 handshakes completos por segundo terminaron sin pérdidas.

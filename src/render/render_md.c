@@ -663,7 +663,7 @@ static void sanitize_media_tag(cwist_sstring *out, const char *snippet, size_t l
     cwist_sstring_append(out, ">");
 }
 
-/* Allowed iframe src prefixes — only YouTube embed variants are permitted.
+/* Allowed iframe src prefixes - only YouTube embed variants are permitted.
  * Both http and https are accepted; the scheme is normalised to https on output. */
 static bool is_youtube_embed_src(const char *src, size_t len) {
     static const char *const prefixes[] = {
@@ -740,13 +740,13 @@ static bool sanitize_iframe_tag(cwist_sstring *out, const char *snippet, size_t 
             }
         }
 
-        /* Handle src specially — validate URL. */
+        /* Handle src specially - validate URL. */
         if (name_len == 3 && strncasecmp(snippet + name_start, "src", 3) == 0) {
             if (value && is_youtube_embed_src(value, value_len)) {
                 src_val = value;
                 src_len = value_len;
             }
-            continue; /* always skip — we'll emit it ourselves after validation */
+            continue; /* always skip - we'll emit it ourselves after validation */
         }
 
         /* Drop sandbox (we inject our own), on* handlers, and srcdoc. */
@@ -789,7 +789,7 @@ static bool sanitize_iframe_tag(cwist_sstring *out, const char *snippet, size_t 
     cwist_sstring_append(out, attrs->data);
     cwist_sstring_destroy(attrs);
 
-    /* Force a restrictive sandbox — no forms, no top-nav, no popups. */
+    /* Force a restrictive sandbox - no forms, no top-nav, no popups. */
     cwist_sstring_append(out, " sandbox=\"allow-scripts allow-same-origin allow-presentation\"");
     cwist_sstring_append(out, "></iframe>");
     return true;
@@ -980,7 +980,7 @@ static char *protect_math(const char *md, math_registry_t *blocks,
                             snprintf(placeholder, sizeof(placeholder), "@@RAW_MEDIA_%d@@", media->count - 1);
                             cwist_sstring_append(out, placeholder);
                         }
-                        /* If src was rejected, emit nothing — the tag is silently dropped. */
+                        /* If src was rejected, emit nothing - the tag is silently dropped. */
                         cwist_sstring_destroy(sanitized);
                         i = block_end;
                         continue;

@@ -2122,7 +2122,7 @@
         asset.mode = 'attachment';
         asset.displayPercent = 100;
         /* Files dropped or pasted straight into the textarea are inserted at
-         * the cursor on completion — the user already said where they go. */
+         * the cursor on completion - the user already said where they go. */
         if (asset.autoInsert && isEditorMode && asset.url && !editorHasUrl(asset.url)) {
             insertAssetMarkdown(asset);
             schedulePreview();
@@ -4418,7 +4418,7 @@
                 ta.value = rev.content || '';
                 var summaryEl = document.getElementById('summary-input');
                 if (summaryEl) summaryEl.value = rev.summary || '';
-                if (syncStatus) syncStatus.textContent = 'Revision loaded — review, then Update to apply';
+                if (syncStatus) syncStatus.textContent = 'Revision loaded - review, then Update to apply';
                 schedulePreview();
                 updateMetrics();
                 clearDraft();

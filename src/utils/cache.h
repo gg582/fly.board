@@ -52,7 +52,7 @@ void page_cache_key_board_list(char *out, size_t out_len, bool dark, bool mobile
 void page_cache_invalidate_post(const char *slug);
 void page_cache_invalidate_board(const char *slug);
 void page_cache_invalidate_all(void);
-/* Home, board and board-listing pages only — the cheap invalidation for
+/* Home, board and board-listing pages only - the cheap invalidation for
    events (e.g. a new post) that cannot affect an existing post's own page. */
 void page_cache_invalidate_listings(void);
 

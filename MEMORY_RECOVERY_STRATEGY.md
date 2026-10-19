@@ -14,17 +14,17 @@
 
 특히 위험한 영역:
 
-- `src/utils/utils.c` — multipart form 파싱 (`mp_flush`, `mp_data`): `cwist_alloc`/`realloc` 결과를 검사하지 않고 `memset`/`strcpy`
-- `src/handlers/post.c` — 게시글 생성/수정: 제목, 본문, 미디어 메타데이터 할당 후 즉시 사용
-- `src/handlers/auth.c` — 계정 설정: `boundary`, `nickname`, `bio`, 프로필 사진 URL 할당 미검사
-- `src/render/` — HTML 렌더링: `cwist_sstring` 생성/append 실패 무시로 잘린 응답 전송 가능
-- `src/handlers/tasfa/` — 대용량 파일/암호화: XOR 복구 버퍼, 세션 데이터, 복호화 버퍼 등 다수 미검사
-- `src/db/db.c` — `db_sqlite3_rows_to_json()`: cJSON 내部分配 실패 시 `SQLITE_NOMEM` 미반환
+- `src/utils/utils.c` - multipart form 파싱 (`mp_flush`, `mp_data`): `cwist_alloc`/`realloc` 결과를 검사하지 않고 `memset`/`strcpy`
+- `src/handlers/post.c` - 게시글 생성/수정: 제목, 본문, 미디어 메타데이터 할당 후 즉시 사용
+- `src/handlers/auth.c` - 계정 설정: `boundary`, `nickname`, `bio`, 프로필 사진 URL 할당 미검사
+- `src/render/` - HTML 렌더링: `cwist_sstring` 생성/append 실패 무시로 잘린 응답 전송 가능
+- `src/handlers/tasfa/` - 대용량 파일/암호화: XOR 복구 버퍼, 세션 데이터, 복호화 버퍼 등 다수 미검사
+- `src/db/db.c` - `db_sqlite3_rows_to_json()`: cJSON 내部分配 실패 시 `SQLITE_NOMEM` 미반환
 
 ## 2. 복구 전략 원칙
 
 1. **Fail-fast for init, graceful degradation for request**
-   - 서버 초기화 단계의 치명적 할당 실패는 즉시 종료(`EXIT_FAILURE`) — 복구 불가
+   - 서버 초기화 단계의 치명적 할당 실패는 즉시 종료(`EXIT_FAILURE`) - 복구 불가
    - HTTP 요청 처리 중 할당 실패는 해당 요청에 대해 `500 Internal Server Error`를 본문 없이 반환하고 연결을 정리
 
 2. **Never dereference unchecked allocation result**
@@ -64,7 +64,7 @@
 
 - [ ] `src/utils/alloc.h` / `src/utils/alloc.c` 신규 작성
   ```c
-  // 실패 시 로그 남기고 NULL 반환 — 요청 처리에서 사용
+  // 실패 시 로그 남기고 NULL 반환 - 요청 처리에서 사용
   void *try_alloc(size_t size);
   void *try_calloc(size_t nmemb, size_t size);
   void *try_realloc(void *ptr, size_t size);
@@ -207,7 +207,7 @@ cleanup:
 | P0 | `src/utils/utils.c` (`mp_flush`, `mp_data`) | multipart 파싱은 모든 파일 업로드 요청의 입구 |
 | P0 | `src/handlers/post.c` (`handler_post_create`, `handler_post_edit`) | 핵심 기능, 사용자 입력 직접 처리 |
 | P0 | `src/handlers/auth.c` (`handler_account_settings_post`) | 인증/계정 데이터 누수 위험 |
-| P1 | `src/handlers/tasfa/crypto.c`, `htp.c`, `session.c` | 대용량 파일/암호화 — 메모리 압력 시 취약 |
+| P1 | `src/handlers/tasfa/crypto.c`, `htp.c`, `session.c` | 대용량 파일/암호화 - 메모리 압력 시 취약 |
 | P1 | `src/db/db.c` (`db_sqlite3_rows_to_json`) | cJSON 실패가 상위로 전파되지 않음 |
 | P1 | `src/render/render_page.c`, `render_md.c`, `render_board.c`, `render_post.c` | 잘린 HTML 응답 전송 가능 |
 | P2 | `src/handlers/board.c`, `src/handlers/handlers.c` (profile pic) | unchecked `strdup` |

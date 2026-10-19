@@ -1,4 +1,4 @@
-/* Unit test: src/auth/totp.c — RFC 6238 SHA-1 test vectors, base32 round
+/* Unit test: src/auth/totp.c - RFC 6238 SHA-1 test vectors, base32 round
  * trips, verification window.
  *
  * Build:

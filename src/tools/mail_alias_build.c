@@ -3,7 +3,7 @@
  * @file mail_alias_build.c
  * @brief Emit the Postfix virtual maps for oborona.zip.
  *
- * Stdout: virtual alias map — the reserved role addresses (postmaster,
+ * Stdout: virtual alias map - the reserved role addresses (postmaster,
  * abuse, ...) point at the site admin account. Identity mappings are NOT
  * emitted: oborona.zip is a virtual_mailbox_domain, so plain users resolve
  * through the mailbox map (an identity alias would look like a self-referral
@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
         printf("%s@%s %s\n", k_reserved[i], mail_domain(), admin_addr);
 
     /* Virtual mailbox map: the user list Postfix validates recipients
-     * against. Identity alias lines are NOT emitted — with
+     * against. Identity alias lines are NOT emitted - with
      * virtual_alias_domains a self-mapping is treated as an alias loop and
      * the recipient is rejected with "User unknown in virtual alias table".
      * oborona.zip is instead a virtual_mailbox_domain: users resolve via

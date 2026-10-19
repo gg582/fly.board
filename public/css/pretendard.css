@@ -1,11 +1,11 @@
 /*
- * Pretendard Variable — local subset only, no CDN fallback.
+ * Pretendard Variable - local subset only, no CDN fallback.
  * The local file holds basic Latin + KS X 1001 (2,350 Hangul syllables),
  * Hangul compatibility jamo (ㅋㅎㅇㅜㅠ), and common punctuation
  * (~460 KB instead of the full ~2 MB).
  *
  * Glyphs outside the subset (한자, conjoining jamo) fall through to the
- * next family in the CSS stack — system fonts ship those glyphs, and a
+ * next family in the CSS stack - system fonts ship those glyphs, and a
  * CDN face here would mean a 2 MB download the moment a single 한자
  * appears (post titles use them often).
  */

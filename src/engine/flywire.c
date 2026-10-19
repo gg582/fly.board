@@ -156,7 +156,7 @@ static void flywire_maybe_auto_upgrade(const char *primary_version) {
         return;
     }
     snprintf(g_upgrade_spawned_for, sizeof(g_upgrade_spawned_for), "%s", primary_version);
-    CWIST_LOG_INFO("FlyWire: primary runs version %s, local %s — spawning flywire-upgrade.sh",
+    CWIST_LOG_INFO("FlyWire: primary runs version %s, local %s - spawning flywire-upgrade.sh",
                    primary_version, local);
     pid_t pid = fork();
     if (pid < 0) {
@@ -1046,7 +1046,7 @@ static void flywire_redirect(cwist_http_response *res, const char *url) {
     cwist_http_header_add(&res->headers, "Content-Length", "0");
 }
 
-/* POST /flywire/request-admin — replica only (404 otherwise). Forwards the
+/* POST /flywire/request-admin - replica only (404 otherwise). Forwards the
  * current user's username/email/password_hash to the primary so the account
  * can be created (or matched) there and an admin notified. */
 void handler_flywire_request_admin(cwist_http_request *req, cwist_http_response *res) {
@@ -1121,7 +1121,7 @@ void handler_flywire_request_admin(cwist_http_request *req, cwist_http_response 
                              : "/account/settings?msg=admin_request_failed");
 }
 
-/* POST /flywire/promote-request — primary only (404 otherwise), token
+/* POST /flywire/promote-request - primary only (404 otherwise), token
  * REQUIRED (constant-time compare, same as the feed). Creates the requesting
  * user locally when unknown, then notifies the first admin via webmail. */
 void handler_flywire_promote_request(cwist_http_request *req, cwist_http_response *res) {
