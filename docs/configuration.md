@@ -51,6 +51,7 @@ the built-in defaults; a missing file is regenerated with them.
 | `bg_invert_algo` | `luminv` | Inversion algorithm: `luminv` or `oklch`; unknown values fall back to `luminv` |
 | `use_tasfa` | `true` | TASFA resumable upload/download pipeline |
 | `use_rss` | `false` | Serve the RSS feed (`/rss.xml`) |
+| `newsletter_enabled` | `false` | Email subscription: shows the subscribe form on post lists, accepts `/subscribe` and confirm/unsubscribe links. Sending new-post emails additionally requires `FLY_NEWSLETTER_SEND=1` on the primary node (see below) |
 | `use_tls` | `true` | HTTPS. Requires `server.crt`/`server.key` in the site root |
 | `use_http2` | `true` | HTTP/2 over TLS |
 | `use_http3` | `true` | HTTP/3 (QUIC) on the same port over UDP; enables 0-RTT + session resumption |
@@ -224,6 +225,17 @@ unset.
 | `FLY_MAIL_USER` | — | Used by the webmail spool sweep |
 | `FLY_DB_PATH` | `data/blog.db` (exe-relative fallback) | Database path override for `mail-verify` / `mail-import` / `mail-alias-build` when invoked by Postfix/Dovecot from another cwd |
 | `DOVECOT_USERDB_LOOKUP` | — | Selects Dovecot userdb mode in `mail-verify` |
+
+### Newsletter (email subscription)
+
+Sending new-post announcement emails is gated twice:
+
+1. `newsletter_enabled=1` in `blog.settings` (this file, replicated to replicas).
+2. `FLY_NEWSLETTER_SEND=1` in the primary node's environment **only**. Replica nodes also claim newly published posts for the NATS announcement; without this env gate every replica would email the same subscribers again. Subscription state lives on the primary (`subscribers` table is not FlyWire-synced); replicas accept subscribe POSTs locally but only the primary confirms and sends.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `FLY_NEWSLETTER_SEND` | unset (off) | When `1`, the primary emails every active subscriber one plain-text message per published post (title, summary, link, unsubscribe link), paced at ~5/second. Unsubscribe works even with the newsletter disabled |
 
 ### Backups
 

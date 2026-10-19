@@ -316,6 +316,11 @@ int json_int(cJSON *obj, const char *key, int def) {
     return def;
 }
 
+const char *json_string_or_empty(cJSON *obj, const char *key) {
+    cJSON *item = obj ? cJSON_GetObjectItem(obj, key) : NULL;
+    return (item && item->valuestring) ? item->valuestring : "";
+}
+
 bool is_author_or_admin(cJSON *post, int uid, const char *role) {
     if (!post) return false;
     if (role && strcmp(role, "admin") == 0) return true;

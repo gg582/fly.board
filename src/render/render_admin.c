@@ -245,6 +245,46 @@ static void append_broadcast_section(cwist_sstring *b, const char *msg) {
     cwist_sstring_append(b, "</form></section>");
 }
 
+/* Newsletter subscribers: active count plus the newest 50, with per-row
+ * removal. Data is loaded by the dashboard handler (see
+ * handler_admin_dashboard) and passed in. */
+static void append_subscribers_section(cwist_sstring *b, const char *msg, cJSON *subscribers, int active_count) {
+    cwist_sstring_append(b, "<section id='subscribers' class='board-line fade-in' style='animation-delay:0.32s'><div class='board-line-head'><h2 class='board-line-title'>Newsletter Subscribers</h2></div>");
+    if (msg && !strcmp(msg, "subscriber_deleted")) {
+        cwist_sstring_append(b, "<div class='alert'>Subscriber removed.</div>");
+    } else if (msg && !strcmp(msg, "subscriber_delete_failed")) {
+        cwist_sstring_append(b, "<div class='alert'>Could not remove the subscriber; check the server log.</div>");
+    }
+    char line[192];
+    snprintf(line, sizeof(line), "<p class='board-card-desc'>%d active subscriber%s. New posts are emailed to active subscribers when <code>newsletter_enabled=1</code> and the primary node runs with <code>FLY_NEWSLETTER_SEND=1</code>.</p>",
+             active_count, active_count == 1 ? "" : "s");
+    cwist_sstring_append(b, line);
+    if (subscribers && cJSON_GetArraySize(subscribers) > 0) {
+        cwist_sstring_append(b, "<div style='overflow-x:auto'><table style='width:100%;border-collapse:collapse'>");
+        cwist_sstring_append(b, "<thead><tr><th style='text-align:left;padding:6px 8px'>Email</th><th style='text-align:left;padding:6px 8px'>Status</th><th style='text-align:left;padding:6px 8px'>Since</th><th style='text-align:left;padding:6px 8px'></th></tr></thead><tbody>");
+        cJSON *s = NULL;
+        cJSON_ArrayForEach(s, subscribers) {
+            cwist_sstring_append(b, "<tr><td style='padding:6px 8px'>");
+            cwist_sstring_append_escaped(b, json_string_or_empty(s, "email"));
+            cwist_sstring_append(b, "</td><td style='padding:6px 8px'>");
+            const char *status = json_string_or_empty(s, "status");
+            cwist_sstring_append_escaped(b, status);
+            cwist_sstring_append(b, "</td><td style='padding:6px 8px'>");
+            const char *created = json_string_or_empty(s, "created_at");
+            if (strlen(created) >= 10) cwist_sstring_append_len(b, created, 10);
+            cwist_sstring_append(b, "</td><td style='padding:6px 8px'><form action='/admin/subscriber/delete' method='post' style='margin:0'>");
+            char idbuf[16];
+            snprintf(idbuf, sizeof(idbuf), "<input type='hidden' name='id' value='%d'>", json_int(s, "id", 0));
+            cwist_sstring_append(b, idbuf);
+            cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00;padding:2px 10px;font-size:12px'>Remove</button></form></td></tr>");
+        }
+        cwist_sstring_append(b, "</tbody></table></div>");
+    } else {
+        cwist_sstring_append(b, "<p class='board-card-desc'>No subscribers yet. The subscription form shows on post lists once the newsletter is enabled.</p>");
+    }
+    cwist_sstring_append(b, "</section>");
+}
+
 static void append_upload_policy_section(cwist_sstring *b, const char *msg) {
     bool allow_mode = strcmp(upload_policy_mode(), UPLOAD_POLICY_MODE_ALLOW) == 0;
     cwist_sstring_append(b, "<section id='upload-policy' class='board-line fade-in' style='animation-delay:0.18s'><div class='board-line-head'><h2 class='board-line-title'>Upload Policy</h2></div>");
@@ -342,7 +382,7 @@ static void append_test_email_section(cwist_sstring *b, const char *msg) {
     cwist_sstring_append(b, "</form></section>");
 }
 
-cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile, const char *msg, int open_reports, cJSON *backup, cJSON *flywire) {
+cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile, const char *msg, int open_reports, cJSON *backup, cJSON *flywire, cJSON *subscribers, int subscriber_count) {
     cwist_sstring *b = cwist_sstring_create();
     cwist_sstring_assign(b, "<div class='hero'><h1>Dashboard</h1></div>");
     cwist_sstring_append(b, "<div class='board-list stagger'>");
@@ -368,6 +408,7 @@ cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool i
     append_flywire_section(b, flywire);
     append_test_email_section(b, msg);
     append_broadcast_section(b, msg);
+    append_subscribers_section(b, msg, subscribers, subscriber_count);
     cwist_sstring_append(b, "</div>");
     cwist_sstring *page = render_page("Dashboard", b->data, dark, "admin", profile_pic, is_mobile);
     cwist_sstring_destroy(b);

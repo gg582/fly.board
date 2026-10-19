@@ -2,16 +2,24 @@
 #include "utils/cache.h"
 #include "db/db.h"
 #include "db/db_internal.h"
+#include "db/subscriber.h"
 #include "engine/forkgate.h"
 #include "nats/fly_nats.h"
+#include "config/config.h"
+#include "utils/email.h"
 #include <cwist/core/log.h>
 #include <cwist/core/mem/gc.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
+
+/* Defined in src/handlers/handlers.c next to json_int(); declared in
+ * handlers_internal.h, which utils must not depend on. */
+const char *json_string_or_empty(cJSON *obj, const char *key);
 
 /* Catch-up sweep for announcements a crashed or racing save left behind. */
 #define SWEEP_INTERVAL_SEC 60
@@ -64,6 +72,89 @@ void post_schedule_note(const char *publish_at) {
     }
 }
 
+/* ---- Newsletter: plain-text new-post email to active subscribers ----
+ *
+ * Gated twice: g_config.newsletter_enabled (blog.settings, replicated) and
+ * FLY_NEWSLETTER_SEND (env, primary node only) — so replica nodes that also
+ * claim announced posts never double-send. Each claimed post gets a detached
+ * thread: it reads the subscriber list on its own sqlite connection under the
+ * fork gate, then does the blocking SMTP sends off the scheduler tick. */
+
+typedef struct {
+    char *title;
+    char *slug;
+    char *summary;
+    char db_path[512];
+} newsletter_job_t;
+
+static void *newsletter_worker(void *arg) {
+    newsletter_job_t *j = (newsletter_job_t *)arg;
+    if (!j) return NULL;
+    cJSON *subs = NULL;
+    /* sqlite is fork-unsafe; the fork gate keeps cwist from forking a worker
+     * while this thread holds a connection. */
+    fly_forkgate_enter();
+    sqlite3 *conn = NULL;
+    if (sqlite3_open(j->db_path, &conn) == SQLITE_OK && db_configure_connection(conn)) {
+        cwist_db local = { .conn = conn };
+        subs = db_subscriber_list_active(&local);
+    }
+    if (conn) sqlite3_close(conn);
+    fly_forkgate_leave();
+    if (subs) {
+        const char *site = g_config.title[0] ? g_config.title : "New post";
+        char subject[256];
+        snprintf(subject, sizeof(subject), "%s: %s", site, j->title ? j->title : "");
+        cJSON *s = NULL;
+        int sent = 0, failed = 0;
+        cJSON_ArrayForEach(s, subs) {
+            const char *email = json_string_or_empty(s, "email");
+            const char *token = json_string_or_empty(s, "token");
+            if (!email[0]) continue;
+            char body[2048];
+            snprintf(body, sizeof(body),
+                     "%s\n\n%s\n\nRead: %spost/%s\n\nUnsubscribe: %sunsubscribe?token=%s\n",
+                     j->title ? j->title : "",
+                     j->summary ? j->summary : "",
+                     g_config.root_url, j->slug ? j->slug : "",
+                     g_config.root_url, token);
+            if (email_send(email, subject, body)) sent++;
+            else failed++;
+            /* Friendly-pace the relay so a burst of subscribers does not trip
+             * its rate limits; the worker runs off the request path. */
+            usleep(200 * 1000);
+        }
+        CWIST_LOG_INFO("Newsletter: post '%s' emailed to %d subscriber(s), %d failed",
+                       j->slug ? j->slug : "", sent, failed);
+        cJSON_Delete(subs);
+    }
+    free(j->title);
+    free(j->slug);
+    free(j->summary);
+    free(j);
+    return NULL;
+}
+
+static void newsletter_send_async(cwist_db *db, const char *title, const char *slug, const char *summary) {
+    if (!g_config.newsletter_enabled) return;
+    const char *gate = getenv("FLY_NEWSLETTER_SEND");
+    if (!gate || gate[0] != '1') return;
+    newsletter_job_t *j = calloc(1, sizeof(*j));
+    if (!j) return;
+    j->title = strdup(title ? title : "");
+    j->slug = strdup(slug ? slug : "");
+    j->summary = strdup(summary ? summary : "");
+    const char *p = sqlite3_db_filename(fly_db_conn(db), "main");
+    snprintf(j->db_path, sizeof(j->db_path), "%s", p ? p : "data/blog.db");
+    pthread_t t;
+    if (pthread_create(&t, NULL, newsletter_worker, j) == 0) {
+        pthread_detach(t);
+    } else {
+        /* Last resort: run inline so the announcement is not lost. */
+        newsletter_worker(j);
+    }
+}
+
 void post_schedule_announce(cwist_db *db) {
     if (!db) return;
     cJSON *claimed = db_post_claim_unannounced(db);
@@ -74,6 +165,8 @@ void post_schedule_announce(cwist_db *db) {
         cJSON *summary = cJSON_GetObjectItem(row, "summary");
         if (!cJSON_IsString(title) || !cJSON_IsString(slug)) continue;
         fly_nats_publish_post(title->valuestring, slug->valuestring,
+                              cJSON_IsString(summary) ? summary->valuestring : "");
+        newsletter_send_async(db, title->valuestring, slug->valuestring,
                               cJSON_IsString(summary) ? summary->valuestring : "");
         CWIST_LOG_INFO("Post published: slug='%s'", slug->valuestring);
     }
@@ -138,6 +231,8 @@ static void *schedule_worker(void *arg) {
         }
         if (journal_purge) {
             db_sync_journal_purge(g_thread_db);
+            /* Stale pending subscriptions (expired confirm links). */
+            db_subscriber_purge_pending(g_thread_db);
             last_journal_purge = now;
         }
         fly_forkgate_leave();

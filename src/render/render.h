@@ -52,7 +52,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
 cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_board_form(cJSON *board, cJSON *all_boards, bool dark, const char *error, const char *profile_pic, bool is_mobile, const char *user_role);
 cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool dark, const char *msg, const char *profile_pic, bool is_mobile);
-cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile, const char *msg, int open_reports, cJSON *backup, cJSON *flywire);
+cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile, const char *msg, int open_reports, cJSON *backup, cJSON *flywire, cJSON *subscribers, int subscriber_count);
 /* /admin/reports: groups from handlers/report.c, status is the active tab. */
 cwist_sstring *render_admin_reports(cJSON *groups, const char *status, const char *msg, bool dark,
                                     const char *profile_pic, bool is_mobile);

@@ -30,11 +30,6 @@ static cJSON *find_render_file_by_id(cJSON *files, int id) {
     return NULL;
 }
 
-static const char *json_string_or_empty(cJSON *obj, const char *key) {
-    cJSON *item = cJSON_GetObjectItem(obj, key);
-    return (item && item->valuestring) ? item->valuestring : "";
-}
-
 static __thread cJSON *t_editor_series = NULL;
 static __thread cJSON *t_editor_posts = NULL;
 static __thread const char *t_board_lang = NULL;
@@ -980,6 +975,18 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
             cwist_sstring_append(b, "'>Next</a>");
         }
         cwist_sstring_append(b, "</div>");
+    }
+
+    /* Email subscription: a compact form on the post lists (home, /search,
+     * /board pages). Hidden unless the newsletter is enabled. */
+    if (g_config.newsletter_enabled) {
+        cwist_sstring_append(b, "<section class='board-line fade-in' style='margin-top:24px;text-align:center'><h3 style='margin-bottom:6px'>New posts by email</h3>");
+        cwist_sstring_append(b, "<p style='color:var(--muted);font-size:13px;margin-bottom:10px'>One plain-text email per published post. Unsubscribe any time.</p>");
+        cwist_sstring_append(b, "<form action='/subscribe' method='post' style='display:flex;gap:8px;justify-content:center;flex-wrap:wrap'>");
+        cwist_sstring_append(b, "<input type='email' name='email' required placeholder='you@example.com' style='max-width:280px'>");
+        spam_guard_append_fields(b);
+        cwist_sstring_append(b, "<button type='submit' class='btn'>Subscribe</button>");
+        cwist_sstring_append(b, "</form></section>");
     }
 
     if (board_lang && board_lang[0]) {

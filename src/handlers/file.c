@@ -42,11 +42,6 @@ static void file_etag(const struct stat *st, char *out, size_t out_len) {
              (unsigned long long)st->st_mtime);
 }
 
-static const char *json_string_or_empty(cJSON *obj, const char *key) {
-    cJSON *item = cJSON_GetObjectItem(obj, key);
-    return (item && item->valuestring) ? item->valuestring : "";
-}
-
 static bool request_cache_fresh(cwist_http_request *req, const char *etag, const char *last_modified) {
     const char *if_none = cwist_http_header_get(req->headers, "If-None-Match");
     if (if_none && etag && strstr(if_none, etag)) return true;

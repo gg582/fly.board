@@ -466,6 +466,21 @@ bool db_migrate(cwist_db *db) {
         ")");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_guestbook_owner ON guestbook(owner_uid, id DESC)");
 
+    /* Email newsletter subscribers. Readers subscribe with any address,
+     * confirm via a mailed token link, and get a plain-text new-post
+     * announcement; the unsubscribe link carries their token. Not part of
+     * FlyWire sync: subscription state lives on the primary node, which is
+     * the only node that sends (FLY_NEWSLETTER_SEND gate). */
+    db_exec_sql(db,
+        "CREATE TABLE IF NOT EXISTS subscribers ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  email TEXT UNIQUE NOT NULL COLLATE NOCASE,"
+        "  token TEXT UNIQUE NOT NULL,"
+        "  status TEXT NOT NULL DEFAULT 'pending',"
+        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+        "  confirmed_at DATETIME)");
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_subscribers_status ON subscribers(status)");
+
     /* FlyWire change journal: one row per content mutation on the primary;
      * replicas replay it via /flywire/feed. */
     db_exec_sql(db,

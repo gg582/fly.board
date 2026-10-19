@@ -69,6 +69,7 @@ static void set_default(void) {
     g_config.port = 8443;
     g_config.use_tasfa = true;
     g_config.use_rss = false;
+    g_config.newsletter_enabled = false;
     g_config.use_tls = true;
     g_config.use_http2 = true;
     g_config.use_http3 = true;
@@ -124,6 +125,7 @@ bool blog_config_load(const char *path) {
             fprintf(f, "language=%s\n", g_config.language);
             fprintf(f, "use_tasfa=%s\n", g_config.use_tasfa ? "true" : "false");
             fprintf(f, "use_rss=%s\n", g_config.use_rss ? "true" : "false");
+            fprintf(f, "newsletter_enabled=%s\n", g_config.newsletter_enabled ? "true" : "false");
             fprintf(f, "use_tls=%s\n", g_config.use_tls ? "true" : "false");
             fprintf(f, "use_http2=%s\n", g_config.use_http2 ? "true" : "false");
             fprintf(f, "use_http3=%s\n", g_config.use_http3 ? "true" : "false");
@@ -203,6 +205,8 @@ bool blog_config_load(const char *path) {
             g_config.use_tasfa = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "use_rss") == 0) {
             g_config.use_rss = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
+        } else if (strcmp(key, "newsletter_enabled") == 0) {
+            g_config.newsletter_enabled = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "use_tls") == 0) {
             g_config.use_tls = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "use_http2") == 0) {

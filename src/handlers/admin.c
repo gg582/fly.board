@@ -6,6 +6,7 @@
 #include "tools/backup.h"
 #include "utils/email.h"
 #include "engine/flywire.h"
+#include "../db/subscriber.h"
 #include <openssl/mem.h>
 
 void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res) {
@@ -61,7 +62,9 @@ void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res) 
         cJSON_AddStringToObject(flywire, "token_set", flywire_token()[0] ? "1" : "0");
     }
     cwist_sstring *page = render_admin_dashboard(is_dark(req), pp, is_mobile_request(req), msg,
-                                                 db_report_count_open(req->db), backup, flywire);
+                                                 db_report_count_open(req->db), backup, flywire,
+                                                 db_subscriber_list(req->db, 50, 0),
+                                                 db_subscriber_count(req->db));
     cJSON_Delete(flywire);
     cJSON_Delete(backup);
     send_html_res(res, page);
@@ -158,6 +161,21 @@ void handler_admin_test_email_post(cwist_http_request *req, cwist_http_response 
     }
     CWIST_LOG_INFO("Admin test email -> %s", msg);
     redirect(res, "/admin/dashboard?msg=test_email#test-email");
+}
+
+/* Remove one newsletter subscriber (id from the admin dashboard list). */
+void handler_admin_subscriber_delete_post(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    const char *msg = "subscriber_deleted";
+    cwist_query_map *kv = cwist_query_map_create();
+    if (kv) {
+        if (req->body && req->body->data) cwist_query_map_parse(kv, req->body->data);
+        int id = atoi(cwist_query_map_get(kv, "id") ? cwist_query_map_get(kv, "id") : "0");
+        cwist_query_map_destroy(kv);
+        if (id <= 0 || !db_subscriber_delete(req->db, id)) msg = "subscriber_delete_failed";
+    }
+    CWIST_LOG_INFO("Admin subscriber delete -> %s", msg);
+    redirect(res, "/admin/dashboard?msg=subscriber_deleted#subscribers");
 }
 
 void handler_dashboard(cwist_http_request *req, cwist_http_response *res) {

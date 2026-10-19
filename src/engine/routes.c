@@ -10,6 +10,15 @@ void handler_guestbook_post(cwist_http_request *req, cwist_http_response *res);
 void handler_guestbook_delete_post(cwist_http_request *req, cwist_http_response *res);
 void handler_guestbook_settings_post(cwist_http_request *req, cwist_http_response *res);
 
+/* Newsletter subscription handlers, implemented in src/handlers/subscribe.c.
+ * Declared here for the same self-contained-reason as the guestbook above. */
+void handler_subscribe_get(cwist_http_request *req, cwist_http_response *res);
+void handler_subscribe_post(cwist_http_request *req, cwist_http_response *res);
+void handler_subscribe_confirm_get(cwist_http_request *req, cwist_http_response *res);
+void handler_unsubscribe_get(cwist_http_request *req, cwist_http_response *res);
+void handler_unsubscribe_post(cwist_http_request *req, cwist_http_response *res);
+void handler_admin_subscriber_delete_post(cwist_http_request *req, cwist_http_response *res);
+
 void engine_routes_register(cwist_app *app) {
     cwist_app_use(app, global_middleware);
     engine_async_set_hit_hook(post_bdr_hit);
@@ -153,6 +162,14 @@ void engine_routes_register(cwist_app *app) {
     engine_async_post(app, "/admin/upload-policy", handler_admin_upload_policy_post);
     engine_async_post(app, "/admin/backup", handler_admin_backup_post);
     engine_async_post(app, "/admin/test-email", handler_admin_test_email_post);
+    engine_async_post(app, "/admin/subscriber/delete", handler_admin_subscriber_delete_post);
+
+    /* Email newsletter: subscribe form, confirm/unsubscribe token links. */
+    engine_async_get(app, "/subscribe", handler_subscribe_get);
+    engine_async_post(app, "/subscribe", handler_subscribe_post);
+    engine_async_get(app, "/confirm-subscription", handler_subscribe_confirm_get);
+    engine_async_get(app, "/unsubscribe", handler_unsubscribe_get);
+    engine_async_post(app, "/unsubscribe", handler_unsubscribe_post);
 
     engine_async_post(app, "/api/preview", handler_api_preview);
     engine_async_post(app, "/api/upload", handler_api_upload);

@@ -51,6 +51,11 @@ typedef struct {
     bool invert_logo;
     bool use_tasfa;
     bool use_rss;
+    /* Email subscription: readers subscribe with their address, confirm by
+     * mail, and get a plain-text new-post announcement. Off by default;
+     * sending additionally requires FLY_NEWSLETTER_SEND=1 on the primary
+     * node so replicas never double-send. */
+    bool newsletter_enabled;
     bool use_tls;
     bool use_http2;
     bool use_http3;
