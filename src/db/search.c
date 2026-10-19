@@ -308,7 +308,7 @@ static void build_fts_expr(cwist_sstring *out, const char *term, bool *branched)
     cwist_sstring_append(out, "\"");
 }
 
-void search_query_build(search_query *q, const char *query, const char *search_type) {
+void search_query_build(search_query *q, const char *query, const char *search_type, const search_filters *filters) {
     memset(q, 0, sizeof(*q));
     q->where = cwist_sstring_create();
     q->title_rank = cwist_sstring_create();
@@ -355,6 +355,29 @@ void search_query_build(search_query *q, const char *query, const char *search_t
             cwist_sstring_append(q->where, " AND (p.title LIKE ? ESCAPE '\\' OR p.content LIKE ? ESCAPE '\\')");
             search_query_add_bind(q, pattern->data);
             search_query_add_bind(q, pattern->data);
+        }
+    }
+
+    /* Optional filters narrow the result independent of the free-text
+     * terms; their binds belong to the WHERE clause and must be registered
+     * before the rank binds below. */
+    if (filters) {
+        if (filters->tag && filters->tag[0]) {
+            cwist_sstring_append(q->where,
+                " AND p.id IN (SELECT pt.post_id FROM post_tags pt JOIN tags t ON t.id=pt.tag_id WHERE t.name=?)");
+            search_query_add_bind(q, filters->tag);
+        }
+        if (filters->series && filters->series[0]) {
+            cwist_sstring_append(q->where, " AND p.series_id IN (SELECT id FROM series WHERE title=?)");
+            search_query_add_bind(q, filters->series);
+        }
+        if (filters->from && filters->from[0]) {
+            cwist_sstring_append(q->where, " AND date(p.created_at)>=date(?)");
+            search_query_add_bind(q, filters->from);
+        }
+        if (filters->to && filters->to[0]) {
+            cwist_sstring_append(q->where, " AND date(p.created_at)<=date(?)");
+            search_query_add_bind(q, filters->to);
         }
     }
 

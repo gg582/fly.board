@@ -634,7 +634,40 @@ static void append_post_rows(cwist_sstring *b, cJSON *posts, const char *board_s
 
 }
 
-cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const char *profile_pic, int user_id, bool is_mobile, cJSON *children) {
+/* Appends the "?...&page=" query string that preserves the current search
+ * terms and filters for pagination links. Follows the existing idiom of
+ * HTML-escaping parameter values inside the href attribute. */
+static void append_search_page_query(cwist_sstring *b, const char *search,
+                                     const char *search_type, const search_filters *filters) {
+    bool first = true;
+    cwist_sstring_append(b, "?");
+    if (search && search[0]) {
+        cwist_sstring_append(b, "search=");
+        cwist_sstring_append_escaped(b, search);
+        first = false;
+    }
+    if (search_type && search_type[0]) {
+        cwist_sstring_append(b, first ? "search_type=" : "&search_type=");
+        cwist_sstring_append_escaped(b, search_type);
+        first = false;
+    }
+    if (filters) {
+        const char *names[4] = {"tag", "series", "from", "to"};
+        const char *vals[4] = {filters->tag, filters->series, filters->from, filters->to};
+        for (int i = 0; i < 4; i++) {
+            if (vals[i] && vals[i][0]) {
+                cwist_sstring_append(b, first ? "" : "&");
+                cwist_sstring_append(b, names[i]);
+                cwist_sstring_append(b, "=");
+                cwist_sstring_append_escaped(b, vals[i]);
+                first = false;
+            }
+        }
+    }
+    cwist_sstring_append(b, first ? "page=" : "&page=");
+}
+
+cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const search_filters *filters, const char *profile_pic, int user_id, bool is_mobile, cJSON *children) {
     cwist_sstring *b = cwist_sstring_create();
     /* Both modes are resolved and analyzed up front and emitted as data
      * attributes, so the theme toggle can swap the hero client-side — the
@@ -845,9 +878,10 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     cwist_sstring_append(b, "'>");
     cwist_sstring_append(b, "<button type='submit' class='btn'>Search</button>");
     cwist_sstring_append(b, "<button type='button' class='btn btn-outline adv-toggle-btn'>Advanced</button>");
-    if (search && search[0]) {
+    if ((search && search[0]) || search_filters_active(filters)) {
         cwist_sstring_append(b, "<a href='");
         if (board_slug) { cwist_sstring_append(b, "/board/"); cwist_sstring_append(b, board_slug); }
+        else { cwist_sstring_append(b, "/search"); }
         cwist_sstring_append(b, "' class='btn btn-outline'>Clear</a>");
     }
     cwist_sstring_append(b, "</div>");
@@ -867,7 +901,20 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         if (search_type && strcmp(search_type, "board") == 0) cwist_sstring_append(b, " selected");
         cwist_sstring_append(b, ">Board Name</option>");
     }
-    cwist_sstring_append(b, "</select></div>");
+    cwist_sstring_append(b, "</select>");
+    cwist_sstring_append(b, "<input type='text' name='tag' placeholder='Tag (exact)' value='");
+    if (filters && filters->tag && filters->tag[0]) cwist_sstring_append_escaped(b, filters->tag);
+    cwist_sstring_append(b, "' class='search-adv-select' style='min-width:140px'>");
+    cwist_sstring_append(b, "<input type='text' name='series' placeholder='Series (exact)' value='");
+    if (filters && filters->series && filters->series[0]) cwist_sstring_append_escaped(b, filters->series);
+    cwist_sstring_append(b, "' class='search-adv-select' style='min-width:140px'>");
+    cwist_sstring_append(b, "<label style='font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:4px'>From <input type='date' name='from' value='");
+    if (filters && filters->from && filters->from[0]) cwist_sstring_append_escaped(b, filters->from);
+    cwist_sstring_append(b, "' class='search-adv-select'></label>");
+    cwist_sstring_append(b, "<label style='font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:4px'>To <input type='date' name='to' value='");
+    if (filters && filters->to && filters->to[0]) cwist_sstring_append_escaped(b, filters->to);
+    cwist_sstring_append(b, "' class='search-adv-select'></label>");
+    cwist_sstring_append(b, "</div>");
     cwist_sstring_append(b, "</form>");
 
     if (children && cJSON_GetArraySize(children) > 0) {
@@ -906,15 +953,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
                 cwist_sstring_append(b, "/board/");
                 cwist_sstring_append(b, board_slug);
             }
-            if (search && search[0]) {
-                cwist_sstring_append(b, "?search="); cwist_sstring_append_escaped(b, search);
-                if (search_type && search_type[0]) {
-                    cwist_sstring_append(b, "&search_type="); cwist_sstring_append_escaped(b, search_type);
-                }
-                cwist_sstring_append(b, "&page=");
-            } else {
-                cwist_sstring_append(b, "?page=");
-            }
+            append_search_page_query(b, search, search_type, filters);
             char buf[16];
             snprintf(buf, sizeof(buf), "%d", page - 1);
             cwist_sstring_append(b, buf);
@@ -934,15 +973,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
                 cwist_sstring_append(b, "/board/");
                 cwist_sstring_append(b, board_slug);
             }
-            if (search && search[0]) {
-                cwist_sstring_append(b, "?search="); cwist_sstring_append_escaped(b, search);
-                if (search_type && search_type[0]) {
-                    cwist_sstring_append(b, "&search_type="); cwist_sstring_append_escaped(b, search_type);
-                }
-                cwist_sstring_append(b, "&page=");
-            } else {
-                cwist_sstring_append(b, "?page=");
-            }
+            append_search_page_query(b, search, search_type, filters);
             char buf2[16];
             snprintf(buf2, sizeof(buf2), "%d", page + 1);
             cwist_sstring_append(b, buf2);

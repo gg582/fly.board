@@ -322,11 +322,16 @@ void page_cache_key_post(char *out, size_t out_len, const char *slug, bool dark,
 
 void page_cache_key_board(char *out, size_t out_len, const char *slug, int page,
                           bool dark, bool mobile, const char *role, int uid,
-                          const char *search, const char *search_type) {
-    snprintf(out, out_len, "board:%s:p=%d:d=%d:m=%d:r=%s:u=%d:s=%s:st=%s:w=%u:pg=%u",
+                          const char *search, const char *search_type,
+                          const search_filters *filters) {
+    snprintf(out, out_len, "board:%s:p=%d:d=%d:m=%d:r=%s:u=%d:s=%s:st=%s:t=%s:se=%s:f=%s:to=%s:w=%u:pg=%u",
              slug ? slug : "", page, dark ? 1 : 0, mobile ? 1 : 0,
              role && role[0] ? role : "guest", uid,
              search ? search : "", search_type ? search_type : "",
+             filters && filters->tag ? filters->tag : "",
+             filters && filters->series ? filters->series : "",
+             filters && filters->from ? filters->from : "",
+             filters && filters->to ? filters->to : "",
              write_policy_generation(), post_schedule_generation());
 }
 

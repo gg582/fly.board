@@ -343,10 +343,28 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     int per_page = 20;
     const char *search = cwist_query_map_get(req->query_params, "search");
     const char *search_type = cwist_query_map_get(req->query_params, "search_type");
-    bool empty_search = search && !search[0];
+    search_filters filters = {
+        .tag = cwist_query_map_get(req->query_params, "tag"),
+        .series = cwist_query_map_get(req->query_params, "series"),
+        .from = cwist_query_map_get(req->query_params, "from"),
+        .to = cwist_query_map_get(req->query_params, "to"),
+    };
+    /* Reject malformed dates rather than binding them: keeps the SQL
+     * date() comparison well-defined and the cache key canonical. */
+    for (const char **d = &filters.from; d <= &filters.to; d++) {
+        const char *v = *d;
+        bool ok = v && strlen(v) == 10 && v[4] == '-' && v[7] == '-';
+        for (int i = 0; ok && i < 10; i++) {
+            if (i == 4 || i == 7) continue;
+            if (v[i] < '0' || v[i] > '9') ok = false;
+        }
+        if (!ok) *d = NULL;
+    }
+    bool filtered = search_filters_active(&filters);
+    bool empty_search = (search && !search[0]) && !filtered;
 
-    char key[512];
-    page_cache_key_board(key, sizeof(key), slug ? slug : "", page, dark, mobile, role, uid, search, search_type);
+    char key[768];
+    page_cache_key_board(key, sizeof(key), slug ? slug : "", page, dark, mobile, role, uid, search, search_type, &filters);
     const char *cached = NULL;
     size_t cached_len = 0;
     uint32_t ttl = 0;
@@ -378,11 +396,11 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
 
     cJSON *children = NULL;
     if (!empty_search) {
-        int total = db_post_count_search(req->db, bid, search, search_type);
+        int total = db_post_count_search(req->db, bid, search, search_type, &filters);
         total_pages = (total + per_page - 1) / per_page;
         if (total_pages < 1) total_pages = 1;
         if (page > total_pages) page = total_pages;
-        posts = db_post_list_search(req->db, bid, search, search_type, per_page, (page - 1) * per_page);
+        posts = db_post_list_search(req->db, bid, search, search_type, &filters, per_page, (page - 1) * per_page);
     }
     if (bid > 0) {
         cJSON *child_ids = db_board_tree_get_children(bid);
@@ -414,7 +432,7 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     cJSON *board_siblings = bid > 0 ? db_i18n_siblings(req->db, "board", bid, false) : NULL;
     cJSON *board_lang = board_i18n ? cJSON_GetObjectItem(board_i18n, "lang") : NULL;
     render_set_board_translations(cJSON_IsString(board_lang) ? board_lang->valuestring : NULL, board_siblings);
-    cwist_sstring *page_html = render_post_list(posts, NULL, dark, role, page, total_pages, slug, search, search_type, pp, uid, mobile, children);
+    cwist_sstring *page_html = render_post_list(posts, NULL, dark, role, page, total_pages, slug, search, search_type, &filters, pp, uid, mobile, children);
     render_set_board_translations(NULL, NULL);
     if (board_i18n) cJSON_Delete(board_i18n);
     if (board_siblings) cJSON_Delete(board_siblings);

@@ -5,6 +5,8 @@
 #include <cjson/cJSON.h>
 #include <stdbool.h>
 
+#include "search.h"
+
 bool db_init(cwist_db *db);
 bool db_exec_sql(cwist_db *db, const char *sql);
 bool db_migrate(cwist_db *db);
@@ -117,8 +119,8 @@ cJSON *db_post_feed(cwist_db *db, int board_id, int limit);
 
 /* Post extended features */
 bool db_post_increment_view(cwist_db *db, int id);
-cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, const char *search_type, int limit, int offset);
-int db_post_count_search(cwist_db *db, int board_id, const char *search, const char *search_type);
+cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, const char *search_type, const search_filters *filters, int limit, int offset);
+int db_post_count_search(cwist_db *db, int board_id, const char *search, const char *search_type, const search_filters *filters);
 
 /* Search index (src/db/search.c). Creates/rebuilds the trigram index; call
  * from db_migrate. db_search_index_post re-reads one post and reindexes it. */

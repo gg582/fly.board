@@ -11,11 +11,27 @@
 /* Split a query on whitespace into at most SEARCH_MAX_TERMS terms. */
 int search_split_terms(const char *query, char terms[SEARCH_MAX_TERMS][SEARCH_TERM_MAX_BYTES]);
 
+/* Optional post-search filters, all NULL/empty when unused. Values are bound
+ * as parameters (never interpolated) and validated by the caller: from/to
+ * must be YYYY-MM-DD. tag/series match the exact stored name. */
+typedef struct {
+    const char *tag;
+    const char *series;
+    const char *from;   /* inclusive lower bound on p.created_at date */
+    const char *to;     /* inclusive upper bound on p.created_at date */
+} search_filters;
+
+static inline bool search_filters_active(const search_filters *f) {
+    return f && ((f->tag && f->tag[0]) || (f->series && f->series[0]) ||
+                 (f->from && f->from[0]) || (f->to && f->to[0]));
+}
+
 /* SQL fragments for a post search over table aliases p (posts) and b
  * (boards). Every term must match (AND). Candidate posts are narrowed
  * through the posts_fts FTS5 table (morpheme-branched under the mecab
  * tokenizer, substring under trigram) and always re-confirmed with LIKE on
- * the requested field. */
+ * the requested field. @p filters narrows further; filter binds are part of
+ * the WHERE binds and therefore precede the rank binds. */
 typedef struct {
     cwist_sstring *where;      /* " AND ..." clauses, empty when no terms */
     cwist_sstring *title_rank; /* expression counting terms found in the title; empty when unranked */
@@ -27,7 +43,7 @@ typedef struct {
     char term[SEARCH_MAX_TERMS][SEARCH_TERM_MAX_BYTES];
 } search_query;
 
-void search_query_build(search_query *q, const char *query, const char *search_type);
+void search_query_build(search_query *q, const char *query, const char *search_type, const search_filters *filters);
 void search_query_add_bind(search_query *q, const char *value);
 /* Bind the WHERE values (and the rank values after them when @p with_rank)
  * starting at *idx, advancing it. */

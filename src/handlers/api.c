@@ -522,7 +522,7 @@ static void append_sitemap_url(cwist_sstring *sm, const char *path, const char *
 }
 
 void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res) {
-    cJSON *posts = db_post_list_search(req->db, 0, NULL, NULL, 5000, 0);
+    cJSON *posts = db_post_list_search(req->db, 0, NULL, NULL, NULL, 5000, 0);
     cwist_sstring *sm = cwist_sstring_create();
     cwist_sstring_append(sm, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     cwist_sstring_append(sm, "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
@@ -667,7 +667,7 @@ void handler_llms_txt(cwist_http_request *req, cwist_http_response *res) {
         cwist_sstring_append(b, ")\n");
     }
 
-    cJSON *posts = db_post_list_search(req->db, 0, NULL, NULL, 20, 0);
+    cJSON *posts = db_post_list_search(req->db, 0, NULL, NULL, NULL, 20, 0);
     if (posts) {
         int n = cJSON_GetArraySize(posts);
         bool header_printed = false;

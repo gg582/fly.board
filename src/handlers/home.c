@@ -29,7 +29,7 @@ void handler_home(cwist_http_request *req, cwist_http_response *res) {
 
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *posts = db_post_recent(req->db, 12);
-    cwist_sstring *page = render_post_list(posts, NULL, dark, role, 1, 1, "", NULL, NULL, pp, uid, mobile, NULL);
+    cwist_sstring *page = render_post_list(posts, NULL, dark, role, 1, 1, "", NULL, NULL, NULL, pp, uid, mobile, NULL);
     if (posts) cJSON_Delete(posts);
     if (page) {
         page_cache_set(key, page->data, page->size, 60);

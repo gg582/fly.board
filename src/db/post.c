@@ -416,9 +416,9 @@ bool db_post_increment_view(cwist_db *db, int id) {
     return rc == SQLITE_DONE;
 }
 
-cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, const char *search_type, int limit, int offset) {
+cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, const char *search_type, const search_filters *filters, int limit, int offset) {
     search_query q;
-    search_query_build(&q, search, search_type);
+    search_query_build(&q, search, search_type, filters);
     bool ranked = q.title_rank->size > 0;
 
     cwist_sstring *sql = cwist_sstring_create();
@@ -451,9 +451,9 @@ cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, const
     return db_sqlite3_rows_to_json(stmt);
 }
 
-int db_post_count_search(cwist_db *db, int board_id, const char *search, const char *search_type) {
+int db_post_count_search(cwist_db *db, int board_id, const char *search, const char *search_type, const search_filters *filters) {
     search_query q;
-    search_query_build(&q, search, search_type);
+    search_query_build(&q, search, search_type, filters);
 
     cwist_sstring *sql = cwist_sstring_create();
     if (search_type && strcmp(search_type, "board") == 0 && q.terms > 0) {

@@ -277,7 +277,7 @@ void page_cache_warmup(cwist_db *db) {
         }
 
         cJSON *posts = db_post_recent(db, 12);
-        cwist_sstring *page = render_post_list(posts, NULL, dark, "", 1, 1, "", NULL, NULL, NULL, 0, mobile, NULL);
+        cwist_sstring *page = render_post_list(posts, NULL, dark, "", 1, 1, "", NULL, NULL, NULL, NULL, 0, mobile, NULL);
         if (page) {
             page_cache_set(key, page->data, page->size, 300);
             cwist_sstring_destroy(page);

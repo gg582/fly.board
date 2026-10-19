@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "../db/search.h"
+
 /* In-memory page cache with TTL.
  *
  * Designed for rendered HTML pages. Keys are short ASCII strings; values are
@@ -41,7 +43,8 @@ void page_cache_key_home(char *out, size_t out_len, bool dark, bool mobile, cons
 void page_cache_key_post(char *out, size_t out_len, const char *slug, bool dark, bool mobile, const char *role, int uid);
 void page_cache_key_board(char *out, size_t out_len, const char *slug, int page,
                           bool dark, bool mobile, const char *role, int uid,
-                          const char *search, const char *search_type);
+                          const char *search, const char *search_type,
+                          const search_filters *filters);
 void page_cache_key_board_list(char *out, size_t out_len, bool dark, bool mobile,
                                const char *role, int uid);
 
