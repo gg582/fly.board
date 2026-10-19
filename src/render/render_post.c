@@ -2313,7 +2313,31 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
             cwist_sstring_append(b, "' data-url='");
             cwist_sstring_append(b, asset_url);
             cwist_sstring_append(b, "' data-mode='attachment'>");
-            cwist_sstring_append(b, "<div class='media-thumb'><span style='font-size:22px'>FILE</span></div>");
+            /* Media-aware thumb so existing attachments show a real preview
+               instead of a bare FILE label, matching freshly uploaded cards. */
+            {
+                const char *eff_mime = mime[0] ? mime : mime_type(fname->valuestring);
+                int thumb_image = strncmp(eff_mime, "image/", 6) == 0;
+                int thumb_video = strncmp(eff_mime, "video/", 6) == 0;
+                int thumb_audio = strncmp(eff_mime, "audio/", 6) == 0;
+                cwist_sstring_append(b, "<div class='media-thumb'>");
+                if (thumb_image) {
+                    cwist_sstring_append(b, "<img src='/file/preview/");
+                    cwist_sstring_append(b, fid_buf);
+                    cwist_sstring_append(b, "' loading='lazy' style='display:block;width:100%;height:100%;max-width:none;object-fit:cover;filter:grayscale(1) contrast(1.08)'>");
+                } else if (thumb_video) {
+                    cwist_sstring_append(b, "<button type='button' class='media-load-btn media-video-open file-video-thumb-link' data-tasfa-video-link='");
+                    cwist_sstring_append(b, asset_url);
+                    cwist_sstring_append(b, "?preview=1'>&#9654; Play</button>");
+                } else if (thumb_audio) {
+                    cwist_sstring_append(b, "<audio src='");
+                    cwist_sstring_append(b, asset_url);
+                    cwist_sstring_append(b, "' controls preload='metadata' style='width:100%;height:28px;align-self:center'></audio>");
+                } else {
+                    cwist_sstring_append(b, "<span style='font-size:22px'>FILE</span>");
+                }
+                cwist_sstring_append(b, "</div>");
+            }
             cwist_sstring_append(b, "<div class='media-info'><div class='media-name'>");
             cwist_sstring_append_escaped(b, fname->valuestring);
             cwist_sstring_append(b, "</div><div class='media-status'>Attached to this post</div><div class='media-progress-bar'><div class='media-progress-inner'></div></div></div>");
@@ -2411,7 +2435,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
              user_id,
              g_config.use_tasfa ? "true" : "false");
     cwist_sstring_append(b, numbuf);
-    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=6' defer></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=7' defer></script>");
     cwist_sstring_append(b, "<script src='/assets/js/tag-input.js?v=1' defer></script>");
 
     cwist_sstring *page = render_page(post ? "Edit Post" : "New Post", b->data, dark, user_role, profile_pic, is_mobile);

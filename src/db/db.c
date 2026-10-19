@@ -393,6 +393,9 @@ bool db_migrate(cwist_db *db) {
     db_exec_sql(db, "ALTER TABLE files ADD COLUMN delete_pin_hash TEXT DEFAULT ''");
     db_exec_sql(db, "ALTER TABLE files ADD COLUMN thumb_path TEXT DEFAULT ''");
     db_exec_sql(db, "ALTER TABLE files ADD COLUMN preview_path TEXT DEFAULT ''");
+    /* db_file_attach_to_post writes is_inline; without this column every
+     * attach silently failed at sqlite3_prepare, orphaning uploads. */
+    db_exec_sql(db, "ALTER TABLE files ADD COLUMN is_inline INTEGER DEFAULT 0");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_votes (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, user_id INTEGER NOT NULL, vote_type INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(post_id, user_id), FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_votes_anon (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, vote_type INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)");

@@ -329,6 +329,41 @@ static void attach_media_meta_to_post(cwist_db *db, const char *media_meta_json,
     cJSON_Delete(arr);
 }
 
+/* Stale or cached editors may skip media_meta and upload without a post id,
+   leaving the file floating with no post link. As a server-side backstop,
+   link every file this content references inline (/file/download/<id> or
+   /file/preview/<id>) to the post, with the same ownership checks as
+   media_meta. Runs on every create and update, so any client that can place
+   the URL in the body ends up with a working attachment. */
+static void attach_content_files_to_post(cwist_db *db, const char *content, int post_id, int uid, const char *role) {
+    if (!db || !content || !content[0] || post_id <= 0) return;
+    bool admin = role && strcmp(role, "admin") == 0;
+    const char *p = content;
+    while ((p = strstr(p, "/file/")) != NULL) {
+        const char *kind = p + 6;
+        const char *num = NULL;
+        if (strncmp(kind, "download/", 9) == 0) num = kind + 9;
+        else if (strncmp(kind, "preview/", 8) == 0) num = kind + 8;
+        if (num && isdigit((unsigned char)*num)) {
+            long fid_l = strtol(num, NULL, 10);
+            if (fid_l > 0 && fid_l <= 2147483647L) {
+                cJSON *file = db_file_get(db, (int)fid_l);
+                if (file) {
+                    int file_uid = json_int(file, "user_id", 0);
+                    int existing = json_int(file, "post_id", 0);
+                    bool owner_ok = (uid > 0 && file_uid == uid) || admin;
+                    if ((existing == 0 || existing == post_id) && owner_ok)
+                        db_file_attach_to_post(db, (int)fid_l, post_id, 1);
+                    cJSON_Delete(file);
+                }
+            }
+            p = num;
+        } else {
+            p = kind;
+        }
+    }
+}
+
 void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     const char *slug = cwist_query_map_get(req->path_params, "slug");
     bool dark = is_dark(req);
@@ -930,6 +965,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     db_tag_set_for_post(req->db, created_id, tags_in);
     apply_series_and_lang(req->db, created_id, uid, role, series_in, series_pos_in, lang_in, translation_in);
     attach_media_meta_to_post(req->db, media_meta, created_id, uid, role);
+    attach_content_files_to_post(req->db, content, created_id, uid, role);
     if (sp_new) sqlite3_exec(conn_new, "RELEASE post_new_follow", NULL, NULL, NULL);
 
     CWIST_LOG_INFO("Post created: uid=%d slug='%s' board_id=%d status=%s publish_at=%s", uid, created_slug, board_id,
@@ -1203,6 +1239,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     free(rev_category);
 
     attach_media_meta_to_post(req->db, media_meta, edit_id, uid, role);
+    attach_content_files_to_post(req->db, content, edit_id, uid, role);
     if (tags_in) db_tag_set_for_post(req->db, edit_id, tags_in);
     apply_series_and_lang(req->db, edit_id, uid, role, series_in, series_pos_in, lang_in, translation_in);
     if (sp_edit) sqlite3_exec(conn_edit, "RELEASE post_edit_tx", NULL, NULL, NULL);
