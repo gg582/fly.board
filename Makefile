@@ -608,6 +608,27 @@ wasm-theme-test: wasm-theme
 
 .PHONY: wasm-theme wasm-theme-test
 
+# --- WASM: client-side tag world map layout & BFS kernel --------------------
+# Compiles src/utils/tag_layout_core.h + wasm-client/tagmap_module.c with
+# CWIST v4's <cwist/wasm/typedarray.h> zero-copy TypedArray views.
+wasm-tagmap:
+	@mkdir -p build-wasm
+	$(EMCC) -O2 -std=c17 -Wall -I src/utils $(CWIST_INCLUDES) \
+	  wasm-client/tagmap_module.c \
+	  -sEXPORTED_FUNCTIONS=_fb_tagmap_init,_fb_tagmap_layout,_fb_tagmap_bfs,_fb_tagmap_x_ptr,_fb_tagmap_x_len,_fb_tagmap_y_ptr,_fb_tagmap_y_len,_fb_tagmap_r_ptr,_fb_tagmap_r_len,_fb_tagmap_rank_ptr,_fb_tagmap_rank_len,_fb_tagmap_hop_ptr,_fb_tagmap_hop_len,_fb_tagmap_continent_ptr,_fb_tagmap_continent_len,_fb_tagmap_cx_ptr,_fb_tagmap_cx_len,_fb_tagmap_cy_ptr,_fb_tagmap_cy_len,_fb_tagmap_cboard_ptr,_fb_tagmap_cboard_len,_malloc,_free \
+	  -sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAP32,HEAPF64 \
+	  -sMODULARIZE -sEXPORT_NAME=createTagmapModule \
+	  -o build-wasm/tagmap.js
+	cp build-wasm/tagmap.js public/js/tagmap-kernel.js
+	cp build-wasm/tagmap.wasm public/js/tagmap.wasm
+
+wasm-tagmap-test: wasm-tagmap
+	$(CC) -O2 -std=c17 -Wall -I src/utils -o build-wasm/tagmap_ref \
+	  wasm-client/tagmap_module.c -lm
+	python3 wasm-client/test_tagmap_diff.py
+
+.PHONY: wasm-tagmap wasm-tagmap-test
+
 distclean: clean
 	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true
 	rm -rf third_party/md4c/build $(MD4C_LIB)

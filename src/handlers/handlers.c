@@ -664,8 +664,10 @@ void handler_static_js(cwist_http_request *req, cwist_http_response *res) {
     }
     if (!served) {
         snprintf(path, sizeof(path), "public/js/%s", filename);
-        served = send_cached_file_response(req, res, path,
-                                           "application/javascript; charset=utf-8",
+        const char *mime = (fn_len > 5 && strcmp(filename + fn_len - 5, ".wasm") == 0)
+                           ? "application/wasm"
+                           : "application/javascript; charset=utf-8";
+        served = send_cached_file_response(req, res, path, mime,
                                            "public, max-age=31536000, immutable", NULL);
     }
     if (!served) {

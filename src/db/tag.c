@@ -210,3 +210,121 @@ cJSON *db_post_related_by_board(cwist_db *db, int post_id, int board_id, int lim
     sqlite3_bind_int(stmt, 3, limit);
     return db_sqlite3_rows_to_json(stmt);
 }
+
+cJSON *db_tag_graph(cwist_db *db, int board_id) {
+    if (!db) return NULL;
+    sqlite3 *conn = fly_db_conn(db);
+    if (!conn) return NULL;
+
+    /* 1. Active public boards that carry at least one tagged public post. */
+    const char *sql_boards =
+        "SELECT b.id AS id, b.name AS name, b.slug AS slug,"
+        " COUNT(DISTINCT p.id) AS post_count, COUNT(DISTINCT pt.tag_id) AS tag_count"
+        " FROM boards b"
+        " JOIN posts p ON p.board_id=b.id AND " POST_PUBLIC_SQL
+        " JOIN post_tags pt ON pt.post_id=p.id"
+        " WHERE b.read_perm=0 AND b.admin_only=0"
+        " GROUP BY b.id ORDER BY post_count DESC, b.id ASC";
+    sqlite3_stmt *stmt = NULL;
+    cJSON *boards = NULL;
+    if (sqlite3_prepare_v2(conn, sql_boards, -1, &stmt, NULL) == SQLITE_OK) {
+        boards = db_sqlite3_rows_to_json(stmt);
+    }
+    if (!boards) boards = cJSON_CreateArray();
+
+    /* 2. Nodes: tags on public posts (optionally scoped to board_id), with primary board. */
+    const char *sql_nodes_all =
+        "SELECT t.id AS id, t.name AS name, COUNT(*) AS n,"
+        " COALESCE((SELECT p2.board_id FROM post_tags pt2 JOIN posts p2 ON p2.id=pt2.post_id"
+        "  LEFT JOIN boards b2 ON b2.id=p2.board_id"
+        "  WHERE pt2.tag_id=t.id AND p2.status='published' AND p2.created_at<=CURRENT_TIMESTAMP"
+        "  AND (p2.board_id=0 OR (b2.read_perm=0 AND b2.admin_only=0))"
+        "  GROUP BY p2.board_id ORDER BY COUNT(*) DESC, p2.board_id ASC LIMIT 1), 0) AS board_id"
+        " FROM tags t"
+        " JOIN post_tags pt ON pt.tag_id=t.id"
+        " JOIN posts p ON p.id=pt.post_id"
+        " LEFT JOIN boards b ON b.id=p.board_id"
+        " WHERE " POST_PUBLIC_SQL " AND (p.board_id=0 OR (b.read_perm=0 AND b.admin_only=0))"
+        " GROUP BY t.id ORDER BY n DESC, t.name ASC";
+
+    const char *sql_nodes_board =
+        "SELECT t.id AS id, t.name AS name, COUNT(*) AS n, p.board_id AS board_id"
+        " FROM tags t"
+        " JOIN post_tags pt ON pt.tag_id=t.id"
+        " JOIN posts p ON p.id=pt.post_id"
+        " JOIN boards b ON b.id=p.board_id"
+        " WHERE " POST_PUBLIC_SQL " AND p.board_id=? AND b.read_perm=0 AND b.admin_only=0"
+        " GROUP BY t.id ORDER BY n DESC, t.name ASC";
+
+    cJSON *nodes = NULL;
+    if (board_id > 0) {
+        if (sqlite3_prepare_v2(conn, sql_nodes_board, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, board_id);
+            nodes = db_sqlite3_rows_to_json(stmt);
+        }
+    } else {
+        if (sqlite3_prepare_v2(conn, sql_nodes_all, -1, &stmt, NULL) == SQLITE_OK) {
+            nodes = db_sqlite3_rows_to_json(stmt);
+        }
+    }
+    if (!nodes) nodes = cJSON_CreateArray();
+
+    /* Attach board_name to each node from the boards list. */
+    cJSON *nd = NULL;
+    cJSON_ArrayForEach(nd, nodes) {
+        int bid = cJSON_GetObjectItem(nd, "board_id") ? cJSON_GetObjectItem(nd, "board_id")->valueint : 0;
+        const char *bname = "";
+        if (bid > 0) {
+            cJSON *bo = NULL;
+            cJSON_ArrayForEach(bo, boards) {
+                cJSON *id_it = cJSON_GetObjectItem(bo, "id");
+                if (id_it && id_it->valueint == bid) {
+                    cJSON *nm = cJSON_GetObjectItem(bo, "name");
+                    if (nm && cJSON_IsString(nm)) bname = nm->valuestring;
+                    break;
+                }
+            }
+        }
+        cJSON_AddStringToObject(nd, "board_name", bname);
+    }
+
+    /* 3. Edges: co-occurring tag pairs on the same public post. */
+    const char *sql_edges_all =
+        "SELECT a.tag_id AS a, b.tag_id AS b, COUNT(*) AS w"
+        " FROM post_tags a"
+        " JOIN post_tags b ON a.post_id=b.post_id AND a.tag_id<b.tag_id"
+        " JOIN posts p ON p.id=a.post_id"
+        " LEFT JOIN boards bd ON bd.id=p.board_id"
+        " WHERE " POST_PUBLIC_SQL " AND (p.board_id=0 OR (bd.read_perm=0 AND bd.admin_only=0))"
+        " GROUP BY a.tag_id, b.tag_id"
+        " ORDER BY w DESC, a.tag_id ASC, b.tag_id ASC";
+
+    const char *sql_edges_board =
+        "SELECT a.tag_id AS a, b.tag_id AS b, COUNT(*) AS w"
+        " FROM post_tags a"
+        " JOIN post_tags b ON a.post_id=b.post_id AND a.tag_id<b.tag_id"
+        " JOIN posts p ON p.id=a.post_id"
+        " JOIN boards bd ON bd.id=p.board_id"
+        " WHERE " POST_PUBLIC_SQL " AND p.board_id=? AND bd.read_perm=0 AND bd.admin_only=0"
+        " GROUP BY a.tag_id, b.tag_id"
+        " ORDER BY w DESC, a.tag_id ASC, b.tag_id ASC";
+
+    cJSON *edges = NULL;
+    if (board_id > 0) {
+        if (sqlite3_prepare_v2(conn, sql_edges_board, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, board_id);
+            edges = db_sqlite3_rows_to_json(stmt);
+        }
+    } else {
+        if (sqlite3_prepare_v2(conn, sql_edges_all, -1, &stmt, NULL) == SQLITE_OK) {
+            edges = db_sqlite3_rows_to_json(stmt);
+        }
+    }
+    if (!edges) edges = cJSON_CreateArray();
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddItemToObject(root, "nodes", nodes);
+    cJSON_AddItemToObject(root, "edges", edges);
+    cJSON_AddItemToObject(root, "boards", boards);
+    return root;
+}

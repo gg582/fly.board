@@ -1076,10 +1076,44 @@ cwist_sstring *render_archive(cJSON *months, cJSON *tags, cJSON *series, bool da
     cwist_sstring *b = cwist_sstring_create();
     hero_bg_page_open(b, g_config.archive_img, g_config.archive_img_dark, "archive", dark, "<h1>Archive</h1>");
 
+    (void)append_tag_cloud;
     if (cJSON_IsArray(tags) && cJSON_GetArraySize(tags) > 0) {
-        cwist_sstring_append(b, "<section id='tags' style='margin-bottom:32px'><h2>Tags</h2>");
+        cwist_sstring_append(b,
+            "<section id='tags' style='margin-bottom:36px'>"
+            "<div style='display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:12px'>"
+            "<h2 style='margin:0'>Tag Atlas</h2>"
+            "<span id='tag-map-status' style='font-size:13px;color:var(--muted)'>Loading tag map...</span>"
+            "</div>"
+            "<div id='tag-map-section' style='border:1px solid var(--border);border-radius:12px;background:var(--card-bg);overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.04)'>"
+            "<div style='display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);align-items:center;justify-content:space-between'>"
+            "<div style='position:relative;flex:1 1 220px;max-width:360px'>"
+            "<input type='search' id='tag-map-search' placeholder='Search tags on map (e.g. c++, coffee, 구수략)...' autocomplete='off' "
+            "style='width:100%;padding:7px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--fg);font-size:13px;margin:0'>"
+            "<div id='tag-map-search-results' style='display:none;position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--card-bg);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.16);z-index:30;max-height:260px;overflow-y:auto'></div>"
+            "</div>"
+            "<div style='display:flex;flex-wrap:wrap;gap:6px;align-items:center'>"
+            "<select id='tag-map-board' aria-label='Filter by board' style='padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--fg);font-size:13px;margin:0'>"
+            "<option value='0'>All Boards (World)</option>"
+            "</select>"
+            "<button type='button' id='tag-map-zoom-in' class='btn btn-outline' title='Zoom in' style='padding:5px 10px;font-size:14px;line-height:1'>+</button>"
+            "<button type='button' id='tag-map-zoom-out' class='btn btn-outline' title='Zoom out' style='padding:5px 10px;font-size:14px;line-height:1'>&minus;</button>"
+            "<button type='button' id='tag-map-reset' class='btn btn-outline' title='Reset view' style='padding:5px 10px;font-size:12px'>Reset</button>"
+            "</div>"
+            "</div>"
+            "<div style='position:relative;width:100%;overflow:hidden'>"
+            "<canvas id='tag-map-canvas' style='display:block;width:100%;height:500px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none'></canvas>"
+            "<div style='position:absolute;right:10px;bottom:8px;padding:3px 8px;border-radius:6px;background:rgba(15,23,42,0.55);color:#e2e8f0;font-size:11px;pointer-events:none'>"
+            "Wheel / Pinch: Zoom &middot; Drag: Pan &middot; Click: 1-2 Hop Tree &middot; Double-click: Open"
+            "</div>"
+            "</div>"
+            "<div id='tag-map-panel' style='display:none;padding:12px 14px;border-top:1px solid var(--border);background:var(--bg)'></div>"
+            "</div>"
+            "<noscript><div style='margin-top:12px'>");
         append_tag_cloud(b, tags);
-        cwist_sstring_append(b, "</section>");
+        cwist_sstring_append(b,
+            "</div></noscript>"
+            "<script src='/assets/js/tagmap.js?v=1' defer></script>"
+            "</section>");
     }
 
     if (cJSON_IsArray(series) && cJSON_GetArraySize(series) > 0) {

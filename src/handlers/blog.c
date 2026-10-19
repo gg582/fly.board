@@ -382,6 +382,19 @@ void handler_api_tags(cwist_http_request *req, cwist_http_response *res) {
     if (tags) cJSON_Delete(tags);
 }
 
+void handler_api_tag_graph(cwist_http_request *req, cwist_http_response *res) {
+    const char *b_str = req->query_params ? cwist_query_map_get(req->query_params, "board") : NULL;
+    int board_id = b_str ? atoi(b_str) : 0;
+    if (board_id < 0) board_id = 0;
+    cJSON *graph = db_tag_graph(req->db, board_id);
+    char *json = graph ? cJSON_PrintUnformatted(graph) : NULL;
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache");
+    cwist_sstring_assign(res->body, json ? json : "{\"nodes\":[],\"edges\":[],\"boards\":[]}");
+    if (json) cwist_free(json);
+    if (graph) cJSON_Delete(graph);
+}
+
 /* ---- Series ---- */
 
 void handler_series_index(cwist_http_request *req, cwist_http_response *res) {

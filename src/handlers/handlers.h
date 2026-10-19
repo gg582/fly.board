@@ -12,6 +12,7 @@ void handler_board_rss_xml(cwist_http_request *req, cwist_http_response *res);
 void handler_tag_rss_xml(cwist_http_request *req, cwist_http_response *res);
 void handler_tag_get(cwist_http_request *req, cwist_http_response *res);
 void handler_api_tags(cwist_http_request *req, cwist_http_response *res);
+void handler_api_tag_graph(cwist_http_request *req, cwist_http_response *res);
 void handler_series_index(cwist_http_request *req, cwist_http_response *res);
 void handler_series_get(cwist_http_request *req, cwist_http_response *res);
 void handler_series_rss_xml(cwist_http_request *req, cwist_http_response *res);
