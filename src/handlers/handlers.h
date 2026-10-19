@@ -130,6 +130,9 @@ void handler_admin_upload_policy_post(cwist_http_request *req, cwist_http_respon
 
 void handler_api_preview(cwist_http_request *req, cwist_http_response *res);
 void handler_api_upload(cwist_http_request *req, cwist_http_response *res);
+void handler_api_autosave_post(cwist_http_request *req, cwist_http_response *res);
+void handler_api_revisions_get(cwist_http_request *req, cwist_http_response *res);
+void handler_api_revision_get(cwist_http_request *req, cwist_http_response *res);
 void handler_api_boards_json(cwist_http_request *req, cwist_http_response *res);
 void handler_api_my_files(cwist_http_request *req, cwist_http_response *res);
 void handler_api_metrics(cwist_http_request *req, cwist_http_response *res);

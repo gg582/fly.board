@@ -173,6 +173,9 @@ void engine_routes_register(cwist_app *app) {
 
     engine_async_post(app, "/api/preview", handler_api_preview);
     engine_async_post(app, "/api/upload", handler_api_upload);
+    engine_async_post(app, "/api/autosave", handler_api_autosave_post);
+    engine_async_get(app, "/api/revisions", handler_api_revisions_get);
+    engine_async_get(app, "/api/revision", handler_api_revision_get);
     engine_async_get(app, "/api/boards", handler_api_boards_json);
     engine_async_get(app, "/api/tags", handler_api_tags);
     engine_async_get(app, "/api/my-files", handler_api_my_files);

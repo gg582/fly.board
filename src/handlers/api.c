@@ -2,6 +2,7 @@
 #include "handlers_internal.h"
 #include "config/write_policy.h"
 #include "../db/db_internal.h"
+#include "../db/revision.h"
 #include "cwist/board_tree.h"
 #include <curl/curl.h>
 #include <time.h>
@@ -430,6 +431,144 @@ void handler_api_upload(cwist_http_request *req, cwist_http_response *res) {
     cJSON_Delete(obj);
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
     cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
+    cwist_sstring_assign(res->body, json ? json : "{}");
+    if (json) cwist_free(json);
+}
+
+/* POST /api/autosave — server-side draft autosave from the markdown editor.
+ * First save creates a draft row owned by the caller; later saves update it.
+ * Only draft posts can be updated: a published/scheduled post is never
+ * touched, so a stray autosave cannot corrupt live content. Login required;
+ * guests keep the localStorage-only draft. */
+void handler_api_autosave_post(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
+    if (uid <= 0) {
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "{\"ok\":false,\"error\":\"login required\"}");
+        return;
+    }
+    cwist_query_map *kv = cwist_query_map_create();
+    if (!kv || !req->body || !req->body->data) {
+        if (kv) cwist_query_map_destroy(kv);
+        res->status_code = CWIST_HTTP_BAD_REQUEST;
+        cwist_sstring_assign(res->body, "{\"ok\":false,\"error\":\"bad request\"}");
+        return;
+    }
+    cwist_query_map_parse(kv, req->body->data);
+    int draft_id = atoi(cwist_query_map_get(kv, "draft_id") ? cwist_query_map_get(kv, "draft_id") : "0");
+    int board_id = atoi(cwist_query_map_get(kv, "board_id") ? cwist_query_map_get(kv, "board_id") : "0");
+    const char *title = cwist_query_map_get(kv, "title");
+    const char *content = cwist_query_map_get(kv, "content");
+    const char *summary = cwist_query_map_get(kv, "summary");
+    const char *tags = cwist_query_map_get(kv, "tags");
+    if (!title) title = "";
+    if (!content) content = "";
+    if (!summary) summary = "";
+
+    int id = 0;
+    if (draft_id > 0) {
+        cJSON *post = db_post_get_by_id(req->db, draft_id);
+        if (!post || !is_author_or_admin(post, uid, role) ||
+            strcmp(json_string_or_empty(post, "status"), "draft") != 0) {
+            if (post) cJSON_Delete(post);
+            cwist_query_map_destroy(kv);
+            res->status_code = CWIST_HTTP_NOT_FOUND;
+            cwist_sstring_assign(res->body, "{\"ok\":false,\"error\":\"draft not found\"}");
+            return;
+        }
+        if (board_id <= 0) board_id = json_int(post, "board_id", 0);
+        bool ok = db_post_update(req->db, draft_id, board_id, title, content, summary,
+                                 json_string_or_empty(post, "pqc_signature"),
+                                 json_int(post, "is_notice", 0), json_int(post, "is_secret", 0),
+                                 json_string_or_empty(post, "category"), NULL, NULL);
+        if (ok && tags) db_tag_set_for_post(req->db, draft_id, tags);
+        id = ok ? draft_id : 0;
+        cJSON_Delete(post);
+    } else {
+        if (board_id <= 0) {
+            cwist_query_map_destroy(kv);
+            res->status_code = CWIST_HTTP_BAD_REQUEST;
+            cwist_sstring_assign(res->body, "{\"ok\":false,\"error\":\"board required\"}");
+            return;
+        }
+        char *slug = NULL;
+        id = db_post_create_with_auto_slug(req->db, board_id, uid,
+                                           title[0] ? title : "Untitled", "autosave",
+                                           content, summary, NULL, 0, 0, "", "draft", NULL, &slug);
+        if (id > 0 && tags) db_tag_set_for_post(req->db, id, tags);
+        if (slug) cwist_free(slug);
+    }
+    cwist_query_map_destroy(kv);
+    if (id <= 0) {
+        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
+        cwist_sstring_assign(res->body, "{\"ok\":false,\"error\":\"save failed\"}");
+        return;
+    }
+    char json[64];
+    snprintf(json, sizeof(json), "{\"ok\":true,\"id\":%d}", id);
+    cwist_sstring_assign(res->body, json);
+}
+
+/* GET /api/revisions?post_id=N — revision list for the editor page.
+ * Author or admin only; the list carries no content. */
+void handler_api_revisions_get(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
+    int post_id = atoi(cwist_query_map_get(req->query_params, "post_id") ? cwist_query_map_get(req->query_params, "post_id") : "0");
+    cJSON *post = post_id > 0 ? db_post_get_by_id(req->db, post_id) : NULL;
+    if (!post || !is_author_or_admin(post, uid, role)) {
+        if (post) cJSON_Delete(post);
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        cwist_sstring_assign(res->body, "{\"ok\":false,\"error\":\"not found\"}");
+        return;
+    }
+    cJSON_Delete(post);
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddBoolToObject(obj, "ok", true);
+    cJSON_AddItemToObject(obj, "revisions", db_revision_list(req->db, post_id, 50));
+    char *json = cJSON_PrintUnformatted(obj);
+    cJSON_Delete(obj);
+    cwist_sstring_assign(res->body, json ? json : "{}");
+    if (json) cwist_free(json);
+}
+
+/* GET /api/revision?id=N — one full revision (content included), for the
+ * editor's "Load" button. Same author/admin gate as the list. */
+void handler_api_revision_get(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-cache, private");
+    int rev_id = atoi(cwist_query_map_get(req->query_params, "id") ? cwist_query_map_get(req->query_params, "id") : "0");
+    cJSON *rev = rev_id > 0 ? db_revision_get(req->db, rev_id) : NULL;
+    if (!rev) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        cwist_sstring_assign(res->body, "{\"ok\":false,\"error\":\"not found\"}");
+        return;
+    }
+    int post_id = json_int(rev, "post_id", 0);
+    cJSON *post = db_post_get_by_id(req->db, post_id);
+    bool allowed = post && is_author_or_admin(post, uid, role);
+    if (post) cJSON_Delete(post);
+    if (!allowed) {
+        cJSON_Delete(rev);
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        cwist_sstring_assign(res->body, "{\"ok\":false,\"error\":\"not found\"}");
+        return;
+    }
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddBoolToObject(obj, "ok", true);
+    cJSON_AddItemToObject(obj, "revision", rev);
+    char *json = cJSON_PrintUnformatted(obj);
+    cJSON_Delete(obj);
     cwist_sstring_assign(res->body, json ? json : "{}");
     if (json) cwist_free(json);
 }

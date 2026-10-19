@@ -481,6 +481,21 @@ bool db_migrate(cwist_db *db) {
         "  confirmed_at DATETIME)");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_subscribers_status ON subscribers(status)");
 
+    /* Post revision history: a snapshot of the PREVIOUS title/content/summary
+     * captured inside the edit transaction, so any edit can be reverted from
+     * the editor. Local to each node (not FlyWire-synced): replicas capture
+     * their own snapshots as they apply edits. */
+    db_exec_sql(db,
+        "CREATE TABLE IF NOT EXISTS post_revisions ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  post_id INTEGER NOT NULL,"
+        "  title TEXT NOT NULL DEFAULT '',"
+        "  content TEXT NOT NULL DEFAULT '',"
+        "  summary TEXT NOT NULL DEFAULT '',"
+        "  editor_id INTEGER NOT NULL DEFAULT 0,"
+        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_post_revisions_post ON post_revisions(post_id, id DESC)");
+
     /* FlyWire change journal: one row per content mutation on the primary;
      * replicas replay it via /flywire/feed. */
     db_exec_sql(db,

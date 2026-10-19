@@ -2009,7 +2009,7 @@ cwist_sstring *render_post_drafts(cJSON *posts, bool show_author, bool dark, con
     return page;
 }
 
-cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int initial_board_id, bool dark, const char *user_role, const char *error, const char *profile_pic, bool is_mobile, int draft_count) {
+cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int initial_board_id, bool dark, const char *user_role, const char *error, const char *profile_pic, bool is_mobile, int draft_count, int user_id, cJSON *revisions) {
     cwist_sstring *b = cwist_sstring_create();
     if (!post && draft_count > 0) {
         cwist_sstring_assign(b, "<dialog id='draft-recover-dialog' style='border:1px solid var(--border);border-radius:12px;background:var(--card-bg, #fff);color:var(--fg, #000);padding:24px;max-width:440px;box-shadow:0 8px 32px rgba(0,0,0,0.25)'>");
@@ -2353,8 +2353,53 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
     }
     /* New posts only: edits are not spam-checked. */
     if (!post) spam_guard_append_fields(b);
-    cwist_sstring_append(b, "</form></div>");
-    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=5' defer></script>");
+    cwist_sstring_append(b, "</form>");
+
+    /* Revision history on the edit page (feature 5): server-rendered list;
+     * editor.js fetches one revision's content when "Load" is clicked and
+     * fills the form above, where a normal Update applies it. */
+    if (post && revisions && cJSON_GetArraySize(revisions) > 0) {
+        cwist_sstring_append(b, "<div class='card' style='margin:24px 0'><h3 style='margin-bottom:8px'>Revision history</h3>");
+        cwist_sstring_append(b, "<p style='color:var(--muted);font-size:13px;margin-bottom:10px'>Loading a revision replaces the editor content; review, then Update to apply. The current version is not stored here.</p>");
+        cwist_sstring_append(b, "<div id='revision-list' style='display:flex;flex-direction:column;gap:6px'>");
+        cJSON *rev = NULL;
+        cJSON_ArrayForEach(rev, revisions) {
+            int rid = json_int(rev, "id", 0);
+            const char *rtitle = json_string_or_empty(rev, "title");
+            const char *editor = json_string_or_empty(rev, "editor_name");
+            const char *created = json_string_or_empty(rev, "created_at");
+            char rbuf[1024];
+            snprintf(rbuf, sizeof(rbuf),
+                     "<div class='revision-row' style='display:flex;gap:10px;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:8px;padding:6px 10px'>"
+                     "<span style='overflow:hidden;text-overflow:ellipsis;white-space:nowrap'><b style='font-size:13px'>");
+            cwist_sstring_append(b, rbuf);
+            cwist_sstring_append_escaped(b, rtitle[0] ? rtitle : "(untitled)");
+            cwist_sstring_append(b, "</b> <span style='color:var(--muted);font-size:12px'>");
+            if (strlen(created) >= 19) cwist_sstring_append_len(b, created, 19);
+            else cwist_sstring_append(b, created);
+            if (editor[0]) {
+                cwist_sstring_append(b, " &middot; by ");
+                cwist_sstring_append_escaped(b, editor);
+            }
+            snprintf(rbuf, sizeof(rbuf), "</span></span><button type='button' class='btn btn-outline revision-load-btn' data-rev-id='%d' style='padding:2px 10px;font-size:12px'>Load</button></div>", rid);
+            cwist_sstring_append(b, rbuf);
+        }
+        cwist_sstring_append(b, "</div></div>");
+    }
+
+    cwist_sstring_append(b, "</div>");
+    /* Editor bootstrap: post id under edit (0 on a fresh form), the signed-in
+     * user (0 = guest; server autosave is login-only), and the real tasfa
+     * flag — without it the uploader would attempt the streamed path for
+     * >4MB files even on deployments with use_tasfa=false. */
+    cwist_sstring_append(b, "<script>window.POST_ID=");
+    char numbuf[96];
+    snprintf(numbuf, sizeof(numbuf), "%d;window.CURRENT_USER_ID=%d;window.BLOG_USE_TASFA=%s;</script>",
+             post ? json_int(post, "id", 0) : 0,
+             user_id,
+             g_config.use_tasfa ? "true" : "false");
+    cwist_sstring_append(b, numbuf);
+    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=6' defer></script>");
     cwist_sstring_append(b, "<script src='/assets/js/tag-input.js?v=1' defer></script>");
 
     cwist_sstring *page = render_page(post ? "Edit Post" : "New Post", b->data, dark, user_role, profile_pic, is_mobile);

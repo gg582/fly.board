@@ -150,6 +150,70 @@
     var draftKey = 'flyboard:draft:' + location.pathname;
     var draftTimer = null;
 
+    /* Server-side autosave: logged-in writers get their typing persisted to
+     * a real draft row, so a crash or closed tab loses nothing. The first
+     * save creates the draft; the form then retargets to the edit endpoint,
+     * where Publish/Save Draft work as usual. Guests (CURRENT_USER_ID 0)
+     * keep the localStorage-only draft below. */
+    var serverDraftEnabled = Number(window.CURRENT_USER_ID || 0) > 0;
+    var serverDraftSaving = false;
+    var serverDraftTimer = null;
+
+    function fieldValue(id) {
+        var el = document.getElementById(id);
+        return el ? el.value : '';
+    }
+
+    function scheduleServerDraftSave() {
+        if (!serverDraftEnabled || !ta || !ta.form) return;
+        if (serverDraftTimer) clearTimeout(serverDraftTimer);
+        serverDraftTimer = setTimeout(saveServerDraft, 2000);
+    }
+
+    function saveServerDraft() {
+        if (!serverDraftEnabled || serverDraftSaving || isSubmitting) return;
+        if (!ta) return;
+        var hasText = ta.value.trim().length > 0 || (titleInput && titleInput.value.trim().length > 0);
+        if (!hasText) return;
+        if (serverDraftSaving) return;
+        serverDraftSaving = true;
+        var values = {
+            draft_id: String(Number(window.POST_ID || 0)),
+            title: titleInput ? titleInput.value : '',
+            content: ta.value,
+            summary: fieldValue('summary-input'),
+            tags: fieldValue('tags-input'),
+            board_id: fieldValue('board-id-input') || '0'
+        };
+        fetch('/api/autosave', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: encodeFormBody(values)
+        }).then(function(response) {
+            if (!response.ok) return null;
+            return response.json().catch(function() { return null; });
+        }).then(function(payload) {
+            if (!payload || !payload.ok || !payload.id) return;
+            if (Number(window.POST_ID || 0) !== payload.id) {
+                window.POST_ID = payload.id;
+                if (ta.form) ta.form.action = '/post/' + payload.id + '/edit';
+            }
+            clearDraft();
+            if (syncStatus) {
+                var d = new Date();
+                var hh = ('0' + d.getHours()).slice(-2);
+                var mm = ('0' + d.getMinutes()).slice(-2);
+                syncStatus.textContent = 'Draft saved ' + hh + ':' + mm;
+            }
+        }).catch(function() {}).then(function() {
+            serverDraftSaving = false;
+        });
+    }
+
     function loadDraft() {
         try {
             var raw = localStorage.getItem(draftKey);
@@ -179,6 +243,7 @@
     function scheduleDraftSave() {
         if (draftTimer) clearTimeout(draftTimer);
         draftTimer = setTimeout(saveDraft, 800);
+        scheduleServerDraftSave();
     }
 
     function escapeHtml(value) {
@@ -2056,6 +2121,12 @@
         asset.xhrs = [];
         asset.mode = 'attachment';
         asset.displayPercent = 100;
+        /* Files dropped or pasted straight into the textarea are inserted at
+         * the cursor on completion — the user already said where they go. */
+        if (asset.autoInsert && isEditorMode && asset.url && !editorHasUrl(asset.url)) {
+            insertAssetMarkdown(asset);
+            schedulePreview();
+        }
         asset.ui.status.textContent = response.delete_pin
             ? ((isEditorMode ? 'Uploaded. Save delete PIN: ' : 'Uploaded. Save delete PIN: ') + response.delete_pin)
             : (isEditorMode ? 'Uploaded and available for inline placement' : 'Uploaded to file repository');
@@ -3490,7 +3561,7 @@
         updateFileRepoUploadButton();
     }
 
-    function uploadFile(file) {
+    function uploadFile(file, autoInsert) {
         if (!uploadPreview) return;
         var useTasfa = USE_TASFA && file.size > TASFA_MIN_SIZE_BYTES;
         var transferProfile = classifyTasfaTransfer(file);
@@ -3540,6 +3611,7 @@
             isCancelling: false,
             isNetworkPaused: false,
             isBackgroundPaused: false,
+            autoInsert: autoInsert === true,
             uploadMethod: useTasfa ? 'tasfa' : 'plain',
             transferProfile: transferProfile,
             ui: ui
@@ -3660,7 +3732,24 @@
         ta.addEventListener('paste', function(event) {
             if (!event.clipboardData || !event.clipboardData.files || !event.clipboardData.files.length) return;
             event.preventDefault();
-            onFileBatch(event.clipboardData.files);
+            for (var i = 0; i < event.clipboardData.files.length; i += 1) {
+                uploadFile(event.clipboardData.files[i], true);
+            }
+        });
+        /* Dropping files onto the textarea itself uploads and inserts them at
+         * the cursor, the same outcome as a drop on the upload zone followed
+         * by a manual insert. */
+        ta.addEventListener('dragover', function(event) {
+            if (event.dataTransfer && Array.prototype.indexOf.call(event.dataTransfer.types || [], 'Files') !== -1) {
+                event.preventDefault();
+            }
+        });
+        ta.addEventListener('drop', function(event) {
+            if (!event.dataTransfer || !event.dataTransfer.files || !event.dataTransfer.files.length) return;
+            event.preventDefault();
+            for (var j = 0; j < event.dataTransfer.files.length; j += 1) {
+                uploadFile(event.dataTransfer.files[j], true);
+            }
         });
     }
 
@@ -4305,6 +4394,39 @@
     initStyledDropdown();
 
     initMyFilesBrowser();
+
+    /* Revision history: "Load" fills the form with that snapshot; applying it
+     * is a normal Update (which stores another snapshot, so reverting is
+     * non-destructive). */
+    var revisionList = document.getElementById('revision-list');
+    if (revisionList && ta) {
+        revisionList.addEventListener('click', function(event) {
+            var target = event.target;
+            var btn = target && target.closest ? target.closest('.revision-load-btn') : null;
+            if (!btn) return;
+            fetch('/api/revision?id=' + encodeURIComponent(btn.getAttribute('data-rev-id')), {
+                credentials: 'same-origin'
+            }).then(function(response) {
+                return response.json().catch(function() { return null; });
+            }).then(function(payload) {
+                var rev = payload && payload.revision;
+                if (!rev) {
+                    if (syncStatus) syncStatus.textContent = 'Could not load revision';
+                    return;
+                }
+                if (titleInput) titleInput.value = rev.title || '';
+                ta.value = rev.content || '';
+                var summaryEl = document.getElementById('summary-input');
+                if (summaryEl) summaryEl.value = rev.summary || '';
+                if (syncStatus) syncStatus.textContent = 'Revision loaded — review, then Update to apply';
+                schedulePreview();
+                updateMetrics();
+                clearDraft();
+            }).catch(function() {
+                if (syncStatus) syncStatus.textContent = 'Could not load revision';
+            });
+        });
+    }
 
     bootstrapExistingAssets();
     updateSubmitButtons();

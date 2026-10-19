@@ -2,6 +2,7 @@
 #include "handlers_internal.h"
 #include "db/db_internal.h"
 #include "db/sql_escape.h"
+#include "db/revision.h"
 #include "config/write_policy.h"
 #include "utils/post_schedule.h"
 #include "engine/pool.h"
@@ -216,7 +217,7 @@ static void send_post_editor_error(cwist_http_request *req, cwist_http_response 
     cJSON *ordered = editor_boards(req->db, uid, role);
     char *pp = get_profile_pic(req->db, uid, role);
     editor_options_t opts = editor_options_load(req->db, uid, role);
-    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, error, pp, is_mobile_request(req), 0);
+    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, error, pp, is_mobile_request(req), 0, uid, NULL);
     editor_options_free(&opts);
     if (ordered) cJSON_Delete(ordered);
     send_html_res(res, page);
@@ -709,7 +710,7 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     }
     int draft_count = uid > 0 ? db_post_count_drafts(req->db, uid) : 0;
     editor_options_t opts = editor_options_load(req->db, uid, role);
-    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, NULL, pp, is_mobile_request(req), draft_count);
+    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, NULL, pp, is_mobile_request(req), draft_count, uid, NULL);
     editor_options_free(&opts);
     if (ordered) cJSON_Delete(ordered);
     send_html_res(res, page);
@@ -1006,7 +1007,9 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res) {
     else if (error && strcmp(error, "board_denied") == 0) error_msg = BOARD_ERROR_DENIED;
     attach_editor_fields(req->db, post);
     editor_options_t opts = editor_options_load(req->db, uid, role);
-    cwist_sstring *page = render_post_editor(ordered, post, files, 0, is_dark(req), role, error_msg, pp, is_mobile_request(req), 0);
+    cJSON *revisions = db_revision_list(req->db, post_id_val, 20);
+    cwist_sstring *page = render_post_editor(ordered, post, files, 0, is_dark(req), role, error_msg, pp, is_mobile_request(req), 0, uid, revisions);
+    if (revisions) cJSON_Delete(revisions);
     editor_options_free(&opts);
     cJSON_Delete(post);
     if (files) cJSON_Delete(files);
@@ -1154,6 +1157,12 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     cJSON *slug_obj = cJSON_GetObjectItem(post, "slug");
     char *post_slug = (slug_obj && slug_obj->valuestring) ? strdup(slug_obj->valuestring) : NULL;
     bool was_public = post_is_public(post);
+    /* Snapshot the version about to be replaced, for the revision history.
+     * Copies are taken before the post JSON is released; stored inside the
+     * edit savepoint below so the revision commits with the edit. */
+    char *rev_title = strdup(json_string_or_empty(post, "title"));
+    char *rev_content = strdup(json_string_or_empty(post, "content"));
+    char *rev_summary = strdup(json_string_or_empty(post, "summary"));
     publish_choice_t pub;
     choose_publish(&pub, uid, post_action, publish_at_in, was_public);
     cJSON_Delete(post);
@@ -1172,6 +1181,11 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     int edit_id = atoi(id_str);
     sqlite3 *conn_edit = fly_db_conn(req->db);
     bool sp_edit = conn_edit && sqlite3_exec(conn_edit, "SAVEPOINT post_edit_tx", NULL, NULL, NULL) == SQLITE_OK;
+    bool content_changed = strcmp(rev_title, title ? title : "") != 0 ||
+                           strcmp(rev_content, content ? content : "") != 0;
+    if (content_changed)
+        db_revision_save(req->db, edit_id, rev_title, rev_content, rev_summary, uid);
+    free(rev_title); free(rev_content); free(rev_summary);
     if (db_post_update(req->db, edit_id, board_id, title, content, summary ? summary : "", sig_b642 ? sig_b642 : "", 0, 0, "", pub.status, pub.publish_at)) {
         CWIST_LOG_INFO("Post updated: id=%s uid=%d board_id=%d status=%s publish_at=%s", id_str, uid, board_id,
                        pub.status, pub.publish_at ? pub.publish_at : "kept");
