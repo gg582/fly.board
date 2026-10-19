@@ -24,7 +24,7 @@
     // seconds; never abort mid-stream unless truly stalled.
     var DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS = 180000;
     /* data: URL cannot be received in TASFA environment - no placeholder used */
-    var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v1';
+    var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v2';
     var objectUrls = new WeakMap();
     var videoPlayerModule = null;
     var TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD = 10;

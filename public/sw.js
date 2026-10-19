@@ -158,7 +158,7 @@ self.addEventListener('install', function(e) {
 });
 
 self.addEventListener('activate', function(e) {
-    var allowedCaches = [LOGO_CACHE, TASFA_MEDIA_CACHE, STATIC_CACHE, CDN_CACHE, PRECACHE];
+    var allowedCaches = [LOGO_CACHE, TASFA_MEDIA_CACHE, 'tasfa-small-files-v1', STATIC_CACHE, CDN_CACHE, PRECACHE];
     e.waitUntil(
         caches.keys().then(function(keys) {
             return Promise.all(keys.map(function(key) {
