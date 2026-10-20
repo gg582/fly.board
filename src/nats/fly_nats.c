@@ -17,9 +17,13 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #ifdef HAVE_NATS
 static cwist_nats_t *g_nats = NULL;
+/* The connection and its cnats threads live in the process that connected
+ * (the supervisor, before the worker fork); see fly_nats_close(). */
+static pid_t g_nats_owner = 0;
 
 static void on_post_msg(const char *subject, const char *data, size_t len, void *ctx) {
     (void)subject; (void)ctx;
@@ -186,6 +190,7 @@ bool fly_nats_init(const char *url) {
         g_nats = NULL;
         return false;
     }
+    g_nats_owner = getpid();
     FLY_LOG_DEBUG("[fly_nats] connected to %s", url);
     return true;
 #else
@@ -231,7 +236,11 @@ void fly_nats_dispatch(void) {
 void fly_nats_close(void) {
 #ifdef HAVE_NATS
     if (g_nats) {
-        cwist_nats_destroy(g_nats);
+        /* A forked worker inherits the connection object but none of its
+         * cnats threads; destroying it there joins threads that do not exist
+         * and crashed every worker on shutdown (SIGSEGV in natsThread_Join).
+         * Only the connecting process tears it down. */
+        if (g_nats_owner == getpid()) cwist_nats_destroy(g_nats);
         g_nats = NULL;
     }
 #endif
