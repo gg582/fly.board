@@ -165,3 +165,41 @@ If you add more subjects, keep the same pattern:
 - keep the authoritative state in the database, not in NATS
 
 That keeps attack surface smaller than introducing mutable event-only state or unsigned cross-node control traffic.
+
+## Multi-Site Topology (Leaf Nodes)
+
+Sites that share content (see the FlyWire failover cluster in
+`docs/flywire.md`) connect their local NATS servers as leaf nodes, in the
+same order as `flywire.settings` `nodes=`. Each site's fly_board keeps
+talking to its own loopback server (`NATS_URL=nats://127.0.0.1:4222`).
+
+- The first site is the hub and accepts leaf connections.
+- The second site also accepts leaf connections and joins the hub as a leaf.
+- Every other site joins the hub, with the second site as its fallback URL.
+
+When the hub dies the remaining sites reconnect to the second site and stay
+connected to each other; when it returns the second site rejoins it and the
+chain is whole again. Only the first two sites need an open leaf port
+(7422/tcp); the others only dial out, so a site behind NAT works as a leaf.
+
+Leaf links use TLS with a cluster-private CA (sites are addressed by IP, so
+the certificates carry IP SANs) and a shared leaf password.
+`tools/nats_leaf_conf.py` produces all of it:
+
+```sh
+# once, on an admin machine (keep ca.key there)
+tools/nats_leaf_conf.py init-ca tls/
+tools/nats_leaf_conf.py issue tls/ 80.47.226.102     # hub
+tools/nats_leaf_conf.py issue tls/ 173.231.53.9      # fallback hub
+
+# per site: copy tls/ca.pem (and that site's .pem/.key for the two hubs)
+# to /etc/nats/tls, then
+tools/nats_leaf_conf.py conf \
+    --nodes 80.47.226.102,173.231.53.9,59.23.169.247 \
+    --self 173.231.53.9 --secret "$LEAF_SECRET" \
+    --tls-dir /etc/nats/tls > /etc/nats-server.conf
+nats-server -t -c /etc/nats-server.conf && systemctl restart nats
+```
+
+The hub advertises its configured address rather than every local
+interface, so leaves never try private IPs that cannot pass TLS.
