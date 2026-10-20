@@ -28,6 +28,7 @@ void handler_admin_reports_action(cwist_http_request *req, cwist_http_response *
 /* GET /flywire/feed: FlyWire delta feed, primary mode only (404 otherwise).
  * Implemented in src/engine/flywire.c. */
 void handler_flywire_feed(cwist_http_request *req, cwist_http_response *res);
+void handler_flywire_status(cwist_http_request *req, cwist_http_response *res);
 /* POST /flywire/request-admin: replica forwards an admin promotion request
  * for the logged-in user to the primary (replica mode only). */
 void handler_flywire_request_admin(cwist_http_request *req, cwist_http_response *res);

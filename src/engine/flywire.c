@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "engine/bdr.h"
 #include "engine/flywire.h"
+#include "engine/flywire_cluster.h"
 #include "engine/forkgate.h"
 #include "auth/auth.h"
 #include "db/db.h"
@@ -81,6 +82,20 @@ static bool flywire_token_eq(const char *a, const char *b) {
     size_t b_len = strlen(b);
     if (a_len != b_len) return false;
     return CRYPTO_memcmp(a, b, a_len) == 0;
+}
+
+/* Point @p curl at <path_and_query> on the current primary: in a failover
+ * cluster, whichever node holds the role now; otherwise primary_url. Returns
+ * a list to free after the transfer (may be NULL). */
+static struct curl_slist *flywire_route_primary(CURL *curl, const char *path_and_query) {
+    if (flywire_cluster_active())
+        return flywire_curl_target(curl, flywire_cluster_current_primary(), path_and_query);
+    char url[2048];
+    const char *base = flywire_primary_url();
+    size_t bl = strlen(base);
+    snprintf(url, sizeof(url), "%.*s%s", (int)(bl > 0 && base[bl - 1] == '/' ? bl - 1 : bl), base, path_and_query);
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    return NULL;
 }
 
 /* ---- Site version (advertised in the feed for auto-upgrade) ---- */
@@ -283,6 +298,7 @@ void handler_flywire_feed(cwist_http_request *req, cwist_http_response *res) {
     }
     cJSON_AddNumberToObject(doc, "latest_seq", (double)latest_seq);
     cJSON_AddStringToObject(doc, "version", flywire_site_version());
+    if (flywire_cluster_active()) cJSON_AddNumberToObject(doc, "epoch", (double)flywire_cluster_epoch());
     flywire_send_json(res, doc, CWIST_HTTP_OK);
     cJSON_Delete(doc);
 }
@@ -642,10 +658,8 @@ static void flywire_download_file_bytes(int file_id, const char *file_path) {
         mkdir(dirs, 0755);
     }
 
-    char url[600];
-    const char *base = flywire_primary_url();
-    size_t bl = strlen(base);
-    snprintf(url, sizeof(url), "%s%s/file/download/%d", base, (bl > 0 && base[bl - 1] == '/') ? "" : "", file_id);
+    char path[64];
+    snprintf(path, sizeof(path), "/file/download/%d", file_id);
 
     FILE *f = fopen(file_path, "ab");
     if (!f) {
@@ -665,7 +679,7 @@ static void flywire_download_file_bytes(int file_id, const char *file_path) {
     snprintf(token_hdr, sizeof(token_hdr), "X-FlyWire-Token: %s", flywire_token());
     headers = curl_slist_append(headers, token_hdr);
     flywire_download_ctx ctx = { .f = f };
-    curl_easy_setopt(curl, CURLOPT_URL, url);
+    struct curl_slist *route = flywire_route_primary(curl, path);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, flywire_download_write);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
@@ -675,6 +689,7 @@ static void flywire_download_file_bytes(int file_id, const char *file_path) {
     long status = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_slist_free_all(headers);
+    curl_slist_free_all(route);
     curl_easy_cleanup(curl);
     bool ok = (rc == CURLE_OK) && (status == 200 || status == 206);
     if (fclose(f) != 0) ok = false;
@@ -852,11 +867,8 @@ static _Atomic bool g_flywire_running = false;
  * (retry next iteration), 0 when caught up, 1 when the journal has been
  * purged past our checkpoint (operator must reseed). */
 static int flywire_poll_once(sqlite3 *main_conn, long long since) {
-    char url[768];
-    const char *base = flywire_primary_url();
-    size_t bl = strlen(base);
-    snprintf(url, sizeof(url), "%s%s/flywire/feed?since=%lld&limit=%d",
-             base, (bl > 0 && base[bl - 1] == '/') ? "" : "", since, FLYWIRE_FEED_LIMIT);
+    char path[160];
+    snprintf(path, sizeof(path), "/flywire/feed?since=%lld&limit=%d", since, FLYWIRE_FEED_LIMIT);
 
     flywire_buf buf = {0};
     CURL *curl = curl_easy_init();
@@ -864,7 +876,7 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
     char token_hdr[192];
     snprintf(token_hdr, sizeof(token_hdr), "X-FlyWire-Token: %s", flywire_token());
     struct curl_slist *headers = curl_slist_append(NULL, token_hdr);
-    curl_easy_setopt(curl, CURLOPT_URL, url);
+    struct curl_slist *route = flywire_route_primary(curl, path);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, flywire_feed_write);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
@@ -887,6 +899,7 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
     curl_easy_getinfo(curl, CURLINFO_STARTTRANSFER_TIME, &t_first);
     curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &t_total);
     curl_slist_free_all(headers);
+    curl_slist_free_all(route);
     curl_easy_cleanup(curl);
     if (rc != CURLE_OK || status != 200) {
         free(buf.data);
@@ -916,6 +929,20 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
         return -1;
     }
 
+    if (flywire_cluster_active()) {
+        /* Only apply the log of the primary of our current epoch: a stale
+         * primary (older epoch) or one we have not adopted yet (newer epoch,
+         * the cluster tick switches over first) is skipped this round. */
+        cJSON *ep = cJSON_GetObjectItem(doc, "epoch");
+        long long feed_epoch = cJSON_IsNumber(ep) ? (long long)ep->valuedouble : -1;
+        if (feed_epoch != flywire_cluster_epoch()) {
+            CWIST_LOG_WARN("flywire: feed epoch %lld does not match ours (%lld); skipped",
+                           feed_epoch, flywire_cluster_epoch());
+            cJSON_Delete(doc);
+            return -1;
+        }
+    }
+
     cJSON *ver = cJSON_GetObjectItem(doc, "version");
     if (cJSON_IsString(ver) && ver->valuestring) flywire_maybe_auto_upgrade(ver->valuestring);
 
@@ -932,6 +959,11 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
         char *payload_str = payload && cJSON_IsObject(payload) ? cJSON_PrintUnformatted(payload) : NULL;
         bool ok = flywire_apply_row(main_conn, (long long)seqj->valuedouble, ent->valuestring, idj->valuedouble,
                                     op->valuestring, payload_str ? payload_str : "");
+        /* In a failover cluster, keep the same row (same seq) in our own
+         * journal so this node can serve the log if it takes over. */
+        if (ok) ok = flywire_cluster_mirror_row(main_conn, (long long)seqj->valuedouble, ent->valuestring,
+                                                (int)idj->valuedouble, op->valuestring,
+                                                payload_str ? payload_str : "");
         /* cJSON print allocations route through cwist_malloc: release via
          * cwist_free so the full-GC sweep can never double-free them. */
         cwist_free(payload_str);
@@ -972,50 +1004,52 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
     return 0;
 }
 
+/* One replica round: poll the current primary's feed, apply it, and fetch at
+ * most one missing file. A dedicated short-lived connection per round:
+ * nothing is held across cwist_app_listen()'s worker fork, and a crash never
+ * loses more than the rows already checkpointed. All sqlite work of a round -
+ * open, poll/apply, the file fetch's DB lookup, close - is ONE continuous
+ * fork-gated section so a fork can never land mid-write and let a child
+ * inherit a copied sqlite connection. The blocking file download itself (up
+ * to 120 s) runs OUTSIDE the gate so the supervisor can keep forking workers
+ * while a replica pulls a file. Returns flywire_poll_once()'s result. */
+int flywire_replica_iteration(void) {
+    char file_path[PATH_MAX] = {0};
+    int file_id = 0;
+
+    fly_forkgate_enter();
+    sqlite3 *conn = NULL;
+    bool open_ok = sqlite3_open(FLY_DB_MAIN_PATH, &conn) == SQLITE_OK;
+    if (open_ok) open_ok = db_configure_connection(conn);
+    if (!open_ok) {
+        CWIST_LOG_ERROR("flywire: cannot open %s", FLY_DB_MAIN_PATH);
+        if (conn) sqlite3_close(conn);
+        fly_forkgate_leave();
+        return -1;
+    }
+
+    long long since = flywire_checkpoint_read();
+    int rc = flywire_poll_once(conn, since);
+    if (rc == 0) {
+        /* At most one queued file-byte fetch per round. */
+        file_id = flywire_dequeue_file();
+        if (file_id > 0)
+            flywire_fetch_file_path(file_id, conn, file_path, sizeof(file_path));
+    }
+    sqlite3_close(conn);
+    fly_forkgate_leave();
+
+    if (file_id > 0 && file_path[0])
+        flywire_download_file_bytes(file_id, file_path);
+    return rc;
+}
+
 static void *flywire_replica_loop(void *arg) {
     (void)arg;
-    /* A dedicated short-lived connection per iteration: nothing is held
-     * across cwist_app_listen()'s worker fork, and a crash never loses more
-     * than the rows already checkpointed.  All sqlite work of an iteration -
-     * open, poll/apply, the file fetch's DB lookup, close - is ONE continuous
-     * fork-gated section so a fork can never land mid-write and let a child
-     * inherit a copied sqlite connection.  The blocking file download itself
-     * (up to 120 s) runs OUTSIDE the gate so the supervisor can keep forking
-     * workers while a replica pulls a file. */
     while (atomic_load_explicit(&g_flywire_running, memory_order_acquire)) {
         sleep((unsigned)flywire_poll_seconds());
         if (!atomic_load_explicit(&g_flywire_running, memory_order_acquire)) break;
-
-        char file_path[PATH_MAX] = {0};
-        int file_id = 0;
-        int rc = -1;
-
-        fly_forkgate_enter();
-        sqlite3 *conn = NULL;
-        bool open_ok = sqlite3_open(FLY_DB_MAIN_PATH, &conn) == SQLITE_OK;
-        if (open_ok) open_ok = db_configure_connection(conn);
-        if (!open_ok) {
-            CWIST_LOG_ERROR("flywire: cannot open %s", FLY_DB_MAIN_PATH);
-            if (conn) sqlite3_close(conn);
-            fly_forkgate_leave();
-            continue;
-        }
-
-        long long since = flywire_checkpoint_read();
-        rc = flywire_poll_once(conn, since);
-        if (rc == 0) {
-            /* At most one queued file-byte fetch per iteration. */
-            file_id = flywire_dequeue_file();
-            if (file_id > 0)
-                flywire_fetch_file_path(file_id, conn, file_path, sizeof(file_path));
-        }
-        sqlite3_close(conn);
-        fly_forkgate_leave();
-
-        if (file_id > 0 && file_path[0])
-            flywire_download_file_bytes(file_id, file_path);
-
-        if (rc == 1) {
+        if (flywire_replica_iteration() == 1) {
             /* Journal purged past our checkpoint: back off hard and keep
              * telling the operator to reseed. Never auto-restore. */
             sleep(300);
@@ -1028,6 +1062,9 @@ static void *flywire_replica_loop(void *arg) {
 }
 
 bool flywire_start(void) {
+    /* Failover cluster: one thread decides roles and, while this node is a
+     * replica, also runs the apply rounds (flywire_cluster.c). */
+    if (flywire_cluster_configured()) return flywire_cluster_start();
     if (!flywire_is_replica()) return true; /* off or primary: nothing to spawn */
     atomic_store_explicit(&g_flywire_running, true, memory_order_release);
     pthread_t thread;
@@ -1043,6 +1080,7 @@ bool flywire_start(void) {
 }
 
 void flywire_stop(void) {
+    flywire_cluster_stop();
     atomic_store_explicit(&g_flywire_running, false, memory_order_release);
 }
 
@@ -1100,11 +1138,6 @@ void handler_flywire_request_admin(cwist_http_request *req, cwist_http_response 
         return;
     }
 
-    char url[600];
-    const char *base = flywire_primary_url();
-    size_t bl = strlen(base);
-    snprintf(url, sizeof(url), "%s%s/flywire/promote-request",
-             base, (bl > 0 && base[bl - 1] == '/') ? "" : "");
 
     flywire_buf buf = {0};
     CURL *curl = curl_easy_init();
@@ -1115,7 +1148,7 @@ void handler_flywire_request_admin(cwist_http_request *req, cwist_http_response 
         struct curl_slist *headers = NULL;
         headers = curl_slist_append(headers, token_hdr);
         headers = curl_slist_append(headers, "Content-Type: application/json");
-        curl_easy_setopt(curl, CURLOPT_URL, url);
+        struct curl_slist *route = flywire_route_primary(curl, "/flywire/promote-request");
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, flywire_feed_write);
@@ -1126,6 +1159,7 @@ void handler_flywire_request_admin(cwist_http_request *req, cwist_http_response 
         long status = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
         curl_slist_free_all(headers);
+        curl_slist_free_all(route);
         curl_easy_cleanup(curl);
         ok = (rc == CURLE_OK) && status >= 200 && status < 300;
     }
@@ -1269,16 +1303,15 @@ static bool flywire_proxy_relay_header(const char *key) {
 }
 
 bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res) {
-    const char *base = flywire_primary_url();
-    if (!base || !base[0]) return false;
+    if (!flywire_cluster_active()) {
+        const char *base = flywire_primary_url();
+        if (!base || !base[0]) return false;
+    }
 
     char url[2048];
-    size_t bl = strlen(base);
     const char *path = (req->path && req->path->data) ? req->path->data : "/";
     const char *query = (req->query && req->query->data && req->query->size) ? req->query->data : NULL;
-    snprintf(url, sizeof(url), "%s%s%s%s%s",
-             base, (bl > 0 && base[bl - 1] == '/') ? "" : "/",
-             path[0] == '/' ? path + 1 : path,
+    snprintf(url, sizeof(url), "%s%s%s%s", path[0] == '/' ? "" : "/", path,
              query ? "?" : "", query ? query : "");
 
     const char *method = cwist_http_method_to_string(req->method);
@@ -1308,7 +1341,7 @@ bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res) {
         return false;
     }
     curl_easy_reset(curl);
-    curl_easy_setopt(curl, CURLOPT_URL, url);
+    struct curl_slist *route = flywire_route_primary(curl, url);
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     if (req->body && req->body->data && req->body->size) {
@@ -1334,6 +1367,7 @@ bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res) {
         curl_easy_cleanup(curl);
         t_curl = NULL;
         curl_slist_free_all(headers);
+        curl_slist_free_all(route);
         return false;
     }
 
@@ -1349,5 +1383,6 @@ bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res) {
     CWIST_LOG_INFO("flywire: proxied %s %s -> %ld (%zu bytes)", method, path, status, res->body->size);
     /* Keep t_curl (and its warm connection cache) for the next write. */
     curl_slist_free_all(headers);
+    curl_slist_free_all(route);
     return true;
 }

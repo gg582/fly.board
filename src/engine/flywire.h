@@ -36,4 +36,21 @@ void flywire_stop(void);
  * error).  Only meaningful on a replica. */
 bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res);
 
+/* ---- Failover cluster (flywire_cluster.c) ----
+ * Only active when flywire.settings lists nodes= and self=. */
+
+/* nodes= index of the node currently holding the primary role (shared by
+ * every worker process); -1 when no cluster is configured. */
+int flywire_cluster_current_primary(void);
+/* The cluster thread has loaded the role state (false before startup ends). */
+bool flywire_cluster_ready(void);
+/* Current cluster epoch (bumped on every role change). */
+long long flywire_cluster_epoch(void);
+/* True while this node is primary but must not accept writes: it has lost
+ * contact with a majority, is still confirming its role after startup, or is
+ * handing the role back to a higher-priority node. */
+bool flywire_write_fenced(void);
+/* GET /flywire/status (token): this node's view, polled by its peers. */
+void handler_flywire_status(cwist_http_request *req, cwist_http_response *res);
+
 #endif
