@@ -615,7 +615,7 @@ wasm-tagmap:
 	@mkdir -p build-wasm
 	$(EMCC) -O2 -std=c17 -Wall -I src/utils $(CWIST_INCLUDES) \
 	  wasm-client/tagmap_module.c \
-	  -sEXPORTED_FUNCTIONS=_fb_tagmap_init,_fb_tagmap_layout,_fb_tagmap_bfs,_fb_tagmap_x_ptr,_fb_tagmap_x_len,_fb_tagmap_y_ptr,_fb_tagmap_y_len,_fb_tagmap_r_ptr,_fb_tagmap_r_len,_fb_tagmap_rank_ptr,_fb_tagmap_rank_len,_fb_tagmap_hop_ptr,_fb_tagmap_hop_len,_fb_tagmap_continent_ptr,_fb_tagmap_continent_len,_fb_tagmap_cx_ptr,_fb_tagmap_cx_len,_fb_tagmap_cy_ptr,_fb_tagmap_cy_len,_fb_tagmap_cboard_ptr,_fb_tagmap_cboard_len,_malloc,_free \
+	  -sEXPORTED_FUNCTIONS=_fb_tagmap_init,_fb_tagmap_layout,_fb_tagmap_bfs,_fb_tagmap_hit_test,_fb_tagmap_x_ptr,_fb_tagmap_x_len,_fb_tagmap_y_ptr,_fb_tagmap_y_len,_fb_tagmap_r_ptr,_fb_tagmap_r_len,_fb_tagmap_rank_ptr,_fb_tagmap_rank_len,_fb_tagmap_hop_ptr,_fb_tagmap_hop_len,_fb_tagmap_continent_ptr,_fb_tagmap_continent_len,_fb_tagmap_cx_ptr,_fb_tagmap_cx_len,_fb_tagmap_cy_ptr,_fb_tagmap_cy_len,_fb_tagmap_cboard_ptr,_fb_tagmap_cboard_len,_malloc,_free \
 	  -sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAP32,HEAPF64 \
 	  -sMODULARIZE -sEXPORT_NAME=createTagmapModule \
 	  -o build-wasm/tagmap.js
@@ -628,6 +628,26 @@ wasm-tagmap-test: wasm-tagmap
 	python3 wasm-client/test_tagmap_diff.py
 
 .PHONY: wasm-tagmap wasm-tagmap-test
+
+# --- WASM: client compute core (TASFA FEC/AIMD, editor & translate helpers) --
+# src/utils/client_core.h + wasm-client/client_core_module.c as a standalone
+# WASI reactor with zero imports, so the generated scripts can instantiate it
+# synchronously.  The pure-JS originals live in tests/js_baseline/ and
+# tests/test_wasm_js_baseline_parity.cjs enforces 1:1 behaviour against them.
+wasm-client-core:
+	@mkdir -p build-wasm
+	$(WASI_SDK)/bin/clang --target=wasm32-wasi -mexec-model=reactor -std=c17 -O2 \
+	  -Wall -Wextra -I src/utils -o build-wasm/client_core.wasm \
+	  wasm-client/client_core_module.c -Wl,--gc-sections -Wl,--export-dynamic -Wl,--strip-all
+	python3 tools/build_client_core_js.py
+
+wasm-client-core-test:
+	node --test tests/test_wasm_js_baseline_parity.cjs tests/test_post_translate.cjs \
+	  tests/test_tasfa_adaptation.cjs tests/test_tasfa_async_finalize.cjs \
+	  tests/test_tasfa_download.cjs tests/test_tasfa_rs_fec.cjs \
+	  tests/test_tagmap_hit_parity.cjs
+
+.PHONY: wasm-client-core wasm-client-core-test
 
 distclean: clean
 	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true

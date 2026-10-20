@@ -96,6 +96,13 @@ int fb_tagmap_bfs(int focus_idx) {
     return 0;
 }
 
+FB_KEEPALIVE
+int fb_tagmap_hit_test(double sx, double sy,
+                       double cam_x, double cam_y, double cam_z,
+                       double view_w, double view_h) {
+    return fb_tagmap_hit_test_node(&g_state, sx, sy, cam_x, cam_y, cam_z, view_w, view_h);
+}
+
 #ifndef __EMSCRIPTEN__
 int main(void) {
     int32_t hdr[4];

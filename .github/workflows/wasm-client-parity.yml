@@ -1,0 +1,59 @@
+name: wasm-client-parity
+
+# The browser's compute paths (TASFA RS/XOR parity and AIMD tuning, editor
+# operator normalisation and word metrics, post-translate language detection,
+# tag-map hit testing) run in CWIST WASM kernels. The pure-JS originals are
+# kept under tests/js_baseline/ and are never served; this workflow proves the
+# shipped WASM-backed scripts behave 1:1 with them and that every committed
+# generated artifact (inlined client_core.wasm, served .min.js) is in sync
+# with its source.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  WASI_SDK_VERSION: "25.0"
+  TERSER_VERSION: "5.38.0"
+
+concurrency:
+  group: wasm-client-parity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    name: WASM vs JS baseline parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install wasi-sdk
+        run: |
+          major="${WASI_SDK_VERSION%%.*}"
+          curl -fsSL -o wasi-sdk.tar.gz \
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${major}/wasi-sdk-${WASI_SDK_VERSION}-x86_64-linux.tar.gz"
+          mkdir -p "$RUNNER_TEMP/wasi-sdk"
+          tar -xzf wasi-sdk.tar.gz -C "$RUNNER_TEMP/wasi-sdk" --strip-components=1
+          rm wasi-sdk.tar.gz
+
+      - name: Rebuild client_core.wasm and regenerate shipped scripts
+        run: make wasm-client-core WASI_SDK="$RUNNER_TEMP/wasi-sdk"
+
+      - name: Re-minify the served scripts
+        run: |
+          for f in editor post-translate tasfa-download tagmap tagmap-kernel; do
+            npx --yes "terser@${TERSER_VERSION}" "public/js/$f.js" -c -m -o "public/js/$f.min.js"
+          done
+
+      - name: Generated artifacts must match the commit
+        run: git diff --exit-code -- public/js
+
+      - name: Parity and behaviour tests
+        run: make wasm-client-core-test

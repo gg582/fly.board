@@ -1112,7 +1112,7 @@ cwist_sstring *render_archive(cJSON *months, cJSON *tags, cJSON *series, bool da
         append_tag_cloud(b, tags);
         cwist_sstring_append(b,
             "</div></noscript>"
-            "<script src='/assets/js/tagmap.js?v=1' defer></script>"
+            "<script src='/assets/js/tagmap.js?v=2' defer></script>"
             "</section>");
     }
 
@@ -1782,7 +1782,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         }
         cwist_sstring_append(b, "</div>");
     }
-    cwist_sstring_append(b, "<script src='/assets/js/post-translate.js?v=10' defer></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/post-translate.js?v=11' defer></script>");
 
     /* Files */
     if (files && cJSON_GetArraySize(files) > 0) {
@@ -2459,7 +2459,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
              user_id,
              g_config.use_tasfa ? "true" : "false");
     cwist_sstring_append(b, numbuf);
-    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=8' defer></script>");
+    cwist_sstring_append(b, "<script src='/assets/js/editor.js?v=9' defer></script>");
     cwist_sstring_append(b, "<script src='/assets/js/tag-input.js?v=1' defer></script>");
 
     cwist_sstring *page = render_page(post ? "Edit Post" : "New Post", b->data, dark, user_role, profile_pic, is_mobile);

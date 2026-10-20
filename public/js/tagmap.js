@@ -118,7 +118,7 @@
             if (typeof window.createTagmapModule === 'function') {
                 window.createTagmapModule({
                     locateFile: function (p) {
-                        return p.endsWith('.wasm') ? '/assets/js/tagmap.wasm?v=1' : p;
+                        return p.endsWith('.wasm') ? '/assets/js/tagmap.wasm?v=2' : p;
                     }
                 }).then(function (m) {
                     wasmMod = m;
@@ -127,7 +127,7 @@
                 return;
             }
             var s = document.createElement('script');
-            s.src = '/assets/js/tagmap-kernel.js?v=1';
+            s.src = '/assets/js/tagmap-kernel.js?v=2';
             s.onload = function () {
                 if (typeof window.createTagmapModule !== 'function') {
                     resolve(null);
@@ -135,7 +135,7 @@
                 }
                 window.createTagmapModule({
                     locateFile: function (p) {
-                        return p.endsWith('.wasm') ? '/assets/js/tagmap.wasm?v=1' : p;
+                        return p.endsWith('.wasm') ? '/assets/js/tagmap.wasm?v=2' : p;
                     }
                 }).then(function (m) {
                     wasmMod = m;
@@ -145,69 +145,6 @@
             s.onerror = function () { resolve(null); };
             document.head.appendChild(s);
         });
-    }
-
-    /* Fallback layout in JS if WebAssembly fails to initialize */
-    function runJsFallbackLayout(nodes, edges) {
-        var n = nodes.length;
-        posX = new Float64Array(n);
-        posY = new Float64Array(n);
-        posR = new Float64Array(n);
-        nodeRank = new Int32Array(n);
-        nodeHop = new Int32Array(n);
-        nodeCont = new Int32Array(n);
-
-        var bMap = {};
-        var bList = [];
-        for (var i = 0; i < n; i++) {
-            var bid = nodes[i].board_id || 0;
-            if (bMap[bid] === undefined) {
-                bMap[bid] = bList.length;
-                bList.push(bid);
-            }
-            nodeCont[i] = bMap[bid];
-            nodeRank[i] = i;
-            nodeHop[i] = -1;
-            posR[i] = 6.0 + 3.8 * Math.sqrt(Math.max(1, nodes[i].n || 1));
-        }
-        contBoard = new Int32Array(bList);
-        contX = new Float64Array(bList.length);
-        contY = new Float64Array(bList.length);
-        var golden = 2.39996322972865332;
-        for (var k = 0; k < bList.length; k++) {
-            var rr = k === 0 ? 0 : 220 * Math.sqrt(k) + 60;
-            contX[k] = rr * Math.cos(k * golden);
-            contY[k] = rr * Math.sin(k * golden);
-        }
-        var cLocal = new Int32Array(bList.length);
-        for (var j = 0; j < n; j++) {
-            var c = nodeCont[j];
-            var m = cLocal[c]++;
-            var rad = m === 0 ? 0 : 38 * Math.sqrt(m);
-            var ang = m * golden + c * 0.7;
-            posX[j] = contX[c] + rad * Math.cos(ang);
-            posY[j] = contY[c] + rad * Math.sin(ang);
-        }
-    }
-
-    function computeHopsFallback(fIdx) {
-        var n = graph.nodes.length;
-        for (var i = 0; i < n; i++) nodeHop[i] = -1;
-        if (fIdx < 0 || fIdx >= n) return;
-        nodeHop[fIdx] = 0;
-        var n1 = adj[fIdx] || [];
-        for (var j = 0; j < n1.length; j++) {
-            var u = n1[j].to;
-            if (nodeHop[u] < 0) nodeHop[u] = 1;
-        }
-        for (var k = 0; k < n1.length; k++) {
-            var u1 = n1[k].to;
-            var n2 = adj[u1] || [];
-            for (var m = 0; m < n2.length; m++) {
-                var v = n2[m].to;
-                if (nodeHop[v] < 0) nodeHop[v] = 2;
-            }
-        }
     }
 
     function runLayout() {
@@ -271,8 +208,6 @@
             contX = wasmMod.cwistView.f64(wasmMod._fb_tagmap_cx_ptr(), wasmMod._fb_tagmap_cx_len());
             contY = wasmMod.cwistView.f64(wasmMod._fb_tagmap_cy_ptr(), wasmMod._fb_tagmap_cy_len());
             contBoard = wasmMod.cwistView.i32(wasmMod._fb_tagmap_cboard_ptr(), wasmMod._fb_tagmap_cboard_len());
-        } else {
-            runJsFallbackLayout(nodes, validEdges);
         }
 
         fitWorldToScreen(false);
@@ -285,8 +220,7 @@
         if (!statusEl) return;
         var n = (graph.nodes || []).length;
         var e = (graph.resolvedEdges || []).length;
-        var kernelBadge = wasmMod ? 'CWIST WASM Kernel' : 'JS Fallback';
-        statusEl.textContent = n + ' tags · ' + e + ' links (' + kernelBadge + ')';
+        statusEl.textContent = n + ' tags · ' + e + ' links (CWIST WASM Kernel)';
     }
 
     function fitWorldToScreen(animate) {
@@ -338,8 +272,6 @@
         focusIdx = idx;
         if (wasmMod && typeof wasmMod._fb_tagmap_bfs === 'function') {
             wasmMod._fb_tagmap_bfs(idx);
-        } else if (nodeHop) {
-            computeHopsFallback(idx);
         }
         renderInspectorPanel();
         requestRender();
@@ -775,24 +707,10 @@
     }
 
     function hitTestNode(sx, sy) {
-        var nodes = graph.nodes || [];
-        var n = nodes.length;
-        if (!posX) return -1;
-        var bestIdx = -1;
-        var bestDist = Infinity;
-        for (var i = 0; i < n; i++) {
-            var nx = worldToScreenX(posX[i]);
-            var ny = worldToScreenY(posY[i]);
-            var nr = Math.max(8.0, Math.min(28.0, posR[i] * Math.pow(cam.z, 0.65)) + 5.0);
-            var dx = sx - nx;
-            var dy = sy - ny;
-            var d = Math.sqrt(dx * dx + dy * dy);
-            if (d <= nr && d < bestDist) {
-                bestDist = d;
-                bestIdx = i;
-            }
+        if (wasmMod && typeof wasmMod._fb_tagmap_hit_test === 'function') {
+            return wasmMod._fb_tagmap_hit_test(sx, sy, cam.x, cam.y, cam.z, viewW, viewH);
         }
-        return bestIdx;
+        return -1;
     }
 
     function zoomAtScreenPoint(factor, sx, sy) {
