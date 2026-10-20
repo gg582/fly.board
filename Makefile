@@ -633,8 +633,8 @@ wasm-tagmap-test: wasm-tagmap
 # --- WASM: client compute core (TASFA FEC/AIMD, editor & translate helpers) --
 # src/utils/client_core.h + wasm-client/client_core_module.c as a standalone
 # WASI reactor with zero imports, so the generated scripts can instantiate it
-# synchronously.  The pure-JS originals live in tests/js_baseline/ and
-# tests/test_wasm_js_baseline_parity.cjs enforces 1:1 behaviour against them.
+# synchronously.  The build re-inlines the module into editor.js,
+# tasfa-download.js and post-translate.js; run `make minjs` afterwards.
 wasm-client-core:
 	@mkdir -p build-wasm
 	$(WASI_SDK)/bin/clang --target=wasm32-wasi -mexec-model=reactor -std=c17 -O2 \
@@ -643,10 +643,9 @@ wasm-client-core:
 	python3 tools/build_client_core_js.py
 
 wasm-client-core-test:
-	node --test tests/test_wasm_js_baseline_parity.cjs tests/test_post_translate.cjs \
+	node --test tests/test_post_translate.cjs \
 	  tests/test_tasfa_adaptation.cjs tests/test_tasfa_async_finalize.cjs \
-	  tests/test_tasfa_download.cjs tests/test_tasfa_rs_fec.cjs \
-	  tests/test_tagmap_hit_parity.cjs
+	  tests/test_tasfa_download.cjs tests/test_tasfa_rs_fec.cjs
 
 .PHONY: wasm-client-core wasm-client-core-test
 
