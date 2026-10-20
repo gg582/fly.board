@@ -34,6 +34,7 @@
 #include <openssl/ssl.h>
 #include <cwist/sys/app/app.h>
 #include <cwist/sys/app/compress.h>
+#include <cwist/sys/app/shutdown.h>
 #include <ttak/async/task.h>
 #include <ttak/timing/timing.h>
 #include <curl/curl.h>
@@ -81,6 +82,30 @@ static void cleanup_stop(void) {
         uint64_t one = 1;
         (void)write(g_cleanup_wake_fd, &one, sizeof(one));
     }
+}
+
+/* cwist_app_listen() installs its own SIGTERM/SIGINT handlers and, when the
+ * server loop ends, restores whatever was there before - SIG_DFL unless we
+ * set something. systemd (KillMode=control-group) signals every process in
+ * the unit and the supervisor forwards SIGTERM to each worker as well, so a
+ * worker that already left its loop takes the second SIGTERM while running
+ * the teardown below and dies with SIG_DFL mid-cleanup ("Worker N exited
+ * abnormally (status=15)", or a crash when it lands inside a destroy). A
+ * handler, not SIG_IGN: ignored dispositions survive exec into ffmpeg and
+ * other spawned tools, caught ones are reset. */
+static void shutdown_signal_handler(int sig) {
+    (void)sig;
+    cwist_shutdown_request();
+}
+
+static void install_shutdown_signal_handlers(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sa.sa_handler = shutdown_signal_handler;
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGINT, &sa, NULL);
 }
 
 static void cleanup_close_wake_fd(void) {
@@ -603,6 +628,7 @@ int main(int argc, char **argv) {
             printf("Docker Blog: http://localhost:%d\n", g_config.port);
         }
     }
+    install_shutdown_signal_handlers();
     int rc = cwist_app_listen(app, g_config.port);
     flywire_stop();
     cert_renewal_stop();
