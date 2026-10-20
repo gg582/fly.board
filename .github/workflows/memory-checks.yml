@@ -1,12 +1,15 @@
 name: memory-checks
 
-# Two memory-integrity checks that don't require watching production
+# Memory- and thread-integrity checks that don't require watching production
 # traffic for hours:
 #
 #  1. asan-leak-stress: build fly_board with AddressSanitizer/LeakSanitizer,
 #     hammer the main read endpoints, shut the server down gracefully and
 #     let LSan report anything still allocated at exit.
-#  2. leak-loop-regression: call the markdown renderer (the hot path shared
+#  2. tsan-ubsan-gate: the same load against a ThreadSanitizer + UBSan
+#     build; fails on any UB runtime error or on a data race between two
+#     accesses in fly.board's own code (see tools/asan_leak_stress.sh).
+#  3. leak-loop-regression: call the markdown renderer (the hot path shared
 #     by post/comment/file rendering) 10 vs 100,000+ times and fail if the
 #     process's peak RSS keeps climbing beyond a small per-call tolerance.
 #
@@ -118,6 +121,19 @@ jobs:
       # The static handler serves *.min.js preferentially, so a min file that
       # was not regenerated after its source change would silently ship old
       # client code. Rebuild all minified siblings and fail on any drift.
+      # The container runs as root over a workspace checked out by another
+      # uid; without this git rejects the repo as dubious and `git diff`
+      # below fails with a usage error instead of comparing anything.
+      - name: Trust the workspace for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # Same terser release that produced the committed *.min.js; without a
+      # minifier `make minjs` falls back to a plain copy and always differs.
+      - name: Install terser
+        run: |
+          pacman -S --needed --noconfirm nodejs npm
+          npm install -g terser@5.38.0
+
       - name: Check committed min.js files are fresh
         run: |
           touch public/js/*.js
@@ -138,6 +154,96 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: asan-server-log
+          path: /tmp/flyboard_asan.*/server.log
+          if-no-files-found: ignore
+
+  tsan-ubsan-gate:
+    name: "2) TSan/UBSan gate"
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+      # setarch -R below needs personality(ADDR_NO_RANDOMIZE), which
+      # Docker's default seccomp profile rejects.
+      options: --security-opt seccomp=unconfined
+    timeout-minutes: 60
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --needed --noconfirm \
+            git cmake ninja gcc make pkgconf \
+            openssl libnghttp3 libngtcp2 zlib \
+            sqlite cjson uriparser \
+            libwebp zstd brotli \
+            curl wget coreutils python util-linux
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # cwist builds with -march=native, so a build from another runner CPU
+      # can die with SIGILL here; key the cache on the CPU model as well.
+      - name: Compute CPU cache key
+        id: cpu
+        run: echo "model=$(grep -m1 '^model name' /proc/cpuinfo | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache cwist build
+        uses: actions/cache@v4
+        with:
+          path: /usr/local
+          key: cwist-${{ env.CWIST_REF }}-p${{ env.CWIST_PATCH }}-${{ runner.os }}-${{ steps.cpu.outputs.model }}
+        id: cwist-cache
+
+      - name: Build and install cwist
+        if: steps.cwist-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          for i in 1 2 3; do
+            git clone --depth 1 --recursive --branch "$CWIST_REF" https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break
+            echo "cwist clone attempt $i failed, retrying..."
+            rm -rf /tmp/cwist
+            sleep 5
+          done
+          cd /tmp/cwist
+          sed -i 's|FIND_PATH(ZLIB_INCLUDE_DIR NAMES zlib.h)|SET(ZLIB_INCLUDE_DIR /usr/include)|' lib/lsquic/CMakeLists.txt
+          sed -i 's|FIND_LIBRARY(ZLIB_LIB libz${LIB_SUFFIX})|SET(ZLIB_LIB /usr/lib/libz.so)|' lib/lsquic/CMakeLists.txt
+          sed -i 's|option(sctp_werror "Treat warning as error" 1)|option(sctp_werror "Treat warning as error" 0)|' lib/usrsctp/CMakeLists.txt
+          sed -i 's|-DSQLITE_ENABLE_DESERIALIZE|-DSQLITE_ENABLE_DESERIALIZE -DSQLITE_ENABLE_FTS5|' Makefile
+          make -j"$(nproc)"
+          make install
+          rm -rf /tmp/cwist
+
+      - name: Rebuild libttak against this toolchain
+        run: |
+          if [ -f third_party/libttak/Makefile ]; then make -C third_party/libttak clean || true; fi
+          rm -f third_party/libttak/lib/libttak.a
+        env:
+          EXTRA_CFLAGS: -I${{ github.workspace }}/third_party/libttak/include
+
+        # -O1 keeps TSan's slowdown bearable while preserving stack traces.
+        # cwist is linked with LTO, so it is instrumented at this link too.
+      - name: Build fly_board with TSan + UBSan
+        run: make deps && make -j"$(nproc)"
+        env:
+          EXTRA_CFLAGS: >-
+            -I${{ github.workspace }}/third_party/libttak/include
+            -fsanitize=thread -fsanitize=undefined -fno-omit-frame-pointer -O1 -g
+
+        # Runner kernels use high mmap ASLR entropy that older TSan runtimes
+        # cannot map around; run with randomization disabled.
+      - name: Run TSan/UBSan stress test
+        run: setarch "$(uname -m)" -R ./tools/asan_leak_stress.sh
+        env:
+          SANITIZER: tsan
+          ASAN_STRESS_REQUESTS: 1500
+          ASAN_STRESS_CONCURRENCY: 16
+          ASAN_STRESS_SHUTDOWN_TIMEOUT: 60
+
+      - name: Upload server log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tsan-server-log
           path: /tmp/flyboard_asan.*/server.log
           if-no-files-found: ignore
 

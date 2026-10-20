@@ -11,7 +11,15 @@
 #
 # Expects an ASan-instrumented ./fly_board binary in the repo root (build
 # with e.g. `make EXTRA_CFLAGS="-fsanitize=address -fno-omit-frame-pointer -O0 -g"`).
+#
+# SANITIZER=tsan runs the same load against a ThreadSanitizer + UBSan build
+# (`-fsanitize=thread -fsanitize=undefined`) and fails on any data-race
+# warning or UB runtime error instead. TSan cannot follow fork() from a
+# multi-threaded process, so that mode serves from a single process
+# (CWIST_WORKERS=1).
 set -u
+
+SANITIZER="${SANITIZER:-asan}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PORT="${ASAN_STRESS_PORT:-18089}"
@@ -61,6 +69,46 @@ cd "$TMP" || exit 1
 # (24-byte process-lifetime singletons); see the file for details.
 export ASAN_OPTIONS="detect_leaks=1:abort_on_error=0:exitcode=1:${ASAN_OPTIONS:-}"
 export LSAN_OPTIONS="suppressions=$ROOT/tools/lsan_suppressions.txt:${LSAN_OPTIONS:-}"
+# UBSan keeps running after a report so one run collects every finding; the
+# log grep below turns any of them into a failure.
+export UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=0:${UBSAN_OPTIONS:-}"
+REPORT_RE="ERROR: (Leak|Address)Sanitizer|SUMMARY: AddressSanitizer|runtime error:"
+if [ "$SANITIZER" = "tsan" ]; then
+    # exitcode=0: races are judged by tsan_owned_races below, not by the
+    # exit status, so a dependency-only report does not fail the run.
+    export TSAN_OPTIONS="halt_on_error=0:exitcode=0:second_deadlock_stack=1:${TSAN_OPTIONS:-}"
+    export CWIST_WORKERS=1
+    REPORT_RE="runtime error:"
+fi
+
+# cwist and libttak are built with LTO, so linking with -fsanitize=thread
+# instruments them too and TSan reports their internal races as well. Those
+# belong to the cwist repository. Each report is classified by the first
+# frame of both conflicting access stacks that is not a libc/sanitizer
+# interceptor: "owned" when both are fly.board code (src/) - those fail the
+# gate - and "mixed" when one side is cwist, which so far is always the
+# response handed to the reactor by cwist_async_respond_with() and freed
+# there; mixed and dependency-only reports are listed but do not gate.
+# Prints "<owned> <mixed>".
+tsan_classify_races() {
+    awk '
+        /^WARNING: ThreadSanitizer/ { inrep = 1; ours = 0; sides = 0; want = 0; next }
+        inrep && /^  (Previous )?(atomic )?([Ww]rite|[Rr]ead)/ { want = 1; next }
+        inrep && want && /^    #[0-9]+ / {
+            if ($0 ~ /libsanitizer|\/usr\/(lib|include)\//) next
+            sides++
+            if ($3 ~ /^src\//) ours++
+            want = 0
+            next
+        }
+        inrep && /^SUMMARY: ThreadSanitizer/ {
+            if (ours == 2) owned++
+            else if (ours == 1) mixed++
+            inrep = 0
+        }
+        END { print owned + 0, mixed + 0 }
+    ' server.log
+}
 
 setsid "$ROOT/fly_board" > server.log 2>&1 &
 PID=$!
@@ -137,9 +185,24 @@ if [ "$STATUS" -ne 0 ]; then
     exit 1
 fi
 
-if grep -qE "ERROR: (Leak|Address)Sanitizer|SUMMARY: AddressSanitizer" server.log; then
-    echo "asan-stress: FAIL - AddressSanitizer/LeakSanitizer reported an issue (see log above)" >&2
+if [ "$SANITIZER" = "tsan" ]; then
+    total=$(grep -c "^SUMMARY: ThreadSanitizer" server.log)
+    read -r owned mixed < <(tsan_classify_races)
+    echo "asan-stress: TSan reports: $total total, $owned in fly.board code," \
+         "$mixed fly.board/cwist handoff, $((total - owned - mixed)) inside cwist/libttak"
+    if [ "$total" -gt "$owned" ]; then
+        echo "asan-stress: dependency race locations (not gating):"
+        grep "^SUMMARY: ThreadSanitizer" server.log | sed -E 's/ \(.*//' | sort | uniq -c | sort -rn | head -20
+    fi
+    if [ "$owned" -gt 0 ]; then
+        echo "asan-stress: FAIL - ThreadSanitizer reported $owned race(s) in fly.board code" >&2
+        exit 1
+    fi
+fi
+
+if grep -qE "$REPORT_RE" server.log; then
+    echo "asan-stress: FAIL - $SANITIZER/UBSan reported an issue (see log above)" >&2
     exit 1
 fi
 
-echo "asan-stress: PASS - clean shutdown, no ASan/LSan reports"
+echo "asan-stress: PASS - clean shutdown, no $SANITIZER/UBSan reports"
