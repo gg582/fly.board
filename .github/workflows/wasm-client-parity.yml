@@ -4,9 +4,9 @@ name: wasm-client-parity
 # operator normalisation and word metrics, post-translate language detection,
 # tag-map hit testing) run in CWIST WASM kernels. The pure-JS originals are
 # kept under tests/js_baseline/ and are never served; this workflow proves the
-# shipped WASM-backed scripts behave 1:1 with them and that every committed
-# generated artifact (inlined client_core.wasm, served .min.js) is in sync
-# with its source.
+# shipped WASM-backed scripts behave 1:1 with them, both as committed (the
+# generated scripts and served .min.js must be in sync) and when the WASM is
+# rebuilt from the C source.
 
 on:
   push:
@@ -43,8 +43,11 @@ jobs:
           tar -xzf wasi-sdk.tar.gz -C "$RUNNER_TEMP/wasi-sdk" --strip-components=1
           rm wasi-sdk.tar.gz
 
-      - name: Rebuild client_core.wasm and regenerate shipped scripts
-        run: make wasm-client-core WASI_SDK="$RUNNER_TEMP/wasi-sdk"
+      # 1) The committed (served) artifacts: regenerate the scripts around the
+      #    WASM already inlined in the commit, re-minify, require no diff,
+      #    then test exactly those files.
+      - name: Regenerate shipped scripts from the committed WASM
+        run: python3 tools/build_client_core_js.py --reuse-shipped
 
       - name: Re-minify the served scripts
         run: |
@@ -55,5 +58,14 @@ jobs:
       - name: Generated artifacts must match the commit
         run: git diff --exit-code -- public/js
 
-      - name: Parity and behaviour tests
+      - name: Parity tests (committed artifacts)
+        run: make wasm-client-core-test
+
+      # 2) The C source: rebuild client_core.wasm with this host's wasi-sdk
+      #    and run the same parity tests against it. wasm-ld output is not
+      #    byte-identical across hosts, so this is behavioural, not a diff.
+      - name: Rebuild client_core.wasm from source
+        run: make wasm-client-core WASI_SDK="$RUNNER_TEMP/wasi-sdk"
+
+      - name: Parity tests (WASM rebuilt from source)
         run: make wasm-client-core-test
