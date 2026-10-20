@@ -553,7 +553,11 @@ static bool build_image_preview_variant(cwist_http_request *req, cJSON *file,
         }
         snprintf(path, path_len, "%s", webp_path);
     } else {
-        if (thumb_path[0] && strncmp(thumb_path, "public/uploads/.thumbs/", 23) == 0 && thumb_is_webp) {
+        /* A FlyWire replica receives the row (with the primary's thumb_path)
+         * but only the original's bytes, so the recorded thumbnail may be
+         * missing locally; regenerate it below instead of serving a 404. */
+        if (thumb_path[0] && strncmp(thumb_path, "public/uploads/.thumbs/", 23) == 0 && thumb_is_webp &&
+            stat(thumb_path, &(struct stat){0}) == 0) {
             snprintf(path, path_len, "%s", thumb_path);
         } else {
             char webp_path[PATH_MAX];
