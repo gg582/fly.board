@@ -321,7 +321,12 @@ setup:
 
 # Markdown renderer regression tests.
 RENDER_TEST_SRCS := tests/stubs/g_config.c src/render/render_md.c src/utils/image_size.c src/utils/stb_image_impl.c
-RENDER_TESTS := tests/test_render_md_video tests/test_render_md_blocks tests/test_render_md_iframe tests/test_render_md_tikz
+RENDER_TESTS := tests/test_render_md_video tests/test_render_md_blocks tests/test_render_md_iframe tests/test_render_md_tikz \
+                tests/test_render_theme
+THEME_TEST_OBJS := src/render/theme/theme.o src/render/theme/json.o src/render/theme/css.o src/render/theme/rules.o
+
+tests/test_render_theme: tests/test_render_theme.c tests/stubs/render_test_stubs.c $(THEME_TEST_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 tests/test_render_%: tests/test_render_%.c $(RENDER_TEST_SRCS) $(MD4C_OBJS)
 	$(CC) $(CFLAGS) -Ithird_party/stb -o $@ $^ $(LDFLAGS) $(LIBS)

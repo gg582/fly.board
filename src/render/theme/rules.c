@@ -70,13 +70,23 @@ static const char *radius_str(float base) {
     return buf;
 }
 
+/* t must be one of the shared palettes (light, dark, ...), not a copy: the
+ * wallpaper choice below tells the light family from the dark one by pointer
+ * identity, and a copy made every theme pick the dark wallpaper (black page
+ * behind dark text). Sepia is light-based, as in is_dark() and layout.js. */
 void rule_root(cJSON *vars, theme_color_t *t) {
+    bool light_family = (t == &light || t == &sepia);
+    /* The configured accent overrides every palette's accent and accent2.
+     * Applied here, at read time: writing it into the shared palettes on each
+     * render raced with other request workers reading them (caught by TSan). */
+    const char *accent = g_config.accent[0] ? g_config.accent : t->accent;
+    const char *accent2 = g_config.accent[0] ? g_config.accent : t->accent2;
     cJSON_AddStringToObject(vars, "--bg", t->bg);
     cJSON_AddStringToObject(vars, "--fg", t->fg);
     cJSON_AddStringToObject(vars, "--muted", t->muted);
     cJSON_AddStringToObject(vars, "--panel", t->panel);
-    cJSON_AddStringToObject(vars, "--accent", t->accent);
-    cJSON_AddStringToObject(vars, "--accent2", t->accent2);
+    cJSON_AddStringToObject(vars, "--accent", accent);
+    cJSON_AddStringToObject(vars, "--accent2", accent2);
     cJSON_AddStringToObject(vars, "--accent-high", "color-mix(in srgb, var(--accent) 100%, black 0%)");
     cJSON_AddStringToObject(vars, "--accent-medium", "color-mix(in srgb, var(--accent) 85%, var(--fg) 15%)");
     cJSON_AddStringToObject(vars, "--accent-low", "color-mix(in srgb, var(--accent) 70%, var(--muted) 30%)");
@@ -99,7 +109,7 @@ void rule_root(cJSON *vars, theme_color_t *t) {
          * configured one.  Without the opt-in, keep the historical behavior
          * of no cross-mode fallback. */
         config_resolve_bg(g_config.bg_full_light, g_config.bg_full_dark, "toplevel",
-                          t != &light, &background_filename, &background_invert);
+                          !light_family, &background_filename, &background_invert);
         if (background_invert) {
             /* Prefer the precomputed inverted variant; keep the CSS filter
              * only as the fallback when no variant was built. */
@@ -110,7 +120,7 @@ void rule_root(cJSON *vars, theme_color_t *t) {
             }
         }
     } else {
-        background_filename = (t == &light) ? g_config.bg_full_light : g_config.bg_full_dark;
+        background_filename = light_family ? g_config.bg_full_light : g_config.bg_full_dark;
     }
     char background_url[1024];
     char background_image[1040];

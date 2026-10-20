@@ -32,6 +32,7 @@ tests/test_render_md_video
 tests/test_render_md_blocks
 tests/test_render_md_iframe
 tests/test_render_md_tikz
+tests/test_render_theme
 tests/render_file
 third_party/md4c/
 
