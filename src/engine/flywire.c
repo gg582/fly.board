@@ -868,16 +868,31 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, flywire_feed_write);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    /* A stalled primary used to pin this loop for the full 30 s per poll.
+     * Fail fast on connect, and abort a response that stops flowing, while
+     * still letting a large catch-up batch take as long as it keeps moving. */
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 10L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
     CURLcode rc = curl_easy_perform(curl);
     long status = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    /* Per-phase timings tell a network/accept stall (no connect or TLS)
+     * apart from a primary that accepted but never answered (no first byte). */
+    double t_conn = 0, t_tls = 0, t_first = 0, t_total = 0;
+    curl_easy_getinfo(curl, CURLINFO_CONNECT_TIME, &t_conn);
+    curl_easy_getinfo(curl, CURLINFO_APPCONNECT_TIME, &t_tls);
+    curl_easy_getinfo(curl, CURLINFO_STARTTRANSFER_TIME, &t_first);
+    curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &t_total);
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     if (rc != CURLE_OK || status != 200) {
         free(buf.data);
-        CWIST_LOG_WARN("flywire: feed fetch failed (curl=%d http=%ld); retrying", (int)rc, status);
+        CWIST_LOG_WARN("flywire: feed fetch failed (curl=%d %s http=%ld connect=%.2fs tls=%.2fs "
+                       "first_byte=%.2fs total=%.2fs); retrying",
+                       (int)rc, curl_easy_strerror(rc), status, t_conn, t_tls, t_first, t_total);
         return -1;
     }
 
