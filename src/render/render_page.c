@@ -1086,7 +1086,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                 if (g_config.use_tasfa && body_html &&
                     (strstr(body_html, "data-tasfa") || strstr(body_html, "editor.js"))) {
                     cwist_sstring_append(body_app,
-                        "<script src=\"/assets/js/tasfa-download.js?v=media-cache-v2\" defer></script>");
+                        "<script src=\"/assets/js/tasfa-download.js?v=media-cache-v2-wasm1\" defer></script>");
                 }
 
                 cwist_sstring *doc2 = cwist_sstring_create();

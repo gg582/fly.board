@@ -56,8 +56,12 @@ function page(text, fetchImpl) {
         window: { fetch: true },
         Node: { ELEMENT_NODE: 1 },
         AbortController,
-        // Do not wait for UI message/timeout timers in unit tests.
-        setTimeout: () => 1,
+        // Do not wait for UI message/timeout timers in unit tests, but let the
+        // retry backoff (a bare Promise resolver) settle immediately.
+        setTimeout: (fn) => {
+            if (/\[native code\]/.test(Function.prototype.toString.call(fn))) queueMicrotask(fn);
+            return 1;
+        },
         clearTimeout: () => {},
         console: { warn: () => {}, error: () => {} },
         fetch: async (url, options) => {

@@ -321,4 +321,31 @@ static inline void fb_tagmap_compute_hops(fb_tagmap_state_t *st, int focus_idx) 
     }
 }
 
+static inline int fb_tagmap_hit_test_node(const fb_tagmap_state_t *st,
+                                          double sx, double sy,
+                                          double cam_x, double cam_y, double cam_z,
+                                          double view_w, double view_h) {
+    int n = st->n_nodes;
+    if (n <= 0) return -1;
+    int best_idx = -1;
+    double best_dist = 1e30;
+    double z_scale = pow(cam_z, 0.65);
+    for (int i = 0; i < n; i++) {
+        double nx = (st->node_x[i] - cam_x) * cam_z + view_w * 0.5;
+        double ny = (st->node_y[i] - cam_y) * cam_z + view_h * 0.5;
+        double raw_r = st->node_r[i] * z_scale;
+        if (raw_r > 28.0) raw_r = 28.0;
+        double nr = raw_r + 5.0;
+        if (nr < 8.0) nr = 8.0;
+        double dx = sx - nx;
+        double dy = sy - ny;
+        double d = sqrt(dx * dx + dy * dy);
+        if (d <= nr && d < best_dist) {
+            best_dist = d;
+            best_idx = i;
+        }
+    }
+    return best_idx;
+}
+
 #endif /* FLYBOARD_TAG_LAYOUT_CORE_H */
