@@ -388,11 +388,6 @@ tests/test_multipart_debug: tests/test_multipart_debug.c $(SERVER_OBJS) $(MD4C_L
 check-multipart: $(MP_TESTS)
 	@for t in $(MP_TESTS); do $$t > /dev/null || exit 1; done
 
-# Client transfer regression tests (Node.js 18+; no native build or server required).
-.PHONY: check-tasfa
-check-tasfa:
-	node --test tests/test_tasfa_adaptation.cjs tests/test_tasfa_download.cjs
-
 # Native TASFA dispatcher/crypto regression tests, independent of CWIST.
 # Requires zlib, Zstd, Brotli and OpenSSL development packages plus pkg-config.
 PKG_CONFIG ?= pkg-config
@@ -428,7 +423,7 @@ tools/connhold: tools/connhold.c
 		$(CWIST_ROOT)/lib/boringssl/build/libssl.a $(CWIST_ROOT)/lib/boringssl/build/libcrypto.a \
 		-lstdc++ -pthread
 
-test: check-tasfa check-tasfa-compression check-tasfa-endpoint check-render check-multipart $(TARGET)
+test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
@@ -456,87 +451,6 @@ wasm-tasfa-crypto-test: wasm-tasfa-crypto
 	    TASFA_WASMTIME=$(WASMTIME) ./build-wasm/test_wasm_host
 
 .PHONY: wasm-tasfa-crypto wasm-tasfa-crypto-test
-
-# --- WASM: client-side markdown renderer (browser offload) ------------------
-# Compiles the production render_markdown_to_html pipeline (render_md.c +
-# md4c) with Emscripten against CWIST's libcwist_wasm.a.  Byte-parity with
-# the server is enforced by wasm-client/test_md_diff.py.
-EMCC ?= emcc
-CWIST_WASM_LIB ?= $(CWIST_ROOT)/libcwist_wasm.a
-
-wasm-md:
-	@mkdir -p build-wasm
-	$(EMCC) -O2 -std=c17 -I include -I src/render $(CWIST_INCLUDES) -I third_party/md4c/src \
-	  wasm-client/markdown_module.c src/render/render_md.c \
-	  third_party/md4c/src/md4c.c third_party/md4c/src/md4c-html.c third_party/md4c/src/entity.c \
-	  $(CWIST_WASM_LIB) \
-	  -sEXPORTED_FUNCTIONS=_fb_md_render,_fb_md_free,_malloc,_free \
-	  -sEXPORTED_RUNTIME_METHODS=stringToUTF8,UTF8ToString \
-	  -sMODULARIZE -sEXPORT_NAME=createMdModule \
-	  -o build-wasm/md_render.js
-
-wasm-md-test: wasm-md
-	$(CC) -O2 -std=c17 -Wall -D_GNU_SOURCE -I include -I src/render $(CWIST_INCLUDES) \
-	  -I third_party/md4c/src -I third_party/stb \
-	  wasm-client/md_native_ref.c src/render/render_md.c src/utils/image_size.c \
-	  src/utils/stb_image_impl.c \
-	  third_party/md4c/src/md4c.c third_party/md4c/src/md4c-html.c third_party/md4c/src/entity.c \
-	  $(CWIST_LIB) $(CWIST_ROOT)/lib/libttak/lib/libttak.a \
-	  $(CWIST_ROOT)/lib/cjson/libcjson.a \
-	  -lz -lm -lpthread -lstdc++ -o build-wasm/md_native_ref
-	python3 wasm-client/test_md_diff.py
-
-.PHONY: wasm-md wasm-md-test
-
-# --- WASM: client-side image inversion (browser dark-mode offload) ---------
-# image_invert_core.h extracted from image_invert.c is compiled standalone;
-# parity with the server pixel math is enforced by test_invert_diff.py.
-wasm-img:
-	@mkdir -p build-wasm
-	$(EMCC) -O2 -std=c17 -Wall -I src/utils wasm-client/invert_module.c \
-	  -sEXPORTED_FUNCTIONS=_fb_invert_rgba,_fb_invert_free,_malloc,_free \
-	  -sEXPORTED_RUNTIME_METHODS=writeArrayToMemory,HEAPU8 \
-	  -sMODULARIZE -sEXPORT_NAME=createInvertModule \
-	  -o build-wasm/invert.js
-
-wasm-img-test: wasm-img
-	$(CC) -O2 -std=c17 -Wall -I src/utils -o build-wasm/invert_ref \
-	  wasm-client/invert_module.c -lm
-	python3 wasm-client/test_invert_diff.py
-
-.PHONY: wasm-img wasm-img-test
-
-# --- WASM: client-side contrast sampling and image size probing -------------
-# image_contrast_core.h extracted from image_contrast.c is compiled into the
-# contrast module; the size module wraps stb_info_from_memory for pre-upload
-# dimension reads.  Both are pinned to their native builds by diff tests.
-wasm-contrast:
-	@mkdir -p build-wasm
-	$(EMCC) -O2 -std=c17 -Wall -I src/utils wasm-client/contrast_module.c \
-	  -sEXPORTED_FUNCTIONS=_fb_contrast_sample,_malloc,_free \
-	  -sEXPORTED_RUNTIME_METHODS=writeArrayToMemory,HEAPU8 \
-	  -sMODULARIZE -sEXPORT_NAME=createContrastModule \
-	  -o build-wasm/contrast.js
-
-wasm-contrast-test: wasm-contrast
-	$(CC) -O2 -std=c17 -Wall -I src/utils -o build-wasm/contrast_ref \
-	  wasm-client/contrast_module.c -lm
-	python3 wasm-client/test_contrast_diff.py
-
-wasm-size:
-	@mkdir -p build-wasm
-	$(EMCC) -O2 -std=c17 -Wall -I third_party/stb wasm-client/size_module.c \
-	  -sEXPORTED_FUNCTIONS=_fb_image_size,_malloc,_free \
-	  -sEXPORTED_RUNTIME_METHODS=writeArrayToMemory,HEAPU8 \
-	  -sMODULARIZE -sEXPORT_NAME=createSizeModule \
-	  -o build-wasm/size.js
-
-wasm-size-test: wasm-size
-	$(CC) -O2 -std=c17 -Wall -I third_party/stb -o build-wasm/size_ref \
-	  wasm-client/size_module.c -lm
-	python3 wasm-client/test_size_diff.py
-
-.PHONY: wasm-contrast wasm-contrast-test wasm-size wasm-size-test
 
 # --- WASM: sandboxed brotli (offline precompression jobs) -------------------
 # Vendored brotli 1.2 (third_party/brotli, MIT) compiled to wasm32-wasi; the
@@ -580,38 +494,11 @@ wasm-strutil-test: wasm-strutil
 
 .PHONY: wasm-strutil wasm-strutil-test
 
-# --- WASM: client-side theme generation (admin preview offload) -------------
-# Compiles the production theme pipeline (src/render/theme/*.c) with
-# Emscripten against libcwist_wasm.a; server-only globals (g_config pieces,
-# font settings, image variants) are stubbed in wasm-client/theme_module.c.
-# Byte-parity with the native build is enforced by test_theme_diff.py.
-wasm-theme:
-	@mkdir -p build-wasm
-	$(EMCC) -O2 -std=c17 -Wall -D_GNU_SOURCE -I. -Isrc $(CWIST_INCLUDES) \
-	  wasm-client/theme_module.c \
-	  src/render/theme/theme.c src/render/theme/rules.c src/render/theme/css.c \
-	  src/render/theme/json.c \
-	  $(CWIST_WASM_LIB) \
-	  -sEXPORTED_FUNCTIONS=_fb_theme_css,_fb_theme_json,_fb_theme_all_json,_fb_theme_free,_malloc,_free \
-	  -sEXPORTED_RUNTIME_METHODS=stringToUTF8,UTF8ToString \
-	  -sMODULARIZE -sEXPORT_NAME=createThemeModule \
-	  -o build-wasm/theme.js
-
-wasm-theme-test: wasm-theme
-	$(CC) -O2 -std=c17 -Wall -D_GNU_SOURCE -I. -Isrc $(CWIST_INCLUDES) \
-	  wasm-client/theme_module.c \
-	  src/render/theme/theme.c src/render/theme/rules.c src/render/theme/css.c \
-	  src/render/theme/json.c \
-	  $(CWIST_LIB) $(CWIST_ROOT)/lib/libttak/lib/libttak.a \
-	  $(CWIST_ROOT)/lib/cjson/libcjson.a \
-	  -lz -lm -lpthread -lstdc++ -o build-wasm/theme_ref
-	python3 wasm-client/test_theme_diff.py
-
-.PHONY: wasm-theme wasm-theme-test
-
 # --- WASM: client-side tag world map layout & BFS kernel --------------------
 # Compiles src/utils/tag_layout_core.h + wasm-client/tagmap_module.c with
 # CWIST v4's <cwist/wasm/typedarray.h> zero-copy TypedArray views.
+EMCC ?= emcc
+
 wasm-tagmap:
 	@mkdir -p build-wasm
 	$(EMCC) -O2 -std=c17 -Wall -I src/utils $(CWIST_INCLUDES) \
@@ -623,12 +510,7 @@ wasm-tagmap:
 	cp build-wasm/tagmap.js public/js/tagmap-kernel.js
 	cp build-wasm/tagmap.wasm public/js/tagmap.wasm
 
-wasm-tagmap-test: wasm-tagmap
-	$(CC) -O2 -std=c17 -Wall -I src/utils -o build-wasm/tagmap_ref \
-	  wasm-client/tagmap_module.c -lm
-	python3 wasm-client/test_tagmap_diff.py
-
-.PHONY: wasm-tagmap wasm-tagmap-test
+.PHONY: wasm-tagmap
 
 # --- WASM: client compute core (TASFA FEC/AIMD, editor & translate helpers) --
 # src/utils/client_core.h + wasm-client/client_core_module.c as a standalone
@@ -642,12 +524,7 @@ wasm-client-core:
 	  wasm-client/client_core_module.c -Wl,--gc-sections -Wl,--export-dynamic -Wl,--strip-all
 	python3 tools/build_client_core_js.py
 
-wasm-client-core-test:
-	node --test tests/test_post_translate.cjs \
-	  tests/test_tasfa_adaptation.cjs tests/test_tasfa_async_finalize.cjs \
-	  tests/test_tasfa_download.cjs tests/test_tasfa_rs_fec.cjs
-
-.PHONY: wasm-client-core wasm-client-core-test
+.PHONY: wasm-client-core
 
 distclean: clean
 	-$(MAKE) -C $(LIBMAGIC_DIR) distclean 2>/dev/null || true

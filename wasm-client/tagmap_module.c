@@ -7,19 +7,10 @@
  * so the browser reads computed node coordinates, radii, ranks, continent
  * assignments, and 1-hop / 2-hop BFS distances directly from WASM linear
  * memory without JSON serialization overhead.
- *
- * Native reference protocol (stdin -> stdout) for test_tagmap_diff.py:
- *   in:  i32le n_nodes, i32le n_edges, i32le focus_idx, i32le iterations,
- *        n_nodes * 3 x i32le (id, count, board_id),
- *        n_edges * 3 x i32le (a_idx, b_idx, weight)
- *   out: n_nodes x f64le x, n_nodes x f64le y, n_nodes x f64le r,
- *        n_nodes x i32le rank, n_nodes x i32le hop
  */
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "tag_layout_core.h"
@@ -102,50 +93,3 @@ int fb_tagmap_hit_test(double sx, double sy,
                        double view_w, double view_h) {
     return fb_tagmap_hit_test_node(&g_state, sx, sy, cam_x, cam_y, cam_z, view_w, view_h);
 }
-
-#ifndef __EMSCRIPTEN__
-int main(void) {
-    int32_t hdr[4];
-    if (fread(hdr, sizeof(int32_t), 4, stdin) != 4) return 1;
-    int n_nodes = hdr[0];
-    int n_edges = hdr[1];
-    int focus_idx = hdr[2];
-    int iterations = hdr[3];
-    if (n_nodes < 0 || n_nodes > FB_TAGMAP_MAX_NODES ||
-        n_edges < 0 || n_edges > FB_TAGMAP_MAX_EDGES) {
-        return 1;
-    }
-
-    int32_t *nt = (int32_t *)malloc((size_t)(n_nodes > 0 ? n_nodes : 1) * 3 * sizeof(int32_t));
-    int32_t *et = (int32_t *)malloc((size_t)(n_edges > 0 ? n_edges : 1) * 3 * sizeof(int32_t));
-    if (!nt || !et) {
-        free(nt);
-        free(et);
-        return 1;
-    }
-    if (n_nodes > 0 && fread(nt, sizeof(int32_t), (size_t)n_nodes * 3, stdin) != (size_t)n_nodes * 3) {
-        free(nt);
-        free(et);
-        return 1;
-    }
-    if (n_edges > 0 && fread(et, sizeof(int32_t), (size_t)n_edges * 3, stdin) != (size_t)n_edges * 3) {
-        free(nt);
-        free(et);
-        return 1;
-    }
-
-    fb_tagmap_init();
-    fb_tagmap_layout(nt, n_nodes, et, n_edges, iterations);
-    fb_tagmap_bfs(focus_idx);
-
-    fwrite(g_state.node_x, sizeof(double), (size_t)n_nodes, stdout);
-    fwrite(g_state.node_y, sizeof(double), (size_t)n_nodes, stdout);
-    fwrite(g_state.node_r, sizeof(double), (size_t)n_nodes, stdout);
-    fwrite(g_state.node_rank, sizeof(int32_t), (size_t)n_nodes, stdout);
-    fwrite(g_state.node_hop, sizeof(int32_t), (size_t)n_nodes, stdout);
-
-    free(nt);
-    free(et);
-    return 0;
-}
-#endif

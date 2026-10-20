@@ -3,9 +3,8 @@
  * @brief Deterministic continent-seeded force-directed tag graph layout and
  *        1-hop / 2-hop neighborhood BFS kernel.
  *
- * Shared by the Emscripten browser module (wasm-client/tagmap_module.c,
- * exposing zero-copy TypedArray views via CWIST v4's <cwist/wasm/typedarray.h>)
- * and the native reference driver used by wasm-client/test_tagmap_diff.py.
+ * Compiled into the Emscripten browser module (wasm-client/tagmap_module.c,
+ * exposing zero-copy TypedArray views via CWIST v4's <cwist/wasm/typedarray.h>).
  */
 
 #ifndef FLYBOARD_TAG_LAYOUT_CORE_H
