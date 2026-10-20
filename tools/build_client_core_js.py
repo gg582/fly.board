@@ -1016,11 +1016,26 @@ def patch_post_translate_js(loader):
     print(f"Patched {dst_path}")
 
 
+def shipped_wasm_b64():
+    """The client_core.wasm currently inlined in public/js/editor.js."""
+    with open(os.path.join(ROOT, "public", "js", "editor.js"), "r", encoding="utf-8") as fp:
+        m = re.search(r"var b64 = '([A-Za-z0-9+/=]+)';", fp.read())
+    if not m:
+        sys.exit("No inlined client_core.wasm in public/js/editor.js")
+    return m.group(1)
+
+
 def main():
-    if not os.path.exists(WASM_PATH):
-        sys.exit(f"Missing {WASM_PATH}")
-    with open(WASM_PATH, "rb") as fp:
-        b64 = base64.b64encode(fp.read()).decode("ascii")
+    # --reuse-shipped regenerates the scripts around the WASM already inlined
+    # in the commit.  CI uses it to check the scripts are in sync without
+    # needing a byte-identical toolchain build (wasm-ld output varies by host).
+    if "--reuse-shipped" in sys.argv[1:]:
+        b64 = shipped_wasm_b64()
+    else:
+        if not os.path.exists(WASM_PATH):
+            sys.exit(f"Missing {WASM_PATH}")
+        with open(WASM_PATH, "rb") as fp:
+            b64 = base64.b64encode(fp.read()).decode("ascii")
     loader = make_inline_loader_js(b64)
     patch_editor_js(loader)
     patch_tasfa_download_js(loader)
