@@ -232,6 +232,7 @@ SRCS := src/main.c \
         src/utils/image_invert.c \
         src/utils/media_preview.c \
         src/utils/cert_renewal.c \
+        src/utils/self_probe.c \
         src/utils/email.c \
         src/utils/s3_client.c \
         src/utils/font_fetch.c \

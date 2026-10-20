@@ -30,6 +30,7 @@
 #include "utils/image_inline.h"
 #include "utils/image_invert.h"
 #include "utils/cert_renewal.h"
+#include "utils/self_probe.h"
 #include <cwist/net/http/http3.h>
 #include <openssl/ssl.h>
 #include <cwist/sys/app/app.h>
@@ -628,8 +629,12 @@ int main(int argc, char **argv) {
             printf("Docker Blog: http://localhost:%d\n", g_config.port);
         }
     }
+    /* Before listen so the probe thread lives in the supervisor only. */
+    self_probe_start(g_config.port, g_config.use_tls);
     install_shutdown_signal_handlers();
     int rc = cwist_app_listen(app, g_config.port);
+    self_probe_stop();
+    self_probe_join();
     flywire_stop();
     cert_renewal_stop();
     cert_renewal_join();
