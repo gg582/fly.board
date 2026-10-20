@@ -392,6 +392,8 @@ static void maybe_trim_heap(void) {
 
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
     atomic_fetch_add_explicit(&g_active_requests, 1, memory_order_relaxed);
+    /* Start this process's NATS connection on its first request (post-fork). */
+    fly_nats_ensure();
     /* Keep-alive is enabled. The CWIST framework patch fixes the bug that
      * stripped Cookie headers on reused connections, so sessions stay valid
      * across connection reuse. */

@@ -4,12 +4,21 @@
 #include <stdbool.h>
 
 /**
- * @brief Initialize flyboard NATS subsystem.
- * Connects to NATS server and subscribes to flyboard.posts.
+ * @brief Configure the flyboard NATS subsystem (no connection yet).
+ * Each serving process connects on its own, after cwist forks the workers,
+ * from a thread started by fly_nats_ensure(); see fly_nats.c.
  * @param url NATS server URL (e.g., "nats://localhost:4222").
- * @return true on success.
+ * @return true.
  */
 bool fly_nats_init(const char *url);
+
+/**
+ * @brief Start this process's NATS thread if it is not running yet.
+ * Call from the request path: the first request a process serves marks it as
+ * serving (always after the fork) and starts its connection + subscriptions.
+ * Cheap after the first call. No-op when NATS is not configured.
+ */
+void fly_nats_ensure(void);
 
 /**
  * @brief Publish post metadata to flyboard.posts subject.
@@ -18,7 +27,8 @@ bool fly_nats_init(const char *url);
  * @param title   Post title.
  * @param slug    Post slug.
  * @param summary Post summary.
- * @return true on success.
+ * Queued for this process's NATS thread; never blocks on the network.
+ * @return true when queued.
  */
 bool fly_nats_publish_post(const char *title, const char *slug, const char *summary);
 
@@ -32,15 +42,10 @@ bool fly_nats_publish_post(const char *title, const char *slug, const char *summ
  * @param post_slug         Slug of the target post, "" when unknown/file target.
  * @param recipient_user_id Local user id of the notification recipient.
  * @param excerpt           Short excerpt of the comment content.
- * @return true on success.
+ * Queued like fly_nats_publish_post().
+ * @return true when queued.
  */
 bool fly_nats_publish_comment(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt);
-
-/**
- * @brief Dispatch incoming NATS messages.
- * Call this in a background thread.
- */
-void fly_nats_dispatch(void);
 
 /**
  * @brief Shutdown NATS subsystem.
