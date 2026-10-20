@@ -110,30 +110,25 @@ void rule_markdown(cJSON *rules);
 void rule_animations(cJSON *rules);
 void rule_media(cJSON *rules);
 
-void apply_config_accents() {
+/* The configured accent overrides every palette's accent and accent2.  It is
+ * applied to a per-call copy: writing it into the shared palettes on each
+ * render raced with request workers reading them (caught by TSan). */
+static theme_color_t with_config_accent(const theme_color_t *t) {
+    theme_color_t out = *t;
     if (g_config.accent[0] != '\0') {
-        light.accent = g_config.accent;
-        dark.accent = g_config.accent;
-        ocean.accent = g_config.accent;
-        forest.accent = g_config.accent;
-        sepia.accent = g_config.accent;
-
-        /* For simplicity, we just reuse the accent color for accent2 as well if not doing complex logic */
-        light.accent2 = g_config.accent;
-        dark.accent2 = g_config.accent;
-        ocean.accent2 = g_config.accent;
-        forest.accent2 = g_config.accent;
-        sepia.accent2 = g_config.accent;
+        out.accent = g_config.accent;
+        out.accent2 = g_config.accent;
     }
+    return out;
 }
 
 cJSON *build_theme_object(const char *name, theme_color_t *t) {
-    apply_config_accents();
+    theme_color_t palette = with_config_accent(t);
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "name", name);
 
     cJSON *vars = cJSON_CreateObject();
-    rule_root(vars, t);
+    rule_root(vars, &palette);
     cJSON_AddItemToObject(root, "vars", vars);
 
     cJSON *rules = cJSON_CreateArray();
