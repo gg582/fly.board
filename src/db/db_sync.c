@@ -1,6 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 #include "db.h"
 #include "db_internal.h"
+#include "../config/config.h"
+#include "../engine/flywire.h"
 #include <cwist/core/log.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +29,14 @@
  * caller: errors are logged and swallowed. */
 bool db_sync_journal_conn(sqlite3 *conn, const char *entity, int entity_id, const char *op, const char *payload) {
     if (!conn || !entity || !op) return false;
+    /* In a failover cluster a replica's journal is a mirror of the primary's
+     * log under the primary's seqs (flywire_cluster.c); a row of its own would
+     * take a seq the primary is about to use. Its content writes are proxied
+     * to the primary anyway; what is left (e.g. regenerated preview paths) is
+     * local cache state. Before the cluster state is loaded at startup the
+     * role is unknown, so nothing is journaled either (e.g. the boot-time
+     * admin.settings row, which replicas never apply). */
+    if (flywire_cluster_configured() && (!flywire_cluster_ready() || flywire_is_replica())) return true;
     const char *sql = "INSERT INTO sync_journal (entity, entity_id, op, payload) VALUES (?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) {

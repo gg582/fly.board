@@ -509,6 +509,19 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
                          strncmp(path, "/board/", 7) == 0) && strstr(path, "/delete") != NULL;
     if (!mutating_get && strncmp(path, "/comment/", 9) == 0 && strstr(path, "/delete") != NULL)
         mutating_get = true;
+    if (flywire_write_fenced() &&
+        (req->method != CWIST_HTTP_GET || mutating_get) &&
+        req->method != CWIST_HTTP_HEAD &&
+        strncmp(path, "/flywire/", 9) != 0) {
+        /* Primary without a confirmed majority, or handing the role back:
+         * refuse writes rather than accept ones the cluster may drop. */
+        res->status_code = CWIST_HTTP_SERVICE_UNAVAILABLE;
+        cwist_sstring_assign(res->status_text, "Read-only during failover");
+        cwist_http_header_add(&res->headers, "Retry-After", "10");
+        cwist_sstring_assign(res->body, "The site is briefly read-only while FlyWire confirms or moves the primary role; try again shortly.");
+        maybe_trim_heap();
+        return;
+    }
     if (flywire_is_replica() &&
         (req->method != CWIST_HTTP_GET || mutating_get) &&
         req->method != CWIST_HTTP_HEAD &&

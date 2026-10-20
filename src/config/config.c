@@ -1,4 +1,5 @@
 #include "config.h"
+#include "../engine/flywire.h"
 #include <cwist/core/log.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -513,6 +514,8 @@ flywire_config_t g_flywire;
 bool flywire_config_load(const char *path) {
     memset(&g_flywire, 0, sizeof(g_flywire));
     g_flywire.poll_seconds = 2;
+    g_flywire.self_idx = -1;
+    g_flywire.failover_seconds = 20;
     FILE *f = fopen(path, "r");
     if (!f) {
         /* Optional file: write a commented template and run with FlyWire off. */
@@ -532,11 +535,29 @@ bool flywire_config_load(const char *path) {
             fprintf(f, "# auto_upgrade - \"1\" lets a replica run ./flywire-upgrade.sh\n");
             fprintf(f, "#        (git fetch/reset + build + service restart) when the\n");
             fprintf(f, "#        primary advertises a different version; default off\n");
+            fprintf(f, "#\n");
+            fprintf(f, "# Failover (optional, needs at least 3 sites for a majority):\n");
+            fprintf(f, "# nodes - comma-separated sites in failover priority order\n");
+            fprintf(f, "#        (IPs, or full base URLs), e.g.\n");
+            fprintf(f, "#        80.47.226.102,173.231.53.9,59.23.169.247\n");
+            fprintf(f, "# self - which nodes entry this site is\n");
+            fprintf(f, "# failover - \"priority\" (default: the first live site in\n");
+            fprintf(f, "#        nodes order takes over, and a higher-priority site\n");
+            fprintf(f, "#        takes the role back once it has caught up) or \"auto\"\n");
+            fprintf(f, "#        (the most up-to-date live site, then the fastest)\n");
+            fprintf(f, "# site_host - public hostname for TLS SNI/Host when nodes are\n");
+            fprintf(f, "#        IPs, e.g. oborona.zip\n");
+            fprintf(f, "# failover_seconds - primary silence before a takeover, default 20\n");
             fprintf(f, "mode=\n");
             fprintf(f, "primary_url=\n");
             fprintf(f, "token=\n");
             fprintf(f, "poll_seconds=2\n");
             fprintf(f, "auto_upgrade=\n");
+            fprintf(f, "nodes=\n");
+            fprintf(f, "self=\n");
+            fprintf(f, "failover=\n");
+            fprintf(f, "site_host=\n");
+            fprintf(f, "failover_seconds=\n");
             fclose(f);
         }
         return true;
@@ -559,9 +580,38 @@ bool flywire_config_load(const char *path) {
             g_flywire.poll_seconds = atoi(val);
         } else if (strcmp(key, "auto_upgrade") == 0) {
             g_flywire.auto_upgrade = (strcmp(val, "1") == 0);
+        } else if (strcmp(key, "nodes") == 0) {
+            char list[768];
+            snprintf(list, sizeof(list), "%s", val);
+            char *save = NULL;
+            for (char *tok = strtok_r(list, ", ", &save); tok && g_flywire.n_nodes < FLYWIRE_MAX_NODES;
+                 tok = strtok_r(NULL, ", ", &save)) {
+                size_t n = strlen(tok);
+                while (n > 0 && tok[n - 1] == '/') tok[--n] = '\0';
+                if (n) snprintf(g_flywire.nodes[g_flywire.n_nodes++], sizeof(g_flywire.nodes[0]), "%s", tok);
+            }
+        } else if (strcmp(key, "self") == 0) {
+            snprintf(g_flywire.self, sizeof(g_flywire.self), "%s", val);
+        } else if (strcmp(key, "failover") == 0) {
+            g_flywire.failover_auto = (strcmp(val, "auto") == 0);
+        } else if (strcmp(key, "site_host") == 0) {
+            snprintf(g_flywire.site_host, sizeof(g_flywire.site_host), "%s", val);
+        } else if (strcmp(key, "failover_seconds") == 0) {
+            if (atoi(val) > 0) g_flywire.failover_seconds = atoi(val);
         }
     }
     fclose(f);
+    {
+        size_t n = strlen(g_flywire.self);
+        while (n > 0 && g_flywire.self[n - 1] == '/') g_flywire.self[--n] = '\0';
+        for (int i = 0; i < g_flywire.n_nodes; i++) {
+            if (g_flywire.self[0] && strcmp(g_flywire.nodes[i], g_flywire.self) == 0) g_flywire.self_idx = i;
+        }
+        if (g_flywire.n_nodes > 0 && g_flywire.self_idx < 0) {
+            CWIST_LOG_WARN("FlyWire: self=%s is not in nodes=; failover disabled", g_flywire.self);
+        }
+        if (g_flywire.failover_seconds < 3) g_flywire.failover_seconds = 3;
+    }
     if (strcmp(g_flywire.mode, "primary") != 0 && strcmp(g_flywire.mode, "replica") != 0 &&
         g_flywire.mode[0]) {
         CWIST_LOG_WARN("Unknown flywire mode '%s', FlyWire disabled", g_flywire.mode);
@@ -576,11 +626,22 @@ const char *flywire_mode(void) {
     return g_flywire.mode;
 }
 
+bool flywire_cluster_configured(void) {
+    return g_flywire.n_nodes >= 2 && g_flywire.self_idx >= 0 && g_flywire.token[0];
+}
+
+/* In a failover cluster the role is runtime state shared by every worker
+ * process (flywire_cluster.c); otherwise it is the static mode= setting. */
 bool flywire_is_primary(void) {
+    if (flywire_cluster_configured()) return flywire_cluster_current_primary() == g_flywire.self_idx;
     return strcmp(g_flywire.mode, "primary") == 0 && g_flywire.token[0];
 }
 
 bool flywire_is_replica(void) {
+    if (flywire_cluster_configured()) {
+        int p = flywire_cluster_current_primary();
+        return p >= 0 && p != g_flywire.self_idx;
+    }
     return strcmp(g_flywire.mode, "replica") == 0 && g_flywire.primary_url[0] && g_flywire.token[0];
 }
 
@@ -589,6 +650,14 @@ const char *flywire_token(void) {
 }
 
 const char *flywire_primary_url(void) {
+    /* Public base URL of the site's primary. In a cluster with site_host the
+     * public name stays the same whichever node holds the role (requests are
+     * routed to the node with flywire_curl_target()). */
+    if (flywire_cluster_configured() && g_flywire.site_host[0]) {
+        static char url[300];
+        snprintf(url, sizeof(url), "https://%s", g_flywire.site_host);
+        return url;
+    }
     return g_flywire.primary_url;
 }
 

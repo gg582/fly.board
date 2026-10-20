@@ -245,6 +245,7 @@ SRCS := src/main.c \
         src/engine/nats.c \
         src/engine/db.c \
         src/engine/flywire.c \
+        src/engine/flywire_cluster.c \
         src/engine/forkgate.c \
         src/engine/settings.c \
         src/engine/routes.c \

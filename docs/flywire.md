@@ -115,3 +115,61 @@ For a one-shot operator view run:
 
 It prints the mode, site version, replica checkpoint seq and the lag to
 the primary's newest seq (exit 1 when the primary cannot be queried).
+
+## Failover cluster
+
+With three or more sites, FlyWire can move the primary role automatically.
+Add the same `nodes=` list and token to every site's `flywire.settings`, and
+name each site with `self=`:
+
+```
+token=<shared secret>
+nodes=80.47.226.102,173.231.53.9,59.23.169.247
+self=173.231.53.9
+site_host=oborona.zip
+failover=priority
+failover_seconds=20
+```
+
+- `nodes` - every site, in failover priority order. Entries are IPs/hosts
+  (requests go to `https://<site_host>` routed to that address, so the TLS
+  certificate and Host header stay the public ones and no `/etc/hosts` pin
+  is needed) or full base URLs (`http://127.0.0.1:18601`, for tests).
+- `self` - this site's `nodes` entry. A site behind NAT names its public
+  address here (it is how peers reach it).
+- `failover=priority` - the first live site in `nodes` order takes over, and
+  a higher-priority site takes the role back once it has caught up.
+  `failover=auto` - the live site holding the most of the log takes over
+  (ties: lowest mean RTT to its peers, then `nodes` order); no fail-back.
+- `failover_seconds` - how long the primary must be silent (default 20).
+- `mode`/`primary_url` are ignored once `nodes`/`self` are set; on first
+  start the first `nodes` entry is primary.
+
+Every site serves `GET /flywire/status` (token) and polls its peers every
+`poll_seconds`:
+
+- **Takeover.** When the primary has been silent for `failover_seconds` and
+  a majority of the sites agree (this one plus peers that see the same
+  outage and name the same candidate), the candidate promotes itself and
+  bumps the cluster epoch. Peers adopt the highest epoch they see and route
+  feed polls, file fetches and proxied writes to the new primary.
+- **Fencing.** A primary that cannot reach a majority for
+  `failover_seconds` answers writes with 503 until it can, so a
+  partitioned primary and a newly elected one never both take writes. A
+  primary also starts fenced after a restart until its first round confirms
+  a majority and no newer epoch. With two sites a majority needs both, so
+  failover needs at least three.
+- **Fail-back** (`priority`). A returning higher-priority site rejoins as a
+  replica, catches up, and the current primary then fences itself briefly
+  and hands the role over.
+- **One log.** Replicas mirror the primary's journal rows under the same
+  seq and journal nothing of their own, so any site can serve the feed after
+  a takeover and followers resume from their checkpoint. Rows the old
+  primary wrote but never replicated (at most the last poll interval) are
+  dropped from its journal when it rejoins, with a WARN naming the seqs;
+  their table changes stay only on that site.
+
+State is kept in `data/.flywire_cluster` (epoch, primary, base seq).
+Sessions survive a takeover only if all sites share `data/.jwt_secret`;
+copy the primary's file to the others before enabling failover. DNS is out
+of scope: a dead site's address stays in round-robin DNS until removed.

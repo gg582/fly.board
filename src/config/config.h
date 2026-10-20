@@ -229,6 +229,19 @@ typedef struct {
     char token[128];        /* shared secret for the feed */
     int poll_seconds;       /* 1..60, default 2 */
     bool auto_upgrade;      /* replica: run ./flywire-upgrade.sh on version mismatch */
+
+    /* Failover cluster (optional; see src/engine/flywire_cluster.c). With
+     * nodes= listing at least two sites and self= naming this one, the
+     * primary role moves between them automatically and mode=/primary_url=
+     * are only the bootstrap defaults. */
+#define FLYWIRE_MAX_NODES 8
+    char nodes[FLYWIRE_MAX_NODES][256]; /* IP/host, or a full base URL */
+    int n_nodes;
+    char self[256];         /* which nodes= entry this site is */
+    int self_idx;           /* index of self in nodes, -1 when not listed */
+    bool failover_auto;     /* failover=auto: freshest, then fastest */
+    char site_host[256];    /* public host for TLS SNI / Host when nodes are IPs */
+    int failover_seconds;   /* primary silence before failover, default 20 */
 } flywire_config_t;
 
 extern flywire_config_t g_flywire;
@@ -242,5 +255,7 @@ const char *flywire_token(void);
 const char *flywire_primary_url(void);
 int flywire_poll_seconds(void);
 bool flywire_auto_upgrade(void);
+/* nodes=/self= configured: roles are decided by the failover cluster. */
+bool flywire_cluster_configured(void);
 
 #endif
