@@ -31,9 +31,11 @@ The initialization sequence in [src/main.c](/home/yjlee/fly.board/src/main.c:68)
 1. Verify working directory and public assets.
 2. Initialize PQC signing via `fly_crypto_init()`.
 3. Load admin and blog configuration.
-4. Read `NATS_URL`.
-5. Call `fly_nats_init(NATS_URL)`.
-6. If that succeeds, start a dedicated `pthread` that loops on `fly_nats_dispatch()`.
+4. Read `NATS_URL` and record it with `fly_nats_init(NATS_URL)` (no connection yet).
+5. CWIST forks the worker processes and starts serving.
+6. On the first request each serving process handles, `fly_nats_ensure()` starts that process's NATS thread, which connects, subscribes, and sends queued publishes.
+
+cnats is not fork-safe, so nothing touches it before the fork: a connection opened in the supervisor would reach the workers as copied memory without its threads.
 
 This matters because NATS payload signing depends on the global PQC keypair already being live before the first post publish.
 
@@ -101,18 +103,11 @@ It does not yet perform full signature verification in-process. That is left ope
 
 ## Threading Model
 
-NATS dispatch runs outside the HTTP request path.
+Every serving process (the supervisor and each forked worker) owns one NATS connection and one NATS thread, started after the fork.
 
-- Main thread: boot, configure CWIST, serve HTTP/HTTPS.
-- NATS worker thread: tight loop calling `fly_nats_dispatch()` while `g_nats_running` is true.
-
-Operationally, this means:
-
-- request latency is not blocked on inbound subscriber callbacks
-- outbound publish still occurs on the request path
-- inbound fanout handling is isolated to one thread today
-
-The current design is single-dispatch-thread, not a parallel consumer pool.
+- Publishing (`fly_nats_publish_post/comment`) signs the payload on the caller's thread and only enqueues it (bounded at 256 messages; overflow is logged and dropped). The NATS thread sends it, so a slow or absent NATS server never blocks a request.
+- The NATS thread connects with backoff (1 s doubling to 30 s) and subscribes to `flyboard.posts` and `flyboard.comments`. cnats delivers inbound messages on its own threads, in every process, so a post broadcast invalidates every worker's page cache.
+- On shutdown each process stops and joins only the thread it started; unsent queued messages are dropped.
 
 ## Security Model
 
