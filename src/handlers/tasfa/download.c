@@ -55,30 +55,9 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
         }
     }
 
-    bool wants_preview = false;
-    const char *preview_q = cwist_query_map_get(req->query_params, "preview");
-    if (preview_q && (strcmp(preview_q, "1") == 0 || strcmp(preview_q, "true") == 0)) {
-        wants_preview = true;
-    }
-    char generated_preview[PATH_MAX] = {0};
-    if (wants_preview && strncmp(mime, "video/", 6) == 0) {
-        struct stat pst;
-        if (preview_path[0] && strncmp(preview_path, "public/uploads/", 15) == 0 &&
-            stat(preview_path, &pst) == 0 && S_ISREG(pst.st_mode) && pst.st_size > 0) {
-            snprintf(path, sizeof(path), "%s", preview_path);
-        } else {
-            snprintf(generated_preview, sizeof(generated_preview), "public/uploads/.previews/%d.mp4", atoi(id_str));
-            if (!generate_video_preview(path, generated_preview, 1080)) {
-                cJSON_Delete(file);
-                send_json_response(res, session_error_json("download preview not found"), CWIST_HTTP_NOT_FOUND);
-                return;
-            }
-            db_file_set_preview_paths(req->db, atoi(id_str), thumb_path, generated_preview);
-            snprintf(path, sizeof(path), "%s", generated_preview);
-        }
-        filename = "preview.mp4";
-        mime = "video/mp4";
-    }
+    /* Video downloads and streaming always serve the full-length source file. */
+    (void)preview_path;
+    (void)thumb_path;
 
     struct stat st;
     if (stat(path, &st) != 0 || st.st_size <= 0) {

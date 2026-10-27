@@ -1049,7 +1049,7 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
         wants_preview = true;
     }
     char generated_preview[PATH_MAX] = {0};
-    if (wants_preview && (strncmp(mime, "video/", 6) == 0 || strcmp(mime, "image/gif") == 0)) {
+    if (wants_preview && strcmp(mime, "image/gif") == 0) {
         struct stat pst;
         if (preview_path[0] && strncmp(preview_path, "public/uploads/", 15) == 0 &&
             stat(preview_path, &pst) == 0 && S_ISREG(pst.st_mode) && pst.st_size > 0) {

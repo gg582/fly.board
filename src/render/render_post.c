@@ -123,10 +123,8 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
     const char *filename = jname && jname->valuestring ? jname->valuestring : "";
     char url[64];
     char preview_url[64];
-    char video_preview_url[80];
     snprintf(url, sizeof(url), "/file/download/%d", fid);
     snprintf(preview_url, sizeof(preview_url), "/file/preview/%d", fid);
-    snprintf(video_preview_url, sizeof(video_preview_url), "/file/download/%d?preview=1", fid);
 
     if (strcmp(kind, "image") == 0) {
         const bool is_gif = render_file_is_gif(file);
@@ -156,10 +154,10 @@ static void append_inline_media_from_file(cwist_sstring *out, cJSON *file, int f
             cwist_sstring_append(out, "\" loading=\"lazy\" decoding=\"async\" style=\"max-width:100%;height:auto;display:block\">");
         }
     } else if (strcmp(kind, "video") == 0) {
-        /* Inline playback with the transcoded preview; poster shows a frame
-           without downloading the video. Range streaming handles seeking. */
+        /* Full-length inline HTTP Range streaming; poster shows a frame
+           without downloading the video upfront. */
         cwist_sstring_append(out, "<video src=\"");
-        cwist_sstring_append(out, video_preview_url);
+        cwist_sstring_append(out, url);
         cwist_sstring_append(out, "\" poster=\"");
         cwist_sstring_append(out, preview_url);
         cwist_sstring_append(out, "\" controls playsinline preload=\"metadata\" style=\"max-width:100%;display:block;\"></video>");
@@ -1820,7 +1818,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 if (is_image || is_video || is_audio) {
                     if (is_video) {
                         char video_url[64];
-                        snprintf(video_url, sizeof(video_url), "/file/download/%s?preview=1", fid_buf2);
+                        snprintf(video_url, sizeof(video_url), "/file/download/%s", fid_buf2);
                         cwist_sstring_append(b, "<div class='media-attachment-block' style='margin-bottom:12px'>");
                         cwist_sstring_append(b, "<video src='");
                         cwist_sstring_append(b, video_url);
@@ -2352,7 +2350,7 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
                 } else if (thumb_video) {
                     cwist_sstring_append(b, "<button type='button' class='media-load-btn media-video-open file-video-thumb-link' data-tasfa-video-link='");
                     cwist_sstring_append(b, asset_url);
-                    cwist_sstring_append(b, "?preview=1'>&#9654; Play</button>");
+                    cwist_sstring_append(b, "'>&#9654; Play</button>");
                 } else if (thumb_audio) {
                     cwist_sstring_append(b, "<audio src='");
                     cwist_sstring_append(b, asset_url);

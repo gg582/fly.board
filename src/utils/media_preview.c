@@ -352,9 +352,17 @@ bool generate_video_thumb(const char *src, const char *dst, int max_w, int max_h
 
     char cmd[4096];
     snprintf(cmd, sizeof(cmd),
-        "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -ss 00:00:01 -vframes 1 -vf 'scale=%d:%d:force_original_aspect_ratio=decrease' -q:v 3 -y '%s'",
+        "ffmpeg -hide_banner -loglevel error -threads 1 -ss 00:00:01 -i '%s' -vframes 1 -vf 'scale=%d:%d:force_original_aspect_ratio=decrease' -q:v 3 -y '%s'",
         esc_src, max_w, max_h, esc_dst);
     bool ok = run_ffmpeg(cmd);
+    if (!ok) {
+        unlink(dst);
+        snprintf(cmd, sizeof(cmd),
+            "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vframes 1 -vf 'scale=%d:%d:force_original_aspect_ratio=decrease' -q:v 3 -y '%s'",
+            esc_src, max_w, max_h, esc_dst);
+        ok = run_ffmpeg(cmd);
+        if (!ok) unlink(dst);
+    }
     cwist_free(esc_src);
     cwist_free(esc_dst);
     return ok;
@@ -378,6 +386,7 @@ bool generate_video_preview(const char *src, const char *dst, int max_h) {
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vf 'scale=-2:min(%d\\,ih)' -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 160k -movflags +faststart -y '%s'",
         esc_src, max_h, esc_dst);
     bool ok = run_ffmpeg(cmd);
+    if (!ok) unlink(dst);
     cwist_free(esc_src);
     cwist_free(esc_dst);
     return ok;
@@ -401,6 +410,7 @@ bool generate_webm_preview(const char *src, const char *dst, int max_h) {
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -vf 'scale=-2:min(%d\\,ih)' -c:v libvpx -crf 10 -b:v 1M -an -y '%s'",
         esc_src, max_h, esc_dst);
     bool ok = run_ffmpeg(cmd);
+    if (!ok) unlink(dst);
     cwist_free(esc_src);
     cwist_free(esc_dst);
     return ok;
@@ -424,6 +434,7 @@ bool generate_audio_preview(const char *src, const char *dst, int bitrate_kbps) 
         "ffmpeg -hide_banner -loglevel error -threads 1 -i '%s' -b:a %dk -f mp3 -y '%s'",
         esc_src, bitrate_kbps, esc_dst);
     bool ok = run_ffmpeg(cmd);
+    if (!ok) unlink(dst);
     cwist_free(esc_src);
     cwist_free(esc_dst);
     return ok;
@@ -504,16 +515,11 @@ void media_preview_backfill(cwist_db *db) {
             changed = ok && strcmp(thumb_path, next_thumb) != 0;
         } else if (strncmp(mime, "video/", 6) == 0) {
             snprintf(next_thumb, sizeof(next_thumb), "public/uploads/.thumbs/%d.webp", id);
-            snprintf(next_preview, sizeof(next_preview), "public/uploads/.previews/%d.mp4", id);
             if (!regular_file_exists(next_thumb)) {
                 ok = generate_video_thumb(path, next_thumb, 1280, 720);
                 if (ok) generated++;
             }
-            if (ok && !regular_file_exists(next_preview)) {
-                ok = generate_video_preview(path, next_preview, 1080);
-                if (ok) generated++;
-            }
-            changed = ok && (strcmp(thumb_path, next_thumb) != 0 || strcmp(preview_path, next_preview) != 0);
+            changed = ok && (strcmp(thumb_path, next_thumb) != 0 || preview_path[0] != '\0');
         } else if (strncmp(mime, "audio/", 6) == 0) {
             snprintf(next_thumb, sizeof(next_thumb), "%s", thumb_path);
             snprintf(next_preview, sizeof(next_preview), "public/uploads/.previews/%d.mp3", id);

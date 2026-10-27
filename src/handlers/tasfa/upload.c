@@ -599,12 +599,7 @@ static void tasfa_media_phase2(cwist_db *db, const char *upload_id, int fid,
             char media_name[64]; snprintf(media_name, sizeof(media_name), "thumb_%d", fid);
             tasfa_generate_htp_metadata_for_file(thumb_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
         } else thumb_path[0] = '\0';
-        snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp4", fid);
-        if (generate_video_preview(final_path, preview_path, 720)) {
-            char media_name[64]; snprintf(media_name, sizeof(media_name), "preview_%d", fid);
-            tasfa_generate_htp_metadata_for_file(preview_path, TASFA_DOWNLOAD_CHUNK_SIZE_DEFAULT, HTP_MODULUS_STABLE, media_name);
-        } else preview_path[0] = '\0';
-        preview_generated = (thumb_path[0] || preview_path[0]);
+        preview_generated = (thumb_path[0] != '\0');
     } else if (strncmp(mime_buf, "audio/", 6) == 0) {
         preview_expected = true;
         snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp3", fid);
@@ -1042,12 +1037,6 @@ static bool tasfa_finalize_session_process(cwist_db *db,
 
     finalize_cache_update_status(upload_id, "Processing media previews...");
 
-    /* Concurrency limit for ffmpeg */
-    if (!tasfa_media_concurrency_acquire(client_req)) {
-        goto client_disconnect;
-    }
-    media_acquired = true;
-
     char mime_buf[128] = {0};
     if (!mime_type_from_data(temp_path, mime_buf, sizeof(mime_buf))) {
         snprintf(mime_buf, sizeof(mime_buf), "%s", mime_type(filename));
@@ -1058,6 +1047,15 @@ static bool tasfa_finalize_session_process(cwist_db *db,
     snprintf(final_filename, sizeof(final_filename), "%s", filename);
     bool is_gif_upload = (strcmp(mime_buf, "image/gif") == 0);
     bool gif_converted = false;
+
+    /* Only acquire the ffmpeg concurrency slot inline if we actually run
+       ffmpeg in this worker (GIF conversion or synchronous phase 2). */
+    if (is_gif_upload || !async_finalize) {
+        if (!tasfa_media_concurrency_acquire(client_req)) {
+            goto client_disconnect;
+        }
+        media_acquired = true;
+    }
 
     if (is_gif_upload) {
         char *ext = strrchr(final_filename, '.');
@@ -1157,8 +1155,10 @@ static bool tasfa_finalize_session_process(cwist_db *db,
            (same code the sync path runs inline) and the status endpoint
            reports their progress via the "previews" field. The session stays
            alive until phase 2 finishes. */
-        tasfa_media_concurrency_release();
-        media_acquired = false;
+        if (media_acquired) {
+            tasfa_media_concurrency_release();
+            media_acquired = false;
+        }
 
         char stored_filename[256];
         snprintf(stored_filename, sizeof(stored_filename), "%s", filename);

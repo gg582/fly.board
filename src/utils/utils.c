@@ -485,8 +485,6 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
         } else if (strncmp(out->mime_type, "video/", 6) == 0) {
             snprintf(thumb_path, sizeof(thumb_path), "public/uploads/.thumbs/%d.webp", fid);
             if (!generate_video_thumb(f->data, thumb_path, 1280, 720)) thumb_path[0] = '\0';
-            snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp4", fid);
-            if (!generate_video_preview(f->data, preview_path, video_max_h)) preview_path[0] = '\0';
         } else if (strncmp(out->mime_type, "audio/", 6) == 0) {
             snprintf(preview_path, sizeof(preview_path), "public/uploads/.previews/%d.mp3", fid);
             if (!generate_audio_preview(f->data, preview_path, 192)) preview_path[0] = '\0';
@@ -531,11 +529,9 @@ bool process_file_upload(cwist_db *db, form_field_t *f, int uid, int post_id, in
                 preview_url, preview_url, out->url, filename_for_html);
         }
     } else if (strncmp(out->mime_type, "video/", 6) == 0) {
-        char play_url[576];
-        snprintf(play_url, sizeof(play_url), "%s?preview=1", out->url);
         snprintf(out->html, sizeof(out->html),
             "<div class=\"media-video-placeholder\"><div class=\"media-video-title\">%s</div><div class=\"media-video-frame\"><button type=\"button\" class=\"media-load-btn media-video-open\" data-tasfa-video-link=\"%s\">Click to Load</button></div></div>",
-            filename_for_html, play_url);
+            filename_for_html, out->url);
     } else if (strncmp(out->mime_type, "audio/", 6) == 0) {
         snprintf(out->html, sizeof(out->html),
             "<audio controls src=\"%s\"></audio>",
