@@ -203,6 +203,13 @@ static void run_job(fly_async_job *job) {
     if (g_compress) g_compress(job->req, job->res, noop_next);
     job->res->deferred = was_deferred;
     if (job->store) engine_bdr_store(job->req, job->res, job->key, job->version);
+    /* cwist may send and free req/res as soon as the response is handed
+     * back, so snapshot what the slow-request log needs first. */
+    const char *method = method_name(job->req);
+    char path[256];
+    snprintf(path, sizeof(path), "%s",
+             (job->req->path && job->req->path->data) ? job->req->path->data : "?");
+    int status = (int)job->res->status_code;
     if (!cwist_async_respond_with(job->a, job->res)) {
         FLY_LOG_ERROR("deferred response lost to another completion");
     }
@@ -211,9 +218,7 @@ static void run_job(fly_async_job *job) {
     if (threshold > 0 && total - job->created_ms >= threshold) {
         CWIST_LOG_WARN("slow request (deferred): %s %s status=%d total=%lldms "
                        "(lane=%s queue=%lldms run=%lldms depth=%d)",
-                       method_name(job->req),
-                       job->req->path ? job->req->path->data : "?",
-                       job->res->status_code,
+                       method, path, status,
                        (long long)(total - job->created_ms),
                        job->lane ? job->lane->name : "?",
                        (long long)(start - job->created_ms),
