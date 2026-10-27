@@ -1555,8 +1555,10 @@
 
     function removeMarkdownByUrl(url) {
         if (!ta || !url) return;
-        var pattern = new RegExp('!?\\[[^\\]]*\\]\\(' + escapeRegExp(url) + '\\)\\n?', 'g');
-        ta.value = ta.value.replace(pattern, '');
+        var esc = escapeRegExp(url);
+        var mdPattern = new RegExp('!?\\[[^\\]]*\\]\\(' + esc + '(?:\\?[^)]*)?\\)\\n?', 'g');
+        var tagPattern = new RegExp('<(?:video|audio|img)\\b[^>]*\\bsrc=["\']' + esc + '(?:\\?[^"\']*)?["\'][^>]*>(?:<\\/(?:video|audio)>)?\\r?\\n?', 'gi');
+        ta.value = ta.value.replace(mdPattern, '').replace(tagPattern, '');
     }
 
     function replaceAllInEditor(fromValue, toValue) {
@@ -2115,29 +2117,8 @@
             schedulePreview();
         }
 
-        ui.btnCancel.onclick = function() {
-            asset.isCancelling = true;
-            if (asset.xhrs && asset.xhrs.length) {
-                asset.xhrs.slice().forEach(function(xhr) {
-                    try { xhr.abort(); } catch (err) {}
-                });
-            }
-            if (asset.uploadId) {
-                fetch(UPLOAD_CANCEL_ENDPOINT, {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'upload_ids=' + encodeURIComponent(JSON.stringify([asset.uploadId]))
-                });
-            }
-            asset.isUploading = false;
-            isFileUploadRunning = false;
-            processFileUploadQueue();
-            cleanupAssetUI();
-        };
-
-        ui.btnRemove.onclick = function() {
-            if (asset.isUploading && !asset.isCancelling) {
+        if (ui.btnCancel) {
+            ui.btnCancel.onclick = function() {
                 asset.isCancelling = true;
                 if (asset.xhrs && asset.xhrs.length) {
                     asset.xhrs.slice().forEach(function(xhr) {
@@ -2155,88 +2136,132 @@
                 asset.isUploading = false;
                 isFileUploadRunning = false;
                 processFileUploadQueue();
-            }
-            cleanupAssetUI();
-        };
+                cleanupAssetUI();
+            };
+        }
 
-        ui.btnRetry.onclick = function() {
-            if (!asset.file || asset.fid !== null) return;
-            asset.failed = false;
-            asset.isUploading = false;
-            asset.isCancelling = false;
-            asset.xhrs = [];
-            resetDisplayedProgress(asset);
-            if (asset.uploadId && asset.uploadToken && asset.isSessionExpired) {
-                asset.isSessionExpired = false;
-                verifyAllChunksBeforeComplete(asset, asset.file);
-                return;
-            }
-            asset.uploadId = null;
-            asset.uploadToken = null;
-            if (isEditorMode) {
-                startTasfaUpload(asset, asset.file);
-            } else {
-                enqueueFileUpload(asset);
-                processFileUploadQueue();
-            }
-        };
+        if (ui.btnRemove) {
+            ui.btnRemove.onclick = function() {
+                if (asset.isUploading && !asset.isCancelling) {
+                    asset.isCancelling = true;
+                    if (asset.xhrs && asset.xhrs.length) {
+                        asset.xhrs.slice().forEach(function(xhr) {
+                            try { xhr.abort(); } catch (err) {}
+                        });
+                    }
+                    if (asset.uploadId) {
+                        fetch(UPLOAD_CANCEL_ENDPOINT, {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: 'upload_ids=' + encodeURIComponent(JSON.stringify([asset.uploadId]))
+                        });
+                    }
+                    asset.isUploading = false;
+                    isFileUploadRunning = false;
+                    processFileUploadQueue();
+                }
+                cleanupAssetUI();
+            };
+        }
 
-        ui.btnDelete.onclick = function() {
-            if (asset.fid !== null) {
-                fetch('/file/delete', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'id=' + encodeURIComponent(String(asset.fid)) +
-                        '&delete_pin=' + encodeURIComponent(asset.deletePin || '')
-                });
-            }
-            cleanupAssetUI();
-        };
+        if (ui.btnRetry) {
+            ui.btnRetry.onclick = function() {
+                if (!asset.file || asset.fid !== null) return;
+                asset.failed = false;
+                asset.isUploading = false;
+                asset.isCancelling = false;
+                asset.xhrs = [];
+                resetDisplayedProgress(asset);
+                if (asset.uploadId && asset.uploadToken && asset.isSessionExpired) {
+                    asset.isSessionExpired = false;
+                    verifyAllChunksBeforeComplete(asset, asset.file);
+                    return;
+                }
+                asset.uploadId = null;
+                asset.uploadToken = null;
+                if (isEditorMode) {
+                    startTasfaUpload(asset, asset.file);
+                } else {
+                    enqueueFileUpload(asset);
+                    processFileUploadQueue();
+                }
+            };
+        }
+
+        if (ui.btnDelete) {
+            ui.btnDelete.onclick = function() {
+                if (asset.fid !== null) {
+                    fetch('/file/delete', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: 'id=' + encodeURIComponent(String(asset.fid)) +
+                            '&delete_pin=' + encodeURIComponent(asset.deletePin || '')
+                    });
+                }
+                cleanupAssetUI();
+            };
+        }
 
         if (!isEditorMode) {
-            ui.btnUpload.onclick = function() {
-                enqueueFileUpload(asset);
-                processFileUploadQueue();
-            };
-            ui.btnInsert.textContent = 'Open';
-            ui.btnInsert.onclick = function() {
-                if (asset.fid !== null) window.location.href = '/file/' + asset.fid;
-            };
-            ui.btnInline.textContent = 'Download';
-            ui.btnInline.onclick = function() {
-                if (asset.url && typeof window.openTasfaDownload === 'function') {
-                    window.openTasfaDownload(asset.url);
-                }
-            };
-            ui.btnAttachment.style.display = 'none';
-            ui.btnInsert.disabled = asset.fid === null;
-            ui.btnInline.disabled = asset.fid === null;
+            if (ui.btnUpload) {
+                ui.btnUpload.onclick = function() {
+                    enqueueFileUpload(asset);
+                    processFileUploadQueue();
+                };
+            }
+            if (ui.btnInsert) {
+                ui.btnInsert.textContent = 'Open';
+                ui.btnInsert.onclick = function() {
+                    if (asset.fid !== null) window.location.href = '/file/' + asset.fid;
+                };
+                ui.btnInsert.disabled = asset.fid === null;
+            }
+            if (ui.btnInline) {
+                ui.btnInline.textContent = 'Download';
+                ui.btnInline.onclick = function() {
+                    if (asset.url && typeof window.openTasfaDownload === 'function') {
+                        window.openTasfaDownload(asset.url);
+                    }
+                };
+                ui.btnInline.disabled = asset.fid === null;
+            }
+            if (ui.btnAttachment) ui.btnAttachment.style.display = 'none';
         } else {
-            ui.btnInsert.onclick = function() {
-                insertAssetMarkdown(asset);
-            };
-
-            ui.btnInline.onclick = function() {
-                if (!asset.url) return;
-                asset.mode = 'inline';
-                if (!editorHasUrl(asset.url)) {
+            if (ui.btnInsert) {
+                ui.btnInsert.onclick = function() {
                     insertAssetMarkdown(asset);
-                } else {
-                    schedulePreview();
-                }
-                setModeButtons(ui, asset.mode);
-                syncMediaMeta();
-            };
+                };
+            }
 
-            ui.btnAttachment.onclick = function() {
-                if (!asset.url) return;
-                asset.mode = 'attachment';
-                removeMarkdownByUrl(asset.url);
-                setModeButtons(ui, asset.mode);
-                syncMediaMeta();
-                schedulePreview();
-            };
+            if (ui.btnInline) {
+                ui.btnInline.onclick = function() {
+                    if (!asset.url) return;
+                    asset.mode = 'inline';
+                    if (!editorHasUrl(asset.url)) {
+                        insertAssetMarkdown(asset);
+                    } else {
+                        schedulePreview();
+                    }
+                    setModeButtons(ui, asset.mode);
+                    syncMediaMeta();
+                };
+            }
+
+            if (ui.btnAttachment) {
+                ui.btnAttachment.onclick = function() {
+                    if (!asset.url) return;
+                    asset.mode = 'attachment';
+                    removeMarkdownByUrl(asset.url);
+                    setModeButtons(ui, asset.mode);
+                    syncMediaMeta();
+                    schedulePreview();
+                };
+            }
 
             setModeButtons(ui, asset.mode);
         }
