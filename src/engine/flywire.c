@@ -1288,18 +1288,31 @@ static size_t flywire_proxy_write_cb(void *ptr, size_t size, size_t nmemb, void 
     return size * nmemb;
 }
 
-/* Header names we forward to the primary (session, request typing, auth). */
+/* Request headers forwarded to the primary: everything the handler may
+ * read except hop-by-hop and framing headers, which curl sets for its own
+ * connection. Endpoints keep their state in custom headers (TASFA chunks
+ * carry upload id, token, chunk index and hash tags in X-TASFA-*), so an
+ * allowlist silently broke them with "missing headers". Accept-Encoding is
+ * dropped too: the reply is relayed without its Content-Encoding. */
 static bool flywire_proxy_fwd_header(const char *key) {
-    return strcasecmp(key, "Cookie") == 0 ||
-           strcasecmp(key, "Content-Type") == 0 ||
-           strcasecmp(key, "Authorization") == 0;
+    static const char *const drop[] = {
+        "Host", "Content-Length", "Connection", "Keep-Alive", "Transfer-Encoding",
+        "TE", "Trailer", "Upgrade", "Expect", "Proxy-Connection", "Proxy-Authorization",
+        "Accept-Encoding", "HTTP2-Settings", NULL
+    };
+    if (!key[0] || key[0] == ':') return false; /* HTTP/2 pseudo-headers */
+    for (int i = 0; drop[i]; i++)
+        if (strcasecmp(key, drop[i]) == 0) return false;
+    return true;
 }
 
 /* Header names we relay back from the primary's response. */
 static bool flywire_proxy_relay_header(const char *key) {
     return strcasecmp(key, "Location") == 0 ||
            strcasecmp(key, "Set-Cookie") == 0 ||
-           strcasecmp(key, "Content-Type") == 0;
+           strcasecmp(key, "Content-Type") == 0 ||
+           strcasecmp(key, "Retry-After") == 0 ||
+           strncasecmp(key, "X-TASFA-", 8) == 0;
 }
 
 bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res) {
@@ -1325,6 +1338,9 @@ bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res) {
         snprintf(line, sizeof(line), "%s: %s", h->key->data, h->value->data);
         headers = curl_slist_append(headers, line);
     }
+    /* curl would otherwise send Expect: 100-continue for a large body and
+     * wait a round trip to the primary before streaming the chunk. */
+    headers = curl_slist_append(headers, "Expect:");
 
     flywire_proxy_ctx ctx = { .body = res->body };
     cwist_sstring_assign(res->body, "");

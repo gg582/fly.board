@@ -2,6 +2,7 @@
 #define ENGINE_ASYNC_ROUTE_H
 
 #include <cwist/sys/app/app.h>
+#include <stdbool.h>
 
 /* Post-handler hook run on the request worker for a deferred response, in
  * place of the middleware code that would have run after next() returned. */
@@ -30,6 +31,14 @@ void engine_async_post(cwist_app *app, const char *path, cwist_handler_func hand
  * default 8) for long disk-bound handlers, so a backlog of them never parks
  * the light routes queued on the main lane. */
 void engine_async_post_bulk(cwist_app *app, const char *path, cwist_handler_func handler);
+
+/* Run @p handler for the current request the way an async route would: on
+ * a request worker (the bulk lane when @p bulk) once the middleware chain
+ * has unwound, or inline where deferring is impossible. For middleware that
+ * answers a request itself with blocking work, e.g. the FlyWire replica
+ * write-through proxy. */
+void engine_async_run(cwist_http_request *req, cwist_http_response *res,
+                      cwist_handler_func handler, bool bulk);
 
 /* Side effects a route records on every GET (view counters) still have to
  * happen when the route BDR answers instead. Runs on a request worker with

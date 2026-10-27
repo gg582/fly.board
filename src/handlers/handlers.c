@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers.h"
 #include "handlers_internal.h"
+#include "engine/async_route.h"
 #include "engine/flywire.h"
 #include "../auth/auth.h"
 #include "../crypto/fly_crypto.h"
@@ -390,6 +391,14 @@ static void maybe_trim_heap(void) {
     }
 }
 
+static void replica_proxy_handler(cwist_http_request *req, cwist_http_response *res) {
+    if (!flywire_proxy_write(req, res)) {
+        res->status_code = CWIST_HTTP_SERVICE_UNAVAILABLE;
+        cwist_sstring_assign(res->status_text, "Primary unreachable");
+        cwist_sstring_assign(res->body, "The FlyWire primary could not be reached; try again shortly.");
+    }
+}
+
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
     atomic_fetch_add_explicit(&g_active_requests, 1, memory_order_relaxed);
     /* Start this process's NATS connection on its first request (post-fork). */
@@ -528,11 +537,11 @@ void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_
         (req->method != CWIST_HTTP_GET || mutating_get) &&
         req->method != CWIST_HTTP_HEAD &&
         strncmp(path, "/flywire/", 9) != 0) {
-        if (!flywire_proxy_write(req, res)) {
-            res->status_code = CWIST_HTTP_SERVICE_UNAVAILABLE;
-            cwist_sstring_assign(res->status_text, "Primary unreachable");
-            cwist_sstring_assign(res->body, "The FlyWire primary could not be reached; try again shortly.");
-        }
+        /* The proxy blocks for a full round trip to the primary (seconds
+         * for a TASFA chunk), so run it on a request worker, never on the
+         * reactor thread that multiplexes every other connection. Chunk
+         * POSTs take the bulk lane like they do on the primary. */
+        engine_async_run(req, res, replica_proxy_handler, strcmp(path, "/file/upload") == 0);
         maybe_trim_heap();
         return;
     }

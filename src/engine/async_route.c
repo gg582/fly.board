@@ -318,8 +318,8 @@ static bool can_defer(cwist_http_request *req) {
     return req->h2_queue || req->https_conn || req->async_conn || req->client_fd >= 0;
 }
 
-static void async_trampoline(void *ctx, cwist_http_request *req, cwist_http_response *res) {
-    const fly_async_route *route = (const fly_async_route *)ctx;
+static void dispatch(const fly_async_route *route, cwist_http_request *req,
+                     cwist_http_response *res) {
     t_route_cacheable = route->cacheable;
     if (!t_in_gate || t_pending) {
         int64_t t0 = now_ms();
@@ -373,6 +373,16 @@ static void async_trampoline(void *ctx, cwist_http_request *req, cwist_http_resp
         snprintf(job->key, sizeof(job->key), "%s", t_bdr_key);
     }
     t_pending = job;
+}
+
+static void async_trampoline(void *ctx, cwist_http_request *req, cwist_http_response *res) {
+    dispatch((const fly_async_route *)ctx, req, res);
+}
+
+void engine_async_run(cwist_http_request *req, cwist_http_response *res,
+                      cwist_handler_func handler, bool bulk) {
+    fly_async_route route = { .handler = handler, .cacheable = false, .bulk = bulk };
+    dispatch(&route, req, res);
 }
 
 static void async_gate(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
