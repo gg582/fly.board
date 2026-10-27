@@ -120,7 +120,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_post(app, "/file/upload/init", handler_file_upload_init);
     engine_async_post(app, "/file/upload/status", handler_file_upload_status);
     engine_async_post(app, "/file/upload/renegotiate", handler_file_upload_renegotiate);
-    engine_async_post(app, "/file/upload", handler_file_upload);
+    engine_async_post_bulk(app, "/file/upload", handler_file_upload);
     engine_async_post(app, "/file/upload/complete", handler_file_upload_complete);
     engine_async_post(app, "/file/upload/cancel", handler_file_upload_cancel);
     engine_async_post(app, "/file/delete", handler_file_delete);

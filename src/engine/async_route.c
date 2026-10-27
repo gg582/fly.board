@@ -27,7 +27,31 @@
 typedef struct fly_async_route {
     cwist_handler_func handler;
     bool cacheable; /* Anonymous GET replies may be kept in the route BDR. */
+    bool bulk;      /* Long disk-bound handler: runs on the bulk lane. */
 } fly_async_route;
+
+struct fly_async_job;
+
+/* A FIFO of deferred jobs and the worker threads draining it. Bulk routes
+ * (TASFA chunk stores: a 32MB+ pwrite that blocks on writeback throttling)
+ * get their own lane so they cannot occupy every request worker and park
+ * light requests, the upload status/renegotiate polls among them, behind a
+ * backlog of disk writes. */
+typedef struct fly_async_lane {
+    const char *name;
+    const char *workers_env;
+    size_t default_workers;
+    pthread_mutex_t mtx;
+    pthread_cond_t cond;
+    struct fly_async_job *head;
+    struct fly_async_job *tail;
+    size_t len;
+    /* cwist_app_listen() forks the serving processes and threads do not
+     * survive fork(), so workers are started lazily by the process that
+     * serves. */
+    pid_t workers_pid;
+    bool workers_ok;
+} fly_async_lane;
 
 typedef struct fly_async_job {
     cwist_async *a;
@@ -40,6 +64,7 @@ typedef struct fly_async_job {
     char key[ENGINE_BDR_KEY_MAX];
     int64_t created_ms; /* When the deferred job was created (queue wait). */
     int queue_depth;    /* Backlog length when the job was enqueued. */
+    fly_async_lane *lane;
     struct fly_async_job *next;
 } fly_async_job;
 
@@ -48,15 +73,14 @@ static engine_async_hit_func g_hit_hook = NULL;
 static cwist_db *g_db = NULL;
 static engine_async_finish_func g_finish = NULL;
 
-static pthread_mutex_t g_queue_mtx = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t g_queue_cond = PTHREAD_COND_INITIALIZER;
-static fly_async_job *g_queue_head = NULL;
-static fly_async_job *g_queue_tail = NULL;
-static size_t g_queue_len = 0;
-/* cwist_app_listen() forks the serving processes and threads do not survive
- * fork(), so workers are started lazily by the process that serves. */
-static pid_t g_workers_pid = 0;
-static bool g_workers_ok = false;
+static fly_async_lane g_lane_main = {
+    .name = "main", .workers_env = "FLY_REQUEST_WORKERS", .default_workers = 16,
+    .mtx = PTHREAD_MUTEX_INITIALIZER, .cond = PTHREAD_COND_INITIALIZER,
+};
+static fly_async_lane g_lane_bulk = {
+    .name = "bulk", .workers_env = "FLY_BULK_WORKERS", .default_workers = 8,
+    .mtx = PTHREAD_MUTEX_INITIALIZER, .cond = PTHREAD_COND_INITIALIZER,
+};
 
 static __thread bool t_in_gate = false;
 static __thread fly_async_job *t_pending = NULL;
@@ -65,15 +89,15 @@ static __thread const char *t_bdr_key = NULL;
 static __thread uint64_t t_bdr_version = 0;
 static __thread bool t_route_cacheable = false;
 
-static size_t worker_count(void) {
-    const char *value = getenv("FLY_REQUEST_WORKERS");
+static size_t worker_count(const fly_async_lane *lane) {
+    const char *value = getenv(lane->workers_env);
     if (value && value[0]) {
         char *end = NULL;
         unsigned long parsed = strtoul(value, &end, 10);
         if (end && *end == '\0' && parsed >= 1 && parsed <= 256) return (size_t)parsed;
-        FLY_LOG_ERROR("Ignoring invalid FLY_REQUEST_WORKERS value; expected 1..256");
+        FLY_LOG_ERROR("Ignoring invalid %s value; expected 1..256", lane->workers_env);
     }
-    return 16;
+    return lane->default_workers;
 }
 
 /* Slow-request observability: any stage (queue wait, worker run, inline
@@ -126,18 +150,23 @@ static void log_if_slow(int64_t started_ms, cwist_http_request *req, cwist_http_
  * requests are rejected with 503 + Retry-After instead of falling back to
  * inline execution on the reactor thread, which would stall every
  * connection that thread multiplexes. */
-static size_t queue_max(void) {
-    static size_t cached = 0;
-    if (cached == 0) {
-        const char *v = getenv("FLY_ASYNC_QUEUE_MAX");
-        long parsed = (v && v[0]) ? strtol(v, NULL, 10) : 0;
-        size_t want = worker_count() * 16;
+static size_t queue_max(const fly_async_lane *lane) {
+    static size_t cached_main = 0;
+    static size_t cached_bulk = 0;
+    bool is_main = lane == &g_lane_main;
+    size_t *cached = is_main ? &cached_main : &cached_bulk;
+    if (*cached == 0) {
+        size_t want = worker_count(lane) * 16;
         if (want < 64) want = 64;
         if (want > 8192) want = 8192;
-        if (parsed >= 64 && parsed <= 65536) want = (size_t)parsed;
-        cached = want;
+        if (is_main) {
+            const char *v = getenv("FLY_ASYNC_QUEUE_MAX");
+            long parsed = (v && v[0]) ? strtol(v, NULL, 10) : 0;
+            if (parsed >= 64 && parsed <= 65536) want = (size_t)parsed;
+        }
+        *cached = want;
     }
-    return cached;
+    return *cached;
 }
 
 
@@ -181,10 +210,11 @@ static void run_job(fly_async_job *job) {
     int64_t total = now_ms();
     if (threshold > 0 && total - job->created_ms >= threshold) {
         CWIST_LOG_WARN("slow request (deferred): %s %s status=%d total=%lldms "
-                       "(queue=%lldms run=%lldms depth=%d)",
+                       "(lane=%s queue=%lldms run=%lldms depth=%d)",
                        method_name(job->req),
                        job->req->path ? job->req->path->data : "?",
                        job->res->status_code,
+                       job->lane ? job->lane->name : "?",
                        (long long)(total - job->created_ms),
                        (long long)(start - job->created_ms),
                        (long long)(total - after_wait),
@@ -197,54 +227,54 @@ static void run_job(fly_async_job *job) {
 }
 
 static void *request_worker(void *arg) {
-    (void)arg;
+    fly_async_lane *lane = (fly_async_lane *)arg;
     for (;;) {
-        pthread_mutex_lock(&g_queue_mtx);
-        while (!g_queue_head) pthread_cond_wait(&g_queue_cond, &g_queue_mtx);
-        fly_async_job *job = g_queue_head;
-        g_queue_head = job->next;
-        if (!g_queue_head) g_queue_tail = NULL;
-        g_queue_len--;
-        pthread_mutex_unlock(&g_queue_mtx);
+        pthread_mutex_lock(&lane->mtx);
+        while (!lane->head) pthread_cond_wait(&lane->cond, &lane->mtx);
+        fly_async_job *job = lane->head;
+        lane->head = job->next;
+        if (!lane->head) lane->tail = NULL;
+        lane->len--;
+        pthread_mutex_unlock(&lane->mtx);
         run_job(job);
     }
     return NULL;
 }
 
-/* Called with g_queue_mtx held. */
-static bool ensure_workers_locked(void) {
+/* Called with lane->mtx held. */
+static bool ensure_workers_locked(fly_async_lane *lane) {
     pid_t pid = getpid();
-    if (g_workers_pid == pid) return g_workers_ok;
+    if (lane->workers_pid == pid) return lane->workers_ok;
     /* Inherited queue entries belong to the parent's connections. */
-    g_queue_head = g_queue_tail = NULL;
-    g_queue_len = 0;
-    g_workers_pid = pid;
-    g_workers_ok = false;
-    size_t want = worker_count();
+    lane->head = lane->tail = NULL;
+    lane->len = 0;
+    lane->workers_pid = pid;
+    lane->workers_ok = false;
+    size_t want = worker_count(lane);
     size_t started = 0;
     for (size_t i = 0; i < want; i++) {
         pthread_t thread;
-        if (pthread_create(&thread, NULL, request_worker, NULL) != 0) break;
+        if (pthread_create(&thread, NULL, request_worker, lane) != 0) break;
         pthread_detach(thread);
         started++;
     }
     if (started == 0) {
-        FLY_LOG_ERROR("Failed to start request workers; handlers run inline");
+        FLY_LOG_ERROR("Failed to start %s request workers; handlers run inline", lane->name);
         return false;
     }
-    g_workers_ok = true;
+    lane->workers_ok = true;
     return true;
 }
 
 typedef enum { QUEUE_OK, QUEUE_NO_WORKERS, QUEUE_FULL } queue_state_t;
 
-static queue_state_t queue_state(void) {
-    pthread_mutex_lock(&g_queue_mtx);
+static queue_state_t queue_state(fly_async_lane *lane) {
+    pthread_mutex_lock(&lane->mtx);
     queue_state_t st;
-    if (!ensure_workers_locked()) st = QUEUE_NO_WORKERS;
-    else if (g_queue_len >= queue_max()) st = QUEUE_FULL;
+    if (!ensure_workers_locked(lane)) st = QUEUE_NO_WORKERS;
+    else if (lane->len >= queue_max(lane)) st = QUEUE_FULL;
     else st = QUEUE_OK;
-    pthread_mutex_unlock(&g_queue_mtx);
+    pthread_mutex_unlock(&lane->mtx);
     return st;
 }
 
@@ -261,18 +291,20 @@ static void respond_busy(cwist_http_request *req, cwist_http_response *res, cons
 }
 
 static bool enqueue(fly_async_job *job) {
-    pthread_mutex_lock(&g_queue_mtx);
-    bool ok = ensure_workers_locked();
+    fly_async_lane *lane = job->lane ? job->lane : &g_lane_main;
+    job->lane = lane;
+    pthread_mutex_lock(&lane->mtx);
+    bool ok = ensure_workers_locked(lane);
     if (ok) {
         job->next = NULL;
-        if (g_queue_tail) g_queue_tail->next = job;
-        else g_queue_head = job;
-        g_queue_tail = job;
-        g_queue_len++;
-        job->queue_depth = (int)g_queue_len;
-        pthread_cond_signal(&g_queue_cond);
+        if (lane->tail) lane->tail->next = job;
+        else lane->head = job;
+        lane->tail = job;
+        lane->len++;
+        job->queue_depth = (int)lane->len;
+        pthread_cond_signal(&lane->cond);
     }
-    pthread_mutex_unlock(&g_queue_mtx);
+    pthread_mutex_unlock(&lane->mtx);
     return ok;
 }
 
@@ -304,7 +336,8 @@ static void async_trampoline(void *ctx, cwist_http_request *req, cwist_http_resp
         log_if_slow(t0, req, res, "inline");
         return;
     }
-    queue_state_t qs = queue_state();
+    fly_async_lane *lane = route->bulk ? &g_lane_bulk : &g_lane_main;
+    queue_state_t qs = queue_state(lane);
     if (qs == QUEUE_NO_WORKERS) {
         /* Worker threads could not start at all: keep serving inline
          * (degraded) rather than hard-down every route. */
@@ -331,6 +364,7 @@ static void async_trampoline(void *ctx, cwist_http_request *req, cwist_http_resp
     job->req = req;
     job->res = res;
     job->handler = route->handler;
+    job->lane = lane;
     job->created_ms = now_ms();
     job->mutating = req->method == CWIST_HTTP_POST;
     if (route->cacheable && t_bdr_key) {
@@ -392,17 +426,18 @@ void engine_async_init(cwist_app *app, cwist_middleware_func compress,
     cwist_app_use(app, async_gate);
 }
 
-static void *route_ctx(cwist_handler_func handler, bool cacheable) {
+static void *route_ctx(cwist_handler_func handler, bool cacheable, bool bulk) {
     fly_async_route *route = malloc(sizeof(*route));
     if (!route) return NULL;
     route->handler = handler;
     route->cacheable = cacheable;
+    route->bulk = bulk;
     return route;
 }
 
 static void register_get(cwist_app *app, const char *path, cwist_handler_func handler,
                          bool cacheable) {
-    void *ctx = route_ctx(handler, cacheable);
+    void *ctx = route_ctx(handler, cacheable, false);
     if (!ctx) {
         cwist_app_get(app, path, handler);
         return;
@@ -418,13 +453,22 @@ void engine_async_get_cached(cwist_app *app, const char *path, cwist_handler_fun
     register_get(app, path, handler, true);
 }
 
-void engine_async_post(cwist_app *app, const char *path, cwist_handler_func handler) {
-    void *ctx = route_ctx(handler, false);
+static void register_post(cwist_app *app, const char *path, cwist_handler_func handler,
+                          bool bulk) {
+    void *ctx = route_ctx(handler, false, bulk);
     if (!ctx) {
         cwist_app_post(app, path, handler);
         return;
     }
     cwist_app_post_ex(app, path, async_trampoline, ctx, free);
+}
+
+void engine_async_post(cwist_app *app, const char *path, cwist_handler_func handler) {
+    register_post(app, path, handler, false);
+}
+
+void engine_async_post_bulk(cwist_app *app, const char *path, cwist_handler_func handler) {
+    register_post(app, path, handler, true);
 }
 
 void engine_async_set_hit_hook(engine_async_hit_func hook) {

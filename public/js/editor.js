@@ -797,10 +797,10 @@
         var now = Date.now();
         var stats = ensureTasfaStats(asset);
         if (!immediate && now - stats.lastRenegotiateAt < 5000) return;
-        if (!isGoodTasfaLink() || predictedTasfaQuality(asset) < 0.55) {
-            forceTasfaReconnect(asset, 'slow-link');
-            return;
-        }
+        // A slow link or a low quality score is not a dead connection: a full
+        // reconnect aborts every in-flight chunk and throws their bytes away.
+        // Let the server shrink the window instead; only the hard-stall paths
+        // reconnect.
         stats.lastRenegotiateAt = now;
         if (asset.renegotiateTimer) clearTimeout(asset.renegotiateTimer);
         asset.renegotiateTimer = setTimeout(function() {
@@ -853,6 +853,14 @@
         }, immediate ? 0 : 300);
     }
 
+    /* A stall means the window was more than the path (or the server's disk)
+       sustains; restart from half of it instead of blasting at max again, and
+       let the AIMD ramp grow it back on success. */
+    function capTasfaResumeParallel(asset) {
+        var current = asset.targetParallel || asset.maxParallel || UPLOAD_DEFAULT_PARALLEL;
+        asset.resumeParallelCap = Math.max(1, Math.ceil(current / 2));
+    }
+
     function forceTasfaReconnect(asset, reason) {
         if (!asset || asset.isCancelling || !asset.file) return;
         if (asset.forceReconnectTimer) return;
@@ -864,6 +872,7 @@
                 asset.renegotiateTimer = null;
             }
             asset.uploadRunId = (asset.uploadRunId || 0) + 1;
+            capTasfaResumeParallel(asset);
             if (asset.xhrs && asset.xhrs.length) {
                 asset.xhrs.slice().forEach(function(xhr) {
                     try { xhr.abort(); } catch (err) {}
@@ -1007,6 +1016,7 @@
                 return;
             }
             asset.uploadRunId = (asset.uploadRunId || 0) + 1;
+            capTasfaResumeParallel(asset);
             if (asset.xhrs && asset.xhrs.length) {
                 asset.xhrs.slice().forEach(function(xhr) {
                     try { xhr.abort(); } catch (err) {}
@@ -2918,8 +2928,15 @@
             }
         }
         asset.pendingChunks = null;
-        // Aggressive restart after stall: blast at max then taper based on feedback
+        // Start at max, except right after a stall: then resume from the
+        // halved pre-stall window and let feedback ramp it back up.
         asset.targetParallel = Math.max(1, asset.maxParallel || UPLOAD_DEFAULT_PARALLEL);
+        if (asset.resumeParallelCap) {
+            asset.targetParallel = Math.max(1, Math.min(asset.targetParallel, asset.resumeParallelCap));
+            asset.initialWindowParallel = asset.targetParallel;
+            tasfaTrace(asset, 'resume-window', { target: asset.targetParallel });
+            asset.resumeParallelCap = 0;
+        }
         asset.dispatchPacingMs = 0;
         asset.activeChunkPosts = 0;
         var poolFailed = false;

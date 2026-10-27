@@ -26,6 +26,10 @@ void engine_async_get(cwist_app *app, const char *path, cwist_handler_func handl
  * nothing but the inputs engine_bdr_key() folds into the key. */
 void engine_async_get_cached(cwist_app *app, const char *path, cwist_handler_func handler);
 void engine_async_post(cwist_app *app, const char *path, cwist_handler_func handler);
+/* Like engine_async_post(), on a separate worker lane (FLY_BULK_WORKERS,
+ * default 8) for long disk-bound handlers, so a backlog of them never parks
+ * the light routes queued on the main lane. */
+void engine_async_post_bulk(cwist_app *app, const char *path, cwist_handler_func handler);
 
 /* Side effects a route records on every GET (view counters) still have to
  * happen when the route BDR answers instead. Runs on a request worker with
