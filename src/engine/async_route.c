@@ -214,8 +214,8 @@ static void run_job(fly_async_job *job) {
                        method_name(job->req),
                        job->req->path ? job->req->path->data : "?",
                        job->res->status_code,
-                       job->lane ? job->lane->name : "?",
                        (long long)(total - job->created_ms),
+                       job->lane ? job->lane->name : "?",
                        (long long)(start - job->created_ms),
                        (long long)(total - after_wait),
                        job->queue_depth);
