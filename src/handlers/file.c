@@ -1115,6 +1115,38 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     }
 }
 
+/* Remove a file's bytes, thumbnail and preview, then its row (journaled,
+ * so replicas drop it too). The caller has checked permission. */
+bool file_delete_record(cwist_db *db, cJSON *f, int by_uid) {
+    if (!f) return false;
+    int fid = json_int(f, "id", 0);
+    if (fid <= 0) return false;
+    cJSON *fpath = cJSON_GetObjectItem(f, "file_path");
+    cJSON *thumb_path = cJSON_GetObjectItem(f, "thumb_path");
+    cJSON *preview_path = cJSON_GetObjectItem(f, "preview_path");
+    if (fpath && fpath->valuestring && fpath->valuestring[0]) {
+        storage_delete_file(fpath->valuestring);
+    }
+    if (thumb_path && thumb_path->valuestring && thumb_path->valuestring[0] && is_safe_public_path(thumb_path->valuestring)) {
+        unlink(thumb_path->valuestring);
+    } else if (thumb_path && thumb_path->valuestring && thumb_path->valuestring[0]) {
+        CWIST_LOG_WARN("Refusing to delete unsafe thumb path: %s", thumb_path->valuestring);
+    }
+    if (preview_path && preview_path->valuestring && preview_path->valuestring[0] &&
+        (!fpath || !fpath->valuestring || strcmp(preview_path->valuestring, fpath->valuestring) != 0) &&
+        is_safe_public_path(preview_path->valuestring)) {
+        unlink(preview_path->valuestring);
+    } else if (preview_path && preview_path->valuestring && preview_path->valuestring[0]) {
+        CWIST_LOG_WARN("Refusing to delete unsafe preview path: %s", preview_path->valuestring);
+    }
+    if (!db_file_delete(db, fid)) {
+        CWIST_LOG_ERROR("File delete failed: fid=%d by_uid=%d", fid, by_uid);
+        return false;
+    }
+    CWIST_LOG_INFO("File deleted: fid=%d by_uid=%d", fid, by_uid);
+    return true;
+}
+
 void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -1122,6 +1154,8 @@ void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
     cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
     const char *id_str = cwist_query_map_get(kv, "id");
     const char *delete_pin = cwist_query_map_get(kv, "delete_pin");
+    /* not_found | forbidden | failed | deleted */
+    const char *outcome = "not_found";
     if (id_str) {
         cJSON *f = db_file_get(req->db, atoi(id_str));
         if (f) {
@@ -1131,37 +1165,29 @@ void handler_file_delete(cwist_http_request *req, cwist_http_response *res) {
                           auth_verify_password(delete_pin, pin_hash->valuestring);
             bool can_delete = (role[0] && strcmp(role, "admin") == 0) || (file_uid > 0 && file_uid == uid) || pin_ok;
             if (can_delete) {
-                cJSON *fpath = cJSON_GetObjectItem(f, "file_path");
-                cJSON *thumb_path = cJSON_GetObjectItem(f, "thumb_path");
-                cJSON *preview_path = cJSON_GetObjectItem(f, "preview_path");
-                if (fpath && fpath->valuestring && fpath->valuestring[0]) {
-                    storage_delete_file(fpath->valuestring);
-                }
-                if (thumb_path && thumb_path->valuestring && thumb_path->valuestring[0] && is_safe_public_path(thumb_path->valuestring)) {
-                    unlink(thumb_path->valuestring);
-                } else if (thumb_path && thumb_path->valuestring && thumb_path->valuestring[0]) {
-                    CWIST_LOG_WARN("Refusing to delete unsafe thumb path: %s", thumb_path->valuestring);
-                }
-                if (preview_path && preview_path->valuestring && preview_path->valuestring[0] &&
-                    (!fpath || !fpath->valuestring || strcmp(preview_path->valuestring, fpath->valuestring) != 0) &&
-                    is_safe_public_path(preview_path->valuestring)) {
-                    unlink(preview_path->valuestring);
-                } else if (preview_path && preview_path->valuestring && preview_path->valuestring[0]) {
-                    CWIST_LOG_WARN("Refusing to delete unsafe preview path: %s", preview_path->valuestring);
-                }
-                int fid = atoi(id_str);
-                if (db_file_delete(req->db, fid)) {
-                    CWIST_LOG_INFO("File deleted: fid=%d by_uid=%d", fid, uid);
-                    page_cache_invalidate_all();
-                } else {
-                    CWIST_LOG_ERROR("File delete failed: fid=%d by_uid=%d", fid, uid);
-                }
+                outcome = file_delete_record(req->db, f, uid) ? "deleted" : "failed";
+                if (strcmp(outcome, "deleted") == 0) page_cache_invalidate_all();
             } else {
+                outcome = "forbidden";
                 CWIST_LOG_WARN("File delete forbidden: fid=%s by_uid=%d role=%s", id_str, uid, role);
             }
             cJSON_Delete(f);
         }
     }
     cwist_query_map_destroy(kv);
+    /* The editor deletes over XHR and must know whether the file is really
+     * gone; dropping its card on a failed delete left the file attached to
+     * the post with no way to see it from the editor. */
+    if (cwist_http_header_get(req->headers, "X-Requested-With")) {
+        bool ok = strcmp(outcome, "deleted") == 0;
+        cJSON *obj = cJSON_CreateObject();
+        cJSON_AddBoolToObject(obj, "ok", ok);
+        if (!ok) cJSON_AddStringToObject(obj, "error", outcome);
+        send_json_response(res, obj, ok ? CWIST_HTTP_OK
+                                        : strcmp(outcome, "forbidden") == 0 ? CWIST_HTTP_FORBIDDEN
+                                        : strcmp(outcome, "not_found") == 0 ? CWIST_HTTP_NOT_FOUND
+                                        : CWIST_HTTP_INTERNAL_ERROR);
+        return;
+    }
     redirect(res, "/files");
 }

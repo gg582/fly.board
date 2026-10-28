@@ -168,6 +168,10 @@ cJSON *db_file_get(cwist_db *db, int id);
 cJSON *db_file_list_all(cwist_db *db);
 cJSON *db_file_list_by_post(cwist_db *db, int post_id);
 cJSON *db_file_list_by_user(cwist_db *db, int user_id, int limit);
+/* Every stored file, newest first, with its post (title/slug), uploader and
+ * a "state": repository | embedded | attached (on a post, unused in its
+ * body) | orphan (its post is gone). For the admin attachments page. */
+cJSON *db_file_list_admin(cwist_db *db);
 bool db_file_delete(cwist_db *db, int id);
 int db_file_drop_all(cwist_db *db);
 bool db_file_increment_download(cwist_db *db, int id);

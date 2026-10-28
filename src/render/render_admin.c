@@ -403,6 +403,9 @@ cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool i
     cwist_sstring_append(b, "<section class='board-line fade-in'><div class='board-line-head'><h2 class='board-line-title'>Users</h2></div>");
     cwist_sstring_append(b, "<p class='board-card-desc'>Manage user accounts and roles.</p>");
     cwist_sstring_append(b, "<a href='/admin/users' class='btn'>Go to Users</a></section>");
+    cwist_sstring_append(b, "<section class='board-line fade-in'><div class='board-line-head'><h2 class='board-line-title'>Attachments</h2></div>");
+    cwist_sstring_append(b, "<p class='board-card-desc'>Every uploaded file, including post attachments that are no longer used in the post body.</p>");
+    cwist_sstring_append(b, "<a href='/admin/attachments' class='btn'>Go to Attachments</a></section>");
     cwist_sstring_append(b, "<section class='board-line fade-in' style='animation-delay:0.05s'><div class='board-line-head'><h2 class='board-line-title'>Manage Boards</h2></div>");
     cwist_sstring_append(b, "<p class='board-card-desc'>Organize board hierarchy and parent-child relationships.</p>");
     cwist_sstring_append(b, "<a href='/admin/boards' class='btn'>Go to Manage Boards</a></section>");
@@ -648,6 +651,159 @@ cwist_sstring *render_admin_reports(cJSON *groups, const char *status, const cha
     }
 
     cwist_sstring *page = render_page("Reports", b->data, dark, "admin", profile_pic, is_mobile);
+    cwist_sstring_destroy(b);
+    return page;
+}
+
+static void append_size(cwist_sstring *b, double bytes) {
+    char buf[32];
+    if (bytes >= 1024.0 * 1024.0 * 1024.0) snprintf(buf, sizeof(buf), "%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0));
+    else if (bytes >= 1024.0 * 1024.0) snprintf(buf, sizeof(buf), "%.1f MB", bytes / (1024.0 * 1024.0));
+    else if (bytes >= 1024.0) snprintf(buf, sizeof(buf), "%.0f KB", bytes / 1024.0);
+    else snprintf(buf, sizeof(buf), "%.0f B", bytes);
+    cwist_sstring_append(b, buf);
+}
+
+static bool attachment_in_view(const char *state, const char *view) {
+    if (strcmp(view, "all") == 0) return true;
+    if (strcmp(view, "unused") == 0) return strcmp(state, "attached") == 0 || strcmp(state, "orphan") == 0;
+    return strcmp(state, view) == 0;
+}
+
+cwist_sstring *render_admin_attachments(cJSON *files, const char *view, const char *msg, bool dark,
+                                        const char *profile_pic, bool is_mobile) {
+    cwist_sstring *b = cwist_sstring_create();
+    cwist_sstring_assign(b, "<div class='hero'><h1>Attachments</h1></div>");
+    cwist_sstring_append(b, "<p class='board-card-desc'>Every stored file, including the ones attached to posts that the "
+                            "<a href='/files'>Files</a> page does not list. <strong>Not in body</strong> files are attached "
+                            "to a post but not used in its text (often a re-upload); they still show in the post's attachment "
+                            "list. <strong>Orphans</strong> belong to a post that no longer exists.</p>");
+
+    static const char *const tabs[][2] = {{"unused", "Not in body + orphans"}, {"attached", "Not in body"},
+                                         {"orphan", "Orphans"}, {"embedded", "Used in posts"},
+                                         {"repository", "Files page"}, {"all", "All"}};
+    int counts[sizeof(tabs) / sizeof(tabs[0])] = {0};
+    double total_bytes = 0;
+    cJSON *f = NULL;
+    cJSON_ArrayForEach(f, files) {
+        const char *state = group_str(f, "state");
+        for (size_t i = 0; i < sizeof(tabs) / sizeof(tabs[0]); i++)
+            if (attachment_in_view(state, tabs[i][0])) counts[i]++;
+        if (attachment_in_view(state, view)) {
+            cJSON *sz = cJSON_GetObjectItem(f, "size");
+            if (cJSON_IsNumber(sz)) total_bytes += sz->valuedouble;
+        }
+    }
+
+    cwist_sstring_append(b, "<nav style='display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px'>");
+    for (size_t i = 0; i < sizeof(tabs) / sizeof(tabs[0]); i++) {
+        bool cur = strcmp(view, tabs[i][0]) == 0;
+        char label[96];
+        snprintf(label, sizeof(label), "%s (%d)", tabs[i][1], counts[i]);
+        cwist_sstring_append(b, cur ? "<a class='btn' aria-current='page' href='/admin/attachments?view="
+                                    : "<a class='btn btn-outline' href='/admin/attachments?view=");
+        cwist_sstring_append(b, tabs[i][0]);
+        cwist_sstring_append(b, "'>");
+        cwist_sstring_append(b, label);
+        cwist_sstring_append(b, "</a>");
+    }
+    cwist_sstring_append(b, "</nav>");
+
+    if (msg) {
+        cwist_sstring_append(b, "<div class='alert'>");
+        if (strcmp(msg, "none") == 0) cwist_sstring_append(b, "No files were selected.");
+        else if (strncmp(msg, "deleted-", 8) == 0) {
+            int n = atoi(msg + 8);
+            char text[96];
+            snprintf(text, sizeof(text), "%d file%s deleted.", n, n == 1 ? "" : "s");
+            cwist_sstring_append(b, text);
+        } else if (strncmp(msg, "partial-", 8) == 0) {
+            cwist_sstring_append(b, "Some files could not be deleted; check the server log.");
+        } else {
+            cwist_sstring_append(b, "The action failed.");
+        }
+        cwist_sstring_append(b, "</div>");
+    }
+
+    char summary[128];
+    int shown = 0;
+    for (size_t i = 0; i < sizeof(tabs) / sizeof(tabs[0]); i++)
+        if (strcmp(view, tabs[i][0]) == 0) shown = counts[i];
+    snprintf(summary, sizeof(summary), "<p style='color:var(--muted);font-size:13px'>%d file%s, ", shown, shown == 1 ? "" : "s");
+    cwist_sstring_append(b, summary);
+    append_size(b, total_bytes);
+    cwist_sstring_append(b, "</p>");
+
+    if (shown == 0) {
+        cwist_sstring_append(b, "<p style='color:var(--muted);text-align:center;padding:40px 0'>Nothing here.</p>");
+    } else {
+        /* Checkboxes sit outside the bulk form (rows hold their own delete
+         * forms, and forms cannot nest) and join it through form=. */
+        cwist_sstring_append(b, "<form id='att-bulk' action='/admin/attachments/delete' method='post' "
+                                "data-confirm='Delete the selected files? Posts that embed them will show broken media.'>"
+                                "<input type='hidden' name='view' value='");
+        cwist_sstring_append_escaped(b, view);
+        cwist_sstring_append(b, "'><button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00;margin-bottom:12px'>"
+                                "Delete selected</button></form>");
+        cwist_sstring_append(b, "<div style='display:grid;gap:8px'>");
+        cJSON_ArrayForEach(f, files) {
+            const char *state = group_str(f, "state");
+            if (!attachment_in_view(state, view)) continue;
+            char id_buf[32];
+            snprintf(id_buf, sizeof(id_buf), "%d", json_int(f, "id", 0));
+            cwist_sstring_append(b, "<section class='card' style='display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 12px'>");
+            cwist_sstring_append(b, "<input type='checkbox' form='att-bulk' name='f");
+            cwist_sstring_append(b, id_buf);
+            cwist_sstring_append(b, "' value='1' aria-label='Select file ");
+            cwist_sstring_append(b, id_buf);
+            cwist_sstring_append(b, "'><div style='flex:1 1 240px;min-width:0'><div style='overflow-wrap:anywhere'><a href='/file/");
+            cwist_sstring_append(b, id_buf);
+            cwist_sstring_append(b, "'>");
+            cwist_sstring_append_escaped(b, group_str(f, "filename"));
+            cwist_sstring_append(b, "</a> <span class='tag'>");
+            cwist_sstring_append(b, strcmp(state, "embedded") == 0 ? "Used in post"
+                                  : strcmp(state, "attached") == 0 ? "Not in body"
+                                  : strcmp(state, "orphan") == 0 ? "Orphan" : "Files page");
+            cwist_sstring_append(b, "</span></div><div style='color:var(--muted);font-size:13px;overflow-wrap:anywhere'>#");
+            cwist_sstring_append(b, id_buf);
+            cwist_sstring_append(b, " &middot; ");
+            cJSON *sz = cJSON_GetObjectItem(f, "size");
+            append_size(b, cJSON_IsNumber(sz) ? sz->valuedouble : 0);
+            cwist_sstring_append(b, " &middot; ");
+            cwist_sstring_append_escaped(b, group_str(f, "created_at"));
+            const char *who = group_str(f, "username");
+            if (who[0]) {
+                cwist_sstring_append(b, " &middot; ");
+                cwist_sstring_append_escaped(b, who);
+            }
+            const char *slug = group_str(f, "post_slug");
+            if (slug[0]) {
+                cwist_sstring_append(b, " &middot; <a href='/post/");
+                cwist_sstring_append_escaped(b, slug);
+                cwist_sstring_append(b, "'>");
+                cwist_sstring_append_escaped(b, group_str(f, "post_title")[0] ? group_str(f, "post_title") : "(untitled)");
+                cwist_sstring_append(b, "</a>");
+            } else if (strcmp(state, "orphan") == 0) {
+                char gone[64];
+                snprintf(gone, sizeof(gone), " &middot; post #%d (deleted)", json_int(f, "post_id", 0));
+                cwist_sstring_append(b, gone);
+            }
+            cwist_sstring_append(b, "</div></div>");
+            cwist_sstring_append(b, "<form action='/admin/attachments/delete' method='post' style='margin:0' data-confirm='");
+            cwist_sstring_append(b, strcmp(state, "embedded") == 0
+                                        ? "This file is used in a post body; the post will show broken media. Delete it?"
+                                        : "Delete this file?");
+            cwist_sstring_append(b, "'><input type='hidden' name='view' value='");
+            cwist_sstring_append_escaped(b, view);
+            cwist_sstring_append(b, "'><input type='hidden' name='f");
+            cwist_sstring_append(b, id_buf);
+            cwist_sstring_append(b, "' value='1'><button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Delete</button></form>");
+            cwist_sstring_append(b, "</section>");
+        }
+        cwist_sstring_append(b, "</div>");
+    }
+
+    cwist_sstring *page = render_page("Attachments", b->data, dark, "admin", profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;
 }

@@ -30,6 +30,9 @@
 
 bool is_dark(cwist_http_request *req);
 void redirect(cwist_http_response *res, const char *url);
+/* Delete a file's bytes, thumbnail, preview and row (journaled). The caller
+ * has checked permission; @p f is a db_file_get() row. */
+bool file_delete_record(cwist_db *db, cJSON *f, int by_uid);
 void redirect_referer_safe(cwist_http_response *res, const char *referer, const char *fallback);
 char *get_profile_pic(cwist_db *db, int uid, const char *role);
 char *get_admin_logo(void);

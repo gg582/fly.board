@@ -7,6 +7,7 @@
 #include "db/db.h"
 #include "db/db_internal.h"
 #include "config/config.h"
+#include "utils/utils.h"
 #include <cwist/core/log.h>
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/mem/gc.h>
@@ -469,6 +470,24 @@ static bool flywire_apply_upsert(sqlite3 *conn, const flywire_entity_t *e, cJSON
     return rc == SQLITE_DONE;
 }
 
+/* file_path, thumb_path and preview_path of a files row, for removing the
+ * replica's local copies once the row is deleted. */
+static void flywire_file_local_paths(sqlite3 *conn, int id, char out[3][PATH_MAX]) {
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(conn, "SELECT file_path, thumb_path, preview_path FROM files WHERE id=?",
+                           -1, &st, NULL) != SQLITE_OK) return;
+    sqlite3_bind_int(st, 1, id);
+    if (sqlite3_step(st) == SQLITE_ROW) {
+        for (int i = 0; i < 3; i++) {
+            const char *v = (const char *)sqlite3_column_text(st, i);
+            if (v) snprintf(out[i], PATH_MAX, "%s", v);
+        }
+        /* The preview of a non-media file is the file itself. */
+        if (out[2][0] && strcmp(out[2], out[0]) == 0) out[2][0] = '\0';
+    }
+    sqlite3_finalize(st);
+}
+
 static bool flywire_apply_delete(sqlite3 *conn, const flywire_entity_t *e, int entity_id, cJSON *payload) {
     if (!conn || !e || entity_id <= 0) return false;
     char sql[256];
@@ -833,7 +852,16 @@ static bool flywire_apply_row(sqlite3 *main_conn, long long seq, const char *ent
         ok = payload ? flywire_apply_special(conn, e, op, entity_id, payload) : false;
         if (payload) cJSON_Delete(payload);
     } else if (strcmp(op, "delete") == 0) {
+        bool is_file = strcmp(e->entity, "file") == 0;
+        char paths[3][PATH_MAX] = {{0}};
+        if (is_file) flywire_file_local_paths(conn, entity_id, paths);
         ok = flywire_apply_delete(conn, e, entity_id, NULL);
+        /* The row going away is not enough: the bytes this replica fetched
+         * (Phase 2) would stay on disk with nothing pointing at them. */
+        if (ok && is_file) {
+            for (int i = 0; i < 3; i++)
+                if (paths[i][0] && is_safe_public_path(paths[i])) unlink(paths[i]);
+        }
     } else {
         cJSON *payload = cJSON_Parse(payload_json && payload_json[0] ? payload_json : "{}");
         ok = payload ? flywire_apply_upsert(conn, e, payload) : false;

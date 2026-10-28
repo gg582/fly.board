@@ -2191,19 +2191,34 @@
 
         if (ui.btnDelete) {
             ui.btnDelete.onclick = function() {
-                if (asset.fid !== null) {
-                    fetch('/file/delete', {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            'X-Requested-With': 'XMLHttpRequest'
-                        },
-                        body: 'id=' + encodeURIComponent(String(asset.fid)) +
-                            '&delete_pin=' + encodeURIComponent(asset.deletePin || '')
-                    });
+                if (asset.fid === null) {
+                    cleanupAssetUI();
+                    return;
                 }
-                cleanupAssetUI();
+                // Drop the card only once the server confirms: a card removed
+                // on a failed delete leaves the file attached to the post.
+                ui.btnDelete.disabled = true;
+                fetch('/file/delete', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: 'id=' + encodeURIComponent(String(asset.fid)) +
+                        '&delete_pin=' + encodeURIComponent(asset.deletePin || '')
+                }).then(function(response) {
+                    return response.json().catch(function() { return null; }).then(function(payload) {
+                        // An already-deleted file is gone either way.
+                        if (response.ok || response.status === 404) return;
+                        throw new Error((payload && payload.error) || ('status:' + response.status));
+                    });
+                }).then(function() {
+                    cleanupAssetUI();
+                }).catch(function(err) {
+                    ui.btnDelete.disabled = false;
+                    if (ui.status) ui.status.textContent = 'Delete failed (' + (err && err.message ? err.message : 'network') + '), try again';
+                });
             };
         }
 

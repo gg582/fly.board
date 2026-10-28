@@ -334,3 +334,71 @@ void handler_admin_boards_get(cwist_http_request *req, cwist_http_response *res)
 }
 
 /* ---- API ---- */
+
+static const char *attachments_view(const char *v) {
+    static const char *const views[] = {"unused", "attached", "orphan", "embedded", "repository", "all"};
+    for (size_t i = 0; v && i < sizeof(views) / sizeof(views[0]); i++)
+        if (strcmp(v, views[i]) == 0) return views[i];
+    return "unused";
+}
+
+void handler_admin_attachments_get(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    int uid = 0;
+    char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    cJSON *files = db_file_list_admin(req->db);
+    char *pp = get_profile_pic(req->db, uid, role);
+    cwist_sstring *page = render_admin_attachments(files, attachments_view(cwist_query_map_get(req->query_params, "view")),
+                                                   cwist_query_map_get(req->query_params, "msg"),
+                                                   is_dark(req), pp, is_mobile_request(req));
+    if (files) cJSON_Delete(files);
+    free(pp);
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-store, private");
+    send_html_res(res, page);
+}
+
+typedef struct {
+    int ids[512];
+    int count;
+} attachment_selection;
+
+/* Selected files arrive as f<id>=1 (one field per checkbox). */
+static void collect_attachment_id(const char *key, const char *value, void *ctx) {
+    attachment_selection *sel = (attachment_selection *)ctx;
+    (void)value;
+    if (!key || key[0] != 'f' || !key[1]) return;
+    for (const char *p = key + 1; *p; p++)
+        if (*p < '0' || *p > '9') return;
+    int id = atoi(key + 1);
+    if (id > 0 && sel->count < (int)(sizeof(sel->ids) / sizeof(sel->ids[0]))) sel->ids[sel->count++] = id;
+}
+
+void handler_admin_attachments_delete_post(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    int uid = 0;
+    char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    cwist_query_map *kv = cwist_query_map_create();
+    if (req->body && req->body->data) cwist_query_map_parse(kv, req->body->data);
+    const char *view = attachments_view(cwist_query_map_get(kv, "view"));
+    attachment_selection sel = {0};
+    cwist_query_map_foreach(kv, collect_attachment_id, &sel);
+    int deleted = 0, failed = 0;
+    for (int i = 0; i < sel.count; i++) {
+        cJSON *f = db_file_get(req->db, sel.ids[i]);
+        if (!f) continue; /* already gone */
+        if (file_delete_record(req->db, f, uid)) deleted++;
+        else failed++;
+        cJSON_Delete(f);
+    }
+    if (deleted > 0) page_cache_invalidate_all();
+    CWIST_LOG_INFO("Admin attachments delete: %d selected, %d deleted, %d failed by uid=%d",
+                   sel.count, deleted, failed, uid);
+    cwist_query_map_destroy(kv);
+    char url[96];
+    if (sel.count == 0) snprintf(url, sizeof(url), "/admin/attachments?view=%s&msg=none", view);
+    else if (failed > 0) snprintf(url, sizeof(url), "/admin/attachments?view=%s&msg=partial-%d", view, deleted);
+    else snprintf(url, sizeof(url), "/admin/attachments?view=%s&msg=deleted-%d", view, deleted);
+    redirect(res, url);
+}

@@ -147,6 +147,79 @@ cJSON *db_file_list_by_user(cwist_db *db, int user_id, int limit) {
     return db_sqlite3_rows_to_json(stmt);
 }
 
+/* True when @p content mentions /file/download/<id>, /file/preview/<id>
+ * or /file/<id> (not as a prefix of a longer id), or the stored file name.
+ * That is how the editor embeds uploads, so a miss means the post carries
+ * the file only in its attachment list. */
+static bool content_references_file(const char *content, int id, const char *file_path) {
+    if (!content || !content[0]) return false;
+    static const char *const prefixes[] = {"/file/download/", "/file/preview/", "/file/"};
+    char needle[64];
+    for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
+        int n = snprintf(needle, sizeof(needle), "%s%d", prefixes[i], id);
+        if (n <= 0 || (size_t)n >= sizeof(needle)) continue;
+        for (const char *hit = strstr(content, needle); hit; hit = strstr(hit + 1, needle)) {
+            char next = hit[n];
+            if (next < '0' || next > '9') return true;
+        }
+    }
+    const char *base = file_path ? strrchr(file_path, '/') : NULL;
+    base = base ? base + 1 : file_path;
+    return base && base[0] && strstr(content, base) != NULL;
+}
+
+cJSON *db_file_list_admin(cwist_db *db) {
+    const char *sql =
+        "SELECT f.id, f.post_id, f.user_id, f.filename, f.mime_type, f.file_path, f.size, f.created_at, "
+        "f.download_count, p.id, p.title, p.slug, p.content, u.username "
+        "FROM files f "
+        "LEFT JOIN posts p ON p.id = f.post_id "
+        "LEFT JOIN users u ON u.id = f.user_id "
+        "WHERE f.file_path IS NULL OR (f.file_path NOT LIKE '%/.thumbs/%' AND f.file_path NOT LIKE '%/.previews/%') "
+        "ORDER BY f.id DESC";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    cJSON *rows = cJSON_CreateArray();
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        cJSON *r = cJSON_CreateObject();
+        int id = sqlite3_column_int(stmt, 0);
+        int post_id = sqlite3_column_int(stmt, 1);
+        bool post_exists = sqlite3_column_type(stmt, 9) != SQLITE_NULL;
+        const char *file_path = (const char *)sqlite3_column_text(stmt, 5);
+        const char *text;
+        cJSON_AddNumberToObject(r, "id", id);
+        cJSON_AddNumberToObject(r, "post_id", post_id);
+        cJSON_AddNumberToObject(r, "user_id", sqlite3_column_int(stmt, 2));
+        text = (const char *)sqlite3_column_text(stmt, 3);
+        cJSON_AddStringToObject(r, "filename", text ? text : "");
+        text = (const char *)sqlite3_column_text(stmt, 4);
+        cJSON_AddStringToObject(r, "mime_type", text ? text : "");
+        cJSON_AddStringToObject(r, "file_path", file_path ? file_path : "");
+        cJSON_AddNumberToObject(r, "size", (double)sqlite3_column_int64(stmt, 6));
+        text = (const char *)sqlite3_column_text(stmt, 7);
+        cJSON_AddStringToObject(r, "created_at", text ? text : "");
+        cJSON_AddNumberToObject(r, "download_count", sqlite3_column_int(stmt, 8));
+        text = (const char *)sqlite3_column_text(stmt, 10);
+        cJSON_AddStringToObject(r, "post_title", text ? text : "");
+        text = (const char *)sqlite3_column_text(stmt, 11);
+        cJSON_AddStringToObject(r, "post_slug", text ? text : "");
+        text = (const char *)sqlite3_column_text(stmt, 13);
+        cJSON_AddStringToObject(r, "username", text ? text : "");
+        /* repository: never attached; embedded: the post body uses it;
+         * attached: listed on the post but unused in its body (a re-upload
+         * or a removed embed); orphan: its post no longer exists. */
+        const char *state;
+        if (post_id <= 0) state = "repository";
+        else if (!post_exists) state = "orphan";
+        else if (content_references_file((const char *)sqlite3_column_text(stmt, 12), id, file_path)) state = "embedded";
+        else state = "attached";
+        cJSON_AddStringToObject(r, "state", state);
+        cJSON_AddItemToArray(rows, r);
+    }
+    sqlite3_finalize(stmt);
+    return rows;
+}
+
 bool db_file_delete(cwist_db *db, int id) {
     const char *sql = "DELETE FROM files WHERE id=?";
     sqlite3_stmt *stmt = NULL;

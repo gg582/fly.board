@@ -160,6 +160,8 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/admin/files/drop", handler_file_repo);
     engine_async_post(app, "/admin/files/drop", handler_admin_files_drop);
     engine_async_get(app, "/admin/boards", handler_admin_boards_get);
+    engine_async_get(app, "/admin/attachments", handler_admin_attachments_get);
+    engine_async_post(app, "/admin/attachments/delete", handler_admin_attachments_delete_post);
     engine_async_get(app, "/admin/write-policy", handler_admin_dashboard);
     engine_async_post(app, "/admin/write-policy", handler_admin_write_policy_post);
     engine_async_post(app, "/admin/upload-policy", handler_admin_upload_policy_post);
