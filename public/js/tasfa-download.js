@@ -1592,6 +1592,50 @@
      * Called when img/audio element actually points to a video or audio file.
      * Replaces the element inline with an embedded player.
      */
+    /* SubRip -> WebVTT: browsers only take WebVTT in <track>. */
+    function srtToVtt(text) {
+        var body = String(text || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+        if (/^WEBVTT/.test(body)) return body;
+        body = body.replace(/(\d+):(\d{2}):(\d{2}),(\d{3})/g, function(_, h, m, sec, ms) {
+            return (h.length < 2 ? '0' + h : h) + ':' + m + ':' + sec + '.' + ms;
+        });
+        return 'WEBVTT\n\n' + body;
+    }
+
+    /* Attachments the server paired with this video (data-subtitle-for) are
+       fetched over TASFA and added as caption tracks; the first is shown. */
+    function attachSubtitleTracks(mediaEl, playUrl) {
+        if (!mediaEl || mediaEl.tagName.toLowerCase() !== 'video') return;
+        if (mediaEl.dataset.tasfaSubtitlesBound === '1') return;
+        var match = String(playUrl || '').match(/\/file\/download\/(\d+)/);
+        if (!match) return;
+        var links = document.querySelectorAll('a[data-subtitle-for="' + match[1] + '"]');
+        if (!links.length) return;
+        mediaEl.dataset.tasfaSubtitlesBound = '1';
+        Array.prototype.forEach.call(links, function(link, index) {
+            var subUrl = link.getAttribute('data-tasfa-download-link') || '';
+            if (!subUrl) return;
+            var lang = link.getAttribute('data-subtitle-lang') || '';
+            var label = lang || (link.textContent || '').replace(/^\s*\S*\s*/, '').trim() || 'Subtitles';
+            fetchBlobViaTasfa(subUrl, { silent: true }).then(function(result) {
+                return result.blob.text();
+            }).then(function(text) {
+                var track = document.createElement('track');
+                track.kind = 'subtitles';
+                track.label = label;
+                if (lang) track.srclang = lang;
+                track.src = URL.createObjectURL(new Blob([srtToVtt(text)], { type: 'text/vtt' }));
+                if (index === 0) track.default = true;
+                mediaEl.appendChild(track);
+                if (index === 0 && mediaEl.textTracks && mediaEl.textTracks.length) {
+                    mediaEl.textTracks[mediaEl.textTracks.length - 1].mode = 'showing';
+                }
+            }).catch(function(error) {
+                console.warn('Subtitle load failed:', subUrl, error);
+            });
+        });
+    }
+
     function replaceWithEmbeddedPlayer(el, playUrl, isAudio) {
         if (el.parentNode && el.parentNode.tagName &&
             (el.parentNode.tagName.toLowerCase() === 'video' || el.parentNode.tagName.toLowerCase() === 'audio')) {
@@ -1622,6 +1666,7 @@
             el.src = playUrl;
             el.style.opacity = '1';
             bindLoaderRemoval(el);
+            if (!isAudio) attachSubtitleTracks(el, playUrl);
             return el;
         }
 
@@ -1641,6 +1686,7 @@
         }
 
         bindLoaderRemoval(mediaEl);
+        if (!isAudio) attachSubtitleTracks(mediaEl, playUrl);
         return mediaEl;
     }
 

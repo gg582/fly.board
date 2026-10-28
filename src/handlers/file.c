@@ -4,6 +4,7 @@
 #include "../utils/media_preview.h"
 #include "../utils/s3_client.h"
 #include "../db/db_internal.h"
+#include "../engine/flywire.h"
 #include <ctype.h>
 #include <strings.h>
 #include <sys/stat.h>
@@ -1073,8 +1074,10 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
 
     const char *fallback = cwist_query_map_get(req->query_params, "tasfa_fallback");
     bool is_fallback = fallback && strcmp(fallback, "1") == 0;
+    /* A replica pulling the bytes it replicates: no browser, no TASFA session. */
+    bool is_peer = flywire_request_authorized(req);
 
-    if (!is_fallback && g_config.use_tasfa && !is_image && !is_media) {
+    if (!is_fallback && !is_peer && g_config.use_tasfa && !is_image && !is_media) {
         bool has_valid_session = false;
         const char *session_id = cwist_http_header_get(req->headers, "X-TASFA-Session-ID");
         const char *session_token = cwist_http_header_get(req->headers, "X-TASFA-Session-Token");
@@ -1104,7 +1107,7 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     snprintf(disp, sizeof(disp), "%s; filename=\"%s\"", (is_image || is_media) ? "inline" : "attachment", filename);
     cwist_http_header_add(&res->headers, "Content-Disposition", disp);
 
-    db_file_increment_download(req->db, atoi(id_str));
+    if (!is_peer) db_file_increment_download(req->db, atoi(id_str));
 
     bool not_modified = false;
     bool ok = send_cached_file_response(req, res, path, mime, is_image ? IMAGE_CACHE_CONTROL : FILE_CACHE_CONTROL, &not_modified);

@@ -59,6 +59,54 @@ static const char *render_file_media_kind(cJSON *file) {
     return "";
 }
 
+static bool render_file_is_subtitle(const char *name) {
+    const char *dot = name ? strrchr(name, '.') : NULL;
+    return dot && (strcasecmp(dot, ".srt") == 0 || strcasecmp(dot, ".vtt") == 0);
+}
+
+/* Length of @p name without its last extension. */
+static size_t render_filename_stem_len(const char *name) {
+    const char *dot = strrchr(name, '.');
+    return dot && dot != name ? (size_t)(dot - name) : strlen(name);
+}
+
+/* The video a subtitle attachment belongs to: the post's video with the same
+ * name ("talk.webm" for "talk.srt" or "talk.ko.srt"), else the post's only
+ * video. A "<name>.<lang>.srt" tag of 2-3 letters lands in @p lang. Returns
+ * the video's file id, or 0. */
+static int render_subtitle_video(cJSON *files, const char *sub_name, char *lang, size_t lang_size) {
+    lang[0] = '\0';
+    size_t stem = render_filename_stem_len(sub_name);
+    size_t base = stem;
+    for (size_t i = stem; i > 0; i--) {
+        if (sub_name[i - 1] != '.') continue;
+        size_t tag = stem - i;
+        bool alpha = tag >= 2 && tag <= 3;
+        for (size_t k = i; alpha && k < stem; k++) alpha = isalpha((unsigned char)sub_name[k]) != 0;
+        if (alpha && tag < lang_size) {
+            memcpy(lang, sub_name + i, tag);
+            lang[tag] = '\0';
+            base = i - 1;
+        }
+        break;
+    }
+    int only = 0, videos = 0;
+    cJSON *f = NULL;
+    cJSON_ArrayForEach(f, files) {
+        if (strcmp(render_file_media_kind(f), "video") != 0) continue;
+        cJSON *jname = cJSON_GetObjectItem(f, "filename");
+        int id = json_int(f, "id", 0);
+        if (!cJSON_IsString(jname) || id <= 0) continue;
+        videos++;
+        only = id;
+        size_t vstem = render_filename_stem_len(jname->valuestring);
+        if ((vstem == base && strncmp(jname->valuestring, sub_name, base) == 0) ||
+            (vstem == stem && strncmp(jname->valuestring, sub_name, stem) == 0))
+            return id;
+    }
+    return videos == 1 ? only : 0;
+}
+
 static bool render_file_is_gif(cJSON *file) {
     if (!file) return false;
     cJSON *jmime = cJSON_GetObjectItem(file, "mime_type");
@@ -1809,6 +1857,21 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                 cwist_sstring_append(b, "<div class='file-attachment-block' style='padding:12px;border:1px solid var(--border);background:var(--panel)'>");
                 cwist_sstring_append(b, "<a href='#' data-tasfa-download-link='/file/download/");
                 cwist_sstring_append(b, fid_buf2);
+                if (render_file_is_subtitle(fname->valuestring)) {
+                    /* The player loads it as a caption track of this video. */
+                    char lang[4];
+                    int video_id = render_subtitle_video(files, fname->valuestring, lang, sizeof(lang));
+                    if (video_id > 0) {
+                        char vid_buf[32];
+                        snprintf(vid_buf, sizeof(vid_buf), "%d", video_id);
+                        cwist_sstring_append(b, "' data-subtitle-for='");
+                        cwist_sstring_append(b, vid_buf);
+                        if (lang[0]) {
+                            cwist_sstring_append(b, "' data-subtitle-lang='");
+                            cwist_sstring_append_escaped(b, lang);
+                        }
+                    }
+                }
                 cwist_sstring_append(b, "' style='display:flex;align-items:center;gap:8px;color:var(--accent);font-weight:600;font-size:14px'>&#128193; ");
                 cwist_sstring_append_escaped(b, fname->valuestring);
                 cwist_sstring_append(b, "</a></div>");
