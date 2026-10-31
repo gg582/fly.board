@@ -1872,7 +1872,11 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                         }
                     }
                 }
-                cwist_sstring_append(b, "' style='display:flex;align-items:center;gap:8px;color:var(--accent);font-weight:600;font-size:14px'>&#128193; ");
+                /* Lucide 'folder' icon (ISC license, lucide.dev) - flat stroke
+                 * style; currentColor inherits the accent from the link. */
+                cwist_sstring_append(b, "' style='display:flex;align-items:center;gap:8px;color:var(--accent);font-weight:600;font-size:14px'>"
+                    "<svg aria-hidden='true' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='flex:none'>"
+                    "<path d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'/></svg> ");
                 cwist_sstring_append_escaped(b, fname->valuestring);
                 cwist_sstring_append(b, "</a></div>");
             }
