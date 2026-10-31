@@ -39,7 +39,7 @@ git submodule update --init --recursive
 `fly.board` expects `libcwist` and CWIST headers under `/usr/local` by default.
 
 ```sh
-git clone https://github.com/religiya-serdtsa/cwist.git
+git clone --recursive --branch v4.1 https://github.com/religiya-serdtsa/cwist.git
 cd cwist
 make
 sudo make install

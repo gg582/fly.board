@@ -12,7 +12,7 @@ RUN pacman -Syu --noconfirm \
 # Build and install cwist (with retry in case of transient network issues)
 RUN set -eux; \
     for i in 1 2 3; do \
-        git clone --depth 1 --recursive https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break; \
+        git clone --depth 1 --recursive --branch v4.1 https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break; \
         echo "cwist clone attempt $i failed, retrying..."; \
         rm -rf /tmp/cwist; \
         sleep 5; \

@@ -26,7 +26,7 @@ on:
 # fly.board builds against this cwist release; bump it together with any
 # code that needs newer cwist API.
 env:
-  CWIST_REF: v4
+  CWIST_REF: v4.1
   # Bump when the post-clone cwist patch set (seds below) changes: the
   # cache key must not reuse an /usr/local built with the old patches.
   CWIST_PATCH: 1

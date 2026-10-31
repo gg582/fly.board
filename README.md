@@ -30,7 +30,7 @@ mail server - see [docs/mail.md](docs/mail.md). Plain `make` builds both plus
 the vendored third-party libraries.
 
 Dependencies:
-- [CWIST](https://github.com/religiya-serdtsa/cwist) v3.9 - TLS 1.3 / HTTP/3 (QUIC) is handled by the embedded BoringSSL inside CWIST; no extra setup required.
+- [CWIST](https://github.com/religiya-serdtsa/cwist) v4.1 - TLS 1.3 / HTTP/3 (QUIC) is handled by the embedded BoringSSL inside CWIST; no extra setup required.
 - OpenSSL 3.x (Argon2id KDF)
 - ngtcp2 / nghttp3 (HTTP/3)
 - cJSON, SQLite3
