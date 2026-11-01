@@ -51,6 +51,12 @@ The Makefile resolves CWIST in this order (first match wins):
    `/opt/homebrew`, `/usr/local`), then `<brew prefix>/opt/cwist` or a
    `lib/libcwist.a`-carrying prefix is used.
 
+When building CWIST from source, enable the SQLite FTS5 module required by post search:
+
+```sh
+make -j"$(nproc)" CWIST_SQLITE_FTS5=1
+```
+
 An explicit `CWIST_ROOT` or `CWIST_PREFIX` from the command line or the
 environment always wins:
 

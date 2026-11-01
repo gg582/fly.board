@@ -26,7 +26,7 @@ on:
 # fly.board builds against this cwist release; bump it together with any
 # code that needs newer cwist API.
 env:
-  CWIST_REF: v4.1
+  CWIST_REF: v4.1.1
   # Bump when the post-clone cwist patch set (seds below) changes: the
   # cache key must not reuse an /usr/local built with the old patches.
   CWIST_PATCH: 1
@@ -92,12 +92,8 @@ jobs:
           # -Wunused-but-set-variable in its netinet/ sources, breaking fresh
           # CI builds. The vendored dep does not need warnings-as-errors.
           sed -i 's|option(sctp_werror "Treat warning as error" 1)|option(sctp_werror "Treat warning as error" 0)|' lib/usrsctp/CMakeLists.txt
-          # fly.board needs SQLite FTS5 (posts_fts full-text search); cwist's
-          # bundled sqlite3 amalgamation is built without SQLITE_ENABLE_FTS5,
-          # which fails any fresh-database schema init with "no such module:
-          # fts5".
-          sed -i 's|-DSQLITE_ENABLE_DESERIALIZE|-DSQLITE_ENABLE_DESERIALIZE -DSQLITE_ENABLE_FTS5|' Makefile
-          make -j"$(nproc)"
+          # fly.board needs SQLite FTS5 for posts_fts full-text search.
+          make -j"$(nproc)" CWIST_SQLITE_FTS5=1
           make install
           rm -rf /tmp/cwist
 
@@ -208,8 +204,7 @@ jobs:
           sed -i 's|FIND_PATH(ZLIB_INCLUDE_DIR NAMES zlib.h)|SET(ZLIB_INCLUDE_DIR /usr/include)|' lib/lsquic/CMakeLists.txt
           sed -i 's|FIND_LIBRARY(ZLIB_LIB libz${LIB_SUFFIX})|SET(ZLIB_LIB /usr/lib/libz.so)|' lib/lsquic/CMakeLists.txt
           sed -i 's|option(sctp_werror "Treat warning as error" 1)|option(sctp_werror "Treat warning as error" 0)|' lib/usrsctp/CMakeLists.txt
-          sed -i 's|-DSQLITE_ENABLE_DESERIALIZE|-DSQLITE_ENABLE_DESERIALIZE -DSQLITE_ENABLE_FTS5|' Makefile
-          make -j"$(nproc)"
+          make -j"$(nproc)" CWIST_SQLITE_FTS5=1
           make install
           rm -rf /tmp/cwist
 
@@ -297,12 +292,8 @@ jobs:
           # -Wunused-but-set-variable in its netinet/ sources, breaking fresh
           # CI builds. The vendored dep does not need warnings-as-errors.
           sed -i 's|option(sctp_werror "Treat warning as error" 1)|option(sctp_werror "Treat warning as error" 0)|' lib/usrsctp/CMakeLists.txt
-          # fly.board needs SQLite FTS5 (posts_fts full-text search); cwist's
-          # bundled sqlite3 amalgamation is built without SQLITE_ENABLE_FTS5,
-          # which fails any fresh-database schema init with "no such module:
-          # fts5".
-          sed -i 's|-DSQLITE_ENABLE_DESERIALIZE|-DSQLITE_ENABLE_DESERIALIZE -DSQLITE_ENABLE_FTS5|' Makefile
-          make -j"$(nproc)"
+          # fly.board needs SQLite FTS5 for posts_fts full-text search.
+          make -j"$(nproc)" CWIST_SQLITE_FTS5=1
           make install
           rm -rf /tmp/cwist
 

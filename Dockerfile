@@ -12,11 +12,10 @@ RUN pacman -Syu --noconfirm \
 
 # Build and install cwist (with retry in case of transient network issues).
 # The seds are the patch set .github/workflows/memory-checks.yml applies:
-# usrsctp ships -Werror, which newer GCCs break, and fly.board needs SQLite
-# FTS5 (posts_fts), which cwist's bundled sqlite3 is built without.
+# usrsctp ships -Werror, which newer GCCs break.
 RUN set -eux; \
     for i in 1 2 3; do \
-        git clone --depth 1 --recursive --branch v4.1 https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break; \
+        git clone --depth 1 --recursive --branch v4.1.1 https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break; \
         echo "cwist clone attempt $i failed, retrying..."; \
         rm -rf /tmp/cwist; \
         sleep 5; \
@@ -25,9 +24,7 @@ RUN set -eux; \
     sed -i 's|FIND_PATH(ZLIB_INCLUDE_DIR NAMES zlib.h)|SET(ZLIB_INCLUDE_DIR /usr/include)|' lib/lsquic/CMakeLists.txt; \
     sed -i 's|FIND_LIBRARY(ZLIB_LIB libz\${LIB_SUFFIX})|SET(ZLIB_LIB /usr/lib/libz.so)|' lib/lsquic/CMakeLists.txt; \
     sed -i 's|option(sctp_werror "Treat warning as error" 1)|option(sctp_werror "Treat warning as error" 0)|' lib/usrsctp/CMakeLists.txt; \
-    sed -i 's|-DSQLITE_ENABLE_DESERIALIZE|-DSQLITE_ENABLE_DESERIALIZE -DSQLITE_ENABLE_FTS5|' Makefile; \
-    grep -q 'SQLITE_ENABLE_FTS5' Makefile; \
-    make -j$(nproc); \
+    make -j$(nproc) CWIST_SQLITE_FTS5=1; \
     make install; \
     rm -rf /tmp/cwist
 
