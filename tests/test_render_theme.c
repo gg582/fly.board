@@ -121,6 +121,14 @@ int main(void) {
     free(all);
     g_config.accent[0] = '\0';
 
+    memset(g_config.use_special_modes, 'a', sizeof(g_config.use_special_modes) - 1);
+    g_config.use_special_modes[sizeof(g_config.use_special_modes) - 1] = '\0';
+    char special_light[64], special_dark[64];
+    get_special_themes(special_light, special_dark);
+    CHECK(strlen(special_light) < sizeof(special_light), "long light theme name stays bounded");
+    CHECK(strlen(special_dark) < sizeof(special_dark), "long dark theme name stays bounded");
+    g_config.use_special_modes[0] = '\0';
+
     /* ---- theme lookup ---- */
     CHECK(theme_by_name("ocean") == &ocean, "theme_by_name finds ocean");
     CHECK(theme_by_name("nonexistent-theme") == &light, "theme_by_name falls back to light");

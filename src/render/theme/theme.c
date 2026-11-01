@@ -55,8 +55,8 @@ void get_special_themes(char *out_light, char *out_dark) {
     strcpy(out_light, "light");
     strcpy(out_dark, "dark");
     if (g_config.use_special_modes[0]) {
-        char temp[128];
-        snprintf(temp, sizeof(temp), "%s", g_config.use_special_modes);
+        char temp[64];
+        snprintf(temp, sizeof(temp), "%.*s", (int)sizeof(temp) - 1, g_config.use_special_modes);
         char *comma = strchr(temp, ',');
         if (comma) {
             *comma = '\0';

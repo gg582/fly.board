@@ -1043,8 +1043,8 @@ static bool tasfa_finalize_session_process(cwist_db *db,
     }
 
     char final_path[PATH_MAX];
-    char final_filename[256];
-    snprintf(final_filename, sizeof(final_filename), "%s", filename);
+    char final_filename[256 + sizeof(".webm")];
+    snprintf(final_filename, sizeof(final_filename) - sizeof(".webm"), "%s", filename);
     bool is_gif_upload = (strcmp(mime_buf, "image/gif") == 0);
     bool gif_converted = false;
 
