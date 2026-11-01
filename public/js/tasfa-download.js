@@ -1603,7 +1603,8 @@
     }
 
     /* Attachments the server paired with this video (data-subtitle-for) are
-       fetched over TASFA and added as caption tracks; the first is shown. */
+       fetched over TASFA and added as caption tracks; the first is shown.
+       A CC button on the player cycles: first track -> next -> ... -> off. */
     function attachSubtitleTracks(mediaEl, playUrl) {
         if (!mediaEl || mediaEl.tagName.toLowerCase() !== 'video') return;
         if (mediaEl.dataset.tasfaSubtitlesBound === '1') return;
@@ -1612,7 +1613,54 @@
         var links = document.querySelectorAll('a[data-subtitle-for="' + match[1] + '"]');
         if (!links.length) return;
         mediaEl.dataset.tasfaSubtitlesBound = '1';
-        Array.prototype.forEach.call(links, function(link, index) {
+
+        /* state.index: which track shows; -1 hides all. */
+        var state = { index: 0 };
+
+        var wrap = document.createElement('div');
+        wrap.className = 'tasfa-video-cc-wrap';
+        wrap.style.cssText = 'position:relative;max-width:100%;';
+        if (mediaEl.parentNode) {
+            mediaEl.parentNode.insertBefore(wrap, mediaEl);
+            wrap.appendChild(mediaEl);
+        }
+
+        var ccBtn = document.createElement('button');
+        ccBtn.type = 'button';
+        ccBtn.textContent = 'CC';
+        ccBtn.setAttribute('aria-label', 'Toggle subtitles');
+        ccBtn.setAttribute('aria-pressed', 'true');
+        ccBtn.style.cssText = 'position:absolute;top:8px;right:8px;z-index:3;' +
+            'font:600 12px/1 system-ui,sans-serif;padding:6px 9px;border-radius:6px;' +
+            'border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.45);' +
+            'backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);' +
+            'color:#fff;cursor:pointer;opacity:.85;';
+        wrap.appendChild(ccBtn);
+
+        function updateButton() {
+            var on = state.index >= 0 && mediaEl.textTracks && mediaEl.textTracks.length > 0;
+            ccBtn.style.color = on ? 'var(--accent)' : '#fff';
+            ccBtn.style.borderColor = on ? 'var(--accent)' : 'rgba(255,255,255,.35)';
+            ccBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+
+        function applyMode() {
+            if (!mediaEl.textTracks) return;
+            for (var i = 0; i < mediaEl.textTracks.length; i++) {
+                mediaEl.textTracks[i].mode = (i === state.index) ? 'showing' : 'hidden';
+            }
+            updateButton();
+        }
+
+        ccBtn.addEventListener('click', function(event) {
+            event.preventDefault();
+            var count = mediaEl.textTracks ? mediaEl.textTracks.length : 0;
+            if (!count) return;
+            state.index = state.index + 1 >= count ? -1 : state.index + 1;
+            applyMode();
+        });
+
+        Array.prototype.forEach.call(links, function(link) {
             var subUrl = link.getAttribute('data-tasfa-download-link') || '';
             if (!subUrl) return;
             var lang = link.getAttribute('data-subtitle-lang') || '';
@@ -1625,11 +1673,8 @@
                 track.label = label;
                 if (lang) track.srclang = lang;
                 track.src = URL.createObjectURL(new Blob([srtToVtt(text)], { type: 'text/vtt' }));
-                if (index === 0) track.default = true;
                 mediaEl.appendChild(track);
-                if (index === 0 && mediaEl.textTracks && mediaEl.textTracks.length) {
-                    mediaEl.textTracks[mediaEl.textTracks.length - 1].mode = 'showing';
-                }
+                applyMode();
             }).catch(function(error) {
                 console.warn('Subtitle load failed:', subUrl, error);
             });
@@ -1652,7 +1697,11 @@
             function removeLoader() {
                 if (loader.parentElement) loader.remove();
                 if (wrap.classList.contains('tasfa-inline-media-wrap') && wrap.parentElement) {
-                    wrap.parentElement.insertBefore(mediaEl, wrap);
+                    /* The CC subtitle toggle wraps the video; move that whole
+                     * wrap out so the button survives the unwrap. */
+                    var moving = mediaEl.parentNode && mediaEl.parentNode.classList &&
+                        mediaEl.parentNode.classList.contains('tasfa-video-cc-wrap') ? mediaEl.parentNode : mediaEl;
+                    wrap.parentElement.insertBefore(moving, wrap);
                     wrap.remove();
                 }
             }
@@ -1809,6 +1858,7 @@
             if (posterUrl) {
                 el.poster = posterUrl;
             }
+            if (tagName === 'video') attachSubtitleTracks(el, baseUrl);
             return;
         }
 
