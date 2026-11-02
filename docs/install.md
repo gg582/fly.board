@@ -55,6 +55,7 @@ When building CWIST from source, enable the SQLite FTS5 module required by post 
 
 ```sh
 make -j"$(nproc)" CWIST_SQLITE_FTS5=1
+make install CWIST_SQLITE_FTS5=1
 ```
 
 An explicit `CWIST_ROOT` or `CWIST_PREFIX` from the command line or the

@@ -25,7 +25,7 @@ RUN set -eux; \
     sed -i 's|FIND_LIBRARY(ZLIB_LIB libz\${LIB_SUFFIX})|SET(ZLIB_LIB /usr/lib/libz.so)|' lib/lsquic/CMakeLists.txt; \
     sed -i 's|option(sctp_werror "Treat warning as error" 1)|option(sctp_werror "Treat warning as error" 0)|' lib/usrsctp/CMakeLists.txt; \
     make -j$(nproc) CWIST_SQLITE_FTS5=1; \
-    make install; \
+    make install CWIST_SQLITE_FTS5=1; \
     rm -rf /tmp/cwist
 
 WORKDIR /app

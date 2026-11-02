@@ -42,7 +42,7 @@ git submodule update --init --recursive
 git clone --recursive --branch v4.1.1 https://github.com/religiya-serdtsa/cwist.git
 cd cwist
 make CWIST_SQLITE_FTS5=1
-sudo make install
+sudo make install CWIST_SQLITE_FTS5=1
 cd ..
 ```
 
