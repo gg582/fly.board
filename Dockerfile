@@ -15,7 +15,7 @@ RUN pacman -Syu --noconfirm \
 # usrsctp ships -Werror, which newer GCCs break.
 RUN set -eux; \
     for i in 1 2 3; do \
-        git clone --depth 1 --recursive --branch v4.1.1 https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break; \
+        git clone --depth 1 --recursive --branch v4.1.2 https://github.com/religiya-serdtsa/cwist.git /tmp/cwist && break; \
         echo "cwist clone attempt $i failed, retrying..."; \
         rm -rf /tmp/cwist; \
         sleep 5; \
