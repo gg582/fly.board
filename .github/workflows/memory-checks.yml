@@ -27,9 +27,9 @@ on:
 # code that needs newer cwist API.
 env:
   CWIST_REF: v4.1.1
-  # Bump when the post-clone cwist patch set (seds below) changes: the
-  # cache key must not reuse an /usr/local built with the old patches.
-  CWIST_PATCH: 1
+  # Bump when the post-clone cwist patch set or build flags change: the
+  # cache key must not reuse an /usr/local built with the old configuration.
+  CWIST_PATCH: 2
 
 concurrency:
   group: memory-checks-${{ github.ref }}
