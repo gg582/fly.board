@@ -39,7 +39,7 @@ void download_session_meta_path(char *out, size_t out_len, const char *session_i
 bool ensure_tasfa_roots(void) {
     return dir_ensure("data") && dir_ensure("data/tasfa") &&
            dir_ensure(TASFA_UPLOAD_DIR) && dir_ensure(TASFA_DOWNLOAD_DIR) &&
-           dir_ensure("public/uploads");
+           dir_ensure("data/tasfa/finalize") && dir_ensure("public/uploads");
 }
 
 bool ensure_preallocated_file(const char *path, long long total_size) {

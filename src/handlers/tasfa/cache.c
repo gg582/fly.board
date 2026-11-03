@@ -155,6 +155,86 @@ cJSON *load_download_session_cached(const char *session_id) {
     return meta;
 }
 
+#define TASFA_FINALIZE_DIR "data/tasfa/finalize"
+
+static void finalize_disk_path(char *out, size_t out_len, const char *upload_id) {
+    snprintf(out, out_len, "%s/%s.json", TASFA_FINALIZE_DIR, upload_id);
+}
+
+static bool finalize_disk_write(const char *upload_id, const char *upload_token, int status_code,
+                                const char *body, bool active) {
+    if (!is_safe_segment(upload_id) || !upload_token) return false;
+    cJSON *obj = cJSON_CreateObject();
+    if (!obj) return false;
+    cJSON_AddStringToObject(obj, "upload_token", upload_token);
+    cJSON_AddNumberToObject(obj, "status_code", status_code);
+    cJSON_AddStringToObject(obj, "body", body ? body : "{}");
+    cJSON_AddBoolToObject(obj, "active", active);
+    cJSON_AddNumberToObject(obj, "expires", (double)(time(NULL) + 3600));
+    char *serialized = cJSON_PrintUnformatted(obj);
+    cJSON_Delete(obj);
+    if (!serialized) return false;
+
+    char path[PATH_MAX], temp_path[PATH_MAX];
+    finalize_disk_path(path, sizeof(path), upload_id);
+    snprintf(temp_path, sizeof(temp_path), "%s.%ld.tmp", path, (long)getpid());
+    bool ok = file_write(temp_path, serialized, strlen(serialized)) && rename(temp_path, path) == 0;
+    if (!ok) unlink(temp_path);
+    cwist_free(serialized);
+    return ok;
+}
+
+static bool finalize_disk_get(const char *upload_id, const char *upload_token, int *status_code,
+                              char **body, bool *active) {
+    if (!is_safe_segment(upload_id) || !upload_token) return false;
+    char path[PATH_MAX];
+    finalize_disk_path(path, sizeof(path), upload_id);
+    size_t len = 0;
+    char *serialized = file_read(path, &len);
+    if (!serialized) return false;
+    cJSON *obj = cJSON_Parse(serialized);
+    cwist_free(serialized);
+    if (!obj) return false;
+
+    const char *expected_token = json_string(obj, "upload_token", "");
+    const char *stored_body = json_string(obj, "body", "{}");
+    long long expires = (long long)cJSON_GetNumberValue(cJSON_GetObjectItem(obj, "expires"));
+    bool valid = expires >= (long long)time(NULL) && secure_str_eq(upload_token, expected_token);
+    if (valid) {
+        if (status_code) *status_code = json_int(obj, "status_code", 500);
+        if (body) *body = strdup(stored_body);
+        cJSON *is_active = cJSON_GetObjectItem(obj, "active");
+        if (active) *active = cJSON_IsTrue(is_active);
+    }
+    cJSON_Delete(obj);
+    return valid;
+}
+
+static void finalize_disk_sweep(void) {
+    static time_t last_sweep;
+    time_t now = time(NULL);
+    if (last_sweep && now - last_sweep < 60) return;
+    last_sweep = now;
+    DIR *dir = opendir(TASFA_FINALIZE_DIR);
+    if (!dir) return;
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        const char *suffix = strstr(ent->d_name, ".json");
+        if (!suffix || suffix == ent->d_name || strcmp(suffix, ".json") != 0) continue;
+        char id[256];
+        size_t id_len = (size_t)(suffix - ent->d_name);
+        if (id_len >= sizeof(id)) continue;
+        memcpy(id, ent->d_name, id_len);
+        id[id_len] = '\0';
+        if (!is_safe_segment(id)) continue;
+        char path[PATH_MAX];
+        finalize_disk_path(path, sizeof(path), id);
+        struct stat st;
+        if (stat(path, &st) == 0 && st.st_mtime + 3600 < now) unlink(path);
+    }
+    closedir(dir);
+}
+
 static void finalize_cache_sweep_locked(void) {
     time_t now = time(NULL);
     for (int i = 0; i < TASFA_FINALIZE_CACHE_SLOTS; i++) {
@@ -184,18 +264,21 @@ bool finalize_cache_get(const char *upload_id, const char *upload_token, int *st
         if (active) *active = slot->active && !slot->done;
         found = true;
     }
+    finalize_disk_sweep();
     pthread_mutex_unlock(&g_finalize_mtx);
-    return found;
+    return found || finalize_disk_get(upload_id, upload_token, status_code, body, active);
 }
 
 bool finalize_cache_mark_started(const char *upload_id, const char *upload_token) {
+    int disk_status = 0;
+    bool disk_active = false;
+    if (finalize_disk_get(upload_id, upload_token, &disk_status, NULL, &disk_active)) return false;
+
     bool ok = false;
     pthread_mutex_lock(&g_finalize_mtx);
     finalize_cache_sweep_locked();
     finalize_slot_t *slot = finalize_cache_find_locked(upload_id);
     if (slot) {
-        /* Already finalizing this upload; do not overwrite and do not schedule
-           a duplicate worker. The caller should re-check the cached status. */
         pthread_mutex_unlock(&g_finalize_mtx);
         return false;
     }
@@ -214,7 +297,11 @@ bool finalize_cache_mark_started(const char *upload_id, const char *upload_token
         slot->status_code = 202;
         slot->body = strdup("{\"ok\":false,\"processing\":true}");
         slot->expires = time(NULL) + 3600;
-        ok = true;
+        ok = finalize_disk_write(upload_id, upload_token, 202, slot->body, true);
+        if (!ok) {
+            free(slot->body);
+            memset(slot, 0, sizeof(*slot));
+        }
     }
     pthread_mutex_unlock(&g_finalize_mtx);
     return ok;
@@ -230,6 +317,7 @@ void finalize_cache_mark_done(const char *upload_id, int status_code, const char
         slot->active = false;
         slot->done = true;
         slot->expires = time(NULL) + 3600;
+        finalize_disk_write(upload_id, slot->upload_token, slot->status_code, slot->body, false);
     }
     pthread_mutex_unlock(&g_finalize_mtx);
 }
@@ -244,10 +332,9 @@ void finalize_cache_update_status(const char *upload_id, const char *msg) {
         cJSON_AddBoolToObject(obj, "processing", true);
         cJSON_AddStringToObject(obj, "status", msg ? msg : "");
         slot->body = cJSON_PrintUnformatted(obj);
-        /* Stored in a global slot and freed by whichever thread evicts it:
-           take it out of full-GC tracking so a scope flush cannot reclaim it. */
         if (slot->body) cwist_gc_scope_disown(slot->body);
         cJSON_Delete(obj);
+        if (slot->body) finalize_disk_write(upload_id, slot->upload_token, 202, slot->body, true);
     }
     pthread_mutex_unlock(&g_finalize_mtx);
 }

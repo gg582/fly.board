@@ -429,11 +429,18 @@ tools/connhold: tools/connhold.c
 		$(CWIST_ROOT)/lib/boringssl/build/libssl.a $(CWIST_ROOT)/lib/boringssl/build/libcrypto.a \
 		-lstdc++ -pthread
 
-test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart $(TARGET)
+tests/test_tasfa_finalize_cache: tests/test_tasfa_finalize_cache.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
+
+.PHONY: check-tasfa-finalize
+check-tasfa-finalize: tests/test_tasfa_finalize_cache
+	./tests/test_tasfa_finalize_cache
+
+test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tools/connhold
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tools/connhold
 	rm -rf build-wasm
 
 # --- WASM: sandboxed TASFA crypto (opt-in, experimental) -------------------
