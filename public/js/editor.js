@@ -2980,6 +2980,12 @@
         asset.dispatchPacingMs = 0;
         asset.activeChunkPosts = 0;
         var poolFailed = false;
+        var verificationStarted = false;
+        function verifyWhenComplete() {
+            if (verificationStarted || asset.completedChunks < asset.totalChunks) return;
+            verificationStarted = true;
+            verifyAllChunksBeforeComplete(asset, file);
+        }
 
         function postChunk(chunkIndex) {
             var dataChunks = Math.max(1, Math.ceil(file.size / asset.chunkSize));
@@ -3395,6 +3401,7 @@
                                 recordTasfaSuccess(asset, retryBytes, retryElapsedMs);
                                 asset.completedChunks += 1;
                                 updateAssetProgress(asset);
+                                verifyWhenComplete();
                                 next();
                             }).catch(function() {
                                 if (runId !== asset.uploadRunId) { resolve(); return; }
@@ -3420,6 +3427,7 @@
                         recordTasfaSuccess(asset, chunkBytes, elapsedMs);
                         asset.completedChunks += 1;
                         updateAssetProgress(asset);
+                        verifyWhenComplete();
                         next();
                     }).catch(function(err) {
                         asset.activeChunkPosts = Math.max(0, (asset.activeChunkPosts || 1) - 1);
@@ -3450,6 +3458,7 @@
                                 recordTasfaSuccess(asset, fallbackBytes, fallbackElapsedMs);
                                 asset.completedChunks += 1;
                                 updateAssetProgress(asset);
+                                verifyWhenComplete();
                                 next();
                             }).catch(function() {
                                 if (runId !== asset.uploadRunId) { resolve(); return; }
@@ -3477,7 +3486,8 @@
             workers.push(worker());
         }
         Promise.all(workers).then(function() {
-            if (runId !== asset.uploadRunId || asset.isCancelling) return;
+            if (runId !== asset.uploadRunId || asset.isCancelling || verificationStarted) return;
+            verificationStarted = true;
             verifyAllChunksBeforeComplete(asset, asset.file);
         });
     }
