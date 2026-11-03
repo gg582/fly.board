@@ -163,7 +163,7 @@ static void finalize_disk_path(char *out, size_t out_len, const char *upload_id)
 
 static bool finalize_disk_write(const char *upload_id, const char *upload_token, int status_code,
                                 const char *body, bool active) {
-    if (!is_safe_segment(upload_id) || !upload_token) return false;
+    if (!is_safe_segment(upload_id) || !upload_token || !dir_ensure(TASFA_FINALIZE_DIR)) return false;
     cJSON *obj = cJSON_CreateObject();
     if (!obj) return false;
     cJSON_AddStringToObject(obj, "upload_token", upload_token);

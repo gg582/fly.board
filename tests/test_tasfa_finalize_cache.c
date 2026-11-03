@@ -22,6 +22,7 @@ int main(void) {
     CHECK(mkdtemp(temp_root) != NULL);
     CHECK(chdir(temp_root) == 0);
     CHECK(ensure_tasfa_roots());
+    CHECK(rmdir("data/tasfa/finalize") == 0);
 
     const char *id = "finalize-test-upload";
     const char *token = "test-token";
