@@ -1,0 +1,35 @@
+#ifndef FLYBOARD_MODERATION_H
+#define FLYBOARD_MODERATION_H
+
+#include <stdbool.h>
+#include <cjson/cJSON.h>
+#include <cwist/core/db/sql.h>
+
+#define MODERATION_POST "post"
+#define MODERATION_COMMENT "comment"
+
+typedef enum {
+    MODERATION_ALLOW = 0,
+    MODERATION_PENDING = 1,
+    MODERATION_REJECT = 2
+} moderation_action_t;
+
+typedef struct {
+    moderation_action_t action;
+    const char *reason;
+} moderation_decision_t;
+
+bool db_moderation_migrate(cwist_db *db);
+bool moderation_can_review(const char *role);
+moderation_decision_t moderation_check_submission(cwist_db *db, int uid, const char *role,
+                                                  const char *target_type, const char *content);
+bool db_moderation_queue_post(cwist_db *db, int post_id, int uid, const char *reason);
+int db_moderation_create_pending_comment(cwist_db *db, const char *target_type, int target_id,
+                                         int uid, const char *author_name, int parent_id,
+                                         const char *content, const char *reason);
+cJSON *db_moderation_list_pending(cwist_db *db);
+bool db_moderation_approve(cwist_db *db, const char *target_type, int target_id, int reviewer_uid);
+bool db_moderation_reject(cwist_db *db, const char *target_type, int target_id, int reviewer_uid);
+void db_moderation_filter_comments(cwist_db *db, cJSON *comments);
+
+#endif

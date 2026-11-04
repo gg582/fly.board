@@ -2,10 +2,13 @@
 #include "engine/bdr.h"
 #include "engine/flywire.h"
 #include "engine/flywire_cluster.h"
+#include "engine/flywire_anti_entropy.h"
 #include "engine/forkgate.h"
 #include "auth/auth.h"
 #include "db/db.h"
 #include "db/db_internal.h"
+#include "db/db_portability.h"
+#include "db/db_sync_anti_entropy.h"
 #include "config/config.h"
 #include "utils/utils.h"
 #include <cwist/core/log.h>
@@ -310,6 +313,81 @@ void handler_flywire_feed(cwist_http_request *req, cwist_http_response *res) {
     cJSON_AddNumberToObject(doc, "latest_seq", (double)latest_seq);
     cJSON_AddStringToObject(doc, "version", flywire_site_version());
     if (flywire_cluster_active()) cJSON_AddNumberToObject(doc, "epoch", (double)flywire_cluster_epoch());
+    flywire_send_json(res, doc, CWIST_HTTP_OK);
+    cJSON_Delete(doc);
+}
+
+/* ---- Optional deterministic mutation-union anti-entropy ---- */
+
+bool flywire_anti_entropy_enabled(void) {
+    const char *value = getenv("FLYWIRE_ANTI_ENTROPY");
+    return value && strcmp(value, "1") == 0;
+}
+
+void handler_flywire_anti_entropy(cwist_http_request *req, cwist_http_response *res) {
+    if (!flywire_cluster_active() || !flywire_anti_entropy_enabled()) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        cwist_sstring_assign(res->body, "Not found");
+        return;
+    }
+    if (!flywire_request_authorized(req)) {
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddBoolToObject(err, "ok", false);
+        cJSON_AddStringToObject(err, "error", "unauthorized");
+        flywire_send_json(res, err, CWIST_HTTP_UNAUTHORIZED);
+        cJSON_Delete(err);
+        return;
+    }
+    const char *cursor = cwist_query_map_get(req->query_params, "cursor");
+    int limit = 200;
+    const char *limit_s = cwist_query_map_get(req->query_params, "limit");
+    if (limit_s && limit_s[0]) limit = atoi(limit_s);
+    if (limit < 1) limit = 200;
+    if (limit > 500) limit = 500;
+
+    sqlite3 *conn = fly_db_conn(req->db);
+    if (!db_sync_anti_entropy_init(conn)) {
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddBoolToObject(err, "ok", false);
+        cJSON_AddStringToObject(err, "error", "mutation_log_unavailable");
+        flywire_send_json(res, err, CWIST_HTTP_INTERNAL_SERVER_ERROR);
+        cJSON_Delete(err);
+        return;
+    }
+    cJSON *doc = cJSON_CreateObject();
+    cJSON_AddBoolToObject(doc, "ok", true);
+    cJSON *rows = cJSON_AddArrayToObject(doc, "rows");
+    sqlite3_stmt *st = NULL;
+    const char *sql = "SELECT mutation_id,entity,entity_id,op,payload,changed_at,payload_hash FROM sync_mutation_log "
+                      "WHERE mutation_id>? ORDER BY mutation_id LIMIT ?";
+    char next_cursor[129] = {0};
+    if (sqlite3_prepare_v2(conn, sql, -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, cursor ? cursor : "", -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(st, 2, limit + 1);
+        int count = 0;
+        while (sqlite3_step(st) == SQLITE_ROW && count < limit) {
+            const char *mutation_id = (const char *)sqlite3_column_text(st, 0);
+            cJSON *row = cJSON_CreateObject();
+            cJSON_AddStringToObject(row, "mutation_id", mutation_id);
+            cJSON_AddStringToObject(row, "entity", (const char *)sqlite3_column_text(st, 1));
+            cJSON_AddNumberToObject(row, "id", sqlite3_column_int(st, 2));
+            cJSON_AddStringToObject(row, "op", (const char *)sqlite3_column_text(st, 3));
+            const char *payload = (const char *)sqlite3_column_text(st, 4);
+            cJSON *parsed = payload && payload[0] ? cJSON_Parse(payload) : NULL;
+            if (parsed) cJSON_AddItemToObject(row, "payload", parsed);
+            else cJSON_AddObjectToObject(row, "payload");
+            cJSON_AddNumberToObject(row, "changed_at", (double)sqlite3_column_int64(st, 5));
+            cJSON_AddStringToObject(row, "payload_hash", (const char *)sqlite3_column_text(st, 6));
+            cJSON_AddItemToArray(rows, row);
+            snprintf(next_cursor, sizeof(next_cursor), "%s", mutation_id);
+            count++;
+        }
+        cJSON_AddBoolToObject(doc, "has_more", count == limit && sqlite3_step(st) == SQLITE_ROW);
+        sqlite3_finalize(st);
+    } else {
+        cJSON_AddBoolToObject(doc, "has_more", false);
+    }
+    cJSON_AddStringToObject(doc, "next_cursor", next_cursor);
     flywire_send_json(res, doc, CWIST_HTTP_OK);
     cJSON_Delete(doc);
 }
@@ -927,7 +1005,9 @@ static bool flywire_apply_row(sqlite3 *main_conn, long long seq, const char *ent
         bool is_file = strcmp(e->entity, "file") == 0;
         char paths[3][PATH_MAX] = {{0}};
         if (is_file) flywire_file_local_paths(conn, entity_id, paths);
-        ok = flywire_apply_delete(conn, e, entity_id, NULL);
+        cJSON *payload = e->special ? cJSON_Parse(payload_json && payload_json[0] ? payload_json : "{}") : NULL;
+        ok = flywire_apply_delete(conn, e, entity_id, payload);
+        if (payload) cJSON_Delete(payload);
         /* The row going away is not enough: the bytes this replica fetched
          * (Phase 2) would stay on disk with nothing pointing at them. */
         if (ok && is_file) {
@@ -958,6 +1038,102 @@ static bool flywire_apply_row(sqlite3 *main_conn, long long seq, const char *ent
                        entity, entity_id, op, seq, sqlite3_errmsg(conn));
     }
     return true;
+}
+
+static char g_anti_entropy_cursor[FLYWIRE_MAX_NODES][129];
+
+int flywire_anti_entropy_peer_iteration(int node_idx) {
+    if (!flywire_anti_entropy_enabled() || !flywire_cluster_active() ||
+        node_idx < 0 || node_idx >= g_flywire.n_nodes || node_idx == g_flywire.self_idx) return 0;
+    char path[256];
+    snprintf(path, sizeof(path), "/flywire/anti-entropy?cursor=%s&limit=200",
+             g_anti_entropy_cursor[node_idx]);
+    flywire_buf buf = {0};
+    CURL *curl = curl_easy_init();
+    if (!curl) return -1;
+    char token_hdr[192];
+    snprintf(token_hdr, sizeof(token_hdr), "X-FlyWire-Token: %s", flywire_token());
+    struct curl_slist *headers = curl_slist_append(NULL, token_hdr);
+    struct curl_slist *route = flywire_curl_target(curl, node_idx, path);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, flywire_feed_write);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+    CURLcode rc = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    curl_slist_free_all(headers);
+    curl_slist_free_all(route);
+    curl_easy_cleanup(curl);
+    if (rc != CURLE_OK || status != 200) {
+        free(buf.data);
+        return -1;
+    }
+    cJSON *doc = cJSON_Parse(buf.data ? buf.data : "");
+    free(buf.data);
+    if (!doc || !cJSON_IsTrue(cJSON_GetObjectItem(doc, "ok"))) {
+        if (doc) cJSON_Delete(doc);
+        return -1;
+    }
+
+    int imported = 0;
+    int rejected = 0;
+    fly_forkgate_enter();
+    sqlite3 *conn = NULL;
+    bool open_ok = fly_db_open_main(&conn) == SQLITE_OK;
+    if (open_ok) open_ok = db_configure_connection(conn) && db_sync_anti_entropy_init(conn);
+    cJSON *rows = cJSON_GetObjectItem(doc, "rows");
+    cJSON *row = NULL;
+    if (open_ok && cJSON_IsArray(rows)) cJSON_ArrayForEach(row, rows) {
+        cJSON *mid = cJSON_GetObjectItem(row, "mutation_id");
+        cJSON *entity = cJSON_GetObjectItem(row, "entity");
+        cJSON *id = cJSON_GetObjectItem(row, "id");
+        cJSON *op = cJSON_GetObjectItem(row, "op");
+        cJSON *changed_at = cJSON_GetObjectItem(row, "changed_at");
+        cJSON *hash = cJSON_GetObjectItem(row, "payload_hash");
+        cJSON *payload = cJSON_GetObjectItem(row, "payload");
+        if (!cJSON_IsString(mid) || !cJSON_IsString(entity) || !cJSON_IsNumber(id) ||
+            !cJSON_IsString(op) || !cJSON_IsNumber(changed_at) || !cJSON_IsString(hash)) {
+            rejected++;
+            continue;
+        }
+        char *payload_str = cJSON_IsObject(payload) ? cJSON_PrintUnformatted(payload) : NULL;
+        db_sync_mutation mutation = {
+            mid->valuestring, entity->valuestring, id->valueint, op->valuestring,
+            payload_str ? payload_str : "", (long long)changed_at->valuedouble, hash->valuestring
+        };
+        bool inserted = false;
+        if (!db_sync_anti_entropy_import(conn, &mutation, &inserted)) {
+            rejected++;
+        } else {
+            db_sync_mutation_owned winner;
+            if (db_sync_anti_entropy_winner(conn, entity->valuestring, id->valueint, &winner)) {
+                flywire_apply_row(conn, 0, winner.entity, winner.entity_id, winner.op, winner.payload);
+                db_sync_mutation_free(&winner);
+            }
+            if (inserted) imported++;
+        }
+        cwist_free(payload_str);
+    }
+    if (conn) sqlite3_close(conn);
+    fly_forkgate_leave();
+    if (imported > 0 || cJSON_GetArraySize(rows) > 0) engine_bdr_bump();
+
+    cJSON *next = cJSON_GetObjectItem(doc, "next_cursor");
+    bool has_more = cJSON_IsTrue(cJSON_GetObjectItem(doc, "has_more"));
+    if (has_more && cJSON_IsString(next) && next->valuestring[0]) {
+        snprintf(g_anti_entropy_cursor[node_idx], sizeof(g_anti_entropy_cursor[node_idx]), "%s", next->valuestring);
+    } else {
+        g_anti_entropy_cursor[node_idx][0] = '\0';
+    }
+    cJSON_Delete(doc);
+    if (imported > 0 || rejected > 0) {
+        CWIST_LOG_INFO("flywire: anti-entropy peer %d imported %d mutation(s), rejected %d",
+                       node_idx, imported, rejected);
+    }
+    return open_ok ? 0 : -1;
 }
 
 /* ---- Replica loop ---- */
@@ -1122,10 +1298,10 @@ int flywire_replica_iteration(void) {
 
     fly_forkgate_enter();
     sqlite3 *conn = NULL;
-    bool open_ok = sqlite3_open(FLY_DB_MAIN_PATH, &conn) == SQLITE_OK;
+    bool open_ok = fly_db_open_main(&conn) == SQLITE_OK;
     if (open_ok) open_ok = db_configure_connection(conn);
     if (!open_ok) {
-        CWIST_LOG_ERROR("flywire: cannot open %s", FLY_DB_MAIN_PATH);
+        CWIST_LOG_ERROR("flywire: cannot open %s", fly_db_main_location());
         if (conn) sqlite3_close(conn);
         fly_forkgate_leave();
         return -1;

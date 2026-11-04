@@ -1,6 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 #include "db.h"
 #include "db_internal.h"
+#include "moderation.h"
+#include "db_portability.h"
 #include "fts5_mecab.h"
 #include <cwist/core/log.h>
 #include <cwist/core/mem/alloc.h>
@@ -204,7 +206,7 @@ bool db_checkpoint(cwist_db *db) {
  * fork gate; the connection is short-lived so this is cheap). */
 void db_wal_checkpoint_truncate(void) {
     sqlite3 *conn = NULL;
-    if (sqlite3_open(FLY_DB_MAIN_PATH, &conn) != SQLITE_OK) {
+    if (fly_db_open_main(&conn) != SQLITE_OK) {
         sqlite3_close(conn);
         return;
     }
@@ -440,6 +442,7 @@ bool db_migrate(cwist_db *db) {
     if (!db_search_migrate(db)) return false;
     db_report_migrate(db);
     db_series_migrate(db);
+    if (!db_moderation_migrate(db)) return false;
     db_exec_sql(db,
         "CREATE TABLE IF NOT EXISTS emails ("
         "  id INTEGER PRIMARY KEY AUTOINCREMENT,"

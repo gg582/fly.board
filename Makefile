@@ -208,13 +208,13 @@ LIBS := $(CWIST_LIB) \
         -pthread -ldl -lm -lstdc++ -lz
 
 SRCS := src/main.c \
-        src/db/db.c src/db/db_sync.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/notification.c src/db/vote.c src/db/tag.c src/db/search.c src/db/fts5_mecab_tokenizer.c src/db/report.c src/db/pqc_keys.c src/db/series.c src/db/sql_escape.c src/db/orm.c src/db/db_email.c src/db/guestbook.c src/db/subscriber.c src/db/revision.c \
+        src/db/db.c src/db/db_sync.c src/db/db_sync_anti_entropy.c src/db/db_portability.c src/db/moderation.c src/db/user.c src/db/board.c src/db/board_tree.c src/db/post.c src/db/file.c src/db/comment.c src/db/notification.c src/db/vote.c src/db/tag.c src/db/search.c src/db/fts5_mecab_tokenizer.c src/db/report.c src/db/pqc_keys.c src/db/series.c src/db/sql_escape.c src/db/orm.c src/db/db_email.c src/db/guestbook.c src/db/subscriber.c src/db/revision.c \
         src/auth/auth.c src/auth/totp.c \
         src/crypto/fly_crypto.c \
         src/wasm_host/tasfa_crypto_wasm.c \
         src/render/theme/theme.c src/render/theme/rules.c src/render/theme/json.c src/render/theme/css.c \
-        src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/render/render_notifications.c src/render/render_mail.c src/render/render_guestbook.c \
-        src/handlers/handlers.c src/handlers/home.c src/handlers/blog.c src/handlers/report.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/notifications.c src/handlers/file.c src/handlers/mail.c src/handlers/guestbook.c src/handlers/subscribe.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c \
+        src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/render/render_notifications.c src/render/render_mail.c src/render/render_guestbook.c src/render/render_moderation.c \
+        src/handlers/handlers.c src/handlers/home.c src/handlers/blog.c src/handlers/report.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/notifications.c src/handlers/file.c src/handlers/mail.c src/handlers/guestbook.c src/handlers/subscribe.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c src/handlers/moderation.c \
         src/utils/utils.c \
         src/utils/cache.c \
         src/utils/post_schedule.c \
@@ -247,6 +247,7 @@ SRCS := src/main.c \
         src/engine/flywire.c \
         src/engine/flywire_cluster.c \
         src/engine/forkgate.c \
+        src/engine/community.c \
         src/engine/settings.c \
         src/engine/routes.c \
         src/engine/async_route.c \
@@ -436,7 +437,29 @@ tests/test_tasfa_finalize_cache: tests/test_tasfa_finalize_cache.c $(SERVER_OBJS
 check-tasfa-finalize: tests/test_tasfa_finalize_cache
 	./tests/test_tasfa_finalize_cache
 
-test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize $(TARGET)
+COMMUNITY_TESTS := tests/test_community_roles tests/test_db_moderation tests/test_render_moderation \
+                   tests/test_db_portability tests/test_db_sync_anti_entropy
+
+tests/test_community_roles: tests/test_community_roles.c src/engine/community.c src/db/user.c
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -o $@ $^ $(LDFLAGS) $(LIBS)
+
+tests/test_db_moderation: tests/test_db_moderation.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
+
+tests/test_render_moderation: tests/test_render_moderation.c src/render/render_moderation.c
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+
+tests/test_db_portability: tests/test_db_portability.c src/db/db_portability.c
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+
+tests/test_db_sync_anti_entropy: tests/test_db_sync_anti_entropy.c src/db/db_sync_anti_entropy.c
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+
+.PHONY: check-community
+check-community: $(COMMUNITY_TESTS)
+	@for t in $(COMMUNITY_TESTS); do $$t || exit 1; done
+
+test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-community $(TARGET)
 	./tools/smoke_test.sh
 
 clean:

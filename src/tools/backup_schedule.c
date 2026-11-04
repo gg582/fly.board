@@ -1,4 +1,5 @@
 #include "backup.h"
+#include "db/db_portability.h"
 #include "config/config.h"
 #include "utils/s3_client.h"
 #include <cjson/cJSON.h>
@@ -135,7 +136,7 @@ static char *status_get(sqlite3 *db, const char *key) {
 
 static void record(const char *result, const char *name, long long size, const char *error) {
     sqlite3 *db = NULL;
-    if (sqlite3_open("data/blog.db", &db) != SQLITE_OK) { sqlite3_close(db); return; }
+    if (fly_db_open_main(&db) != SQLITE_OK) { sqlite3_close(db); return; }
     sqlite3_busy_timeout(db, 10000);
     char now[32], sz[32];
     time_t t = time(NULL);
@@ -221,7 +222,7 @@ static void prune_dir(const char *dir, int keep) {
  * because listing a bucket would need more of the S3 API than we carry. */
 static void prune_s3(const s3_config_t *c, const char *new_key, int keep) {
     sqlite3 *db = NULL;
-    if (sqlite3_open("data/blog.db", &db) != SQLITE_OK) { sqlite3_close(db); return; }
+    if (fly_db_open_main(&db) != SQLITE_OK) { sqlite3_close(db); return; }
     sqlite3_busy_timeout(db, 10000);
     char *raw = status_get(db, "backup_s3_keys");
     cJSON *keys = raw ? cJSON_Parse(raw) : NULL;

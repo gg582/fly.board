@@ -79,6 +79,8 @@ check / 200
 check /robots.txt 200
 check /login 200
 check /boards 200
+check /admin/moderation 302
+check /flywire/anti-entropy 404
 
 home="$(curl -s --max-time 5 "http://127.0.0.1:$PORT/")"
 if [[ "$home" == *"<title>Smoke Test</title>"* && "$home" == *'rel="canonical" href="https://oborona.zip/"'* ]]; then

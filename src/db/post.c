@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "db.h"
 #include "db_internal.h"
+#include "db_portability.h"
 #include "search.h"
 #include "engine/forkgate.h"
 #include <cwist/core/log.h>
@@ -352,13 +353,13 @@ void db_view_counters_flush(void) {
     if (n == 0) return;
 
     sqlite3 *conn = NULL;
-    if (sqlite3_open(FLY_DB_MAIN_PATH, &conn) != SQLITE_OK) {
+    if (fly_db_open_main(&conn) != SQLITE_OK) {
         sqlite3_close(conn);
         /* Put the deltas back so no count is lost on the next flush. */
         if (pthread_mutex_lock(&t->lock) == EOWNERDEAD) pthread_mutex_consistent(&t->lock);
         for (size_t i = 0; i < n; i++) t->slots[pending_idx[i]].delta += pending[i].delta;
         pthread_mutex_unlock(&t->lock);
-        CWIST_LOG_WARN("View counters: flush could not open %s", FLY_DB_MAIN_PATH);
+        CWIST_LOG_WARN("View counters: flush could not open %s", fly_db_main_location());
         return;
     }
     db_configure_connection(conn);

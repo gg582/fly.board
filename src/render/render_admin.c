@@ -3,6 +3,8 @@
 #include "render_internal.h"
 #include "config/write_policy.h"
 #include "config/config.h"
+#include "engine/community.h"
+#include "auth/auth.h"
 #include "db/db.h"
 #include <cwist/core/sstring/sstring.h>
 #include <stdio.h>
@@ -34,8 +36,32 @@ cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pi
             snprintf(uid_buf, sizeof(uid_buf), "%d", uid->valueint);
             cwist_sstring_append(b, uid_buf);
             cwist_sstring_append(b, "'>");
-            cwist_sstring_append(b, "<select class='admin-role-select' name='role'><option value='user'>user</option><option value='admin'>admin</option></select>");
+            if (!community_roles_enabled()) {
+                cwist_sstring_append(b, "<select class='admin-role-select' name='role'><option value='user'>user</option><option value='admin'>admin</option></select>");
+            } else {
+                static const char *const roles[] = {"user", "moderator", "admin"};
+                cwist_sstring_append(b, "<select class='admin-role-select' name='role'>");
+                for (size_t r = 0; r < sizeof(roles) / sizeof(roles[0]); r++) {
+                    cwist_sstring_append(b, "<option value='");
+                    cwist_sstring_append(b, roles[r]);
+                    cwist_sstring_append(b, strcmp(role->valuestring, roles[r]) == 0 ? "' selected>" : "'>");
+                    cwist_sstring_append(b, roles[r]);
+                    cwist_sstring_append(b, "</option>");
+                }
+                cwist_sstring_append(b, "</select>");
+            }
             cwist_sstring_append(b, "<button type='submit' class='btn' style='font-size:12px;padding:4px 10px;margin-left:6px'>Set</button></form>");
+            if (community_roles_enabled() && !auth_is_site_admin(uid->valueint) && strcmp(role->valuestring, "admin") != 0) {
+                bool active = json_int(u, "active", 1) != 0;
+                cwist_sstring_append(b, " <form action='/admin/user/role' method='post' style='display:inline'><input type='hidden' name='id' value='");
+                cwist_sstring_append(b, uid_buf);
+                cwist_sstring_append(b, "'><input type='hidden' name='active' value='");
+                cwist_sstring_append(b, active ? "0" : "1");
+                cwist_sstring_append(b, "'><button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>");
+                cwist_sstring_append(b, active ? "Suspend" : "Restore");
+                cwist_sstring_append(b, "</button></form>");
+                if (!active) cwist_sstring_append(b, " <span class='tag'>suspended</span>");
+            }
             cwist_sstring_append(b, " <a href='/account/settings?id=");
             cwist_sstring_append(b, uid_buf);
             cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px;text-decoration:none'>Edit</a>");
@@ -400,6 +426,9 @@ cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool i
     cwist_sstring_append(b, "<section class='board-line fade-in'><div class='board-line-head'><h2 class='board-line-title'>Reports</h2></div>");
     cwist_sstring_append(b, reports_line);
     cwist_sstring_append(b, "<a href='/admin/reports' class='btn'>Go to Reports</a></section>");
+    cwist_sstring_append(b, "<section class='board-line fade-in'><div class='board-line-head'><h2 class='board-line-title'>Approval queue</h2></div>");
+    cwist_sstring_append(b, "<p class='board-card-desc'>Review pending posts and comments when community moderation is enabled.</p>");
+    cwist_sstring_append(b, "<a href='/admin/moderation' class='btn'>Go to Approval Queue</a></section>");
     cwist_sstring_append(b, "<section class='board-line fade-in'><div class='board-line-head'><h2 class='board-line-title'>Users</h2></div>");
     cwist_sstring_append(b, "<p class='board-card-desc'>Manage user accounts and roles.</p>");
     cwist_sstring_append(b, "<a href='/admin/users' class='btn'>Go to Users</a></section>");

@@ -3,6 +3,7 @@
 #include "db/db_internal.h"
 #include "db/sql_escape.h"
 #include "db/revision.h"
+#include "db/moderation.h"
 #include "config/write_policy.h"
 #include "utils/post_schedule.h"
 #include "engine/pool.h"
@@ -590,8 +591,11 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     }
 
     cJSON *post = db_post_get_by_slug(req->db, slug);
-    /* Drafts and scheduled posts exist only for their author and admins. */
-    if (post && !post_is_public(post) && !is_author_or_admin(post, uid, role)) {
+    bool pending = post && strcmp(json_string_or_empty(post, "status"), "pending") == 0;
+    /* Pending posts are private to their author and reviewers. Other drafts
+     * and scheduled posts retain the existing author/admin visibility rule. */
+    if (post && ((!post_is_public(post) && !is_author_or_admin(post, uid, role)) ||
+                 (pending && (uid <= 0 || json_int(post, "user_id", 0) != uid) && !moderation_can_review(role)))) {
         cJSON_Delete(post);
         post = NULL;
     }
@@ -600,7 +604,7 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
         cwist_sstring_assign(res->body, "Not found");
         return;
     }
-    bool post_public = post_is_public(post);
+    bool post_public = post_is_public(post) && !pending;
 
     bool leader = false;
     cwist_sstring *shared = reqshare_wait_or_start(key, &leader);
@@ -657,6 +661,7 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
 
     cJSON *files = pl.files;
     cJSON *comments = pl.comments;
+    db_moderation_filter_comments(req->db, comments);
     int vote_up = 0, vote_down = 0;
     if (pl.vote_counts) {
         cJSON *vu = cJSON_GetObjectItem(pl.vote_counts, "up");
@@ -946,6 +951,20 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
 
     publish_choice_t pub;
     choose_publish(&pub, uid, post_action, publish_at_in, false);
+    moderation_decision_t moderation = {MODERATION_ALLOW, ""};
+    if (strcmp(pub.status, POST_STATUS_DRAFT) != 0) {
+        moderation = moderation_check_submission(req->db, uid, role, MODERATION_POST, content);
+    }
+    if (moderation.action == MODERATION_REJECT) {
+        send_post_editor_error(req, res, uid, role, board_id, "New accounts may publish one post in their first 24 hours");
+        if (sig_b64) cwist_free(sig_b64);
+        cwist_free(sl);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
+        multipart_free(files);
+        return;
+    }
+    bool awaiting_review = moderation.action == MODERATION_PENDING;
+    if (awaiting_review) pub.status = "pending";
     char now[POST_TIME_LEN];
     post_utc_now(now);
     bool public_now = strcmp(pub.status, POST_STATUS_PUBLISHED) == 0 &&
@@ -976,6 +995,17 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         multipart_free(files);
         return;
     }
+    if (awaiting_review && !db_moderation_queue_post(req->db, created_id, uid, moderation.reason)) {
+        db_post_delete(req->db, created_id);
+        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
+        cwist_sstring_assign(res->body, "Post creation failed");
+        if (sig_b64) cwist_free(sig_b64);
+        cwist_free(sl);
+        cwist_free(created_slug);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
+        multipart_free(files);
+        return;
+    }
     /* Group tags, series/i18n, and media attachments into a single transaction
      * so they commit in one WAL write-lock hold instead of 10-20 autocommit
      * cycles that stall concurrent readers and writers. */
@@ -998,7 +1028,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         cwist_free(created_slug);
         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
         multipart_free(files);
-        redirect(res, "/account/drafts");
+        redirect(res, awaiting_review && uid <= 0 ? "/" : "/account/drafts");
         return;
     }
 
@@ -1211,7 +1241,8 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     }
     cJSON *slug_obj = cJSON_GetObjectItem(post, "slug");
     char *post_slug = (slug_obj && slug_obj->valuestring) ? strdup(slug_obj->valuestring) : NULL;
-    bool was_public = post_is_public(post);
+    bool was_pending = strcmp(json_string_or_empty(post, "status"), "pending") == 0;
+    bool was_public = post_is_public(post) && !was_pending;
     /* Snapshot the version about to be replaced, for the revision history.
      * Copies are taken before the post JSON is released; stored inside the
      * edit savepoint below so the revision commits with the edit. The same
@@ -1225,6 +1256,10 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     int old_is_secret = json_int(post, "is_secret", 0);
     publish_choice_t pub;
     choose_publish(&pub, uid, post_action, publish_at_in, was_public);
+    if (was_pending) {
+        pub.status = "pending";
+        pub.publish_at = NULL;
+    }
     cJSON_Delete(post);
 
     rewrite_content_legacy_urls(req->db, &content);

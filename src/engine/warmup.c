@@ -6,6 +6,7 @@
 #include "render/render.h"
 #include "db/db.h"
 #include "db/db_internal.h"
+#include "db/db_portability.h"
 #include "handlers/handlers_internal.h"
 #include "utils/media_preview.h"
 #include <cwist/core/log.h>
@@ -44,7 +45,7 @@ static gif_task_t *gif_warmup_collect(int *out_count) {
     *out_count = 0;
     fly_forkgate_enter();
     sqlite3 *conn = NULL;
-    if (sqlite3_open(FLY_DB_MAIN_PATH, &conn) != SQLITE_OK) {
+    if (fly_db_open_main(&conn) != SQLITE_OK) {
         if (conn) sqlite3_close(conn);
         fly_forkgate_leave();
         return NULL;
@@ -154,7 +155,7 @@ static void *gif_warmup_thread_func(void *arg) {
     if (any_converted) {
         fly_forkgate_enter();
         sqlite3 *conn = NULL;
-        bool ok = sqlite3_open(FLY_DB_MAIN_PATH, &conn) == SQLITE_OK && db_configure_connection(conn);
+        bool ok = fly_db_open_main(&conn) == SQLITE_OK && db_configure_connection(conn);
         fly_forkgate_leave();
         if (ok) {
             const char *sql_update = "UPDATE files SET preview_path = ? WHERE id = ?";

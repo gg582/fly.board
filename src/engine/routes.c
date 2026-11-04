@@ -1,6 +1,10 @@
 #include "engine/routes.h"
 #include "engine/async_route.h"
+#include "engine/flywire_anti_entropy.h"
 #include "handlers/handlers.h"
+
+void handler_admin_moderation_get(cwist_http_request *req, cwist_http_response *res);
+void handler_admin_moderation_action(cwist_http_request *req, cwist_http_response *res);
 
 /* Guestbook handlers, implemented in src/handlers/guestbook.c. They are
  * declared here (rather than in handlers/handlers.h) to keep the feature
@@ -192,10 +196,13 @@ void engine_routes_register(cwist_app *app) {
     engine_async_post(app, "/report", handler_report_post);
     engine_async_get(app, "/admin/reports", handler_admin_reports_get);
     engine_async_post(app, "/admin/reports/action", handler_admin_reports_action);
+    engine_async_get(app, "/admin/moderation", handler_admin_moderation_get);
+    engine_async_post(app, "/admin/moderation/action", handler_admin_moderation_action);
 
     /* FlyWire delta feed (primary mode only; 404 otherwise) */
     engine_async_get(app, "/flywire/feed", handler_flywire_feed);
     engine_async_get(app, "/flywire/status", handler_flywire_status);
+    engine_async_get(app, "/flywire/anti-entropy", handler_flywire_anti_entropy);
     /* Admin promotion request flow: replica forwards, primary accepts. */
     engine_async_post(app, "/flywire/request-admin", handler_flywire_request_admin);
     engine_async_post(app, "/flywire/promote-request", handler_flywire_promote_request);

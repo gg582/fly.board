@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "db.h"
 #include "db_internal.h"
+#include "db_portability.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,7 +23,7 @@ static sqlite3 *notif_conn(cwist_db *db) {
         g_notif_aux = NULL;
     }
     if (!g_notif_aux) {
-        if (sqlite3_open("data/blog.db", &g_notif_aux) != SQLITE_OK) {
+        if (fly_db_open_main(&g_notif_aux) != SQLITE_OK) {
             sqlite3_close(g_notif_aux);
             g_notif_aux = NULL;
             return NULL;

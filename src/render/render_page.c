@@ -4,6 +4,7 @@
 #include "theme.h"
 #include <limits.h>
 #include "config/config.h"
+#include "engine/community.h"
 #include "utils/image_inline.h"
 #include "utils/image_invert.h"
 #include <cwist/core/html/builder.h>
@@ -592,8 +593,15 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         cwist_html_element_add_attr(admin_reports, "class", "nav-admin-subitem");
         cwist_html_element_set_text(admin_reports, "Reports");
         cwist_html_element_add_child(admin_menu, admin_reports);
+        cwist_html_element_t *admin_moderation = cwist_html_element_create("a");
+        cwist_html_element_add_attr(admin_moderation, "href", "/admin/moderation");
+        cwist_html_element_add_attr(admin_moderation, "class", "nav-admin-subitem");
+        cwist_html_element_set_text(admin_moderation, "Approval Queue");
+        cwist_html_element_add_child(admin_menu, admin_moderation);
         cwist_html_element_add_child(admin_wrap, admin_menu);
         cwist_html_element_add_child(navlinks, admin_wrap);
+    } else if (community_role_can_moderate(user_role)) {
+        cwist_html_element_add_child(navlinks, nav_link("/admin/moderation", "Moderation"));
     }
     /* Mobile account header (first in navlinks) */
     cwist_html_element_t *mobile_acct = cwist_html_element_create("div");

@@ -109,7 +109,10 @@ both TCP and UDP in the firewall. Full install walkthrough:
 | [docs/install.md](docs/install.md) | Dependencies, per-distro build steps, troubleshooting |
 | [docs/configuration.md](docs/configuration.md) | Every settings file key and environment variable |
 | [docs/mail.md](docs/mail.md) | Built-in mail server: Postfix/Dovecot integration, DNS, Mailjet relay |
-| [docs/flywire.md](docs/flywire.md) | Primary/replica site synchronization |
+| [docs/flywire.md](docs/flywire.md) | Primary/replica site synchronization and optional anti-entropy |
+| [docs/community.md](docs/community.md) | Optional moderator roles and account suspension |
+| [docs/trust-and-spam.md](docs/trust-and-spam.md) | Optional new-account limits, trust, spam checks and approval queue |
+| [docs/database.md](docs/database.md) | SQLite location selection and server-database portability boundary |
 | [docs/backup.md](docs/backup.md) | Scheduled backups, archive format, restore procedure |
 | [docs/tasfa.md](docs/tasfa.md) | TASFA transfer protocol: endpoints, sessions, encryption layout, FEC, client and service worker |
 | [docs/tasfa-compression.md](docs/tasfa-compression.md) | TASFA chunk compression policy and benchmark methodology |

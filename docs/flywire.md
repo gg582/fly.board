@@ -169,6 +169,57 @@ Every site serves `GET /flywire/status` (token) and polls its peers every
   dropped from its journal when it rejoins, with a WARN naming the seqs;
   their table changes stay only on that site.
 
+## Optional anti-entropy union reconciliation
+
+Set `FLYWIRE_ANTI_ENTROPY=1` in the environment of every failover-cluster
+node. The feature is off by default and its built-in
+`GET /flywire/anti-entropy` route uses the same `X-FlyWire-Token`
+authentication as the status endpoint. Each cluster tick exchanges one page with one peer; completed
+scans restart from the beginning so randomly identified new mutations are
+found regardless of their sort position.
+
+This is a second, independent channel. Ordinary `/flywire/feed` replication,
+its sequence checkpoints and gap handling, primary election, epochs, and write
+fencing are unchanged. Anti-entropy does not advance `.flywire_seq`, append
+ordinary `sync_journal` rows, accept browser writes, or make a fenced node a
+writer. It can, however, recover a mutation that the ordinary failover log
+would otherwise have dropped; operators enabling it explicitly choose union
+retention over discarding that divergence.
+
+Every ordinary primary mutation also gets a random stable `mutation_id`, a
+`changed_at` millisecond timestamp, and a SHA-256 hash over entity, numeric id,
+operation, timestamp, and payload in `sync_mutation_log`. Sequential mutations
+recorded on one node receive strictly increasing `changed_at` values even when
+they occur in the same clock millisecond. Existing journal rows are backfilled
+with deterministic `legacy-<seq>` identities and use `seq` as their legacy
+ordering value when the log is initialized. Peers insert only missing ids and
+reject rows whose hash does not match. Deletes are explicit tombstone rows.
+For each `(entity, entity_id)`, all peers apply the same total ordering:
+descending `changed_at`, then delete over upsert, descending payload hash, and
+descending mutation id. Thus sequential latest mutations win, an older upsert
+cannot overwrite a newer one, and a delete beats only mutations at the same or
+older ordering. A newer upsert after deletion is allowed. Once all
+participating nodes have exchanged the same retained mutation set, supported
+table rows converge to the same chosen mutation.
+
+Convergence has important limits:
+
+- `changed_at` uses each writer's wall clock. Clock skew can make an edit that
+  happened earlier in real time win over a later edit on another node. This is
+  timestamp ordering with deterministic tie-breaks, not causal ordering or a
+  substitute for synchronized clocks. Equal-timestamp concurrent upserts are
+  selected by hash/id, not by arrival order.
+- The mutation log is not covered by the seven-day `sync_journal` purge and
+  currently grows until an operator implements a safe, coordinated retention
+  policy. Purging it independently breaks these guarantees.
+- Full retained-log scans are required because mutation ids are random; this
+  is intended for optional repair, not high-throughput replication.
+- Unknown entities, incompatible schemas, local-admin protections, failed SQL
+  applies, file bytes, counters, and files outside the journaled model may not
+  converge. File metadata convergence still requires the normal byte-fetch
+  mechanism. Hashes provide integrity against accidental mismatch, not
+  authentication beyond possession of the shared FlyWire token.
+
 State is kept in `data/.flywire_cluster` (epoch, primary, base seq).
 Sessions survive a takeover only if all sites share `data/.jwt_secret`;
 copy the primary's file to the others before enabling failover. DNS is out

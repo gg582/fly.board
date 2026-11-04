@@ -74,6 +74,18 @@ bool db_user_update_role(cwist_db *db, int id, const char *role) {
     return rc == SQLITE_DONE;
 }
 
+bool community_user_set_active(cwist_db *db, int id, bool active) {
+    const char *sql = "UPDATE users SET active=? WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, active ? 1 : 0);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) == 1) journal_user_row(db, id);
+    return rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) == 1;
+}
+
 bool db_user_update_profile_pic(cwist_db *db, int id, const char *profile_pic) {
     const char *sql = "UPDATE users SET profile_pic=? WHERE id=?";
     sqlite3_stmt *stmt = NULL;

@@ -1,10 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
 #include "engine/flywire.h"
 #include "engine/flywire_cluster.h"
+#include "engine/flywire_anti_entropy.h"
 #include "engine/forkgate.h"
 #include "engine/bdr.h"
 #include "db/db.h"
 #include "db/db_internal.h"
+#include "db/db_portability.h"
 #include "config/config.h"
 #include <cwist/core/log.h>
 #include <cwist/core/mem/gc.h>
@@ -454,8 +456,8 @@ static void cluster_tick(cluster_local_t *L) {
 
     fly_forkgate_enter();
     sqlite3 *conn = NULL;
-    if (sqlite3_open(FLY_DB_MAIN_PATH, &conn) != SQLITE_OK || !db_configure_connection(conn)) {
-        CWIST_LOG_ERROR("flywire: cluster tick cannot open %s", FLY_DB_MAIN_PATH);
+    if (fly_db_open_main(&conn) != SQLITE_OK || !db_configure_connection(conn)) {
+        CWIST_LOG_ERROR("flywire: cluster tick cannot open %s", fly_db_main_location());
         if (conn) sqlite3_close(conn);
         fly_forkgate_leave();
         return;
@@ -581,6 +583,7 @@ static void *cluster_main(void *arg) {
     (void)arg;
     cluster_local_t L = {0};
     long long next_poll = 0;
+    int anti_entropy_peer = 0;
     while (atomic_load(&g_cluster_running)) {
         cluster_tick(&L);
         /* Replicas apply the feed from whichever node is primary now. A
@@ -588,6 +591,12 @@ static void *cluster_main(void *arg) {
          * decisions but stop polling for 5 minutes at a time. */
         if (atomic_load(&g_fs->primary_idx) != g_flywire.self_idx && now_ms() >= next_poll) {
             if (flywire_replica_iteration() == 1) next_poll = now_ms() + 300000;
+        }
+        if (flywire_anti_entropy_enabled() && g_flywire.n_nodes > 1) {
+            anti_entropy_peer = (anti_entropy_peer + 1) % g_flywire.n_nodes;
+            if (anti_entropy_peer == g_flywire.self_idx)
+                anti_entropy_peer = (anti_entropy_peer + 1) % g_flywire.n_nodes;
+            flywire_anti_entropy_peer_iteration(anti_entropy_peer);
         }
         cwist_gc_scope_flush();
         for (int i = 0; i < flywire_poll_seconds() * 10 && atomic_load(&g_cluster_running); i++) usleep(100000);

@@ -1,5 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "auth.h"
+#include "engine/community.h"
+#include "db/db.h"
 #include <cwist/core/sstring/sstring.h>
 #include <cwist/security/jwt/jwt.h>
 #include <cwist/core/log.h>
@@ -588,6 +590,24 @@ static bool auth_verify_token_len(const char *token, size_t token_len, const cha
     return auth_verify_token(p, secret, out_user_id, out_role, role_len);
 }
 
+static bool auth_current_account(cwist_http_request *req, int uid, char *role, size_t role_len) {
+    if (!community_roles_enabled()) return true;
+    if (auth_is_site_admin(uid)) {
+        snprintf(role, role_len, "admin");
+        return true;
+    }
+    if (!req->db) return false;
+    cJSON *user = db_user_get_by_id(req->db, uid);
+    if (!user) return false;
+    cJSON *active = cJSON_GetObjectItem(user, "active");
+    cJSON *current_role = cJSON_GetObjectItem(user, "role");
+    bool ok = (!cJSON_IsNumber(active) || active->valueint != 0) &&
+              cJSON_IsString(current_role) && current_role->valuestring;
+    if (ok) snprintf(role, role_len, "%s", current_role->valuestring);
+    cJSON_Delete(user);
+    return ok;
+}
+
 bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len) {
     if (!req) return false;
 
@@ -611,7 +631,8 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
         const char *cursor = h->value->data;
         while (auth_cookie_iter_next(&cursor, &cookie)) {
             if (!is_auth_cookie_name(cookie.name, cookie.name_len) || cookie.value_len == 0) continue;
-            if (auth_verify_token_len(cookie.value, cookie.value_len, secret, out_user_id, out_role, role_len)) {
+            if (auth_verify_token_len(cookie.value, cookie.value_len, secret, out_user_id, out_role, role_len) &&
+                auth_current_account(req, *out_user_id, out_role, role_len)) {
                 return true;
             }
         }
@@ -631,7 +652,8 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
             bearer++;
             b_len -= 2;
         }
-        if (auth_verify_token_len(bearer, b_len, secret, out_user_id, out_role, role_len)) {
+        if (auth_verify_token_len(bearer, b_len, secret, out_user_id, out_role, role_len) &&
+            auth_current_account(req, *out_user_id, out_role, role_len)) {
             return true;
         }
     }
@@ -704,6 +726,20 @@ bool auth_require_admin(cwist_http_request *req, cwist_http_response *res) {
     if (strcmp(role, "admin") != 0) {
         res->status_code = (cwist_http_status_t)403;
         cwist_sstring_assign(res->body, "Forbidden: Admin access required");
+        return false;
+    }
+    return true;
+}
+
+bool auth_require_moderator(cwist_http_request *req, cwist_http_response *res) {
+    if (!community_roles_enabled()) return auth_require_admin(req, res);
+    if (!res) return false;
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return false;
+    if (!community_role_can_moderate(role)) {
+        res->status_code = (cwist_http_status_t)403;
+        cwist_sstring_assign(res->body, "Forbidden: Moderator access required");
         return false;
     }
     return true;

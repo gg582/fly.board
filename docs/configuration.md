@@ -113,6 +113,32 @@ libmagic content sniffing, not extension:
 | `denylist` | executables/script interpreters + `message/news` | Comma-separated MIME types; `image/` (trailing slash or `/*`) matches a subtree, otherwise exact case-insensitive match |
 | `allowlist` | *(empty)* | Used when `mode=allowlist` |
 
+## community.settings (optional)
+
+Every community protection is off by default. A missing file therefore keeps
+the original single-site blog behavior. Values are `true`/`false` (or `1`/`0`):
+
+| Key | Effect when enabled |
+|-----|---------------------|
+| `roles` | Adds the global `moderator` role and account suspension. Moderators can process reports and the approval queue; only admins manage users and settings |
+| `new_user_limits` | Limits accounts during their first 24 hours to one post and three comments |
+| `trust` | Treats accounts older than seven days, or with three approved submissions, as trusted |
+| `spam_detection` | Queues same-account duplicate text and submissions with more than five HTTP(S) links |
+| `approval_queue` | Queues non-trusted posts and comments for moderator review |
+
+Example with every protection explicitly disabled:
+
+```
+roles=false
+new_user_limits=false
+trust=false
+spam_detection=false
+approval_queue=false
+```
+
+The moderation model and exact limits are documented in
+[community.md](community.md) and [trust-and-spam.md](trust-and-spam.md).
+
 ## flywire.settings (optional)
 
 FlyWire primary/replica sync - full documentation in [flywire.md](flywire.md):
@@ -171,6 +197,9 @@ unset.
 | `MV_DEBUG` | - | Debug flag in the media preview path |
 | `CWIST_C1M_MODE` | `1` (set by the app itself) | Event-driven C1M reactor; set `0` to force the legacy thread-pool path |
 | `NATS_URL` | - | e.g. `nats://localhost:4222`; enables the NATS messaging gateway |
+| `FLY_DB_BACKEND` | `sqlite` | Database backend; other values are rejected because no server SQL driver is currently implemented |
+| `FLY_DB_LOCATION` | `data/blog.db` | Main SQLite path or `file:` URI. Auxiliary databases stay local; see [database.md](database.md) |
+| `FLYWIRE_ANTI_ENTROPY` | off | `1` enables optional deterministic mutation-union repair on every failover-cluster node |
 | `BLOG_ECH_KEY` / `BLOG_ECH_DIR` | - | ECH (Encrypted Client Hello) key file / directory |
 
 ### Threading / workers

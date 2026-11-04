@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "db.h"
 #include "db_internal.h"
+#include "db_sync_anti_entropy.h"
 #include "../config/config.h"
 #include "../engine/flywire.h"
 #include <cwist/core/log.h>
@@ -53,6 +54,12 @@ bool db_sync_journal_conn(sqlite3 *conn, const char *entity, int entity_id, cons
         CWIST_LOG_ERROR("sync_journal insert failed (%s %d %s): %s", entity, entity_id, op,
                         sqlite3_errmsg(conn));
         return false;
+    }
+    const char *anti_entropy = getenv("FLYWIRE_ANTI_ENTROPY");
+    if (anti_entropy && strcmp(anti_entropy, "1") == 0 &&
+        !db_sync_anti_entropy_record(conn, entity, entity_id, op, payload ? payload : "")) {
+        CWIST_LOG_WARN("sync_mutation_log insert failed (%s %d %s): %s", entity, entity_id, op,
+                       sqlite3_errmsg(conn));
     }
     return true;
 }

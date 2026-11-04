@@ -25,6 +25,8 @@ bool auth_has_session_cookie(cwist_http_request *req);
 bool auth_get_cookie(cwist_http_request *req, const char *name, char *out, size_t out_len);
 bool auth_require_login(cwist_http_request *req, cwist_http_response *res, int *out_user_id, char *out_role, size_t role_len);
 bool auth_require_admin(cwist_http_request *req, cwist_http_response *res);
+/* Admins, plus global moderators only when community roles are enabled. */
+bool auth_require_moderator(cwist_http_request *req, cwist_http_response *res);
 
 bool auth_admin_load(const char *path);
 bool auth_admin_check(const char *username, const char *password);

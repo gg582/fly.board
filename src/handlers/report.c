@@ -156,7 +156,7 @@ static cJSON *group_reports(cwist_db *db, cJSON *reports) {
 }
 
 void handler_admin_reports_get(cwist_http_request *req, cwist_http_response *res) {
-    if (!auth_require_admin(req, res)) return;
+    if (!auth_require_moderator(req, res)) return;
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
@@ -178,7 +178,7 @@ void handler_admin_reports_get(cwist_http_request *req, cwist_http_response *res
 }
 
 void handler_admin_reports_action(cwist_http_request *req, cwist_http_response *res) {
-    if (!auth_require_admin(req, res)) return;
+    if (!auth_require_moderator(req, res)) return;
     int uid = 0;
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));

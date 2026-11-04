@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 #include "config/write_policy.h"
+#include "db/moderation.h"
 
 static void invalidate_comment_target(cwist_db *db, const char *target_type, int target_id) {
     if (!target_type || !target_type[0] || target_id <= 0) return;
@@ -137,11 +138,23 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
         } else {
             author_name = (author_name_input && author_name_input[0]) ? author_name_input : "Anonymous";
         }
-        int new_comment_id = db_comment_create(req->db, target_type, target_id, uid, author_name, parent_id, content);
+        moderation_decision_t moderation = moderation_check_submission(req->db, uid, role, MODERATION_COMMENT, content);
+        if (moderation.action == MODERATION_REJECT) {
+            cwist_query_map_destroy(kv);
+            res->status_code = CWIST_HTTP_FORBIDDEN;
+            cwist_sstring_assign(res->body, "New accounts may post three comments in their first 24 hours");
+            return;
+        }
+        bool awaiting_review = moderation.action == MODERATION_PENDING;
+        int new_comment_id = awaiting_review
+            ? db_moderation_create_pending_comment(req->db, target_type, target_id, uid, author_name, parent_id, content, moderation.reason)
+            : db_comment_create(req->db, target_type, target_id, uid, author_name, parent_id, content);
         if (new_comment_id > 0) {
-            CWIST_LOG_INFO("Comment created: target_type=%s target_id=%d uid=%d", target_type, target_id, uid);
-            invalidate_comment_target(req->db, target_type, target_id);
-            notify_comment_recipient(req->db, uid, author_name, target_type, target_id, parent_id, content, new_comment_id);
+            CWIST_LOG_INFO("Comment created: target_type=%s target_id=%d uid=%d pending=%d", target_type, target_id, uid, awaiting_review);
+            if (!awaiting_review) {
+                invalidate_comment_target(req->db, target_type, target_id);
+                notify_comment_recipient(req->db, uid, author_name, target_type, target_id, parent_id, content, new_comment_id);
+            }
         } else {
             CWIST_LOG_ERROR("Comment creation failed: target_type=%s target_id=%d uid=%d", target_type, target_id, uid);
         }

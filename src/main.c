@@ -9,6 +9,7 @@
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/mem/gc.h>
 #include "db/db_internal.h"
+#include "db/db_portability.h"
 #include "utils/media_preview.h"
 #include "cwist/board_tree.h"
 #include "nats/fly_nats.h"
@@ -248,8 +249,7 @@ static void *cleanup_worker(void *arg) {
          * isolated from HTTP handlers. */
         fly_forkgate_enter();
         sqlite3 *conn = NULL;
-        if (sqlite3_open_v2("data/blog.db", &conn, SQLITE_OPEN_READWRITE, NULL) == SQLITE_OK &&
-            db_configure_connection(conn)) {
+        if (fly_db_open_main(&conn) == SQLITE_OK && db_configure_connection(conn)) {
             /* The open -> sweep -> close sequence below is ONE continuous
              * fork-gate section: a fork can never land mid-write on this
              * connection (audit finding), and the child inherits no live
