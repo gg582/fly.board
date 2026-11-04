@@ -861,6 +861,7 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
     const char *search_label = "Global search";
     const char *search_placeholder = "Search all posts...";
     const char *board_name = NULL;
+    const char *board_description = NULL;
 
     if (board_slug && board_slug[0]) {
         search_label = "Board search";
@@ -872,7 +873,9 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
                 cJSON *bs = cJSON_GetObjectItem(bo, "slug");
                 if (bs && bs->valuestring && strcmp(bs->valuestring, board_slug) == 0) {
                     cJSON *bnm = cJSON_GetObjectItem(bo, "name");
+                    cJSON *bdd = cJSON_GetObjectItem(bo, "description");
                     if (bnm && bnm->valuestring) board_name = bnm->valuestring;
+                    if (bdd && bdd->valuestring && bdd->valuestring[0]) board_description = bdd->valuestring;
                     break;
                 }
             }
@@ -1033,11 +1036,29 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
         cwist_sstring_append(b, "</section>");
     }
 
-    if (board_lang && board_lang[0]) {
-        render_page_meta meta = { .lang = board_lang };
-        render_set_page_meta(&meta);
+    char canonical_path[512] = "/";
+    char feed_path[520];
+    const char *page_title = g_config.title[0] ? g_config.title : "Posts";
+    if (board_slug && board_slug[0]) {
+        snprintf(canonical_path, sizeof(canonical_path), "/board/%s", board_slug);
+        page_title = board_name ? board_name : board_slug;
+    } else if ((search && search[0]) || search_filters_active(filters)) {
+        snprintf(canonical_path, sizeof(canonical_path), "/search");
+        page_title = "Search";
     }
-    cwist_sstring *page_html = render_page("Posts", b->data, dark, user_role, profile_pic, is_mobile);
+    render_page_meta meta = {
+        .lang = board_lang,
+        .description = board_description,
+        .canonical_path = canonical_path,
+        .noindex = (search && search[0]) || search_filters_active(filters),
+    };
+    if (board_slug && board_slug[0]) {
+        snprintf(feed_path, sizeof(feed_path), "%s/rss.xml", canonical_path);
+        meta.feed_path = feed_path;
+        meta.feed_title = page_title;
+    }
+    render_set_page_meta(&meta);
+    cwist_sstring *page_html = render_page(page_title, b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page_html;
 }
@@ -1092,6 +1113,7 @@ cwist_sstring *render_post_index(const char *heading, const char *lead, cJSON *p
         .canonical_path = base_path,
         .feed_path = feed_path,
         .feed_title = heading,
+        .noindex = base_path && strncmp(base_path, "/tag/", 5) == 0,
     };
     render_set_page_meta(&meta);
     cwist_sstring *page_html = render_page(heading, b->data, dark, user_role, profile_pic, is_mobile);

@@ -25,6 +25,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <time.h>
+#include <ctype.h>
 #include <stdatomic.h>
 #include <sqlite3.h>
 
@@ -95,6 +96,35 @@ static bool origins_match(const char *a, const char *b) {
         if (cb >= 'A' && cb <= 'Z') cb += 'a' - 'A';
         if (ca != cb) return false;
     }
+    return true;
+}
+
+static bool local_or_ip_host(const char *host) {
+    if (!host || !host[0]) return true;
+    char name[256];
+    snprintf(name, sizeof(name), "%s", host);
+    char *colon = strrchr(name, ':');
+    if (colon && !strchr(colon, ']')) *colon = '\0';
+    if (strcasecmp(name, "localhost") == 0) return true;
+    bool numeric = true;
+    for (const unsigned char *p = (const unsigned char *)name; *p; p++) {
+        if (!isdigit(*p) && *p != '.' && *p != ':' && *p != '[' && *p != ']' &&
+            !((*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F'))) {
+            numeric = false;
+            break;
+        }
+    }
+    return numeric;
+}
+
+static bool canonical_redirect_needed(const cwist_http_request *req) {
+    if (!req || (req->method != CWIST_HTTP_GET && req->method != CWIST_HTTP_HEAD)) return false;
+    const char *host = cwist_http_header_get(req->headers, "Host");
+    if (local_or_ip_host(host)) return false;
+    const char *origin = site_origin();
+    const char *root_host = strstr(origin, "://");
+    root_host = root_host ? root_host + 3 : origin;
+    if (local_or_ip_host(root_host) || strcasecmp(host, root_host) == 0) return false;
     return true;
 }
 
@@ -400,6 +430,17 @@ static void replica_proxy_handler(cwist_http_request *req, cwist_http_response *
 }
 
 void global_middleware(cwist_http_request *req, cwist_http_response *res, cwist_handler_func next) {
+    if (canonical_redirect_needed(req)) {
+        char target[2048];
+        snprintf(target, sizeof(target), "%s%s%s%s", site_origin(),
+                 req->path ? req->path->data : "/",
+                 (req->query && req->query->data && req->query->data[0]) ? "?" : "",
+                 (req->query && req->query->data) ? req->query->data : "");
+        res->status_code = CWIST_HTTP_MOVED_PERMANENTLY;
+        cwist_http_header_add(&res->headers, "Location", target);
+        cwist_sstring_assign(res->body, "");
+        return;
+    }
     atomic_fetch_add_explicit(&g_active_requests, 1, memory_order_relaxed);
     /* Start this process's NATS connection on its first request (post-fork). */
     fly_nats_ensure();

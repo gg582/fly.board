@@ -30,6 +30,7 @@ mkdir -p "$TMP/data"
 
 cat > "$TMP/blog.settings" <<EOF
 title=Smoke Test
+root_url=https://oborona.zip
 port=$PORT
 use_tls=false
 use_http2=false
@@ -78,6 +79,21 @@ check / 200
 check /robots.txt 200
 check /login 200
 check /boards 200
+
+home="$(curl -s --max-time 5 "http://127.0.0.1:$PORT/")"
+if [[ "$home" == *"<title>Smoke Test</title>"* && "$home" == *'rel="canonical" href="https://oborona.zip/"'* ]]; then
+    echo "smoke: home title and canonical OK"
+else
+    echo "smoke: home title and canonical FAIL" >&2
+    fail=1
+fi
+redirect="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 5 -H 'Host: ceversi.korokorok.com' "http://127.0.0.1:$PORT/post/example?x=1")"
+if [ "$redirect" = "301 https://oborona.zip/post/example?x=1" ]; then
+    echo "smoke: alias host canonical redirect OK"
+else
+    echo "smoke: alias host canonical redirect '$redirect' FAIL" >&2
+    fail=1
+fi
 
 # Deferred responses must still be compressed: the compress middleware
 # bails on res->deferred, and async_route used to leave the flag set.

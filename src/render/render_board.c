@@ -249,6 +249,8 @@ cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role
     } else {
         cwist_sstring_append(b, "<p style='color:var(--muted)'>No boards available.</p>");
     }
+    render_page_meta meta = { .canonical_path = "/boards" };
+    render_set_page_meta(&meta);
     cwist_sstring *page = render_page("Boards", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;

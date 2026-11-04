@@ -702,26 +702,21 @@ void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res) {
         }
         cJSON_Delete(posts);
     }
-    cJSON *tags = db_tag_list_public(req->db);
-    cJSON *t = NULL;
-    cJSON_ArrayForEach(t, tags) {
-        cJSON *name = cJSON_GetObjectItem(t, "name");
-        if (!cJSON_IsString(name)) continue;
+    cJSON *boards = db_board_list(req->db);
+    cJSON *board = NULL;
+    cJSON_ArrayForEach(board, boards) {
+        if (json_int(board, "admin_only", 0) || json_int(board, "read_perm", 0) > 0 ||
+            json_int(board, "post_count", 0) <= 0) continue;
+        cJSON *slug_item = cJSON_GetObjectItem(board, "slug");
+        const char *slug = cJSON_IsString(slug_item) ? slug_item->valuestring : "";
+        if (!slug[0]) continue;
         cwist_sstring *path = cwist_sstring_create();
-        cwist_sstring_assign(path, "/tag/");
-        static const char hex[] = "0123456789ABCDEF";
-        for (const unsigned char *c = (const unsigned char *)name->valuestring; *c; c++) {
-            if (isalnum(*c) || *c == '-' || *c == '_' || *c == '.' || *c == '~') {
-                cwist_sstring_append_len(path, (const char *)c, 1);
-            } else {
-                char esc[4] = {'%', hex[*c >> 4], hex[*c & 15], '\0'};
-                cwist_sstring_append(path, esc);
-            }
-        }
+        cwist_sstring_append(path, "/board/");
+        cwist_sstring_append_escaped(path, slug);
         append_sitemap_url(sm, path->data, NULL);
         cwist_sstring_destroy(path);
     }
-    if (tags) cJSON_Delete(tags);
+    if (boards) cJSON_Delete(boards);
     cJSON *series = db_series_list(req->db, 0, true);
     cJSON *sr = NULL;
     cJSON_ArrayForEach(sr, series) {

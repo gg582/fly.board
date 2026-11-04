@@ -427,7 +427,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                             : (g_config.subtitle[0] ? g_config.subtitle : site_name);
     char url_buf[1024];
     head_meta(head, "name", "description", description);
-    if (pm.noindex) head_meta(head, "name", "robots", "noindex");
+    if (pm.noindex) head_meta(head, "name", "robots", "noindex,follow");
     if (pm.canonical_path) {
         page_abs_url(url_buf, sizeof(url_buf), pm.canonical_path);
         head_link(head, "canonical", NULL, NULL, url_buf);
