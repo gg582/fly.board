@@ -464,12 +464,14 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     }
 
     char *pp = get_profile_pic(req->db, uid, role);
+    cJSON *boards = bid > 0 ? db_board_list(req->db) : NULL;
     cJSON *board_i18n = bid > 0 ? db_i18n_get(req->db, "board", bid) : NULL;
     cJSON *board_siblings = bid > 0 ? db_i18n_siblings(req->db, "board", bid, false) : NULL;
     cJSON *board_lang = board_i18n ? cJSON_GetObjectItem(board_i18n, "lang") : NULL;
     render_set_board_translations(cJSON_IsString(board_lang) ? board_lang->valuestring : NULL, board_siblings);
-    cwist_sstring *page_html = render_post_list(posts, NULL, dark, role, page, total_pages, slug, search, search_type, &filters, pp, uid, mobile, children);
+    cwist_sstring *page_html = render_post_list(posts, boards, dark, role, page, total_pages, slug, search, search_type, &filters, pp, uid, mobile, children);
     render_set_board_translations(NULL, NULL);
+    if (boards) cJSON_Delete(boards);
     if (board_i18n) cJSON_Delete(board_i18n);
     if (board_siblings) cJSON_Delete(board_siblings);
     if (posts) cJSON_Delete(posts);
