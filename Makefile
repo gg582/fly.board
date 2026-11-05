@@ -219,6 +219,8 @@ SRCS := src/main.c \
         src/utils/cache.c \
         src/utils/post_schedule.c \
         src/utils/spam_guard.c \
+        src/utils/aho_moderation.c \
+        src/utils/moderation_filter.c \
         src/utils/ipban.c \
         src/tools/backup.c \
         src/tools/backup_schedule.c \
@@ -447,8 +449,11 @@ tests/test_flywire_profile: tests/test_flywire_profile.c $(SERVER_OBJS) $(MD4C_L
 check-flywire-profile: tests/test_flywire_profile
 	./tests/test_flywire_profile
 
-COMMUNITY_TESTS := tests/test_community_roles tests/test_db_moderation tests/test_render_moderation \
+COMMUNITY_TESTS := tests/test_utils_aho_moderation tests/test_community_roles tests/test_db_moderation tests/test_render_moderation \
                    tests/test_db_portability tests/test_db_sync_anti_entropy
+
+tests/test_utils_aho_moderation: tests/test_utils_aho_moderation.c src/utils/aho_moderation.c
+	$(CC) $(CFLAGS) -o $@ $^
 
 tests/test_community_roles: tests/test_community_roles.c src/engine/community.c src/db/user.c
 	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -o $@ $^ $(LDFLAGS) $(LIBS)
