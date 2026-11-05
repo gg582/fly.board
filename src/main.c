@@ -4,6 +4,7 @@
 #include "crypto/fly_crypto.h"
 #include "db/db.h"
 #include "utils/spam_guard.h"
+#include "utils/traffic_guard.h"
 #include "utils/ipban.h"
 #include "tools/backup.h"
 #include <cwist/core/mem/alloc.h>
@@ -481,6 +482,7 @@ int main(int argc, char **argv) {
     CWIST_LOG_INFO("Site admin account: users.id=%d", site_admin_uid);
     write_policy_init(db);
     spam_guard_init();
+    traffic_guard_init();
     ipban_init();
     post_schedule_init(db);
     db_file_cleanup_duplicates(db);
