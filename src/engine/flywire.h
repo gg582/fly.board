@@ -2,6 +2,7 @@
 #define ENGINE_FLYWIRE_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <cwist/sys/app/app.h>
 
 /* Read the replica checkpoint (data/.flywire_seq); 0 when missing/corrupt. */
@@ -39,6 +40,9 @@ bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res);
 /* True when @p req carries this site's FlyWire token (X-FlyWire-Token), i.e.
  * it comes from a peer site rather than a browser. */
 bool flywire_request_authorized(cwist_http_request *req);
+
+/* Map a replicated profile_pic URL to its canonical local storage path. */
+bool flywire_profile_local_path(const char *profile_url, char *out, size_t out_size);
 
 /* ---- Failover cluster (flywire_cluster.c) ----
  * Only active when flywire.settings lists nodes= and self=. */

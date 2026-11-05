@@ -801,7 +801,14 @@ void handler_asset_profile_upload(cwist_http_request *req, cwist_http_response *
         }
     }
 
-    if (!send_static_asset_webp_response(req, res, "profile", path, decoded, 512, 512)) {
+    const char *raw = cwist_query_map_get(req->query_params, "raw");
+    bool ok;
+    if (raw && strcmp(raw, "1") == 0 && flywire_request_authorized(req)) {
+        ok = send_cached_file_response(req, res, path, mime_type(decoded), FILE_CACHE_CONTROL, NULL);
+    } else {
+        ok = send_static_asset_webp_response(req, res, "profile", path, decoded, 512, 512);
+    }
+    if (!ok) {
         cwist_free(decoded);
         send_upload_not_found(res);
         return;

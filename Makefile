@@ -440,6 +440,13 @@ tests/test_tasfa_finalize_cache: tests/test_tasfa_finalize_cache.c $(SERVER_OBJS
 check-tasfa-finalize: tests/test_tasfa_finalize_cache
 	./tests/test_tasfa_finalize_cache
 
+tests/test_flywire_profile: tests/test_flywire_profile.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
+
+.PHONY: check-flywire-profile
+check-flywire-profile: tests/test_flywire_profile
+	./tests/test_flywire_profile
+
 COMMUNITY_TESTS := tests/test_community_roles tests/test_db_moderation tests/test_render_moderation \
                    tests/test_db_portability tests/test_db_sync_anti_entropy
 
@@ -462,11 +469,11 @@ tests/test_db_sync_anti_entropy: tests/test_db_sync_anti_entropy.c src/db/db_syn
 check-community: $(COMMUNITY_TESTS)
 	@for t in $(COMMUNITY_TESTS); do $$t || exit 1; done
 
-test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-community $(TARGET)
+test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tools/connhold
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tools/connhold
 	rm -rf build-wasm
 
 # --- WASM: sandboxed TASFA crypto (opt-in, experimental) -------------------

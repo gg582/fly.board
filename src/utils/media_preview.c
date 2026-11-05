@@ -311,6 +311,8 @@ static bool generate_static_asset_webp_inprocess(const char *src, const char *ds
 bool generate_static_asset_webp(const char *src, const char *dst, int max_w, int max_h) {
     if (!src || !dst || max_w <= 0 || max_h <= 0) return false;
     if (!validate_media_path(src) || !validate_media_path(dst)) return false;
+    struct stat st;
+    if (stat(src, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) return false;
     dir_ensure("public/uploads/.thumbs");
 
     char *esc_src = escape_shell_arg(src);

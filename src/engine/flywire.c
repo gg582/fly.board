@@ -52,6 +52,8 @@
  * place only once the body is a 2xx of the expected size. This
  * universal mechanism always works; a TASFA server-side pull can replace it
  * later (the TASFA JS client path is src/handlers/tasfa/download.c).
+ * Profile images follow users.profile_pic URLs through the same temporary-file
+ * mechanism, including the protected local administrator account.
  *
  * NOTE: view_count and download_count counters are not synced. */
 
@@ -705,6 +707,57 @@ static int flywire_dequeue_file(void) {
     return id;
 }
 
+bool flywire_profile_local_path(const char *profile_url, char *out, size_t out_size) {
+    static const char prefix[] = "/assets/profile/";
+    if (!profile_url || !out || out_size == 0 ||
+        strncmp(profile_url, prefix, sizeof(prefix) - 1) != 0) return false;
+    const char *name = profile_url + sizeof(prefix) - 1;
+    if (!name[0] || strcmp(name, ".") == 0 || strcmp(name, "..") == 0 ||
+        strchr(name, '/') || strchr(name, '\\')) return false;
+    int written = snprintf(out, out_size, "public/profile/%s", name);
+    return written >= 0 && (size_t)written < out_size;
+}
+
+typedef struct {
+    int user_id;
+    char source_path[PATH_MAX];
+    char file_path[PATH_MAX];
+} flywire_pending_profile;
+
+static flywire_pending_profile g_pending_profiles[FLYWIRE_PENDING_MAX];
+static int g_pending_profiles_len = 0;
+
+static void flywire_enqueue_profile(int user_id, const char *profile_url) {
+    flywire_pending_profile item = { .user_id = user_id };
+    if (user_id <= 0 || !flywire_profile_local_path(profile_url, item.file_path, sizeof(item.file_path))) return;
+    int written = snprintf(item.source_path, sizeof(item.source_path), "%s?raw=1", profile_url);
+    if (written < 0 || (size_t)written >= sizeof(item.source_path)) return;
+    pthread_mutex_lock(&g_pending_mtx);
+    for (int i = 0; i < g_pending_profiles_len; i++) {
+        if (g_pending_profiles[i].user_id == user_id) {
+            g_pending_profiles[i] = item;
+            pthread_mutex_unlock(&g_pending_mtx);
+            return;
+        }
+    }
+    if (g_pending_profiles_len < FLYWIRE_PENDING_MAX)
+        g_pending_profiles[g_pending_profiles_len++] = item;
+    pthread_mutex_unlock(&g_pending_mtx);
+}
+
+static flywire_pending_profile flywire_dequeue_profile(void) {
+    pthread_mutex_lock(&g_pending_mtx);
+    flywire_pending_profile item = {0};
+    if (g_pending_profiles_len > 0) {
+        item = g_pending_profiles[0];
+        memmove(g_pending_profiles, g_pending_profiles + 1,
+                (size_t)(g_pending_profiles_len - 1) * sizeof(g_pending_profiles[0]));
+        g_pending_profiles_len--;
+    }
+    pthread_mutex_unlock(&g_pending_mtx);
+    return item;
+}
+
 typedef struct {
     FILE *f;
     CURL *curl;
@@ -777,26 +830,36 @@ static void flywire_queue_bad_files(sqlite3 *main_conn) {
     if (queued > 0) CWIST_LOG_WARN("flywire: %d file(s) missing or the wrong size on disk; refetching", queued);
 }
 
-/* Download one file's bytes from the primary with a resumable HTTPS GET of
- * /file/download/<id> into @p file_path.  Always-through-HTTPS by design: it
- * works whether or not the primary serves TASFA; a TASFA server-side pull can
- * replace this later.  Idempotent: resumes at the existing partial size and
- * rewrites the row's file on HTTP 200.  Contains NO SQLite calls and may run
- * for up to 120 s (CURLOPT_TIMEOUT): it must stay OUTSIDE the fork gate so
- * the supervisor can fork workers while a download is in flight.  Failure is
- * logged; the id stays out of the queue and a later "file" upsert re-queues
- * it. */
-static void flywire_download_file_bytes(int file_id, const char *file_path, long long expected) {
-    if (!file_path || !file_path[0]) return;
+static void flywire_queue_missing_profiles(sqlite3 *main_conn) {
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(main_conn, "SELECT id, profile_pic FROM users WHERE profile_pic LIKE '/assets/profile/%'",
+                           -1, &st, NULL) != SQLITE_OK) return;
+    int queued = 0;
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        const char *url = (const char *)sqlite3_column_text(st, 1);
+        char path[PATH_MAX];
+        if (!flywire_profile_local_path(url, path, sizeof(path)) ||
+            flywire_file_bytes_ok(path, 0)) continue;
+        flywire_enqueue_profile(sqlite3_column_int(st, 0), url);
+        queued++;
+    }
+    sqlite3_finalize(st);
+    if (queued > 0) CWIST_LOG_INFO("flywire: %d profile image(s) missing on disk; refetching", queued);
+}
+
+/* Download an asset into a temporary file and rename it only after a complete
+ * 2xx response. Contains no SQLite calls and runs outside the fork gate. */
+static void flywire_download_bytes(int entity_id, const char *source_path,
+                                   const char *file_path, long long expected) {
+    if (!source_path || !source_path[0] || !file_path || !file_path[0]) return;
     if (strstr(file_path, "..") || file_path[0] == '/') {
         CWIST_LOG_ERROR("flywire: refusing unsafe file_path %s", file_path);
         return;
     }
-    if (flywire_file_bytes_ok(file_path, expected)) return; /* already have it */
+    if (flywire_file_bytes_ok(file_path, expected)) return;
     char part_path[PATH_MAX];
     if (snprintf(part_path, sizeof(part_path), "%s.part", file_path) >= (int)sizeof(part_path)) return;
 
-    /* Create the target directories. */
     char dirs[PATH_MAX];
     snprintf(dirs, sizeof(dirs), "%s", file_path);
     char *slash = strrchr(dirs, '/');
@@ -811,9 +874,6 @@ static void flywire_download_file_bytes(int file_id, const char *file_path, long
         mkdir(dirs, 0755);
     }
 
-    char path[64];
-    snprintf(path, sizeof(path), "/file/download/%d", file_id);
-
     FILE *f = fopen(part_path, "ab");
     if (!f) {
         CWIST_LOG_ERROR("flywire: cannot open %s for download: %s", part_path, strerror(errno));
@@ -821,7 +881,6 @@ static void flywire_download_file_bytes(int file_id, const char *file_path, long
     }
     long have = ftell(f);
     if (expected > 0 && have >= expected) {
-        /* A stale or overlong partial: start over. */
         if (ftruncate(fileno(f), 0) == 0) rewind(f);
         have = ftell(f);
     }
@@ -837,7 +896,7 @@ static void flywire_download_file_bytes(int file_id, const char *file_path, long
     snprintf(token_hdr, sizeof(token_hdr), "X-FlyWire-Token: %s", flywire_token());
     headers = curl_slist_append(headers, token_hdr);
     flywire_download_ctx ctx = { .f = f, .curl = curl, .have = have };
-    struct curl_slist *route = flywire_route_primary(curl, path);
+    struct curl_slist *route = flywire_route_primary(curl, source_path);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, flywire_download_write);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
@@ -852,7 +911,7 @@ static void flywire_download_file_bytes(int file_id, const char *file_path, long
     bool ok = (rc == CURLE_OK) && (status == 200 || status == 206);
     if (fclose(f) != 0) ok = false;
     if (ok && !flywire_file_bytes_ok(part_path, expected)) {
-        CWIST_LOG_WARN("flywire: file %d fetched with the wrong size (expected %lld)", file_id, expected);
+        CWIST_LOG_WARN("flywire: asset %d fetched with the wrong size (expected %lld)", entity_id, expected);
         unlink(part_path);
         return;
     }
@@ -861,12 +920,18 @@ static void flywire_download_file_bytes(int file_id, const char *file_path, long
         ok = false;
     }
     if (ok) {
-        CWIST_LOG_INFO("flywire: fetched file %d bytes (%s)", file_id, file_path);
+        CWIST_LOG_INFO("flywire: fetched asset %d bytes (%s)", entity_id, file_path);
     } else {
-        /* A non-2xx keeps nothing; a cut-off 2xx keeps its partial to resume. */
         if (status != 200 && status != 206) unlink(part_path);
-        CWIST_LOG_WARN("flywire: file %d fetch failed (curl=%d http=%ld); will retry on next upsert", file_id, (int)rc, status);
+        CWIST_LOG_WARN("flywire: asset %d fetch failed (curl=%d http=%ld); will retry on next upsert",
+                       entity_id, (int)rc, status);
     }
+}
+
+static void flywire_download_file_bytes(int file_id, const char *file_path, long long expected) {
+    char source_path[64];
+    snprintf(source_path, sizeof(source_path), "/file/download/%d", file_id);
+    flywire_download_bytes(file_id, source_path, file_path, expected);
 }
 
 /* ---- Feed response buffer ---- */
@@ -981,6 +1046,13 @@ static bool flywire_apply_row(sqlite3 *main_conn, long long seq, const char *ent
          * may journal the same-named row (or the same id after a reseed);
          * locally that row is how the operator signs in. */
         cJSON *payload = cJSON_Parse(payload_json && payload_json[0] ? payload_json : "{}");
+        cJSON *profile = payload ? cJSON_GetObjectItem(payload, "profile_pic") : NULL;
+        if (cJSON_IsString(profile)) {
+            char profile_path[PATH_MAX];
+            if (flywire_profile_local_path(profile->valuestring, profile_path, sizeof(profile_path)) &&
+                !flywire_file_bytes_ok(profile_path, 0))
+                flywire_enqueue_profile(entity_id, profile->valuestring);
+        }
         const char *uname = payload && cJSON_IsString(cJSON_GetObjectItem(payload, "username"))
                                 ? cJSON_GetObjectItem(payload, "username")->valuestring : "";
         if (uname[0] && strcmp(uname, auth_admin_username()) == 0) {
@@ -1295,6 +1367,7 @@ int flywire_replica_iteration(void) {
     char file_path[PATH_MAX] = {0};
     long long expected = 0;
     int file_id = 0;
+    flywire_pending_profile profile = {0};
 
     fly_forkgate_enter();
     sqlite3 *conn = NULL;
@@ -1312,18 +1385,21 @@ int flywire_replica_iteration(void) {
     if (rc == 0) {
         if (!bad_files_queued) {
             flywire_queue_bad_files(conn);
+            flywire_queue_missing_profiles(conn);
             bad_files_queued = true;
         }
-        /* At most one queued file-byte fetch per round. */
         file_id = flywire_dequeue_file();
         if (file_id > 0)
             flywire_fetch_file_path(file_id, conn, file_path, sizeof(file_path), &expected);
+        profile = flywire_dequeue_profile();
     }
     sqlite3_close(conn);
     fly_forkgate_leave();
 
     if (file_id > 0 && file_path[0])
         flywire_download_file_bytes(file_id, file_path, expected);
+    if (profile.user_id > 0)
+        flywire_download_bytes(profile.user_id, profile.source_path, profile.file_path, 0);
     return rc;
 }
 
