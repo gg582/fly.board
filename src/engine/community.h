@@ -10,6 +10,7 @@ typedef struct {
     bool trust;
     bool spam_detection;
     bool approval_queue;
+    bool board_delegations;
 } community_config_t;
 
 extern community_config_t community;

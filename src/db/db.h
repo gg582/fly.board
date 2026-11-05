@@ -69,6 +69,15 @@ bool db_board_perm_grant(cwist_db *db, int board_id, int user_id);
 bool db_board_perm_revoke(cwist_db *db, int board_id, int user_id);
 cJSON *db_board_perm_list(cwist_db *db, int board_id);
 
+/* Optional board-scoped moderation and notice delegations. expires_at is UTC
+ * "YYYY-MM-DD HH:MM:SS" or NULL for a grant without expiration. */
+bool db_board_delegation_grant(cwist_db *db, int board_id, int user_id, bool can_moderate,
+                               bool can_notice, const char *expires_at);
+bool db_board_delegation_revoke(cwist_db *db, int board_id, int user_id);
+cJSON *db_board_delegation_list(cwist_db *db, int board_id);
+bool db_board_user_can_moderate(cwist_db *db, int board_id, int user_id, const char *role);
+bool db_board_user_can_notice(cwist_db *db, int board_id, int user_id, const char *role);
+
 /* Posts */
 int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, const char *slug, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
 /* Publication state. A post's created_at doubles as its publish time: a

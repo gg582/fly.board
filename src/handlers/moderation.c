@@ -6,19 +6,25 @@
 cwist_sstring *render_moderation_queue(cJSON *items, const char *msg, bool dark,
                                        const char *role, const char *profile_pic, bool is_mobile);
 
-static bool require_reviewer(cwist_http_request *req, cwist_http_response *res, int *uid, char *role, size_t role_size) {
-    if (!auth_require_login(req, res, uid, role, role_size)) return false;
+static bool can_review_target(cwist_db *db, int uid, const char *role, const char *target_type, int target_id) {
     if (moderation_can_review(role)) return true;
-    res->status_code = CWIST_HTTP_FORBIDDEN;
-    cwist_sstring_assign(res->body, "Forbidden");
-    return false;
+    int board_id = db_moderation_target_board_id(db, target_type, target_id);
+    return board_id > 0 && db_board_user_can_moderate(db, board_id, uid, role);
 }
 
 void handler_admin_moderation_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    if (!require_reviewer(req, res, &uid, role, sizeof(role))) return;
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     cJSON *items = db_moderation_list_pending(req->db);
+    if (!moderation_can_review(role)) {
+        for (int i = cJSON_GetArraySize(items) - 1; i >= 0; i--) {
+            cJSON *item = cJSON_GetArrayItem(items, i);
+            const char *type = json_string_or_empty(item, "target_type");
+            if (!can_review_target(req->db, uid, role, type, json_int(item, "target_id", 0)))
+                cJSON_DeleteItemFromArray(items, i);
+        }
+    }
     char *pp = get_profile_pic(req->db, uid, role);
     cwist_sstring *page = render_moderation_queue(items, cwist_query_map_get(req->query_params, "msg"),
                                                    is_dark(req), role, pp, is_mobile_request(req));
@@ -54,7 +60,7 @@ static void invalidate_moderated_target(cwist_db *db, const char *target_type, i
 void handler_admin_moderation_action(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
-    if (!require_reviewer(req, res, &uid, role, sizeof(role))) return;
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
     cwist_query_map *form = cwist_query_map_create();
     if (req->body && req->body->data) cwist_query_map_parse(form, req->body->data);
     const char *target_type = cwist_query_map_get(form, "target_type");
@@ -63,6 +69,12 @@ void handler_admin_moderation_action(cwist_http_request *req, cwist_http_respons
     int target_id = id_string ? atoi(id_string) : 0;
     bool valid = target_id > 0 && target_type &&
                  (strcmp(target_type, MODERATION_POST) == 0 || strcmp(target_type, MODERATION_COMMENT) == 0);
+    if (valid && !can_review_target(req->db, uid, role, target_type, target_id)) {
+        cwist_query_map_destroy(form);
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Forbidden");
+        return;
+    }
     bool ok = false;
     if (valid && action && strcmp(action, "approve") == 0) {
         ok = db_moderation_approve(req->db, target_type, target_id, uid);
