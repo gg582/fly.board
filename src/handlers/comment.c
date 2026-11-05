@@ -154,6 +154,8 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
             if (!awaiting_review) {
                 invalidate_comment_target(req->db, target_type, target_id);
                 notify_comment_recipient(req->db, uid, author_name, target_type, target_id, parent_id, content, new_comment_id);
+            } else {
+                fly_nats_publish_moderation(req->db, MODERATION_COMMENT, new_comment_id);
             }
         } else {
             CWIST_LOG_ERROR("Comment creation failed: target_type=%s target_id=%d uid=%d", target_type, target_id, uid);
