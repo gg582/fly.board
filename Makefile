@@ -215,7 +215,7 @@ SRCS := src/main.c \
         src/wasm_host/tasfa_crypto_wasm.c \
         src/render/theme/theme.c src/render/theme/rules.c src/render/theme/json.c src/render/theme/css.c \
         src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/render/render_notifications.c src/render/render_mail.c src/render/render_guestbook.c src/render/render_moderation.c \
-        src/handlers/handlers.c src/handlers/home.c src/handlers/blog.c src/handlers/report.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/notifications.c src/handlers/file.c src/handlers/mail.c src/handlers/guestbook.c src/handlers/subscribe.c src/handlers/privacy.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c src/handlers/moderation.c \
+        src/handlers/handlers.c src/handlers/home.c src/handlers/blog.c src/handlers/report.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/realtime.c src/handlers/notifications.c src/handlers/file.c src/handlers/mail.c src/handlers/guestbook.c src/handlers/subscribe.c src/handlers/privacy.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c src/handlers/moderation.c \
         src/utils/utils.c \
         src/utils/cache.c \
         src/utils/privacy.c \
@@ -241,6 +241,7 @@ SRCS := src/main.c \
         src/utils/email.c \
         src/utils/s3_client.c \
         src/utils/font_fetch.c \
+        src/realtime/realtime.c \
         src/nats/fly_nats.c src/nats/moderation.c \
         src/core/log.c \
         third_party/qrcodegen/qrcodegen.c \
@@ -533,6 +534,24 @@ tests/test_utils_swr: tests/test_utils_swr.c src/utils/cache.c src/utils/reqshar
 check-utils: $(UTIL_TESTS)
 	@for t in $(UTIL_TESTS); do $$t || exit 1; done
 
+tests/test_realtime: tests/test_realtime.c src/realtime/realtime.c
+	$(CC) $(CFLAGS) -o $@ $^ -pthread
+
+tests/test_realtime_nats: tests/test_realtime_nats.c tests/stubs/realtime_nats_stubs.c src/nats/fly_nats.c src/realtime/realtime.c $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ tests/test_realtime_nats.c tests/stubs/realtime_nats_stubs.c src/nats/fly_nats.c src/realtime/realtime.c $(LDFLAGS) $(LIBS)
+
+.PHONY: check-realtime check-realtime-http check-realtime-nats
+check-realtime: tests/test_realtime tests/test_config minjs
+	./tests/test_realtime
+	./tests/test_config
+	node tests/test_realtime_js.js
+
+check-realtime-http: $(TARGET)
+	./tools/realtime_smoke_test.sh
+
+check-realtime-nats: tests/test_realtime_nats
+	python3 tests/test_realtime_nats.py
+
 tests/test_audit: tests/test_audit.c src/audit/audit.c src/crypto/fly_crypto.o $(MD4C_LIB) $(LIBMAGIC_A)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
@@ -547,11 +566,11 @@ tests/test_utils_traffic_guard: tests/test_utils_traffic_guard.c src/utils/traff
 check-traffic-guard: tests/test_utils_traffic_guard
 	./tests/test_utils_traffic_guard
 
-test: check-utils check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-audit check-traffic-guard check-notifications check-sqlite-partition-poc check-privacy-rights $(TARGET)
+test: check-utils check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-audit check-traffic-guard check-notifications check-sqlite-partition-poc check-privacy-rights check-realtime check-realtime-http check-realtime-nats $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tests/test_utils_traffic_guard tests/test_privacy_rights $(UTIL_TESTS) $(NOTIFICATION_TESTS) tools/connhold
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tests/test_utils_traffic_guard tests/test_privacy_rights tests/test_realtime tests/test_realtime_nats tests/test_config $(UTIL_TESTS) $(NOTIFICATION_TESTS) tools/connhold
 	rm -rf build-wasm
 
 # --- WASM: sandboxed TASFA crypto (opt-in, experimental) -------------------

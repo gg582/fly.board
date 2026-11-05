@@ -470,6 +470,20 @@ void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, 
     }
 }
 
+cwist_sstring *render_post_comment_list(cJSON *comments, const char *user_role, int user_id, int post_id) {
+    cwist_sstring *out = cwist_sstring_create();
+    if (comments && cJSON_GetArraySize(comments) > 0) {
+        cJSON *comment = NULL;
+        cJSON_ArrayForEach(comment, comments) {
+            if (json_int(comment, "parent_id", 0) == 0)
+                render_comment_node(out, comment, comments, 0, user_id, user_role, post_id);
+        }
+    } else {
+        cwist_sstring_append(out, "<p style='color:var(--muted)'>No comments yet.</p>");
+    }
+    return out;
+}
+
 /* Snippet of a search hit: the body text around the first matching term,
  * with every term occurrence wrapped in <mark>. ASCII matching ignores case,
  * as SQLite LIKE does. */
@@ -1933,20 +1947,32 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     if (post_is_public(post)) append_report_form(b, "post", post_id_val);
     cwist_sstring_append(b, "</div>");
 
-    /* Comments */
-    cwist_sstring_append(b, "<div style='margin-top:40px'><h2>Comments</h2>");
-    if (comments && cJSON_GetArraySize(comments) > 0) {
-        int n = cJSON_GetArraySize(comments);
-        for (int i = 0; i < n; i++) {
-            cJSON *c = cJSON_GetArrayItem(comments, i);
-            cJSON *parent_id = cJSON_GetObjectItem(c, "parent_id");
-            if (!parent_id || parent_id->valueint == 0) {
-                render_comment_node(b, c, comments, 0, user_id, user_role, post_id_val);
-            }
-        }
-    } else {
-        cwist_sstring_append(b, "<p style='color:var(--muted)'>No comments yet.</p>");
+    /* Comments remain complete without JavaScript; realtime only enhances them. */
+    bool realtime = g_config.realtime_enabled && post_is_public(post);
+    cwist_sstring_append(b, "<div id='comments' style='margin-top:40px'");
+    int latest_comment_id = 0;
+    cJSON *latest = NULL;
+    cJSON_ArrayForEach(latest, comments) {
+        int id = json_int(latest, "id", 0);
+        if (id > latest_comment_id) latest_comment_id = id;
     }
+    if (realtime) {
+        char rt[160];
+        snprintf(rt, sizeof(rt), " data-realtime-post='%d' data-latest-comment='%d' data-typing='%s'",
+                 post_id_val, latest_comment_id, g_config.realtime_typing ? "1" : "0");
+        cwist_sstring_append(b, rt);
+    }
+    cwist_sstring_append(b, "><h2>Comments</h2>");
+    if (realtime) {
+        cwist_sstring_append(b, "<div style='font-size:13px;color:var(--muted);display:flex;gap:12px'>"
+                                "<span id='realtime-viewers' hidden></span>"
+                                "<span id='realtime-typing' role='status' aria-live='polite' hidden>Someone is typing...</span></div>");
+    }
+    cwist_sstring_append(b, "<div id='comments-list'>");
+    cwist_sstring *comment_list = render_post_comment_list(comments, user_role, user_id, post_id_val);
+    cwist_sstring_append_sstring(b, comment_list);
+    cwist_sstring_destroy(comment_list);
+    cwist_sstring_append(b, "</div>");
     if (write_policy_can_comment(user_role)) {
         cwist_sstring_append(b, "<form action='/comment/new' method='post' style='margin-top:18px'>");
         cwist_sstring_append(b, "<input type='hidden' name='target_type' value='post'>");
@@ -1964,6 +1990,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         render_comment_closed_note(b, user_role);
     }
     cwist_sstring_append(b, "</div>");
+    if (realtime) cwist_sstring_append(b, "<script src='/assets/js/realtime.js?v=1' defer></script>");
     cwist_sstring_append(b, "<script src='/assets/js/lightbox.js?v=1' defer></script>");
 
     /* <head> metadata: summary (or an excerpt of the body) as the

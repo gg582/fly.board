@@ -52,6 +52,8 @@ the built-in defaults; a missing file is regenerated with them.
 | `use_tasfa` | `true` | TASFA resumable upload/download pipeline (protocol details: [tasfa.md](tasfa.md)) |
 | `use_rss` | `false` | Serve the RSS feed (`/rss.xml`) |
 | `newsletter_enabled` | `false` | Email subscription: shows the subscribe form on post lists, accepts `/subscribe` and confirm/unsubscribe links. Sending new-post emails additionally requires `FLY_NEWSLETTER_SEND=1` on the primary node (see below) |
+| `realtime_enabled` | `false` | Opt-in post viewer counts and new-comment updates over short SSE responses and the existing NATS fabric; see [realtime.md](realtime.md) |
+| `realtime_typing` | `false` | Separate opt-in for anonymous, short-lease, rate-limited typing indicators; requires `realtime_enabled=true` |
 | `notification_aggregation` | `false` | Coalesce notifications by recipient, kind, and post target during the configured window. The latest actor and excerpt are shown as `A and N others`; actor history remains stored. A new event makes a previously read group unread again |
 | `notification_window_seconds` | `300` | Aggregation lookback from the latest event, clamped to 1–86400 seconds. Events outside the window start a new notification |
 | `use_tls` | `true` | HTTPS. Requires `server.crt`/`server.key` in the site root |

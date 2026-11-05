@@ -54,6 +54,12 @@ bool fly_nats_publish_post(const char *title, const char *slug, const char *summ
  */
 bool fly_nats_publish_comment(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt, int comment_id);
 
+/* Ephemeral realtime events carry only a post id and an opaque browser id. */
+bool fly_nats_publish_realtime_presence(int post_id, const char *session, bool active);
+bool fly_nats_publish_realtime_typing(int post_id, const char *session, bool active);
+bool fly_nats_publish_realtime_comment(int post_id, int comment_id);
+bool fly_nats_is_connected(void);
+
 /**
  * @brief Shutdown NATS subsystem.
  */

@@ -71,6 +71,8 @@ static void set_default(void) {
     g_config.use_tasfa = true;
     g_config.use_rss = false;
     g_config.newsletter_enabled = false;
+    g_config.realtime_enabled = false;
+    g_config.realtime_typing = false;
     g_config.notification_aggregation = false;
     g_config.notification_window_seconds = 300;
     g_config.use_tls = true;
@@ -129,6 +131,8 @@ bool blog_config_load(const char *path) {
             fprintf(f, "use_tasfa=%s\n", g_config.use_tasfa ? "true" : "false");
             fprintf(f, "use_rss=%s\n", g_config.use_rss ? "true" : "false");
             fprintf(f, "newsletter_enabled=%s\n", g_config.newsletter_enabled ? "true" : "false");
+            fprintf(f, "realtime_enabled=%s\n", g_config.realtime_enabled ? "true" : "false");
+            fprintf(f, "realtime_typing=%s\n", g_config.realtime_typing ? "true" : "false");
             fprintf(f, "notification_aggregation=%s\n", g_config.notification_aggregation ? "true" : "false");
             fprintf(f, "notification_window_seconds=%d\n", g_config.notification_window_seconds);
             fprintf(f, "use_tls=%s\n", g_config.use_tls ? "true" : "false");
@@ -212,6 +216,10 @@ bool blog_config_load(const char *path) {
             g_config.use_rss = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "newsletter_enabled") == 0) {
             g_config.newsletter_enabled = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
+        } else if (strcmp(key, "realtime_enabled") == 0) {
+            g_config.realtime_enabled = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
+        } else if (strcmp(key, "realtime_typing") == 0) {
+            g_config.realtime_typing = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "notification_aggregation") == 0) {
             g_config.notification_aggregation = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "notification_window_seconds") == 0) {

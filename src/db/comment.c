@@ -203,6 +203,22 @@ cJSON *db_comment_list_by_target(cwist_db *db, const char *target_type, int targ
     return db_sqlite3_rows_to_json(stmt);
 }
 
+cJSON *db_comment_list_by_target_after(cwist_db *db, const char *target_type, int target_id,
+                                       int after_id, int limit) {
+    (void)db;
+    sqlite3 *conn = comments_db_conn();
+    if (!conn || after_id < 0) return NULL;
+    if (limit <= 0 || limit > 100) limit = 50;
+    const char *sql = "SELECT id, target_type, target_id, user_id, author_name, parent_id, content, created_at, updated_at, deleted FROM comments WHERE target_type=? AND target_id=? AND id>? ORDER BY id ASC LIMIT ?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_text(stmt, 1, target_type, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, target_id);
+    sqlite3_bind_int(stmt, 3, after_id);
+    sqlite3_bind_int(stmt, 4, limit);
+    return db_sqlite3_rows_to_json(stmt);
+}
+
 bool db_comment_delete_by_target(const char *target_type, int target_id) {
     sqlite3 *conn = comments_db_conn();
     if (!conn) return false;

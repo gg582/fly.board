@@ -138,6 +138,11 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/comment/:id/delete", handler_comment_delete_get);
     engine_async_post(app, "/comment/:id/delete", handler_comment_delete_get);
 
+    engine_async_get(app, "/realtime/events", handler_realtime_events_get);
+    engine_async_get(app, "/realtime/comments/:id", handler_realtime_comments_get);
+    engine_async_post(app, "/realtime/presence", handler_realtime_presence_post);
+    engine_async_post(app, "/realtime/typing", handler_realtime_typing_post);
+
     engine_async_get(app, "/notifications", handler_notifications_get);
     engine_async_get(app, "/notification", handler_notifications_get);
 

@@ -4,10 +4,15 @@
 #include "../crypto/fly_crypto.h"
 #include "../config/config.h"
 #include "../db/db.h"
+#include "../realtime/realtime.h"
 #if defined __has_include
 #  if __has_include (<cwist/net/nats/cwist_nats.h>)
 #    define HAVE_NATS 1
 #    include <cwist/net/nats/cwist_nats.h>
+/* Public cnats API, declared here because installed CWIST exports the native
+ * handle but does not install cnats' own nats.h. CONNECTED is enum value 2. */
+extern int natsConnection_Status(natsConnection *nc);
+#define FLY_NATS_CONN_STATUS_CONNECTED 2
 #  endif
 #endif
 #include <cwist/core/mem/alloc.h>
@@ -72,6 +77,9 @@ static pthread_mutex_t g_ns_init_mtx = PTHREAD_MUTEX_INITIALIZER;
  * any process serves, so this is false in each child at fork time and the
  * NATS thread can only ever start after the fork. */
 static _Atomic bool g_ns_serving = false;
+#ifdef HAVE_NATS
+static _Atomic(cwist_nats_t *) g_ns_connection = NULL;
+#endif
 
 static void on_post_msg(const char *subject, const char *data, size_t len, void *ctx) {
     (void)subject; (void)ctx;
@@ -170,6 +178,33 @@ static void on_comment_msg(const char *subject, const char *data, size_t len, vo
     cJSON_Delete(obj);
 }
 
+static void on_moderation_decision(const char *subject, const char *data, size_t len, void *ctx);
+
+static void on_realtime_msg(const char *subject, const char *data, size_t len) {
+    cJSON *obj = cJSON_ParseWithLength(data, len);
+    if (!obj) return;
+    cJSON *post = cJSON_GetObjectItemCaseSensitive(obj, "post_id");
+    cJSON *active = cJSON_GetObjectItemCaseSensitive(obj, "active");
+    const char *session = json_str(obj, "session");
+    int post_id = cJSON_IsNumber(post) ? post->valueint : 0;
+    bool is_active = !cJSON_IsBool(active) || cJSON_IsTrue(active);
+    if (strcmp(subject, "flyboard.realtime.presence") == 0) {
+        (void)realtime_presence_at(post_id, session, is_active, realtime_now_ms());
+    } else if (strcmp(subject, "flyboard.realtime.typing") == 0) {
+        realtime_typing_event_at(post_id, session, is_active, realtime_now_ms());
+    }
+    cJSON_Delete(obj);
+}
+
+static void on_any_msg(const char *subject, const char *data, size_t len, void *ctx) {
+    if (!subject) return;
+    if (strcmp(subject, "flyboard.posts") == 0) on_post_msg(subject, data, len, ctx);
+    else if (strcmp(subject, "flyboard.comments") == 0) on_comment_msg(subject, data, len, ctx);
+    else if (strcmp(subject, FLY_MODERATION_DECISION_SUBJECT) == 0) on_moderation_decision(subject, data, len, ctx);
+    else if (strncmp(subject, "flyboard.realtime.", 18) == 0)
+        on_realtime_msg(subject, data, len);
+}
+
 static char *build_signed_comment_payload(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt, int comment_id) {
     char *sig_b64 = NULL;
     char *pubkey_b64 = NULL;
@@ -248,6 +283,7 @@ static void state_reset_for_this_process(void) {
     memset(&g_ns, 0, sizeof(g_ns));
     pthread_mutex_init(&g_ns.mtx, NULL);
     pthread_cond_init(&g_ns.cond, NULL);
+    atomic_store(&g_ns_connection, NULL);
     g_ns.owner = getpid();
 }
 
@@ -255,11 +291,7 @@ static cwist_nats_t *connect_and_subscribe(void) {
     cwist_nats_t *nc = NULL;
     cwist_error_t err = cwist_nats_connect(&nc, g_nats_url);
     if (!cwist_error_is_ok(&err) || !nc) return NULL;
-    err = cwist_nats_subscribe(nc, "flyboard.posts", on_post_msg, NULL);
-    if (cwist_error_is_ok(&err)) err = cwist_nats_subscribe(nc, "flyboard.comments", on_comment_msg, NULL);
-    if (cwist_error_is_ok(&err) && g_reviewer_pubkey[0]) {
-        err = cwist_nats_subscribe(nc, FLY_MODERATION_DECISION_SUBJECT, on_moderation_decision, NULL);
-    }
+    err = cwist_nats_subscribe(nc, "flyboard.>", on_any_msg, NULL);
     if (!cwist_error_is_ok(&err)) {
         cwist_nats_destroy(nc);
         return NULL;
@@ -289,6 +321,7 @@ static void *nats_thread_main(void *arg) {
                 continue;
             }
             backoff = 1;
+            atomic_store_explicit(&g_ns_connection, nc, memory_order_release);
             FLY_LOG_DEBUG("[fly_nats] pid %d connected to %s", (int)getpid(), g_nats_url);
         }
         if (!g_ns.head) {
@@ -312,6 +345,7 @@ static void *nats_thread_main(void *arg) {
         pthread_mutex_lock(&g_ns.mtx);
     }
     pthread_mutex_unlock(&g_ns.mtx);
+    atomic_store_explicit(&g_ns_connection, NULL, memory_order_release);
     if (nc) cwist_nats_destroy(nc);
     return NULL;
 }
@@ -408,6 +442,58 @@ bool fly_nats_publish_comment(const char *origin, const char *actor_name, const 
 #else
     (void)origin; (void)actor_name; (void)kind; (void)post_slug; (void)recipient_user_id; (void)excerpt; (void)comment_id;
     return true;
+#endif
+}
+
+#ifdef HAVE_NATS
+static bool publish_realtime(const char *subject, int post_id, const char *session, bool active, int comment_id) {
+    if (!g_nats_url[0] || post_id <= 0) return false;
+    cJSON *obj = cJSON_CreateObject();
+    if (!obj) return false;
+    cJSON_AddNumberToObject(obj, "post_id", post_id);
+    if (session) cJSON_AddStringToObject(obj, "session", session);
+    if (comment_id > 0) cJSON_AddNumberToObject(obj, "comment_id", comment_id);
+    else cJSON_AddBoolToObject(obj, "active", active);
+    char *json = cJSON_PrintUnformatted(obj);
+    cJSON_Delete(obj);
+    return enqueue(subject, json);
+}
+#endif
+
+bool fly_nats_publish_realtime_presence(int post_id, const char *session, bool active) {
+#ifdef HAVE_NATS
+    return publish_realtime("flyboard.realtime.presence", post_id, session, active, 0);
+#else
+    (void)post_id; (void)session; (void)active;
+    return false;
+#endif
+}
+
+bool fly_nats_publish_realtime_typing(int post_id, const char *session, bool active) {
+#ifdef HAVE_NATS
+    return publish_realtime("flyboard.realtime.typing", post_id, session, active, 0);
+#else
+    (void)post_id; (void)session; (void)active;
+    return false;
+#endif
+}
+
+bool fly_nats_publish_realtime_comment(int post_id, int comment_id) {
+#ifdef HAVE_NATS
+    return publish_realtime("flyboard.realtime.comments", post_id, NULL, false, comment_id);
+#else
+    (void)post_id; (void)comment_id;
+    return false;
+#endif
+}
+
+bool fly_nats_is_connected(void) {
+#ifdef HAVE_NATS
+    cwist_nats_t *nc = atomic_load_explicit(&g_ns_connection, memory_order_acquire);
+    natsConnection *native = nc ? cwist_nats_native(nc) : NULL;
+    return native && natsConnection_Status(native) == FLY_NATS_CONN_STATUS_CONNECTED;
+#else
+    return false;
 #endif
 }
 

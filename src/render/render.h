@@ -47,6 +47,7 @@ cwist_sstring *render_login_2fa(bool dark, const char *pending_token, const char
 cwist_sstring *render_register(bool dark, const char *error, bool is_mobile, cJSON *legal_docs);
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const search_filters *filters, const char *profile_pic, int user_id, bool is_mobile, cJSON *children);
 cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, const char *author_profile_pic, int user_id, const char *ephemeral_delete_pin, bool is_mobile);
+cwist_sstring *render_post_comment_list(cJSON *comments, const char *user_role, int user_id, int post_id);
 cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const char *user_role, const char *profile_pic, int user_id, bool is_mobile);
 cwist_sstring *render_post_drafts(cJSON *posts, bool show_author, bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int initial_board_id, bool dark, const char *user_role, const char *error, const char *profile_pic, bool is_mobile, int draft_count, int user_id, cJSON *revisions, bool can_notice);

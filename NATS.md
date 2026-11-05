@@ -9,7 +9,10 @@ The integration uses a small set of subjects:
 - `flyboard.posts` for new post metadata
 - `flyboard.comments` for comment and reply notifications
 - Opt-in `flyboard.moderation.review` and `flyboard.moderation.decision` subjects for external moderation
+- Opt-in unsigned, ephemeral `flyboard.realtime.*` subjects for presence, typing, and comment hints
 - Per-process background dispatch threads and `ML-DSA-65` message signing
+
+See [docs/realtime.md](docs/realtime.md) for the realtime privacy and lease model.
 
 There is no PQC encryption in the current codebase. Message confidentiality still depends on network isolation and TLS around the NATS transport.
 
@@ -47,6 +50,7 @@ This matters because NATS payload signing depends on the global PQC keypair alre
 | `flyboard.comments` | Comment creation | `on_comment_msg` callback and external subscribers | Deliver comment/reply notifications |
 | `flyboard.moderation.review` | Pending post/comment creation | External reviewer | Optional signed review request |
 | `flyboard.moderation.decision` | External reviewer | `on_moderation_decision` callback | Optional signed review decision |
+| `flyboard.realtime.*` | realtime handlers | `on_realtime_msg` and external subscribers | Optional ephemeral presence, typing, and comment hints |
 
 Publish calls originate after database writes succeed. SQLite remains authoritative; NATS is a fanout and asynchronous review channel, not the source of truth.
 
@@ -94,14 +98,14 @@ If signing fails, publishing fails. That is intentional: externally exposed mess
 
 ## Subscriber Behavior
 
-The post-cache subscriber parses `flyboard.posts` messages in `on_post_msg(...)`, invalidates the affected cache entry, and logs the slug and whether a signature field is present. It does not verify post broadcast signatures in-process. Comment notification and external moderation subscribers have their own handlers; moderation decisions require full signature verification against the pinned reviewer key.
+The wildcard subscriber routes post, comment, moderation, and realtime events to their handlers. Post broadcasts invalidate the affected cache entry and log the slug and signature presence without verifying the post signature in-process. Comment notifications have a separate delivery handler. Moderation decisions require full signature verification against the pinned reviewer key; realtime events update only short-lived local state.
 
 ## Threading Model
 
 Every serving process (the supervisor and each forked worker) owns one NATS connection and one NATS thread, started after the fork.
 
 - Publishing (`fly_nats_publish_post/comment`) signs the payload on the caller's thread and only enqueues it (bounded at 256 messages; overflow is logged and dropped). The NATS thread sends it, so a slow or absent NATS server never blocks a request.
-- The NATS thread connects with backoff (1 s doubling to 30 s) and subscribes to `flyboard.posts` and `flyboard.comments`. cnats delivers inbound messages on its own threads, in every process, so a post broadcast invalidates every worker's page cache.
+- The NATS thread connects with backoff (1 s doubling to 30 s) and subscribes to `flyboard.>`. cnats delivers inbound messages on its own threads, in every process, so a post broadcast invalidates every worker's page cache and realtime events update each worker's ephemeral state.
 - On shutdown each process stops and joins only the thread it started; unsent queued messages are dropped.
 
 ## Security Model
