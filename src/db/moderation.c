@@ -258,6 +258,28 @@ cJSON *db_moderation_list_pending(cwist_db *db) {
     return db_sqlite3_rows_to_json(stmt);
 }
 
+int db_moderation_target_board_id(cwist_db *db, const char *target_type, int target_id) {
+    if (!db || !target_type || target_id <= 0) return 0;
+    int post_id = target_id;
+    if (strcmp(target_type, MODERATION_COMMENT) == 0) {
+        cJSON *comment = db_comment_get_by_id(db, target_id);
+        post_id = 0;
+        cJSON *kind = comment ? cJSON_GetObjectItem(comment, "target_type") : NULL;
+        cJSON *ref = comment ? cJSON_GetObjectItem(comment, "target_id") : NULL;
+        if (cJSON_IsString(kind) && strcmp(kind->valuestring, "post") == 0 && cJSON_IsNumber(ref))
+            post_id = ref->valueint;
+        if (comment) cJSON_Delete(comment);
+    } else if (strcmp(target_type, MODERATION_POST) != 0) {
+        return 0;
+    }
+    if (post_id <= 0) return 0;
+    cJSON *post = db_post_get_by_id(db, post_id);
+    cJSON *board = post ? cJSON_GetObjectItem(post, "board_id") : NULL;
+    int board_id = cJSON_IsNumber(board) ? board->valueint : 0;
+    if (post) cJSON_Delete(post);
+    return board_id;
+}
+
 static cJSON *pending_item(cwist_db *db, const char *target_type, int target_id) {
     sqlite3_stmt *stmt = NULL;
     const char *sql = "SELECT * FROM moderation_items WHERE target_type=? AND target_id=? AND status='pending'";

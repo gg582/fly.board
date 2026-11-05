@@ -270,6 +270,7 @@ bool db_user_delete_with_cascade(cwist_db *db, int id, bool delete_replies) {
         "DELETE FROM email_tokens WHERE user_id=?",
         "DELETE FROM emails WHERE owner_id=?",
         "DELETE FROM board_permissions WHERE user_id=?",
+        "DELETE FROM board_delegations WHERE user_id=?",
     };
     for (size_t i = 0; i < sizeof(purge_sql) / sizeof(purge_sql[0]); i++) {
         sqlite3_stmt *stmt = NULL;

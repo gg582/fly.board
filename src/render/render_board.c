@@ -343,7 +343,9 @@ cwist_sstring *render_board_form(cJSON *board, cJSON *all_boards, bool dark, con
     return page;
 }
 
-cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool dark, const char *msg, const char *profile_pic, bool is_mobile) {
+cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, cJSON *delegations,
+                                  bool delegations_enabled, bool dark, const char *msg,
+                                  const char *profile_pic, bool is_mobile) {
     cwist_sstring *b = cwist_sstring_create();
     cJSON *bname = cJSON_GetObjectItem(board, "name");
     cwist_sstring_assign(b, "<div class='hero'><h1>Permissions: ");
@@ -427,6 +429,42 @@ cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, bool
         cwist_sstring_append(b, "</ul>");
     } else {
         cwist_sstring_append(b, "<p style='color:var(--muted)'>No allowed users.</p>");
+    }
+    if (delegations_enabled) {
+        cwist_sstring_append(b, "<h3 style='margin-top:32px'>Moderator delegations</h3>");
+        cwist_sstring_append(b, "<form action='/board/perms' method='post'>");
+        cwist_sstring_append(b, "<input type='hidden' name='board_id' value='"); cwist_sstring_append(b, bid_buf); cwist_sstring_append(b, "'>");
+        cwist_sstring_append(b, "<input type='hidden' name='delegation' value='1'>");
+        cwist_sstring_append(b, "<label>User</label><select name='user_id'>");
+        cJSON *u = NULL;
+        cJSON_ArrayForEach(u, users) {
+            cJSON *name = cJSON_GetObjectItem(u, "username");
+            if (!cJSON_IsString(name)) continue;
+            char uid_buf[32]; snprintf(uid_buf, sizeof(uid_buf), "%d", json_int(u, "id", 0));
+            cwist_sstring_append(b, "<option value='"); cwist_sstring_append(b, uid_buf); cwist_sstring_append(b, "'>");
+            cwist_sstring_append_escaped(b, name->valuestring); cwist_sstring_append(b, "</option>");
+        }
+        cwist_sstring_append(b, "</select><label><input type='checkbox' name='can_moderate' value='1' checked> Moderate this board</label>");
+        cwist_sstring_append(b, "<label><input type='checkbox' name='can_notice' value='1'> Manage notices</label>");
+        cwist_sstring_append(b, "<label>Expires at (UTC, optional)</label><input name='expires_at' placeholder='YYYY-MM-DD HH:MM:SS' maxlength='19'>");
+        cwist_sstring_append(b, "<button type='submit' class='btn' style='margin-top:8px'>Save delegation</button></form>");
+        cJSON *d = NULL;
+        cJSON_ArrayForEach(d, delegations) {
+            cwist_sstring_append(b, "<div style='margin-top:12px'><strong>");
+            cJSON *username = cJSON_GetObjectItem(d, "username");
+            cJSON *expires_json = cJSON_GetObjectItem(d, "expires_at");
+            cwist_sstring_append_escaped(b, cJSON_IsString(username) ? username->valuestring : "?"); cwist_sstring_append(b, "</strong><br><small>");
+            if (json_int(d, "can_moderate", 0)) cwist_sstring_append(b, "Moderation ");
+            if (json_int(d, "can_notice", 0)) cwist_sstring_append(b, "Notices ");
+            const char *expires = cJSON_IsString(expires_json) ? expires_json->valuestring : "";
+            cwist_sstring_append(b, expires[0] ? "Expires " : "No expiration ");
+            cwist_sstring_append_escaped(b, expires);
+            cwist_sstring_append(b, "</small><form action='/board/perms/revoke' method='post'>");
+            cwist_sstring_append(b, "<input type='hidden' name='board_id' value='"); cwist_sstring_append(b, bid_buf); cwist_sstring_append(b, "'>");
+            cwist_sstring_append(b, "<input type='hidden' name='delegation' value='1'><input type='hidden' name='user_id' value='");
+            char uid_buf[32]; snprintf(uid_buf, sizeof(uid_buf), "%d", json_int(d, "user_id", 0));
+            cwist_sstring_append(b, uid_buf); cwist_sstring_append(b, "'><button type='submit' class='btn btn-outline'>Revoke delegation</button></form></div>");
+        }
     }
     cwist_sstring_append(b, "</div>");
     cwist_sstring *page = render_page("Board Permissions", b->data, dark, "admin", profile_pic, is_mobile);
