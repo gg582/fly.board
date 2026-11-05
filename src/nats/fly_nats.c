@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fly_nats.h"
+#include "moderation.h"
 #include "../crypto/fly_crypto.h"
 #include "../config/config.h"
 #include "../db/db.h"
@@ -13,6 +14,7 @@
 #include <cwist/core/log.h>
 #include <cjson/cJSON.h>
 #include "../utils/cache.h"
+#include "../utils/post_schedule.h"
 #include <cwist/core/mem/alloc.h>
 #include <string.h>
 #include <stdio.h>
@@ -22,6 +24,10 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <time.h>
+
+static char g_reviewer_pubkey[8192];
+static int g_moderation_timeout = 300;
+static _Atomic(cwist_db *) g_moderation_db;
 
 #ifdef HAVE_NATS
 /* cnats is not fork-safe: a connection (and the library's own timer and
@@ -143,6 +149,7 @@ static void on_comment_msg(const char *subject, const char *data, size_t len, vo
     const char *kind = json_str(obj, "kind");
     const char *post_slug = json_str(obj, "post_slug");
     const char *excerpt = json_str(obj, "excerpt");
+    const char *event_id = json_str(obj, "event_id");
     cJSON *sig_item = cJSON_GetObjectItemCaseSensitive(obj, "sig_b64");
     bool has_sig = cJSON_IsString(sig_item) && sig_item->valuestring && sig_item->valuestring[0] != '\0';
     cJSON *recipient_item = cJSON_GetObjectItemCaseSensitive(obj, "recipient_user_id");
@@ -155,7 +162,7 @@ static void on_comment_msg(const char *subject, const char *data, size_t len, vo
         return;
     }
     if (recipient > 0 && kind[0]) {
-        if (db_notification_deliver_federated(recipient, actor_name, kind, post_slug, excerpt)) {
+        if (db_notification_deliver_federated(recipient, actor_name, kind, post_slug, excerpt, event_id)) {
             FLY_LOG_DEBUG("[fly_nats] federated %s notification delivered to user=%ld sig=%s",
                           kind, recipient, has_sig ? "present" : "missing");
         }
@@ -163,13 +170,16 @@ static void on_comment_msg(const char *subject, const char *data, size_t len, vo
     cJSON_Delete(obj);
 }
 
-static char *build_signed_comment_payload(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt) {
+static char *build_signed_comment_payload(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt, int comment_id) {
     char *sig_b64 = NULL;
     char *pubkey_b64 = NULL;
     char *signed_json = NULL;
+    char event_id[640];
+    snprintf(event_id, sizeof(event_id), "%s#comment-%d", origin ? origin : "", comment_id);
     cJSON *canonical = cJSON_CreateObject();
     if (!canonical) return NULL;
 
+    cJSON_AddStringToObject(canonical, "event_id", event_id);
     cJSON_AddStringToObject(canonical, "origin", origin ? origin : "");
     cJSON_AddStringToObject(canonical, "actor_name", actor_name ? actor_name : "");
     cJSON_AddStringToObject(canonical, "kind", kind ? kind : "");
@@ -207,6 +217,19 @@ static char *build_signed_comment_payload(const char *origin, const char *actor_
     cwist_free(pubkey_b64);
     return signed_json;
 }
+
+static void on_moderation_decision(const char *subject, const char *data, size_t len, void *ctx) {
+    (void)subject; (void)ctx;
+    cwist_db *db = atomic_load_explicit(&g_moderation_db, memory_order_acquire);
+    if (!db) return;
+    moderation_external_result_t result = fly_moderation_process_decision(db, data, len,
+                                                                         g_reviewer_pubkey, (long long)time(NULL));
+    if (result == MODERATION_EXTERNAL_APPLIED) {
+        page_cache_invalidate_all();
+        post_schedule_bump();
+    }
+    FLY_LOG_DEBUG("[fly_nats] moderation decision result=%d", (int)result);
+}
 #endif
 
 #ifdef HAVE_NATS
@@ -234,6 +257,9 @@ static cwist_nats_t *connect_and_subscribe(void) {
     if (!cwist_error_is_ok(&err) || !nc) return NULL;
     err = cwist_nats_subscribe(nc, "flyboard.posts", on_post_msg, NULL);
     if (cwist_error_is_ok(&err)) err = cwist_nats_subscribe(nc, "flyboard.comments", on_comment_msg, NULL);
+    if (cwist_error_is_ok(&err) && g_reviewer_pubkey[0]) {
+        err = cwist_nats_subscribe(nc, FLY_MODERATION_DECISION_SUBJECT, on_moderation_decision, NULL);
+    }
     if (!cwist_error_is_ok(&err)) {
         cwist_nats_destroy(nc);
         return NULL;
@@ -355,7 +381,8 @@ static void ensure_process_state(void) {
 }
 #endif
 
-void fly_nats_ensure(void) {
+void fly_nats_ensure(cwist_db *db) {
+    if (db) atomic_store_explicit(&g_moderation_db, db, memory_order_release);
 #ifdef HAVE_NATS
     if (!g_nats_url[0]) return;
     if (!atomic_load_explicit(&g_ns_serving, memory_order_relaxed)) atomic_store(&g_ns_serving, true);
@@ -373,14 +400,53 @@ bool fly_nats_publish_post(const char *title, const char *slug, const char *summ
 #endif
 }
 
-bool fly_nats_publish_comment(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt) {
+bool fly_nats_publish_comment(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt, int comment_id) {
 #ifdef HAVE_NATS
     if (!g_nats_url[0]) return false;
     return enqueue("flyboard.comments",
-                   build_signed_comment_payload(origin, actor_name, kind, post_slug, recipient_user_id, excerpt));
+                   build_signed_comment_payload(origin, actor_name, kind, post_slug, recipient_user_id, excerpt, comment_id));
 #else
-    (void)origin; (void)actor_name; (void)kind; (void)post_slug; (void)recipient_user_id; (void)excerpt;
+    (void)origin; (void)actor_name; (void)kind; (void)post_slug; (void)recipient_user_id; (void)excerpt; (void)comment_id;
     return true;
+#endif
+}
+
+bool fly_nats_moderation_init(const char *reviewer_pubkey_b64, int timeout_seconds) {
+    if (!reviewer_pubkey_b64 || !reviewer_pubkey_b64[0]) return true;
+#ifndef HAVE_NATS
+    (void)timeout_seconds;
+    return false;
+#else
+    char key_id[FLY_PQC_KEY_ID_LEN + 1];
+    if (timeout_seconds < 30 || timeout_seconds > 86400 || strlen(reviewer_pubkey_b64) >= sizeof(g_reviewer_pubkey) ||
+        !fly_crypto_key_id_of(reviewer_pubkey_b64, key_id)) return false;
+    snprintf(g_reviewer_pubkey, sizeof(g_reviewer_pubkey), "%s", reviewer_pubkey_b64);
+    g_moderation_timeout = timeout_seconds;
+    return true;
+#endif
+}
+
+bool fly_nats_publish_moderation(cwist_db *db, const char *target_type, int target_id) {
+    if (!g_reviewer_pubkey[0]) return true;
+#ifdef HAVE_NATS
+    if (!g_nats_url[0] || !db) return false;
+    char correlation_id[FLY_MODERATION_CORRELATION_LEN + 1];
+    if (!fly_moderation_correlation_id(correlation_id)) return false;
+    long long issued_at = (long long)time(NULL);
+    cJSON *item = db_moderation_external_create(db, target_type, target_id, correlation_id,
+                                                issued_at, issued_at + g_moderation_timeout);
+    if (!item) return false;
+    const char *content = json_str(item, "content");
+    const char *reason = json_str(item, "reason");
+    char *json = fly_moderation_build_request(correlation_id, target_type, content, reason,
+                                              issued_at, issued_at + g_moderation_timeout);
+    cJSON_Delete(item);
+    bool queued = enqueue(FLY_MODERATION_REVIEW_SUBJECT, json);
+    if (!queued) FLY_LOG_ERROR("[fly_nats] external review unavailable; local moderation remains pending");
+    return queued;
+#else
+    (void)db; (void)target_type; (void)target_id;
+    return false;
 #endif
 }
 

@@ -2068,7 +2068,7 @@ cwist_sstring *render_post_drafts(cJSON *posts, bool show_author, bool dark, con
     return page;
 }
 
-cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int initial_board_id, bool dark, const char *user_role, const char *error, const char *profile_pic, bool is_mobile, int draft_count, int user_id, cJSON *revisions) {
+cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int initial_board_id, bool dark, const char *user_role, const char *error, const char *profile_pic, bool is_mobile, int draft_count, int user_id, cJSON *revisions, bool can_notice) {
     cwist_sstring *b = cwist_sstring_create();
     if (!post && draft_count > 0) {
         cwist_sstring_assign(b, "<dialog id='draft-recover-dialog' style='border:1px solid var(--border);border-radius:12px;background:var(--card-bg, #fff);color:var(--fg, #000);padding:24px;max-width:440px;box-shadow:0 8px 32px rgba(0,0,0,0.25)'>");
@@ -2421,6 +2421,12 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
         cwist_sstring_append(b, "><button type='button' class='btn btn-outline' id='publish-at-clear'>Clear</button></div>");
         cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>Leave empty to publish now. A future time schedules the post; it stays hidden until then.</small>");
         cwist_sstring_append(b, "<input type='hidden' name='publish_at' id='publish-at-utc' value=''>");
+        if (can_notice) {
+            cwist_sstring_append(b, "<input type='hidden' name='notice_editable' value='1'>");
+            cwist_sstring_append(b, "<label style='display:block;margin-top:12px'><input type='checkbox' name='is_notice' value='1'");
+            if (json_int(post, "is_notice", 0)) cwist_sstring_append(b, " checked");
+            cwist_sstring_append(b, "> Board notice</label>");
+        }
         cwist_sstring_append(b, "<div style='margin-top:12px;display:flex;gap:10px;flex-wrap:wrap'>");
         cwist_sstring_append(b, "<button type='submit' class='btn' name='post_action' value='publish' id='publish-btn'>");
         cwist_sstring_append(b, scheduled ? "Schedule" : (post && is_public ? "Update" : "Publish"));

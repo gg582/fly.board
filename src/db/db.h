@@ -39,6 +39,9 @@ bool db_user_create(cwist_db *db, const char *username, const char *email, const
  * keeping its name in step with admin.settings. 0 on failure. */
 int db_user_ensure_site_admin(cwist_db *db, const char *username);
 bool db_user_delete(cwist_db *db, int id);
+/* Convert an account to a non-login author placeholder. Posts and comments
+ * keep their ids and relationships; credentials and private owned rows go. */
+bool db_user_ghost(cwist_db *db, int id);
 bool db_user_update_role(cwist_db *db, int id, const char *role);
 bool db_user_update_profile_pic(cwist_db *db, int id, const char *profile_pic);
 bool db_user_update_profile(cwist_db *db, int id, const char *nickname, const char *bio, const char *profile_pic);
@@ -68,6 +71,15 @@ bool db_board_can_user_access(cwist_db *db, int board_id, int user_id, bool is_a
 bool db_board_perm_grant(cwist_db *db, int board_id, int user_id);
 bool db_board_perm_revoke(cwist_db *db, int board_id, int user_id);
 cJSON *db_board_perm_list(cwist_db *db, int board_id);
+
+/* Optional board-scoped moderation and notice delegations. expires_at is UTC
+ * "YYYY-MM-DD HH:MM:SS" or NULL for a grant without expiration. */
+bool db_board_delegation_grant(cwist_db *db, int board_id, int user_id, bool can_moderate,
+                               bool can_notice, const char *expires_at);
+bool db_board_delegation_revoke(cwist_db *db, int board_id, int user_id);
+cJSON *db_board_delegation_list(cwist_db *db, int board_id);
+bool db_board_user_can_moderate(cwist_db *db, int board_id, int user_id, const char *role);
+bool db_board_user_can_notice(cwist_db *db, int board_id, int user_id, const char *role);
 
 /* Posts */
 int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, const char *slug, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category);
@@ -258,8 +270,9 @@ bool db_notification_create(cwist_db *db, int user_id, const char *actor_name, c
 int db_notification_unread_count(cwist_db *db, int user_id);
 cJSON *db_notification_list(cwist_db *db, int user_id, int limit);
 bool db_notification_mark_all_read(cwist_db *db, int user_id);
-/* Federated delivery: inserts only when the recipient exists locally. */
-bool db_notification_deliver_federated(long user_id, const char *actor_name, const char *kind, const char *post_slug, const char *excerpt);
+/* Federated delivery is idempotent per event_id and inserts only when the
+ * recipient exists locally. Legacy events without an id retain old behavior. */
+bool db_notification_deliver_federated(long user_id, const char *actor_name, const char *kind, const char *post_slug, const char *excerpt, const char *event_id);
 
 /* Webmail (src/db/db_email.c). Folders: INBOX | Sent | Trash. */
 #define MAIL_FOLDER_INBOX "INBOX"

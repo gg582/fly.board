@@ -2,6 +2,7 @@
 #include "moderation.h"
 #include "db_internal.h"
 #include "engine/community.h"
+#include "utils/moderation_filter.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,7 +44,23 @@ bool db_moderation_migrate(cwist_db *db) {
         "reviewed_at DATETIME,"
         "UNIQUE(target_type,target_id))") &&
         db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_moderation_pending ON moderation_items(status,created_at)") &&
-        db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_moderation_user ON moderation_items(user_id,status)");
+        db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_moderation_user ON moderation_items(user_id,status)") &&
+        db_exec_sql(db,
+        "CREATE TABLE IF NOT EXISTS moderation_external_requests ("
+        "correlation_id TEXT PRIMARY KEY,"
+        "target_type TEXT NOT NULL,"
+        "target_id INTEGER NOT NULL,"
+        "issued_at INTEGER NOT NULL,"
+        "expires_at INTEGER NOT NULL,"
+        "UNIQUE(target_type,target_id))") &&
+        db_exec_sql(db,
+        "CREATE TABLE IF NOT EXISTS moderation_decision_receipts ("
+        "decision_id TEXT PRIMARY KEY,"
+        "correlation_id TEXT NOT NULL,"
+        "action TEXT NOT NULL,"
+        "issued_at INTEGER NOT NULL,"
+        "reason TEXT NOT NULL DEFAULT '',"
+        "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
 }
 
 static char *normalized(const char *content) {
@@ -174,9 +191,16 @@ moderation_decision_t moderation_check_submission(cwist_db *db, int uid, const c
                                strcmp(target_type, MODERATION_COMMENT) != 0)) {
         return decision(MODERATION_REJECT, "invalid");
     }
-    if (moderation_can_review(role) || (!community.new_user_limits &&
-        !community.trust && !community.spam_detection && !community.approval_queue)) {
+    if (moderation_can_review(role)) return decision(MODERATION_ALLOW, "");
+    moderation_filter_policy_t filter = moderation_filter_get();
+    if (!filter.enabled && !community.new_user_limits &&
+        !community.trust && !community.spam_detection && !community.approval_queue) {
         return decision(MODERATION_ALLOW, "");
+    }
+    moderation_filter_action_t filter_action;
+    if (filter.enabled && moderation_filter_check(content, &filter_action)) {
+        return decision(filter_action == MODERATION_FILTER_REJECT ? MODERATION_REJECT : MODERATION_PENDING,
+                        "banned_content");
     }
     bool is_trusted = community.trust && trusted(db, uid);
     if (community.new_user_limits && !is_trusted && account_is_new(db, uid)) {
@@ -248,6 +272,28 @@ cJSON *db_moderation_list_pending(cwist_db *db) {
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     return db_sqlite3_rows_to_json(stmt);
+}
+
+int db_moderation_target_board_id(cwist_db *db, const char *target_type, int target_id) {
+    if (!db || !target_type || target_id <= 0) return 0;
+    int post_id = target_id;
+    if (strcmp(target_type, MODERATION_COMMENT) == 0) {
+        cJSON *comment = db_comment_get_by_id(db, target_id);
+        post_id = 0;
+        cJSON *kind = comment ? cJSON_GetObjectItem(comment, "target_type") : NULL;
+        cJSON *ref = comment ? cJSON_GetObjectItem(comment, "target_id") : NULL;
+        if (cJSON_IsString(kind) && strcmp(kind->valuestring, "post") == 0 && cJSON_IsNumber(ref))
+            post_id = ref->valueint;
+        if (comment) cJSON_Delete(comment);
+    } else if (strcmp(target_type, MODERATION_POST) != 0) {
+        return 0;
+    }
+    if (post_id <= 0) return 0;
+    cJSON *post = db_post_get_by_id(db, post_id);
+    cJSON *board = post ? cJSON_GetObjectItem(post, "board_id") : NULL;
+    int board_id = cJSON_IsNumber(board) ? board->valueint : 0;
+    if (post) cJSON_Delete(post);
+    return board_id;
 }
 
 static cJSON *pending_item(cwist_db *db, const char *target_type, int target_id) {
@@ -339,4 +385,111 @@ void db_moderation_filter_comments(cwist_db *db, cJSON *comments) {
         }
     }
     if (pending) cJSON_Delete(pending);
+}
+
+cJSON *db_moderation_external_create(cwist_db *db, const char *target_type, int target_id,
+                                     const char *correlation_id, long long issued_at, long long expires_at) {
+    if (!db || !correlation_id || target_id <= 0 || expires_at <= issued_at) return NULL;
+    sqlite3 *conn = fly_db_conn(db);
+    sqlite3_stmt *stmt = NULL;
+    const char *insert = "INSERT INTO moderation_external_requests "
+                         "(correlation_id,target_type,target_id,issued_at,expires_at) VALUES (?,?,?,?,?)";
+    if (sqlite3_prepare_v2(conn, insert, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_text(stmt, 1, correlation_id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, target_type, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, target_id);
+    sqlite3_bind_int64(stmt, 4, issued_at);
+    sqlite3_bind_int64(stmt, 5, expires_at);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return NULL;
+
+    const char *select = strcmp(target_type, MODERATION_POST) == 0
+        ? "SELECT p.content,m.reason FROM moderation_items m JOIN posts p ON p.id=m.target_id "
+          "WHERE m.target_type='post' AND m.target_id=? AND m.status='pending'"
+        : "SELECT m.content,m.reason FROM moderation_items m "
+          "WHERE m.target_type='comment' AND m.target_id=? AND m.status='pending'";
+    stmt = NULL;
+    if (sqlite3_prepare_v2(conn, select, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_int(stmt, 1, target_id);
+    cJSON *item = db_sqlite3_row_to_json(stmt);
+    return item;
+}
+
+static const char *external_action_name(moderation_action_t action) {
+    if (action == MODERATION_ALLOW) return "allow";
+    if (action == MODERATION_PENDING) return "pending";
+    return "reject";
+}
+
+moderation_external_result_t db_moderation_external_apply(cwist_db *db, const char *correlation_id,
+                                                         const char *decision_id, moderation_action_t action,
+                                                         long long issued_at, const char *reason, long long now) {
+    if (!db || !correlation_id || !decision_id || !reason) return MODERATION_EXTERNAL_ERROR;
+    sqlite3 *conn = fly_db_conn(db);
+    sqlite3_stmt *stmt = NULL;
+    const char *receipt_sql = "SELECT correlation_id,action,issued_at,reason FROM moderation_decision_receipts WHERE decision_id=?";
+    if (sqlite3_prepare_v2(conn, receipt_sql, -1, &stmt, NULL) != SQLITE_OK) return MODERATION_EXTERNAL_ERROR;
+    sqlite3_bind_text(stmt, 1, decision_id, -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char *receipt_correlation = sqlite3_column_text(stmt, 0);
+        const unsigned char *receipt_action = sqlite3_column_text(stmt, 1);
+        const unsigned char *receipt_reason = sqlite3_column_text(stmt, 3);
+        bool same = receipt_correlation && receipt_action && receipt_reason &&
+                    strcmp((const char *)receipt_correlation, correlation_id) == 0 &&
+                    strcmp((const char *)receipt_action, external_action_name(action)) == 0 &&
+                    sqlite3_column_int64(stmt, 2) == issued_at &&
+                    strcmp((const char *)receipt_reason, reason) == 0;
+        sqlite3_finalize(stmt);
+        return same ? MODERATION_EXTERNAL_DUPLICATE : MODERATION_EXTERNAL_REJECTED;
+    }
+    sqlite3_finalize(stmt);
+
+    const char *request_sql = "SELECT r.target_type,r.target_id,r.issued_at,r.expires_at "
+                              "FROM moderation_external_requests r JOIN moderation_items m "
+                              "ON m.target_type=r.target_type AND m.target_id=r.target_id "
+                              "WHERE r.correlation_id=? AND m.status='pending'";
+    stmt = NULL;
+    if (sqlite3_prepare_v2(conn, request_sql, -1, &stmt, NULL) != SQLITE_OK) return MODERATION_EXTERNAL_ERROR;
+    sqlite3_bind_text(stmt, 1, correlation_id, -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        sqlite3_finalize(stmt);
+        return MODERATION_EXTERNAL_REJECTED;
+    }
+    char target_type[16];
+    snprintf(target_type, sizeof(target_type), "%s", sqlite3_column_text(stmt, 0));
+    int target_id = sqlite3_column_int(stmt, 1);
+    long long request_issued = sqlite3_column_int64(stmt, 2);
+    long long expires_at = sqlite3_column_int64(stmt, 3);
+    sqlite3_finalize(stmt);
+    if (now > expires_at || issued_at > now + 300 || issued_at < request_issued - 300) {
+        return MODERATION_EXTERNAL_REJECTED;
+    }
+
+    const char *insert = "INSERT INTO moderation_decision_receipts "
+                         "(decision_id,correlation_id,action,issued_at,reason) VALUES (?,?,?,?,?)";
+    stmt = NULL;
+    if (sqlite3_prepare_v2(conn, insert, -1, &stmt, NULL) != SQLITE_OK) return MODERATION_EXTERNAL_ERROR;
+    sqlite3_bind_text(stmt, 1, decision_id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, correlation_id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, external_action_name(action), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 4, issued_at);
+    sqlite3_bind_text(stmt, 5, reason, -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return MODERATION_EXTERNAL_DUPLICATE;
+
+    bool ok = true;
+    if (action == MODERATION_ALLOW) ok = db_moderation_approve(db, target_type, target_id, 0);
+    else if (action == MODERATION_REJECT) ok = db_moderation_reject(db, target_type, target_id, 0);
+    if (!ok) {
+        stmt = NULL;
+        if (sqlite3_prepare_v2(conn, "DELETE FROM moderation_decision_receipts WHERE decision_id=?", -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, decision_id, -1, SQLITE_TRANSIENT);
+            sqlite3_step(stmt);
+            sqlite3_finalize(stmt);
+        }
+        return MODERATION_EXTERNAL_ERROR;
+    }
+    return MODERATION_EXTERNAL_APPLIED;
 }

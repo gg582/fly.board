@@ -128,6 +128,15 @@ static cJSON *editor_boards(cwist_db *db, int uid, const char *role) {
     return ordered;
 }
 
+static bool editor_can_notice(cwist_db *db, cJSON *boards, int uid, const char *role) {
+    if (moderation_can_review(role)) return true;
+    cJSON *board = NULL;
+    cJSON_ArrayForEach(board, boards) {
+        if (db_board_user_can_notice(db, json_int(board, "id", 0), uid, role)) return true;
+    }
+    return false;
+}
+
 /* ---- Series and language fields ---- */
 
 static bool is_admin_role(const char *role) {
@@ -221,7 +230,8 @@ static void send_post_editor_error(cwist_http_request *req, cwist_http_response 
     cJSON *ordered = editor_boards(req->db, uid, role);
     char *pp = get_profile_pic(req->db, uid, role);
     editor_options_t opts = editor_options_load(req->db, uid, role);
-    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, error, pp, is_mobile_request(req), 0, uid, NULL);
+    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, error, pp, is_mobile_request(req), 0, uid, NULL,
+                                             editor_can_notice(req->db, ordered, uid, role));
     editor_options_free(&opts);
     if (ordered) cJSON_Delete(ordered);
     send_html_res(res, page);
@@ -833,10 +843,11 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
 
     cJSON *post = db_post_get_by_slug(req->db, slug);
     bool pending = post && strcmp(json_string_or_empty(post, "status"), "pending") == 0;
+    bool board_reviewer = pending && db_board_user_can_moderate(req->db, json_int(post, "board_id", 0), uid, role);
     /* Pending posts are private to their author and reviewers. Other drafts
      * and scheduled posts retain the existing author/admin visibility rule. */
-    if (post && ((!post_is_public(post) && !is_author_or_admin(post, uid, role)) ||
-                 (pending && (uid <= 0 || json_int(post, "user_id", 0) != uid) && !moderation_can_review(role)))) {
+    if (post && ((!post_is_public(post) && !is_author_or_admin(post, uid, role) && !board_reviewer) ||
+                 (pending && (uid <= 0 || json_int(post, "user_id", 0) != uid) && !board_reviewer))) {
         cJSON_Delete(post);
         post = NULL;
     }
@@ -846,6 +857,11 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     bool post_public = post_is_public(post) && !pending;
+    if (json_int(post, "is_secret", 0)) {
+        char target[64];
+        snprintf(target, sizeof(target), "post:%d", json_int(post, "id", 0));
+        audit_record(uid, "content.secret.read", target, "success", "direct post view");
+    }
 
     bool leader = false;
     cwist_sstring *shared = reqshare_wait_or_start(key, &leader);
@@ -901,7 +917,8 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     }
     int draft_count = uid > 0 ? db_post_count_drafts(req->db, uid) : 0;
     editor_options_t opts = editor_options_load(req->db, uid, role);
-    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, NULL, pp, is_mobile_request(req), draft_count, uid, NULL);
+    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, NULL, pp, is_mobile_request(req), draft_count, uid, NULL,
+                                             editor_can_notice(req->db, ordered, uid, role));
     editor_options_free(&opts);
     if (ordered) cJSON_Delete(ordered);
     send_html_res(res, page);
@@ -981,6 +998,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     char *autosave_draft_id_str = NULL;
     char *spam_trap = NULL, *spam_token = NULL;
     form_field_t *files = NULL;
+    bool notice_requested = false;
 
     FLY_LOG_DEBUG("ctype=%s body_len=%zu", ctype ? ctype : "NULL", req->body->size);
     FLY_LOG_DEBUG("body first 80 bytes: %.80s", req->body->data);
@@ -1017,6 +1035,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             autosave_draft_id_str = dup_form_field(files, "autosave_draft_id");
             spam_trap = dup_form_field(files, SPAM_FIELD_TRAP);
             spam_token = dup_form_field(files, SPAM_FIELD_TOKEN);
+            notice_requested = form_find(files, "is_notice") != NULL;
             FLY_LOG_DEBUG("multipart parsed: title=%s content_len=%zu board_id=%s", title ? title : "NULL", content ? strlen(content) : 0, board_id_str ? board_id_str : "NULL");
         } else {
             FLY_LOG_DEBUG("boundary not found in ctype");
@@ -1045,6 +1064,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         autosave_draft_id_str = dup_query_field(kv, "autosave_draft_id");
         spam_trap = dup_query_field(kv, SPAM_FIELD_TRAP);
         spam_token = dup_query_field(kv, SPAM_FIELD_TOKEN);
+        notice_requested = cwist_query_map_get(kv, "is_notice") != NULL;
         cwist_query_map_destroy(kv);
     }
     int autosave_draft_id = autosave_draft_id_str ? atoi(autosave_draft_id_str) : 0;
@@ -1087,6 +1107,12 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         multipart_free(files);
         return;
     }
+    if (notice_requested && !db_board_user_can_notice(req->db, board_id, uid, role)) {
+        send_post_editor_error(req, res, uid, role, board_id, "You cannot create notices on this board");
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
+        multipart_free(files);
+        return;
+    }
     rewrite_content_legacy_urls(req->db, &content);
     char *sl = generate_slug(title);
 
@@ -1101,7 +1127,8 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     publish_choice_t pub;
     choose_publish(&pub, uid, post_action, publish_at_in, false);
     moderation_decision_t moderation = {MODERATION_ALLOW, ""};
-    if (strcmp(pub.status, POST_STATUS_DRAFT) != 0) {
+    if (strcmp(pub.status, POST_STATUS_DRAFT) != 0 &&
+        !db_board_user_can_moderate(req->db, board_id, uid, role)) {
         moderation = moderation_check_submission(req->db, uid, role, MODERATION_POST, content);
     }
     if (moderation.action == MODERATION_REJECT) {
@@ -1133,7 +1160,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
 
     int created_id = 0;
     char *created_slug = NULL;
-    created_id = db_post_create_with_auto_slug(req->db, board_id, uid, title, sl, content, summary ? summary : "", sig_b64 ? sig_b64 : "", 0, 0, "", pub.status, pub.publish_at, &created_slug);
+    created_id = db_post_create_with_auto_slug(req->db, board_id, uid, title, sl, content, summary ? summary : "", sig_b64 ? sig_b64 : "", notice_requested ? 1 : 0, 0, "", pub.status, pub.publish_at, &created_slug);
     if (!created_slug) {
         CWIST_LOG_ERROR("Post creation failed: uid=%d board_id=%d", uid, board_id);
         res->status_code = CWIST_HTTP_INTERNAL_ERROR;
@@ -1155,6 +1182,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         multipart_free(files);
         return;
     }
+    if (awaiting_review) fly_nats_publish_moderation(req->db, MODERATION_POST, created_id);
     /* Group tags, series/i18n, and media attachments into a single transaction
      * so they commit in one WAL write-lock hold instead of 10-20 autocommit
      * cycles that stall concurrent readers and writers. */
@@ -1242,7 +1270,8 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res) {
     attach_editor_fields(req->db, post);
     editor_options_t opts = editor_options_load(req->db, uid, role);
     cJSON *revisions = db_revision_list(req->db, post_id_val, 20);
-    cwist_sstring *page = render_post_editor(ordered, post, files, 0, is_dark(req), role, error_msg, pp, is_mobile_request(req), 0, uid, revisions);
+    cwist_sstring *page = render_post_editor(ordered, post, files, 0, is_dark(req), role, error_msg, pp, is_mobile_request(req), 0, uid, revisions,
+                                             db_board_user_can_notice(req->db, json_int(post, "board_id", 0), uid, role));
     if (revisions) cJSON_Delete(revisions);
     editor_options_free(&opts);
     cJSON_Delete(post);
@@ -1262,6 +1291,8 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     char *post_action = NULL, *publish_at_in = NULL, *tags_in = NULL;
     char *series_in = NULL, *series_pos_in = NULL, *lang_in = NULL, *translation_in = NULL;
     form_field_t *files = NULL;
+    bool notice_requested = false;
+    bool notice_field_present = false;
 
     const char *path_id = cwist_query_map_get(req->path_params, "id");
     if (path_id) {
@@ -1310,6 +1341,8 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
             series_pos_in = dup_form_field(files, "series_pos");
             lang_in = dup_form_field(files, "lang");
             translation_in = dup_form_field(files, "translation_of");
+            notice_requested = form_find(files, "is_notice") != NULL;
+            notice_field_present = notice_requested || form_find(files, "notice_editable") != NULL;
         }
     } else {
         cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
@@ -1333,6 +1366,8 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         series_pos_in = dup_query_field(kv, "series_pos");
         lang_in = dup_query_field(kv, "lang");
         translation_in = dup_query_field(kv, "translation_of");
+        notice_requested = cwist_query_map_get(kv, "is_notice") != NULL;
+        notice_field_present = notice_requested || cwist_query_map_get(kv, "notice_editable") != NULL;
         cwist_query_map_destroy(kv);
     }
 
@@ -1403,6 +1438,16 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     char *rev_category = strdup(json_string_or_empty(post, "category"));
     int old_is_notice = json_int(post, "is_notice", 0);
     int old_is_secret = json_int(post, "is_secret", 0);
+    if (!notice_field_present) notice_requested = old_is_notice != 0;
+    if (notice_requested != (old_is_notice != 0) && !db_board_user_can_notice(req->db, board_id, uid, role)) {
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Forbidden: notice permission required");
+        cJSON_Delete(post);
+        reqshare_write_lock_release(wl_key);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
+        multipart_free(files);
+        return;
+    }
     publish_choice_t pub;
     choose_publish(&pub, uid, post_action, publish_at_in, was_public);
     if (was_pending) {
@@ -1431,7 +1476,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         db_revision_save(req->db, edit_id, rev_title, rev_content, rev_summary, uid);
     free(rev_title); free(rev_content); free(rev_summary);
     if (db_post_update(req->db, edit_id, board_id, title, content, summary ? summary : "", sig_b642 ? sig_b642 : "",
-                       old_is_notice, old_is_secret, rev_category, pub.status, pub.publish_at)) {
+                       notice_requested ? 1 : 0, old_is_secret, rev_category, pub.status, pub.publish_at)) {
         bool broken_slug = !post_slug || !post_slug[0] ||
                            strncmp(post_slug, "autosave", 8) == 0 ||
                            strncmp(post_slug, "untitled", 8) == 0;
@@ -1553,13 +1598,14 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     if (!id_str) { redirect(res, "/"); return; }
     cJSON *post = db_post_get_by_id(req->db, atoi(id_str));
     if (!post) { CWIST_LOG_WARN("Post delete failed: not found id=%s uid=%d", id_str, uid); redirect(res, "/"); return; }
+    bool board_moderator = db_board_user_can_moderate(req->db, json_int(post, "board_id", 0), uid, role);
 
     if (req->method != CWIST_HTTP_POST) {
         /* GET only shows a confirmation page that POSTs the actual delete:
          * one-click GET deletes are a CSRF hole under SameSite=Lax. */
         cJSON *pin_hash = cJSON_GetObjectItem(post, "delete_pin_hash");
         bool pin_flow = pin_hash && cJSON_IsString(pin_hash) && pin_hash->valuestring && pin_hash->valuestring[0];
-        if (!is_author_or_admin(post, uid, role) && !pin_flow) {
+        if (!is_author_or_admin(post, uid, role) && !board_moderator && !pin_flow) {
             cJSON_Delete(post);
             redirect(res, "/");
             return;
@@ -1578,7 +1624,7 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     bool pin_ok = delete_pin && pin_hash && pin_hash->valuestring && pin_hash->valuestring[0] &&
                   auth_verify_password(delete_pin, pin_hash->valuestring);
 
-    if (!is_author_or_admin(post, uid, role) && !pin_ok) {
+    if (!is_author_or_admin(post, uid, role) && !board_moderator && !pin_ok) {
         CWIST_LOG_WARN("Post delete forbidden: id=%s uid=%d role=%s", id_str, uid, role);
         res->status_code = CWIST_HTTP_FORBIDDEN;
         cwist_sstring_assign(res->body, "Forbidden");

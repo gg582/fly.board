@@ -591,19 +591,20 @@ static bool auth_verify_token_len(const char *token, size_t token_len, const cha
 }
 
 static bool auth_current_account(cwist_http_request *req, int uid, char *role, size_t role_len) {
-    if (!community_roles_enabled()) return true;
-    if (auth_is_site_admin(uid)) {
-        snprintf(role, role_len, "admin");
-        return true;
-    }
-    if (!req->db) return false;
+    if (!req->db) return !community_roles_enabled();
     cJSON *user = db_user_get_by_id(req->db, uid);
     if (!user) return false;
     cJSON *active = cJSON_GetObjectItem(user, "active");
+    cJSON *ghosted = cJSON_GetObjectItem(user, "ghosted");
     cJSON *current_role = cJSON_GetObjectItem(user, "role");
     bool ok = (!cJSON_IsNumber(active) || active->valueint != 0) &&
+              (!cJSON_IsNumber(ghosted) || ghosted->valueint == 0) &&
               cJSON_IsString(current_role) && current_role->valuestring;
-    if (ok) snprintf(role, role_len, "%s", current_role->valuestring);
+    if (ok && auth_is_site_admin(uid)) {
+        snprintf(role, role_len, "admin");
+    } else if (ok) {
+        snprintf(role, role_len, "%s", current_role->valuestring);
+    }
     cJSON_Delete(user);
     return ok;
 }
