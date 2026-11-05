@@ -340,6 +340,20 @@ bool db_migrate(cwist_db *db) {
         "  FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE,"
         "  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE"
         ");"
+        "CREATE TABLE IF NOT EXISTS board_delegations ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  board_id INTEGER NOT NULL,"
+        "  user_id INTEGER NOT NULL,"
+        "  can_moderate INTEGER NOT NULL DEFAULT 0,"
+        "  can_notice INTEGER NOT NULL DEFAULT 0,"
+        "  expires_at DATETIME,"
+        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+        "  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+        "  UNIQUE(board_id,user_id),"
+        "  FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE,"
+        "  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE"
+        ");"
+        "CREATE INDEX IF NOT EXISTS idx_board_delegations_active ON board_delegations(board_id,user_id,expires_at);"
         "CREATE TABLE IF NOT EXISTS posts ("
         "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "  board_id INTEGER,"
@@ -402,7 +416,12 @@ bool db_migrate(cwist_db *db) {
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_votes_anon (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, vote_type INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS post_tags (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, UNIQUE(post_id, tag_id), FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE, FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE)");
-    db_exec_sql(db, "CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, actor_name TEXT, kind TEXT NOT NULL, post_id INTEGER, post_slug TEXT, comment_id INTEGER, excerpt TEXT, is_read INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+    db_exec_sql(db, "CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, actor_name TEXT, kind TEXT NOT NULL, post_id INTEGER, post_slug TEXT, comment_id INTEGER, excerpt TEXT, is_read INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, actor_count INTEGER NOT NULL DEFAULT 1, actor_history TEXT NOT NULL DEFAULT '[]', event_id TEXT)");
+    db_exec_sql(db, "ALTER TABLE notifications ADD COLUMN actor_count INTEGER NOT NULL DEFAULT 1");
+    db_exec_sql(db, "ALTER TABLE notifications ADD COLUMN actor_history TEXT NOT NULL DEFAULT '[]'");
+    db_exec_sql(db, "ALTER TABLE notifications ADD COLUMN event_id TEXT");
+    db_exec_sql(db, "UPDATE notifications SET actor_history=json_array(COALESCE(actor_name, '')) WHERE actor_history='[]'");
+    db_exec_sql(db, "CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_event ON notifications(event_id) WHERE event_id IS NOT NULL");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read, created_at DESC)");
     db_exec_sql(db, "CREATE TABLE IF NOT EXISTS translation_cache (id INTEGER PRIMARY KEY AUTOINCREMENT, src TEXT NOT NULL, tgt TEXT NOT NULL, hash INTEGER NOT NULL, source_text TEXT NOT NULL, translated_text TEXT NOT NULL, provider TEXT DEFAULT 'google', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(src, tgt, hash))");
     /* Existing accounts must stay usable when FLY_EMAIL_CERT is turned on,

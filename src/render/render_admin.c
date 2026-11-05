@@ -3,6 +3,7 @@
 #include "render_internal.h"
 #include "config/write_policy.h"
 #include "config/config.h"
+#include "utils/moderation_filter.h"
 #include "engine/community.h"
 #include "auth/auth.h"
 #include "db/db.h"
@@ -137,6 +138,28 @@ static void append_write_policy_section(cwist_sstring *b, const char *msg) {
     cwist_sstring_append(b, "<input id='spam-rate-limit' type='number' name='spam_rate_limit' min='0' max='1000' value='");
     cwist_sstring_append(b, limit_buf);
     cwist_sstring_append(b, "' style='max-width:120px'>");
+    moderation_filter_policy_t filter = moderation_filter_get();
+    cwist_sstring_append(b, "<h3 style='margin:20px 0 4px'>Banned-word filter (optional)</h3>");
+    cwist_sstring_append(b, "<p class='board-card-desc'>Check post and comment bodies against newline-delimited UTF-8 patterns. Overlapping matches count separately; scanning stops at the match limit. Simple case folding covers ASCII, Latin-1, Greek, and Cyrillic. Administrators and moderators bypass this filter.</p>");
+    cwist_sstring_append(b, "<label class='check-row'><input type='checkbox' name='moderation_filter_enabled' value='1'");
+    if (filter.enabled) cwist_sstring_append(b, " checked");
+    cwist_sstring_append(b, "> Enable banned-word filtering</label>");
+    cwist_sstring_append(b, "<label for='moderation-filter-action'>Decision on a match</label><select id='moderation-filter-action' name='moderation_filter_action'>");
+    cwist_sstring_append(b, "<option value='pending'");
+    if (filter.action == MODERATION_FILTER_PENDING) cwist_sstring_append(b, " selected");
+    cwist_sstring_append(b, ">Pending review</option><option value='reject'");
+    if (filter.action == MODERATION_FILTER_REJECT) cwist_sstring_append(b, " selected");
+    cwist_sstring_append(b, ">Reject</option></select>");
+    cwist_sstring_append(b, "<label class='check-row'><input type='checkbox' name='moderation_filter_case_fold' value='1'");
+    if (filter.case_fold) cwist_sstring_append(b, " checked");
+    cwist_sstring_append(b, "> Use simple Unicode case folding</label>");
+    snprintf(limit_buf, sizeof(limit_buf), "%zu", filter.match_limit);
+    cwist_sstring_append(b, "<label for='moderation-filter-match-limit'>Maximum matches per submission (1-1024)</label><input id='moderation-filter-match-limit' type='number' name='moderation_filter_match_limit' min='1' max='1024' value='");
+    cwist_sstring_append(b, limit_buf);
+    cwist_sstring_append(b, "' style='max-width:120px'>");
+    cwist_sstring_append(b, "<label for='moderation-filter-rules'>Banned words or phrases (one per line; blank lines ignored)</label><textarea id='moderation-filter-rules' name='moderation_filter_rules' rows='8' maxlength='16384'>");
+    cwist_sstring_append_escaped(b, filter.rules);
+    cwist_sstring_append(b, "</textarea>");
     cwist_sstring_append(b, "<div style='margin-top:12px'><button type='submit' class='btn'>Save Write Policy</button></div>");
     cwist_sstring_append(b, "</form></section>");
 }

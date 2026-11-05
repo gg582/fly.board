@@ -2,6 +2,7 @@
 #include "moderation.h"
 #include "db_internal.h"
 #include "engine/community.h"
+#include "utils/moderation_filter.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -190,9 +191,16 @@ moderation_decision_t moderation_check_submission(cwist_db *db, int uid, const c
                                strcmp(target_type, MODERATION_COMMENT) != 0)) {
         return decision(MODERATION_REJECT, "invalid");
     }
-    if (moderation_can_review(role) || (!community.new_user_limits &&
-        !community.trust && !community.spam_detection && !community.approval_queue)) {
+    if (moderation_can_review(role)) return decision(MODERATION_ALLOW, "");
+    moderation_filter_policy_t filter = moderation_filter_get();
+    if (!filter.enabled && !community.new_user_limits &&
+        !community.trust && !community.spam_detection && !community.approval_queue) {
         return decision(MODERATION_ALLOW, "");
+    }
+    moderation_filter_action_t filter_action;
+    if (filter.enabled && moderation_filter_check(content, &filter_action)) {
+        return decision(filter_action == MODERATION_FILTER_REJECT ? MODERATION_REJECT : MODERATION_PENDING,
+                        "banned_content");
     }
     bool is_trusted = community.trust && trusted(db, uid);
     if (community.new_user_limits && !is_trusted && account_is_new(db, uid)) {
@@ -264,6 +272,28 @@ cJSON *db_moderation_list_pending(cwist_db *db) {
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     return db_sqlite3_rows_to_json(stmt);
+}
+
+int db_moderation_target_board_id(cwist_db *db, const char *target_type, int target_id) {
+    if (!db || !target_type || target_id <= 0) return 0;
+    int post_id = target_id;
+    if (strcmp(target_type, MODERATION_COMMENT) == 0) {
+        cJSON *comment = db_comment_get_by_id(db, target_id);
+        post_id = 0;
+        cJSON *kind = comment ? cJSON_GetObjectItem(comment, "target_type") : NULL;
+        cJSON *ref = comment ? cJSON_GetObjectItem(comment, "target_id") : NULL;
+        if (cJSON_IsString(kind) && strcmp(kind->valuestring, "post") == 0 && cJSON_IsNumber(ref))
+            post_id = ref->valueint;
+        if (comment) cJSON_Delete(comment);
+    } else if (strcmp(target_type, MODERATION_POST) != 0) {
+        return 0;
+    }
+    if (post_id <= 0) return 0;
+    cJSON *post = db_post_get_by_id(db, post_id);
+    cJSON *board = post ? cJSON_GetObjectItem(post, "board_id") : NULL;
+    int board_id = cJSON_IsNumber(board) ? board->valueint : 0;
+    if (post) cJSON_Delete(post);
+    return board_id;
 }
 
 static cJSON *pending_item(cwist_db *db, const char *target_type, int target_id) {

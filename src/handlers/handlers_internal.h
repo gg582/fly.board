@@ -3,6 +3,7 @@
 
 #include "handlers.h"
 #include "../auth/auth.h"
+#include "../audit/audit.h"
 #include "../crypto/fly_crypto.h"
 #include "../db/db.h"
 #include "../nats/fly_nats.h"

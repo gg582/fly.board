@@ -1,8 +1,10 @@
 #include "engine/async_route.h"
 #include "engine/bdr.h"
+#include "utils/traffic_guard.h"
 #include <cwist/core/log.h>
 #include <cwist/core/mem/gc.h>
 #include <cwist/net/http/async.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -397,6 +399,24 @@ static void async_gate(cwist_http_request *req, cwist_http_response *res, cwist_
     }
     char key[ENGINE_BDR_KEY_MAX];
     bool keyed = engine_bdr_key(req, key, sizeof(key));
+    unsigned retry_after = 1;
+    if (!traffic_guard_check(req, &retry_after)) {
+        bool served = traffic_guard_action() == TRAFFIC_ACTION_CACHED && keyed &&
+                      engine_bdr_serve(req, res, key);
+        if (!served) {
+            if (traffic_guard_action() == TRAFFIC_ACTION_TARPIT) {
+                /* The operator fixes the cost, never the client. The table lock
+                 * is released before this short, hard-capped delay. */
+                struct timespec delay = {
+                    .tv_sec = 0,
+                    .tv_nsec = (long)traffic_guard_tarpit_ms() * 1000000L
+                };
+                while (nanosleep(&delay, &delay) != 0 && errno == EINTR) {}
+            }
+            traffic_guard_reject(res, retry_after);
+        }
+        return;
+    }
     /* BDR hit: the stored reply already carries the final headers and the
      * encoded body, so neither the middleware nor the route runs. */
     if (keyed && engine_bdr_serve(req, res, key)) {

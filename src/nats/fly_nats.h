@@ -48,10 +48,11 @@ bool fly_nats_publish_post(const char *title, const char *slug, const char *summ
  * @param post_slug         Slug of the target post, "" when unknown/file target.
  * @param recipient_user_id Local user id of the notification recipient.
  * @param excerpt           Short excerpt of the comment content.
+ * @param comment_id        Local comment id, namespaced by origin for dedup.
  * Queued like fly_nats_publish_post().
  * @return true when queued.
  */
-bool fly_nats_publish_comment(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt);
+bool fly_nats_publish_comment(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt, int comment_id);
 
 /**
  * @brief Shutdown NATS subsystem.

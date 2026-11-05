@@ -149,6 +149,7 @@ static void on_comment_msg(const char *subject, const char *data, size_t len, vo
     const char *kind = json_str(obj, "kind");
     const char *post_slug = json_str(obj, "post_slug");
     const char *excerpt = json_str(obj, "excerpt");
+    const char *event_id = json_str(obj, "event_id");
     cJSON *sig_item = cJSON_GetObjectItemCaseSensitive(obj, "sig_b64");
     bool has_sig = cJSON_IsString(sig_item) && sig_item->valuestring && sig_item->valuestring[0] != '\0';
     cJSON *recipient_item = cJSON_GetObjectItemCaseSensitive(obj, "recipient_user_id");
@@ -161,7 +162,7 @@ static void on_comment_msg(const char *subject, const char *data, size_t len, vo
         return;
     }
     if (recipient > 0 && kind[0]) {
-        if (db_notification_deliver_federated(recipient, actor_name, kind, post_slug, excerpt)) {
+        if (db_notification_deliver_federated(recipient, actor_name, kind, post_slug, excerpt, event_id)) {
             FLY_LOG_DEBUG("[fly_nats] federated %s notification delivered to user=%ld sig=%s",
                           kind, recipient, has_sig ? "present" : "missing");
         }
@@ -169,13 +170,16 @@ static void on_comment_msg(const char *subject, const char *data, size_t len, vo
     cJSON_Delete(obj);
 }
 
-static char *build_signed_comment_payload(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt) {
+static char *build_signed_comment_payload(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt, int comment_id) {
     char *sig_b64 = NULL;
     char *pubkey_b64 = NULL;
     char *signed_json = NULL;
+    char event_id[640];
+    snprintf(event_id, sizeof(event_id), "%s#comment-%d", origin ? origin : "", comment_id);
     cJSON *canonical = cJSON_CreateObject();
     if (!canonical) return NULL;
 
+    cJSON_AddStringToObject(canonical, "event_id", event_id);
     cJSON_AddStringToObject(canonical, "origin", origin ? origin : "");
     cJSON_AddStringToObject(canonical, "actor_name", actor_name ? actor_name : "");
     cJSON_AddStringToObject(canonical, "kind", kind ? kind : "");
@@ -396,13 +400,13 @@ bool fly_nats_publish_post(const char *title, const char *slug, const char *summ
 #endif
 }
 
-bool fly_nats_publish_comment(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt) {
+bool fly_nats_publish_comment(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt, int comment_id) {
 #ifdef HAVE_NATS
     if (!g_nats_url[0]) return false;
     return enqueue("flyboard.comments",
-                   build_signed_comment_payload(origin, actor_name, kind, post_slug, recipient_user_id, excerpt));
+                   build_signed_comment_payload(origin, actor_name, kind, post_slug, recipient_user_id, excerpt, comment_id));
 #else
-    (void)origin; (void)actor_name; (void)kind; (void)post_slug; (void)recipient_user_id; (void)excerpt;
+    (void)origin; (void)actor_name; (void)kind; (void)post_slug; (void)recipient_user_id; (void)excerpt; (void)comment_id;
     return true;
 #endif
 }
