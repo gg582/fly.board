@@ -51,6 +51,7 @@ bool community_config_load(const char *path) {
         else if (strcmp(key, "trust") == 0) target = &community.trust;
         else if (strcmp(key, "spam_detection") == 0) target = &community.spam_detection;
         else if (strcmp(key, "approval_queue") == 0) target = &community.approval_queue;
+        else if (strcmp(key, "board_delegations") == 0) target = &community.board_delegations;
         if (target && !parse_bool(value, target)) ok = false;
     }
     fclose(f);

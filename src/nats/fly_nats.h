@@ -2,6 +2,7 @@
 #define FLY_NATS_H
 
 #include <stdbool.h>
+#include <cwist/core/db/sql.h>
 
 /**
  * @brief Configure the flyboard NATS subsystem (no connection yet).
@@ -18,7 +19,12 @@ bool fly_nats_init(const char *url);
  * serving (always after the fork) and starts its connection + subscriptions.
  * Cheap after the first call. No-op when NATS is not configured.
  */
-void fly_nats_ensure(void);
+void fly_nats_ensure(cwist_db *db);
+
+/* Optional external moderation. Disabled unless a reviewer public key is
+ * configured. Publishing failure never changes the local pending item. */
+bool fly_nats_moderation_init(const char *reviewer_pubkey_b64, int timeout_seconds);
+bool fly_nats_publish_moderation(cwist_db *db, const char *target_type, int target_id);
 
 /**
  * @brief Publish post metadata to flyboard.posts subject.
@@ -42,10 +48,11 @@ bool fly_nats_publish_post(const char *title, const char *slug, const char *summ
  * @param post_slug         Slug of the target post, "" when unknown/file target.
  * @param recipient_user_id Local user id of the notification recipient.
  * @param excerpt           Short excerpt of the comment content.
+ * @param comment_id        Local comment id, namespaced by origin for dedup.
  * Queued like fly_nats_publish_post().
  * @return true when queued.
  */
-bool fly_nats_publish_comment(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt);
+bool fly_nats_publish_comment(const char *origin, const char *actor_name, const char *kind, const char *post_slug, long recipient_user_id, const char *excerpt, int comment_id);
 
 /* Ephemeral realtime events carry only a post id and an opaque browser id. */
 bool fly_nats_publish_realtime_presence(int post_id, const char *session, bool active);

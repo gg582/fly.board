@@ -59,6 +59,8 @@ typedef struct {
     /* Opt-in post presence/comment updates; typing is a separate opt-in. */
     bool realtime_enabled;
     bool realtime_typing;
+    bool notification_aggregation;
+    int notification_window_seconds;
     bool use_tls;
     bool use_http2;
     bool use_http3;

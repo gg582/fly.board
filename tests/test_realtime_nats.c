@@ -47,7 +47,7 @@ static void observe_comment(const char *subject, const char *data, size_t len, v
 static void multi_process(const char *url) {
     realtime_reset();
     fly_nats_init(url);
-    fly_nats_ensure();
+    fly_nats_ensure(NULL);
     assert(wait_connected(10));
     char a[33], b[33];
     session_for(a, getpid());
@@ -69,7 +69,7 @@ static void multi_process(const char *url) {
     assert(child >= 0);
     if (child == 0) {
         realtime_reset();
-        fly_nats_ensure();
+        fly_nats_ensure(NULL);
         if (!wait_connected(10)) _exit(2);
         session_for(b, getpid());
         if (!fly_nats_publish_realtime_presence(42, b, true) ||
@@ -96,7 +96,7 @@ static void multi_process(const char *url) {
 static void reconnect(const char *url, const char *ready_path) {
     realtime_reset();
     fly_nats_init(url);
-    fly_nats_ensure();
+    fly_nats_ensure(NULL);
     assert(wait_connected(15));
     FILE *ready = fopen(ready_path, "w");
     assert(ready);

@@ -1,12 +1,15 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 #include "db/db_internal.h"
+#include "db/db_portability.h"
 #include "db/sql_escape.h"
 #include "db/revision.h"
 #include "db/moderation.h"
 #include "config/write_policy.h"
 #include "utils/post_schedule.h"
 #include "engine/pool.h"
+#include "engine/forkgate.h"
+#include "engine/refresh.h"
 #include <openssl/rand.h>
 
 #define MAX_POST_TITLE_LEN   200
@@ -125,6 +128,15 @@ static cJSON *editor_boards(cwist_db *db, int uid, const char *role) {
     return ordered;
 }
 
+static bool editor_can_notice(cwist_db *db, cJSON *boards, int uid, const char *role) {
+    if (moderation_can_review(role)) return true;
+    cJSON *board = NULL;
+    cJSON_ArrayForEach(board, boards) {
+        if (db_board_user_can_notice(db, json_int(board, "id", 0), uid, role)) return true;
+    }
+    return false;
+}
+
 /* ---- Series and language fields ---- */
 
 static bool is_admin_role(const char *role) {
@@ -218,7 +230,8 @@ static void send_post_editor_error(cwist_http_request *req, cwist_http_response 
     cJSON *ordered = editor_boards(req->db, uid, role);
     char *pp = get_profile_pic(req->db, uid, role);
     editor_options_t opts = editor_options_load(req->db, uid, role);
-    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, error, pp, is_mobile_request(req), 0, uid, NULL);
+    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, error, pp, is_mobile_request(req), 0, uid, NULL,
+                                             editor_can_notice(req->db, ordered, uid, role));
     editor_options_free(&opts);
     if (ordered) cJSON_Delete(ordered);
     send_html_res(res, page);
@@ -365,6 +378,139 @@ static void attach_content_files_to_post(cwist_db *db, const char *content, int 
     }
 }
 
+typedef struct {
+    char key[768];
+    char slug[256];
+    char role[32];
+    char search[256];
+    char search_type[64];
+    char tag[256];
+    char series[256];
+    char from[16];
+    char to[16];
+    search_filters filters;
+    uint64_t generation;
+    int uid;
+    int page;
+    bool dark;
+    bool mobile;
+    bool search_present;
+} post_list_refresh_job;
+
+static cwist_sstring *post_list_render(cwist_db *db, const char *slug, int page,
+                                       bool dark, bool mobile, const char *role, int uid,
+                                       const char *search, const char *search_type,
+                                       const search_filters *filters) {
+    int bid = 0;
+    if (slug && slug[0]) {
+        cJSON *board = db_board_get_by_slug(db, slug);
+        if (!board) return NULL;
+        bid = json_int(board, "id", 0);
+        cJSON_Delete(board);
+    }
+    bool filtered = search_filters_active(filters);
+    bool empty_search = (search && !search[0]) && !filtered;
+    int total_pages = 1;
+    cJSON *posts = NULL;
+    if (!empty_search) {
+        int total = db_post_count_search(db, bid, search, search_type, filters);
+        total_pages = (total + 19) / 20;
+        if (total_pages < 1) total_pages = 1;
+        if (page > total_pages) page = total_pages;
+        posts = db_post_list_search(db, bid, search, search_type, filters, 20, (page - 1) * 20);
+    }
+    cJSON *children = NULL;
+    if (bid > 0) {
+        cJSON *child_ids = db_board_tree_get_children(bid);
+        if (child_ids && cJSON_GetArraySize(child_ids) > 0) {
+            children = cJSON_CreateArray();
+            int n = cJSON_GetArraySize(child_ids);
+            for (int i = 0; i < n; i++) {
+                cJSON *id_item = cJSON_GetArrayItem(child_ids, i);
+                cJSON *child = db_board_get_by_id(db, id_item->valueint);
+                if (child) {
+                    cJSON *child_slug = cJSON_GetObjectItem(child, "slug");
+                    cJSON *child_name = cJSON_GetObjectItem(child, "name");
+                    if (cJSON_IsString(child_slug) && cJSON_IsString(child_name)) {
+                        cJSON *obj = cJSON_CreateObject();
+                        cJSON_AddStringToObject(obj, "slug", child_slug->valuestring);
+                        cJSON_AddStringToObject(obj, "name", child_name->valuestring);
+                        cJSON_AddItemToArray(children, obj);
+                    }
+                    cJSON_Delete(child);
+                }
+            }
+        }
+        if (child_ids) cJSON_Delete(child_ids);
+    }
+    char *pp = get_profile_pic(db, uid, role);
+    cJSON *boards = bid > 0 ? db_board_list(db) : NULL;
+    cJSON *board_i18n = bid > 0 ? db_i18n_get(db, "board", bid) : NULL;
+    cJSON *board_siblings = bid > 0 ? db_i18n_siblings(db, "board", bid, false) : NULL;
+    cJSON *board_lang = board_i18n ? cJSON_GetObjectItem(board_i18n, "lang") : NULL;
+    render_set_board_translations(cJSON_IsString(board_lang) ? board_lang->valuestring : NULL,
+                                  board_siblings);
+    cwist_sstring *html = render_post_list(posts, boards, dark, role, page, total_pages, slug,
+                                           search, search_type, filters, pp, uid, mobile, children);
+    render_set_board_translations(NULL, NULL);
+    if (boards) cJSON_Delete(boards);
+    if (board_i18n) cJSON_Delete(board_i18n);
+    if (board_siblings) cJSON_Delete(board_siblings);
+    if (posts) cJSON_Delete(posts);
+    if (children) cJSON_Delete(children);
+    free(pp);
+    return html;
+}
+
+static void post_list_refresh(void *arg) {
+    post_list_refresh_job *job = arg;
+    cwist_db db = {0};
+    fly_forkgate_enter();
+    bool opened = fly_db_open_main(&db.conn) == SQLITE_OK && db_configure_connection(db.conn);
+    fly_forkgate_leave();
+    if (opened) {
+        cwist_sstring *page = post_list_render(&db, job->slug, job->page, job->dark, job->mobile,
+                                               job->role, job->uid,
+                                               job->search_present ? job->search : NULL,
+                                               job->search_type, &job->filters);
+        if (page) {
+            page_cache_set_if_generation(job->key, page->data, page->size, 60, job->generation);
+            cwist_sstring_destroy(page);
+        }
+    }
+    if (db.conn) {
+        fly_forkgate_enter();
+        sqlite3_close(db.conn);
+        fly_forkgate_leave();
+    }
+}
+
+static void post_list_schedule_refresh(const char *key, const char *slug, int page,
+                                       bool dark, bool mobile, const char *role, int uid,
+                                       const char *search, const char *search_type,
+                                       const search_filters *filters) {
+    post_list_refresh_job *job = calloc(1, sizeof(*job));
+    if (!job) return;
+    snprintf(job->key, sizeof(job->key), "%s", key);
+    snprintf(job->slug, sizeof(job->slug), "%s", slug ? slug : "");
+    snprintf(job->role, sizeof(job->role), "%s", role);
+    snprintf(job->search, sizeof(job->search), "%s", search ? search : "");
+    snprintf(job->search_type, sizeof(job->search_type), "%s", search_type ? search_type : "");
+    snprintf(job->tag, sizeof(job->tag), "%s", filters && filters->tag ? filters->tag : "");
+    snprintf(job->series, sizeof(job->series), "%s", filters && filters->series ? filters->series : "");
+    snprintf(job->from, sizeof(job->from), "%s", filters && filters->from ? filters->from : "");
+    snprintf(job->to, sizeof(job->to), "%s", filters && filters->to ? filters->to : "");
+    job->filters = (search_filters){ .tag = job->tag, .series = job->series,
+                                     .from = job->from, .to = job->to };
+    job->generation = page_cache_generation();
+    job->uid = uid;
+    job->page = page;
+    job->dark = dark;
+    job->mobile = mobile;
+    job->search_present = search != NULL;
+    engine_refresh_schedule(key, post_list_refresh, free, job);
+}
+
 void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     const char *slug = cwist_query_map_get(req->path_params, "slug");
     bool dark = is_dark(req);
@@ -372,12 +518,10 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     bool mobile = is_mobile_request(req);
-    cJSON *posts = NULL;
-    int page = 1, total_pages = 1;
+    int page = 1;
     const char *page_str = cwist_query_map_get(req->query_params, "page");
     if (page_str) page = atoi(page_str);
     if (page < 1) page = 1;
-    int per_page = 20;
     const char *search = cwist_query_map_get(req->query_params, "search");
     const char *search_type = cwist_query_map_get(req->query_params, "search_type");
     search_filters filters = {
@@ -397,9 +541,6 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
         }
         if (!ok) *d = NULL;
     }
-    bool filtered = search_filters_active(&filters);
-    bool empty_search = (search && !search[0]) && !filtered;
-
     char key[768];
     page_cache_key_board(key, sizeof(key), slug ? slug : "", page, dark, mobile, role, uid, search, search_type, &filters);
     const char *cached = NULL;
@@ -410,8 +551,15 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
         page_cache_release(key);
         return;
     }
+    if (page_cache_get_stale(key, &cached, &cached_len)) {
+        post_list_schedule_refresh(key, slug, page, dark, mobile, role, uid,
+                                   search, search_type, &filters);
+        cwist_http_header_add(&res->headers, "X-Fly-Cache-Status", "stale");
+        send_cached_html_res(res, cached, cached_len, 0);
+        page_cache_release(key);
+        return;
+    }
 
-    int bid = 0;
     if (slug) {
         cJSON *board = db_board_get_by_slug(req->db, slug);
         if (!board) {
@@ -420,7 +568,6 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
             cwist_sstring_assign(res->body, "Board not found");
             return;
         }
-        bid = json_int(board, "id", 0);
         cJSON_Delete(board);
     }
 
@@ -431,52 +578,8 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    cJSON *children = NULL;
-    if (!empty_search) {
-        int total = db_post_count_search(req->db, bid, search, search_type, &filters);
-        total_pages = (total + per_page - 1) / per_page;
-        if (total_pages < 1) total_pages = 1;
-        if (page > total_pages) page = total_pages;
-        posts = db_post_list_search(req->db, bid, search, search_type, &filters, per_page, (page - 1) * per_page);
-    }
-    if (bid > 0) {
-        cJSON *child_ids = db_board_tree_get_children(bid);
-        if (child_ids && cJSON_GetArraySize(child_ids) > 0) {
-            children = cJSON_CreateArray();
-            int n = cJSON_GetArraySize(child_ids);
-            for (int i = 0; i < n; i++) {
-                cJSON *id_item = cJSON_GetArrayItem(child_ids, i);
-                int cid = id_item->valueint;
-                cJSON *cboard = db_board_get_by_id(req->db, cid);
-                if (cboard) {
-                    cJSON *cslug = cJSON_GetObjectItem(cboard, "slug");
-                    cJSON *cname = cJSON_GetObjectItem(cboard, "name");
-                    if (cslug && cslug->valuestring && cname && cname->valuestring) {
-                        cJSON *obj = cJSON_CreateObject();
-                        cJSON_AddStringToObject(obj, "slug", cslug->valuestring);
-                        cJSON_AddStringToObject(obj, "name", cname->valuestring);
-                        cJSON_AddItemToArray(children, obj);
-                    }
-                    cJSON_Delete(cboard);
-                }
-            }
-        }
-        if (child_ids) cJSON_Delete(child_ids);
-    }
-
-    char *pp = get_profile_pic(req->db, uid, role);
-    cJSON *boards = bid > 0 ? db_board_list(req->db) : NULL;
-    cJSON *board_i18n = bid > 0 ? db_i18n_get(req->db, "board", bid) : NULL;
-    cJSON *board_siblings = bid > 0 ? db_i18n_siblings(req->db, "board", bid, false) : NULL;
-    cJSON *board_lang = board_i18n ? cJSON_GetObjectItem(board_i18n, "lang") : NULL;
-    render_set_board_translations(cJSON_IsString(board_lang) ? board_lang->valuestring : NULL, board_siblings);
-    cwist_sstring *page_html = render_post_list(posts, boards, dark, role, page, total_pages, slug, search, search_type, &filters, pp, uid, mobile, children);
-    render_set_board_translations(NULL, NULL);
-    if (boards) cJSON_Delete(boards);
-    if (board_i18n) cJSON_Delete(board_i18n);
-    if (board_siblings) cJSON_Delete(board_siblings);
-    if (posts) cJSON_Delete(posts);
-    if (children) cJSON_Delete(children);
+    cwist_sstring *page_html = post_list_render(req->db, slug, page, dark, mobile, role, uid,
+                                                 search, search_type, &filters);
     if (page_html) {
         page_cache_set(key, page_html->data, page_html->size, 60);
         reqshare_finish(key, page_html);
@@ -484,7 +587,6 @@ void handler_post_list(cwist_http_request *req, cwist_http_response *res) {
         reqshare_finish(key, NULL);
     }
     send_html_res(res, page_html);
-    free(pp);
 }
 
 /* Route BDR hit on /post/:slug: the page came from the cache, but the view
@@ -570,6 +672,148 @@ static void *pl_related_thread(void *arg) {
     return NULL;
 }
 
+static cwist_sstring *post_detail_render(cwist_db *db, cJSON *post, bool dark, bool mobile,
+                                          const char *role, int uid, bool increment_view,
+                                          const char *delete_pin) {
+    bool post_public = post_is_public(post) &&
+                       strcmp(json_string_or_empty(post, "status"), "pending") != 0;
+    int post_id = json_int(post, "id", 0);
+    int author_id = json_int(post, "user_id", 0);
+    cJSON *created_json = cJSON_GetObjectItem(post, "created_at");
+    const char *created_at = cJSON_IsString(created_json) ? created_json->valuestring : NULL;
+    post_load_ctx pl = { .db = db, .post_id = post_id, .uid = uid,
+                         .author_id = author_id, .board_id = json_int(post, "board_id", 0),
+                         .post_public = post_public, .created_at = created_at };
+    pthread_t t_media, t_votes, t_related;
+    bool ok_media = pthread_create(&t_media, NULL, pl_media_thread, &pl) == 0;
+    bool ok_votes = pthread_create(&t_votes, NULL, pl_votes_thread, &pl) == 0;
+    bool ok_related = pthread_create(&t_related, NULL, pl_related_thread, &pl) == 0;
+    if (!ok_media) pl_media_thread(&pl);
+    if (!ok_votes) pl_votes_thread(&pl);
+    if (!ok_related) pl_related_thread(&pl);
+    if (post_id > 0 && post_public && increment_view) db_post_increment_view(db, post_id);
+    bool verified = false;
+    cJSON *sig_json = cJSON_GetObjectItem(post, "pqc_signature");
+    if (sig_json && sig_json->valuestring && sig_json->valuestring[0]) {
+        cJSON *title = cJSON_GetObjectItem(post, "title");
+        cJSON *content = cJSON_GetObjectItem(post, "content");
+        if (title && content && title->valuestring && content->valuestring) {
+            size_t len = strlen(title->valuestring) + strlen(content->valuestring) + 2;
+            char *message = cwist_alloc(len);
+            if (message) {
+                snprintf(message, len, "%s\n%s", title->valuestring, content->valuestring);
+                verified = fly_crypto_verify((const uint8_t *)message, strlen(message),
+                                             sig_json->valuestring);
+                cwist_free(message);
+            }
+        }
+    }
+    char *pp = get_profile_pic(db, uid, role);
+    int user_vote = uid > 0 ? db_post_user_vote(db, post_id, uid) : 0;
+    if (ok_media) pthread_join(t_media, NULL);
+    if (ok_votes) pthread_join(t_votes, NULL);
+    if (ok_related) pthread_join(t_related, NULL);
+    cJSON *files = pl.files;
+    cJSON *comments = pl.comments;
+    db_moderation_filter_comments(db, comments);
+    int vote_up = 0, vote_down = 0;
+    if (pl.vote_counts) {
+        cJSON *up = cJSON_GetObjectItem(pl.vote_counts, "up");
+        cJSON *down = cJSON_GetObjectItem(pl.vote_counts, "down");
+        if (up && up->type == cJSON_Number) vote_up = (int)up->valuedouble;
+        if (down && down->type == cJSON_Number) vote_down = (int)down->valuedouble;
+        cJSON_Delete(pl.vote_counts);
+    }
+    char *author_pp = NULL;
+    if (pl.author_user) {
+        cJSON *pic = cJSON_GetObjectItem(pl.author_user, "profile_pic");
+        if (pic && pic->valuestring && pic->valuestring[0]) author_pp = strdup(pic->valuestring);
+        else if (auth_is_site_admin(author_id)) author_pp = get_admin_logo();
+        cJSON_Delete(pl.author_user);
+    }
+    attach_post_tags(db, post);
+    cJSON *i18n = db_i18n_get(db, "post", post_id);
+    cJSON *lang = i18n ? cJSON_GetObjectItem(i18n, "lang") : NULL;
+    cJSON_AddStringToObject(post, "lang", cJSON_IsString(lang) ? lang->valuestring : "");
+    if (i18n) cJSON_Delete(i18n);
+    cJSON *siblings = db_i18n_siblings(db, "post", post_id, true);
+    if (siblings) cJSON_AddItemToObject(post, "translations", siblings);
+    int series_id = json_int(post, "series_id", 0);
+    cJSON *series = series_id > 0 ? db_series_get(db, series_id) : NULL;
+    if (series) {
+        cJSON *parts = db_series_posts(db, series_id, post_public);
+        if (parts) cJSON_AddItemToObject(series, "posts", parts);
+        cJSON_AddItemToObject(post, "series", series);
+    }
+    if (post_public) {
+        if (pl.adjacent) cJSON_AddItemToObject(post, "adjacent", pl.adjacent);
+        if (pl.related) cJSON_AddItemToObject(post, "related", pl.related);
+    } else {
+        if (pl.adjacent) cJSON_Delete(pl.adjacent);
+        if (pl.related) cJSON_Delete(pl.related);
+    }
+    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified,
+                                             vote_up, vote_down, user_vote, pp, author_pp, uid,
+                                             delete_pin, mobile);
+    free(author_pp);
+    cJSON_Delete(post);
+    if (files) cJSON_Delete(files);
+    if (comments) cJSON_Delete(comments);
+    free(pp);
+    return page;
+}
+
+typedef struct {
+    char key[512];
+    char slug[256];
+    char role[32];
+    uint64_t generation;
+    int uid;
+    bool dark;
+    bool mobile;
+} post_detail_refresh_job;
+
+static void post_detail_refresh(void *arg) {
+    post_detail_refresh_job *job = arg;
+    cwist_db db = {0};
+    fly_forkgate_enter();
+    bool opened = fly_db_open_main(&db.conn) == SQLITE_OK && db_configure_connection(db.conn);
+    fly_forkgate_leave();
+    if (opened) {
+        cJSON *post = db_post_get_by_slug(&db, job->slug);
+        bool pending = post && strcmp(json_string_or_empty(post, "status"), "pending") == 0;
+        if (post && post_is_public(post) && !pending) {
+            cwist_sstring *page = post_detail_render(&db, post, job->dark, job->mobile,
+                                                     job->role, job->uid, false, NULL);
+            post = NULL;
+            if (page) {
+                page_cache_set_if_generation(job->key, page->data, page->size, 60, job->generation);
+                cwist_sstring_destroy(page);
+            }
+        }
+        if (post) cJSON_Delete(post);
+    }
+    if (db.conn) {
+        fly_forkgate_enter();
+        sqlite3_close(db.conn);
+        fly_forkgate_leave();
+    }
+}
+
+static void post_detail_schedule_refresh(const char *key, const char *slug, bool dark,
+                                         bool mobile, const char *role, int uid) {
+    post_detail_refresh_job *job = calloc(1, sizeof(*job));
+    if (!job) return;
+    snprintf(job->key, sizeof(job->key), "%s", key);
+    snprintf(job->slug, sizeof(job->slug), "%s", slug);
+    snprintf(job->role, sizeof(job->role), "%s", role);
+    job->generation = page_cache_generation();
+    job->uid = uid;
+    job->dark = dark;
+    job->mobile = mobile;
+    engine_refresh_schedule(key, post_detail_refresh, free, job);
+}
+
 void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
     const char *slug = cwist_query_map_get(req->path_params, "slug");
     if (!slug) { redirect(res, "/"); return; }
@@ -589,13 +833,21 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
         page_cache_release(key);
         return;
     }
+    if (page_cache_get_stale(key, &cached, &cached_len)) {
+        post_detail_schedule_refresh(key, slug, dark, mobile, role, uid);
+        cwist_http_header_add(&res->headers, "X-Fly-Cache-Status", "stale");
+        send_cached_html_res(res, cached, cached_len, 0);
+        page_cache_release(key);
+        return;
+    }
 
     cJSON *post = db_post_get_by_slug(req->db, slug);
     bool pending = post && strcmp(json_string_or_empty(post, "status"), "pending") == 0;
+    bool board_reviewer = pending && db_board_user_can_moderate(req->db, json_int(post, "board_id", 0), uid, role);
     /* Pending posts are private to their author and reviewers. Other drafts
      * and scheduled posts retain the existing author/admin visibility rule. */
-    if (post && ((!post_is_public(post) && !is_author_or_admin(post, uid, role)) ||
-                 (pending && (uid <= 0 || json_int(post, "user_id", 0) != uid) && !moderation_can_review(role)))) {
+    if (post && ((!post_is_public(post) && !is_author_or_admin(post, uid, role) && !board_reviewer) ||
+                 (pending && (uid <= 0 || json_int(post, "user_id", 0) != uid) && !board_reviewer))) {
         cJSON_Delete(post);
         post = NULL;
     }
@@ -605,6 +857,11 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     bool post_public = post_is_public(post) && !pending;
+    if (json_int(post, "is_secret", 0)) {
+        char target[64];
+        snprintf(target, sizeof(target), "post:%d", json_int(post, "id", 0));
+        audit_record(uid, "content.secret.read", target, "success", "direct post view");
+    }
 
     bool leader = false;
     cwist_sstring *shared = reqshare_wait_or_start(key, &leader);
@@ -614,109 +871,17 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    int post_id = json_int(post, "id", 0);
-    int author_id = json_int(post, "user_id", 0);
-    cJSON *created_json = cJSON_GetObjectItem(post, "created_at");
-    const char *created_at = (cJSON_IsString(created_json)) ? created_json->valuestring : NULL;
-
-    /* Independent reads fan out to helper threads: each gets its own
-     * thread-local SQLite connection (fly_db_conn), so the per-post queries
-     * overlap instead of serializing on one connection. The post JSON is only
-     * mutated on the main thread after the joins. */
-    post_load_ctx pl = { .db = req->db, .post_id = post_id, .uid = uid,
-                         .author_id = author_id, .board_id = json_int(post, "board_id", 0),
-                         .post_public = post_public,
-                         .created_at = created_at };
-    pthread_t t_media, t_votes, t_related;
-    bool ok_media = pthread_create(&t_media, NULL, pl_media_thread, &pl) == 0;
-    bool ok_votes = pthread_create(&t_votes, NULL, pl_votes_thread, &pl) == 0;
-    bool ok_related = pthread_create(&t_related, NULL, pl_related_thread, &pl) == 0;
-    if (!ok_media) pl_media_thread(&pl);
-    if (!ok_votes) pl_votes_thread(&pl);
-    if (!ok_related) pl_related_thread(&pl);
-
-    /* HEAD requests are routed as GET (see global_middleware); they must not
-     * inflate the view count. Runs on the main thread while the reads fly. */
-    if (post_id > 0 && post_public && !cwist_http_header_get(req->headers, "X-Fly-Head-Rewrite")) db_post_increment_view(req->db, post_id);
-    bool verified = false;
-    cJSON *sig_json = cJSON_GetObjectItem(post, "pqc_signature");
-    if (sig_json && sig_json->valuestring && sig_json->valuestring[0]) {
-        cJSON *t = cJSON_GetObjectItem(post, "title");
-        cJSON *c = cJSON_GetObjectItem(post, "content");
-        if (t && c && t->valuestring && c->valuestring) {
-            size_t mlen = strlen(t->valuestring) + 1 + strlen(c->valuestring) + 1;
-            char *msg = (char *)cwist_alloc(mlen);
-            snprintf(msg, mlen, "%s\n%s", t->valuestring, c->valuestring);
-            verified = fly_crypto_verify((const uint8_t *)msg, strlen(msg), sig_json->valuestring);
-            cwist_free(msg);
-        }
-    }
-    char *pp = get_profile_pic(req->db, uid, role);
-    int user_vote = 0;
-    if (uid > 0) user_vote = db_post_user_vote(req->db, post_id, uid);
-
-    if (ok_media) pthread_join(t_media, NULL);
-    if (ok_votes) pthread_join(t_votes, NULL);
-    if (ok_related) pthread_join(t_related, NULL);
-
-    cJSON *files = pl.files;
-    cJSON *comments = pl.comments;
-    db_moderation_filter_comments(req->db, comments);
-    int vote_up = 0, vote_down = 0;
-    if (pl.vote_counts) {
-        cJSON *vu = cJSON_GetObjectItem(pl.vote_counts, "up");
-        cJSON *vd = cJSON_GetObjectItem(pl.vote_counts, "down");
-        if (vu && vu->type == cJSON_Number) vote_up = (int)vu->valuedouble;
-        if (vd && vd->type == cJSON_Number) vote_down = (int)vd->valuedouble;
-        cJSON_Delete(pl.vote_counts);
-    }
-    char *author_pp = NULL;
-    if (pl.author_user) {
-        cJSON *pic = cJSON_GetObjectItem(pl.author_user, "profile_pic");
-        if (pic && pic->valuestring && pic->valuestring[0]) {
-            author_pp = strdup(pic->valuestring);
-        } else if (auth_is_site_admin(author_id)) {
-            author_pp = get_admin_logo();
-        }
-        cJSON_Delete(pl.author_user);
-    }
-    attach_post_tags(req->db, post);
-    {
-        cJSON *i18n = db_i18n_get(req->db, "post", post_id);
-        cJSON *lang = i18n ? cJSON_GetObjectItem(i18n, "lang") : NULL;
-        cJSON_AddStringToObject(post, "lang", cJSON_IsString(lang) ? lang->valuestring : "");
-        if (i18n) cJSON_Delete(i18n);
-        cJSON *siblings = db_i18n_siblings(req->db, "post", post_id, true);
-        if (siblings) cJSON_AddItemToObject(post, "translations", siblings);
-        int sid = json_int(post, "series_id", 0);
-        cJSON *series = sid > 0 ? db_series_get(req->db, sid) : NULL;
-        if (series) {
-            cJSON *parts = db_series_posts(req->db, sid, post_public);
-            if (parts) cJSON_AddItemToObject(series, "posts", parts);
-            cJSON_AddItemToObject(post, "series", series);
-        }
-    }
-    if (post_public) {
-        if (pl.adjacent) cJSON_AddItemToObject(post, "adjacent", pl.adjacent);
-        if (pl.related) cJSON_AddItemToObject(post, "related", pl.related);
-    } else {
-        if (pl.adjacent) cJSON_Delete(pl.adjacent);
-        if (pl.related) cJSON_Delete(pl.related);
-    }
-    const char *ephemeral_delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
-    cwist_sstring *page = render_post_detail(post, files, comments, dark, role, verified, vote_up, vote_down, user_vote, pp, author_pp, uid, ephemeral_delete_pin, mobile);
+    const char *delete_pin = cwist_query_map_get(req->query_params, "delete_pin");
+    bool increment_view = !cwist_http_header_get(req->headers, "X-Fly-Head-Rewrite");
+    cwist_sstring *page = post_detail_render(req->db, post, dark, mobile, role, uid,
+                                             increment_view, delete_pin);
     if (page) {
         if (post_public) page_cache_set(key, page->data, page->size, 60);
         reqshare_finish(key, page);
     } else {
         reqshare_finish(key, NULL);
     }
-    if (author_pp) free(author_pp);
-    cJSON_Delete(post);
-    if (files) cJSON_Delete(files);
-    if (comments) cJSON_Delete(comments);
     send_html_res(res, page);
-    free(pp);
 }
 
 void handler_post_drafts(cwist_http_request *req, cwist_http_response *res) {
@@ -752,7 +917,8 @@ void handler_post_new_get(cwist_http_request *req, cwist_http_response *res) {
     }
     int draft_count = uid > 0 ? db_post_count_drafts(req->db, uid) : 0;
     editor_options_t opts = editor_options_load(req->db, uid, role);
-    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, NULL, pp, is_mobile_request(req), draft_count, uid, NULL);
+    cwist_sstring *page = render_post_editor(ordered, NULL, NULL, initial_board_id, is_dark(req), role, NULL, pp, is_mobile_request(req), draft_count, uid, NULL,
+                                             editor_can_notice(req->db, ordered, uid, role));
     editor_options_free(&opts);
     if (ordered) cJSON_Delete(ordered);
     send_html_res(res, page);
@@ -832,6 +998,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     char *autosave_draft_id_str = NULL;
     char *spam_trap = NULL, *spam_token = NULL;
     form_field_t *files = NULL;
+    bool notice_requested = false;
 
     FLY_LOG_DEBUG("ctype=%s body_len=%zu", ctype ? ctype : "NULL", req->body->size);
     FLY_LOG_DEBUG("body first 80 bytes: %.80s", req->body->data);
@@ -868,6 +1035,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             autosave_draft_id_str = dup_form_field(files, "autosave_draft_id");
             spam_trap = dup_form_field(files, SPAM_FIELD_TRAP);
             spam_token = dup_form_field(files, SPAM_FIELD_TOKEN);
+            notice_requested = form_find(files, "is_notice") != NULL;
             FLY_LOG_DEBUG("multipart parsed: title=%s content_len=%zu board_id=%s", title ? title : "NULL", content ? strlen(content) : 0, board_id_str ? board_id_str : "NULL");
         } else {
             FLY_LOG_DEBUG("boundary not found in ctype");
@@ -896,6 +1064,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         autosave_draft_id_str = dup_query_field(kv, "autosave_draft_id");
         spam_trap = dup_query_field(kv, SPAM_FIELD_TRAP);
         spam_token = dup_query_field(kv, SPAM_FIELD_TOKEN);
+        notice_requested = cwist_query_map_get(kv, "is_notice") != NULL;
         cwist_query_map_destroy(kv);
     }
     int autosave_draft_id = autosave_draft_id_str ? atoi(autosave_draft_id_str) : 0;
@@ -938,6 +1107,12 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         multipart_free(files);
         return;
     }
+    if (notice_requested && !db_board_user_can_notice(req->db, board_id, uid, role)) {
+        send_post_editor_error(req, res, uid, role, board_id, "You cannot create notices on this board");
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
+        multipart_free(files);
+        return;
+    }
     rewrite_content_legacy_urls(req->db, &content);
     char *sl = generate_slug(title);
 
@@ -952,7 +1127,8 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     publish_choice_t pub;
     choose_publish(&pub, uid, post_action, publish_at_in, false);
     moderation_decision_t moderation = {MODERATION_ALLOW, ""};
-    if (strcmp(pub.status, POST_STATUS_DRAFT) != 0) {
+    if (strcmp(pub.status, POST_STATUS_DRAFT) != 0 &&
+        !db_board_user_can_moderate(req->db, board_id, uid, role)) {
         moderation = moderation_check_submission(req->db, uid, role, MODERATION_POST, content);
     }
     if (moderation.action == MODERATION_REJECT) {
@@ -984,7 +1160,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
 
     int created_id = 0;
     char *created_slug = NULL;
-    created_id = db_post_create_with_auto_slug(req->db, board_id, uid, title, sl, content, summary ? summary : "", sig_b64 ? sig_b64 : "", 0, 0, "", pub.status, pub.publish_at, &created_slug);
+    created_id = db_post_create_with_auto_slug(req->db, board_id, uid, title, sl, content, summary ? summary : "", sig_b64 ? sig_b64 : "", notice_requested ? 1 : 0, 0, "", pub.status, pub.publish_at, &created_slug);
     if (!created_slug) {
         CWIST_LOG_ERROR("Post creation failed: uid=%d board_id=%d", uid, board_id);
         res->status_code = CWIST_HTTP_INTERNAL_ERROR;
@@ -1006,6 +1182,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         multipart_free(files);
         return;
     }
+    if (awaiting_review) fly_nats_publish_moderation(req->db, MODERATION_POST, created_id);
     /* Group tags, series/i18n, and media attachments into a single transaction
      * so they commit in one WAL write-lock hold instead of 10-20 autocommit
      * cycles that stall concurrent readers and writers. */
@@ -1093,7 +1270,8 @@ void handler_post_edit_get(cwist_http_request *req, cwist_http_response *res) {
     attach_editor_fields(req->db, post);
     editor_options_t opts = editor_options_load(req->db, uid, role);
     cJSON *revisions = db_revision_list(req->db, post_id_val, 20);
-    cwist_sstring *page = render_post_editor(ordered, post, files, 0, is_dark(req), role, error_msg, pp, is_mobile_request(req), 0, uid, revisions);
+    cwist_sstring *page = render_post_editor(ordered, post, files, 0, is_dark(req), role, error_msg, pp, is_mobile_request(req), 0, uid, revisions,
+                                             db_board_user_can_notice(req->db, json_int(post, "board_id", 0), uid, role));
     if (revisions) cJSON_Delete(revisions);
     editor_options_free(&opts);
     cJSON_Delete(post);
@@ -1113,6 +1291,8 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     char *post_action = NULL, *publish_at_in = NULL, *tags_in = NULL;
     char *series_in = NULL, *series_pos_in = NULL, *lang_in = NULL, *translation_in = NULL;
     form_field_t *files = NULL;
+    bool notice_requested = false;
+    bool notice_field_present = false;
 
     const char *path_id = cwist_query_map_get(req->path_params, "id");
     if (path_id) {
@@ -1161,6 +1341,8 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
             series_pos_in = dup_form_field(files, "series_pos");
             lang_in = dup_form_field(files, "lang");
             translation_in = dup_form_field(files, "translation_of");
+            notice_requested = form_find(files, "is_notice") != NULL;
+            notice_field_present = notice_requested || form_find(files, "notice_editable") != NULL;
         }
     } else {
         cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
@@ -1184,6 +1366,8 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         series_pos_in = dup_query_field(kv, "series_pos");
         lang_in = dup_query_field(kv, "lang");
         translation_in = dup_query_field(kv, "translation_of");
+        notice_requested = cwist_query_map_get(kv, "is_notice") != NULL;
+        notice_field_present = notice_requested || cwist_query_map_get(kv, "notice_editable") != NULL;
         cwist_query_map_destroy(kv);
     }
 
@@ -1254,6 +1438,16 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     char *rev_category = strdup(json_string_or_empty(post, "category"));
     int old_is_notice = json_int(post, "is_notice", 0);
     int old_is_secret = json_int(post, "is_secret", 0);
+    if (!notice_field_present) notice_requested = old_is_notice != 0;
+    if (notice_requested != (old_is_notice != 0) && !db_board_user_can_notice(req->db, board_id, uid, role)) {
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "Forbidden: notice permission required");
+        cJSON_Delete(post);
+        reqshare_write_lock_release(wl_key);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
+        multipart_free(files);
+        return;
+    }
     publish_choice_t pub;
     choose_publish(&pub, uid, post_action, publish_at_in, was_public);
     if (was_pending) {
@@ -1282,7 +1476,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         db_revision_save(req->db, edit_id, rev_title, rev_content, rev_summary, uid);
     free(rev_title); free(rev_content); free(rev_summary);
     if (db_post_update(req->db, edit_id, board_id, title, content, summary ? summary : "", sig_b642 ? sig_b642 : "",
-                       old_is_notice, old_is_secret, rev_category, pub.status, pub.publish_at)) {
+                       notice_requested ? 1 : 0, old_is_secret, rev_category, pub.status, pub.publish_at)) {
         bool broken_slug = !post_slug || !post_slug[0] ||
                            strncmp(post_slug, "autosave", 8) == 0 ||
                            strncmp(post_slug, "untitled", 8) == 0;
@@ -1404,13 +1598,14 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     if (!id_str) { redirect(res, "/"); return; }
     cJSON *post = db_post_get_by_id(req->db, atoi(id_str));
     if (!post) { CWIST_LOG_WARN("Post delete failed: not found id=%s uid=%d", id_str, uid); redirect(res, "/"); return; }
+    bool board_moderator = db_board_user_can_moderate(req->db, json_int(post, "board_id", 0), uid, role);
 
     if (req->method != CWIST_HTTP_POST) {
         /* GET only shows a confirmation page that POSTs the actual delete:
          * one-click GET deletes are a CSRF hole under SameSite=Lax. */
         cJSON *pin_hash = cJSON_GetObjectItem(post, "delete_pin_hash");
         bool pin_flow = pin_hash && cJSON_IsString(pin_hash) && pin_hash->valuestring && pin_hash->valuestring[0];
-        if (!is_author_or_admin(post, uid, role) && !pin_flow) {
+        if (!is_author_or_admin(post, uid, role) && !board_moderator && !pin_flow) {
             cJSON_Delete(post);
             redirect(res, "/");
             return;
@@ -1429,7 +1624,7 @@ void handler_post_delete(cwist_http_request *req, cwist_http_response *res) {
     bool pin_ok = delete_pin && pin_hash && pin_hash->valuestring && pin_hash->valuestring[0] &&
                   auth_verify_password(delete_pin, pin_hash->valuestring);
 
-    if (!is_author_or_admin(post, uid, role) && !pin_ok) {
+    if (!is_author_or_admin(post, uid, role) && !board_moderator && !pin_ok) {
         CWIST_LOG_WARN("Post delete forbidden: id=%s uid=%d role=%s", id_str, uid, role);
         res->status_code = CWIST_HTTP_FORBIDDEN;
         cwist_sstring_assign(res->body, "Forbidden");

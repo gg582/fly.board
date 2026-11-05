@@ -28,6 +28,10 @@ void reqshare_cleanup(void);
  * *leader=false.  The caller owns the returned sstring and must destroy it. */
 cwist_sstring *reqshare_wait_or_start(const char *key, bool *leader);
 
+/* Non-blocking leader election for background refresh. Returns true only for
+ * the new leader; that caller must eventually call reqshare_finish(). */
+bool reqshare_try_start(const char *key);
+
 /* Store the result for `key` and wake any waiters.  The supplied sstring is
  * copied; the caller keeps ownership of `html`.  Passing NULL finishes with an
  * empty result (waiters will get NULL). */

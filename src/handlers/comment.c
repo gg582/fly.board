@@ -71,7 +71,7 @@ static void notify_comment_recipient(cwist_db *db, int actor_uid, const char *ac
     snprintf(excerpt, sizeof(excerpt), "%s", content ? content : "");
 
     db_notification_create(db, recipient, actor_name, kind, post_id, post_slug, comment_id, excerpt);
-    fly_nats_publish_comment(g_config.root_url, actor_name, kind, post_slug, recipient, excerpt);
+    fly_nats_publish_comment(g_config.root_url, actor_name, kind, post_slug, recipient, excerpt, comment_id);
 }
 
 void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res) {
@@ -104,9 +104,11 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
         spam_guard_reject(res, verdict);
         return;
     }
+    int target_board_id = 0;
     if (target_type && target_id_str && content && content[0] && strcmp(target_type, "post") == 0) {
         /* Unpublished posts take comments only from those who can see them. */
         cJSON *target = db_post_get_by_id(req->db, atoi(target_id_str));
+        target_board_id = json_int(target, "board_id", 0);
         bool visible = target && (post_is_public(target) || is_author_or_admin(target, uid, role));
         if (target) cJSON_Delete(target);
         if (!visible) {
@@ -138,7 +140,9 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
         } else {
             author_name = (author_name_input && author_name_input[0]) ? author_name_input : "Anonymous";
         }
-        moderation_decision_t moderation = moderation_check_submission(req->db, uid, role, MODERATION_COMMENT, content);
+        moderation_decision_t moderation = {MODERATION_ALLOW, ""};
+        if (!db_board_user_can_moderate(req->db, target_board_id, uid, role))
+            moderation = moderation_check_submission(req->db, uid, role, MODERATION_COMMENT, content);
         if (moderation.action == MODERATION_REJECT) {
             cwist_query_map_destroy(kv);
             res->status_code = CWIST_HTTP_FORBIDDEN;
@@ -156,6 +160,8 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
                 if (g_config.realtime_enabled && strcmp(target_type, "post") == 0)
                     (void)fly_nats_publish_realtime_comment(target_id, new_comment_id);
                 notify_comment_recipient(req->db, uid, author_name, target_type, target_id, parent_id, content, new_comment_id);
+            } else {
+                fly_nats_publish_moderation(req->db, MODERATION_COMMENT, new_comment_id);
             }
         } else {
             CWIST_LOG_ERROR("Comment creation failed: target_type=%s target_id=%d uid=%d", target_type, target_id, uid);
@@ -218,6 +224,14 @@ void handler_comment_edit_post(cwist_http_request *req, cwist_http_response *res
     redirect_referer_safe(res, referer, "/");
 }
 
+static bool comment_board_moderator(cwist_db *db, cJSON *comment, int uid, const char *role) {
+    if (strcmp(json_string_or_empty(comment, "target_type"), "post") != 0) return moderation_can_review(role);
+    cJSON *post = db_post_get_by_id(db, json_int(comment, "target_id", 0));
+    bool allowed = post && db_board_user_can_moderate(db, json_int(post, "board_id", 0), uid, role);
+    if (post) cJSON_Delete(post);
+    return allowed;
+}
+
 void handler_comment_delete_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
     char role[32] = {0};
@@ -238,10 +252,9 @@ void handler_comment_delete_get(cwist_http_request *req, cwist_http_response *re
         if (comment) {
             cJSON *tt = cJSON_GetObjectItem(comment, "target_type");
             cJSON *ti = cJSON_GetObjectItem(comment, "target_id");
-            /* Admins may remove anyone's comment, as the Delete button they
-             * see on every comment promises. */
-            bool removed = strcmp(role, "admin") == 0 ? db_comment_delete_admin(req->db, cid)
-                                                      : db_comment_delete(req->db, cid, uid);
+            bool moderator = comment_board_moderator(req->db, comment, uid, role);
+            bool removed = moderator ? db_comment_delete_admin(req->db, cid)
+                                     : db_comment_delete(req->db, cid, uid);
             if (removed) {
                 CWIST_LOG_INFO("Comment deleted: id=%d uid=%d", cid, uid);
                 if (tt && cJSON_IsString(tt) && ti && cJSON_IsNumber(ti)) {

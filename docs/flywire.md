@@ -37,6 +37,11 @@ primary's version; a mismatch triggers `flywire-upgrade.sh` when
 startup and hourly. A replica that falls more than 7 days behind can no
 longer catch up incrementally.
 
+**Audit logs.** Optional hash-chained audit files are local to each node and
+are never written to `sync_journal` or the delta feed. A proxied write is
+recorded only by the primary performing the mutation. See
+[audit.md](audit.md#flywire-behavior) for failover and export semantics.
+
 ## Setting up a replica
 
 1. On the primary: set `mode=primary` and a strong `token` in

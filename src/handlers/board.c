@@ -2,6 +2,10 @@
 #include "handlers_internal.h"
 #include "cwist/board_tree.h"
 #include "../db/db_internal.h"
+#include "../db/db_portability.h"
+#include "engine/forkgate.h"
+#include "engine/refresh.h"
+#include "engine/community.h"
 #include <pthread.h>
 #include <stdlib.h>
 
@@ -55,6 +59,83 @@ void append_boards_flat(cJSON *out, cJSON *boards, cJSON *tree, int parent_id, i
     }
 }
 
+typedef struct {
+    char key[256];
+    char role[32];
+    uint64_t generation;
+    int uid;
+    bool dark;
+    bool mobile;
+} board_list_refresh_job;
+
+static cwist_sstring *board_list_render(cwist_db *db, bool dark, bool mobile,
+                                        const char *role, int uid) {
+    char *pp = get_profile_pic(db, uid, role);
+    cJSON *boards = db_board_list(db);
+    cJSON *tree = db_board_tree_get_all();
+    if (boards) {
+        cJSON *recent = db_post_recent_by_boards_batch(db, 2);
+        int recent_count = recent ? cJSON_GetArraySize(recent) : 0;
+        int n = cJSON_GetArraySize(boards);
+        for (int i = 0; i < n; i++) {
+            cJSON *board = cJSON_GetArrayItem(boards, i);
+            int bid = json_int(board, "id", 0);
+            if (bid > 0) {
+                cJSON *posts = cJSON_CreateArray();
+                for (int p = 0; p < recent_count; p++) {
+                    cJSON *post = cJSON_GetArrayItem(recent, p);
+                    if (json_int(post, "board_id", 0) == bid) {
+                        cJSON_AddItemToArray(posts, cJSON_Duplicate(post, 1));
+                    }
+                }
+                cJSON_AddItemToObject(board, "posts", posts);
+            }
+        }
+        if (recent) cJSON_Delete(recent);
+    }
+    cJSON *ordered = cJSON_CreateArray();
+    append_boards_flat(ordered, boards, tree, 0, 2);
+    cwist_sstring *page = render_board_list(ordered, dark, role, pp, mobile);
+    if (ordered) cJSON_Delete(ordered);
+    if (boards) cJSON_Delete(boards);
+    if (tree) cJSON_Delete(tree);
+    free(pp);
+    return page;
+}
+
+static void board_list_refresh(void *arg) {
+    board_list_refresh_job *job = arg;
+    cwist_db db = {0};
+    fly_forkgate_enter();
+    bool opened = fly_db_open_main(&db.conn) == SQLITE_OK && db_configure_connection(db.conn);
+    fly_forkgate_leave();
+    if (opened) {
+        cwist_sstring *page = board_list_render(&db, job->dark, job->mobile, job->role, job->uid);
+        if (page) {
+            page_cache_set_if_generation(job->key, page->data, page->size, 60, job->generation);
+            cwist_sstring_destroy(page);
+        }
+    }
+    if (db.conn) {
+        fly_forkgate_enter();
+        sqlite3_close(db.conn);
+        fly_forkgate_leave();
+    }
+}
+
+static void board_list_schedule_refresh(const char *key, bool dark, bool mobile,
+                                        const char *role, int uid) {
+    board_list_refresh_job *job = calloc(1, sizeof(*job));
+    if (!job) return;
+    snprintf(job->key, sizeof(job->key), "%s", key);
+    snprintf(job->role, sizeof(job->role), "%s", role);
+    job->generation = page_cache_generation();
+    job->uid = uid;
+    job->dark = dark;
+    job->mobile = mobile;
+    engine_refresh_schedule(key, board_list_refresh, free, job);
+}
+
 void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
     bool dark = is_dark(req);
     int uid = 0;
@@ -72,6 +153,13 @@ void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
         page_cache_release(key);
         return;
     }
+    if (page_cache_get_stale(key, &cached, &cached_len)) {
+        board_list_schedule_refresh(key, dark, mobile, role, uid);
+        cwist_http_header_add(&res->headers, "X-Fly-Cache-Status", "stale");
+        send_cached_html_res(res, cached, cached_len, 0);
+        page_cache_release(key);
+        return;
+    }
 
     bool leader = false;
     cwist_sstring *shared = reqshare_wait_or_start(key, &leader);
@@ -80,35 +168,7 @@ void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    char *pp = get_profile_pic(req->db, uid, role);
-    cJSON *boards = db_board_list(req->db);
-    cJSON *tree = db_board_tree_get_all();
-    if (boards) {
-        cJSON *all_recent_posts = db_post_recent_by_boards_batch(req->db, 2);
-        int post_count = all_recent_posts ? cJSON_GetArraySize(all_recent_posts) : 0;
-        int n = cJSON_GetArraySize(boards);
-        for (int i = 0; i < n; i++) {
-            cJSON *bo = cJSON_GetArrayItem(boards, i);
-            int bid = json_int(bo, "id", 0);
-            if (bid > 0) {
-                cJSON *board_posts = cJSON_CreateArray();
-                for (int p = 0; p < post_count; p++) {
-                    cJSON *post = cJSON_GetArrayItem(all_recent_posts, p);
-                    if (json_int(post, "board_id", 0) == bid) {
-                        cJSON_AddItemToArray(board_posts, cJSON_Duplicate(post, 1));
-                    }
-                }
-                cJSON_AddItemToObject(bo, "posts", board_posts);
-            }
-        }
-        if (all_recent_posts) cJSON_Delete(all_recent_posts);
-    }
-    cJSON *ordered = cJSON_CreateArray();
-    append_boards_flat(ordered, boards, tree, 0, 2);
-    cwist_sstring *page = render_board_list(ordered, dark, role, pp, mobile);
-    cJSON_Delete(ordered);
-    if (boards) cJSON_Delete(boards);
-    if (tree) cJSON_Delete(tree);
+    cwist_sstring *page = board_list_render(req->db, dark, mobile, role, uid);
     if (page) {
         page_cache_set(key, page->data, page->size, 60);
         reqshare_finish(key, page);
@@ -116,7 +176,6 @@ void handler_board_list(cwist_http_request *req, cwist_http_response *res) {
         reqshare_finish(key, NULL);
     }
     send_html_res(res, page);
-    free(pp);
 }
 
 void handler_board_new_get(cwist_http_request *req, cwist_http_response *res) {
@@ -511,17 +570,31 @@ void handler_board_perms_get(cwist_http_request *req, cwist_http_response *res) 
     int bid = json_int(board, "id", 0);
     if (bid <= 0) { cJSON_Delete(board); redirect(res, "/boards"); return; }
     cJSON *perms = db_board_perm_list(req->db, bid);
+    cJSON *delegations = community.board_delegations ? db_board_delegation_list(req->db, bid) : NULL;
     cJSON *users = db_user_list(req->db);
     int uid = 0; char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
     const char *msg = cwist_query_map_get(req->query_params, "msg");
-    cwist_sstring *page = render_board_perms(board, perms, users, is_dark(req), msg, pp, is_mobile_request(req));
+    cwist_sstring *page = render_board_perms(board, perms, users, delegations, community.board_delegations,
+                                             is_dark(req), msg, pp, is_mobile_request(req));
     cJSON_Delete(board);
     if (perms) cJSON_Delete(perms);
+    if (delegations) cJSON_Delete(delegations);
     if (users) cJSON_Delete(users);
     send_html_res(res, page);
     free(pp);
+}
+
+static bool delegation_expiry_valid(const char *value) {
+    if (!value || !value[0]) return true;
+    int y, mo, d, h, mi, s;
+    char tail;
+    if (sscanf(value, "%4d-%2d-%2d %2d:%2d:%2d%c", &y, &mo, &d, &h, &mi, &s, &tail) != 6) return false;
+    static const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int max_day = mo >= 1 && mo <= 12 ? days[mo - 1] : 0;
+    if (mo == 2 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0)) max_day++;
+    return y >= 1970 && y <= 9999 && d >= 1 && d <= max_day && h >= 0 && h <= 23 && mi >= 0 && mi <= 59 && s >= 0 && s <= 59;
 }
 
 void handler_board_perms_post(cwist_http_request *req, cwist_http_response *res) {
@@ -530,7 +603,19 @@ void handler_board_perms_post(cwist_http_request *req, cwist_http_response *res)
     const char *bid = cwist_query_map_get(kv, "board_id");
     const char *uid_str = cwist_query_map_get(kv, "user_id");
     const char *msg = "error";
-    if (bid && uid_str) {
+    bool delegation = cwist_query_map_get(kv, "delegation") != NULL;
+    if (delegation && community.board_delegations && bid && uid_str) {
+        int board_id = atoi(bid);
+        int user_id = atoi(uid_str);
+        const char *expires_at = cwist_query_map_get(kv, "expires_at");
+        bool moderate = cwist_query_map_get(kv, "can_moderate") != NULL;
+        bool notice = cwist_query_map_get(kv, "can_notice") != NULL;
+        if (delegation_expiry_valid(expires_at) &&
+            db_board_delegation_grant(req->db, board_id, user_id, moderate, notice, expires_at)) {
+            msg = "granted";
+            page_cache_invalidate_all();
+        }
+    } else if (!delegation && bid && uid_str) {
         int board_id = atoi(bid);
         int user_id = atoi(uid_str);
         if (board_id > 0 && user_id > 0) {
@@ -564,10 +649,15 @@ void handler_board_perms_revoke_post(cwist_http_request *req, cwist_http_respons
     const char *bid = cwist_query_map_get(kv, "board_id");
     const char *uid_str = cwist_query_map_get(kv, "user_id");
     const char *msg = "error";
+    bool delegation = cwist_query_map_get(kv, "delegation") != NULL;
     if (bid && uid_str) {
         int board_id = atoi(bid);
         int user_id = atoi(uid_str);
-        if (board_id > 0 && user_id > 0 && db_board_perm_revoke(req->db, board_id, user_id)) {
+        if (delegation && community.board_delegations && board_id > 0 && user_id > 0 &&
+            db_board_delegation_revoke(req->db, board_id, user_id)) {
+            msg = "revoked";
+            page_cache_invalidate_all();
+        } else if (!delegation && board_id > 0 && user_id > 0 && db_board_perm_revoke(req->db, board_id, user_id)) {
             msg = "revoked";
             CWIST_LOG_INFO("Board permission revoked: board_id=%d user_id=%d", board_id, user_id);
             cJSON *board = db_board_get_by_id(req->db, board_id);

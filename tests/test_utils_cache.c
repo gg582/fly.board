@@ -89,7 +89,7 @@ int main(void) {
     page_cache_key_post(key, sizeof(key), "my-post", true, false, "", 0);
     CHECK(strstr(key, "my-post") != NULL && strstr(key, "d=1") != NULL,
           "post key embeds slug and dark flag");
-    page_cache_key_board(key, sizeof(key), "dev", 2, false, true, "user", 3, "q", "title");
+    page_cache_key_board(key, sizeof(key), "dev", 2, false, true, "user", 3, "q", "title", NULL);
     CHECK(strstr(key, "dev") != NULL && strstr(key, "q") != NULL,
           "board key embeds slug and search");
 
