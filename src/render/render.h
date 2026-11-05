@@ -57,6 +57,7 @@ cwist_sstring *render_board_perms(cJSON *board, cJSON *perms, cJSON *users, cJSO
                                   bool delegations_enabled, bool dark, const char *msg,
                                   const char *profile_pic, bool is_mobile);
 cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool is_mobile, const char *msg, int open_reports, cJSON *backup, cJSON *flywire, cJSON *subscribers, int subscriber_count);
+cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool is_mobile, const char *msg);
 /* /admin/reports: groups from handlers/report.c, status is the active tab. */
 /* /admin/attachments: every stored file with its post and usage state
  * (db_file_list_admin), filtered by @p view: unused | attached | orphan |

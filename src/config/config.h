@@ -107,6 +107,7 @@ bool config_vote_allowed(bool logged_in, const char *role);
 
 typedef struct {
     char import_url[512];
+    char script_url[512];
     char face_family[64];
     char face_src[512];
     char body[256];
@@ -154,6 +155,7 @@ typedef struct {
 extern font_settings_t g_font_settings;
 
 bool font_settings_load(const char *path);
+bool font_settings_save(const char *path);
 
 typedef struct s3_config_s {
     /* All fields empty means S3 is disabled (the default).  S3 is used only

@@ -213,9 +213,9 @@ SRCS := src/main.c \
         src/audit/audit.c \
         src/crypto/fly_crypto.c \
         src/wasm_host/tasfa_crypto_wasm.c \
-        src/render/theme/theme.c src/render/theme/rules.c src/render/theme/json.c src/render/theme/css.c \
-        src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/render/render_notifications.c src/render/render_mail.c src/render/render_guestbook.c src/render/render_moderation.c \
-        src/handlers/handlers.c src/handlers/home.c src/handlers/blog.c src/handlers/report.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/realtime.c src/handlers/notifications.c src/handlers/file.c src/handlers/mail.c src/handlers/guestbook.c src/handlers/subscribe.c src/handlers/privacy.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c src/handlers/moderation.c \
+        src/render/theme/theme.c src/render/theme/rules.c src/render/theme/json.c src/render/theme/css.c src/render/theme/custom.c \
+        src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_appearance.c src/render/render_file.c src/render/render_notifications.c src/render/render_mail.c src/render/render_guestbook.c src/render/render_moderation.c \
+        src/handlers/handlers.c src/handlers/home.c src/handlers/blog.c src/handlers/report.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/realtime.c src/handlers/notifications.c src/handlers/file.c src/handlers/mail.c src/handlers/guestbook.c src/handlers/subscribe.c src/handlers/privacy.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/appearance.c src/handlers/api.c src/handlers/moderation.c \
         src/utils/utils.c \
         src/utils/cache.c \
         src/utils/privacy.c \
@@ -332,7 +332,7 @@ setup:
 RENDER_TEST_SRCS := tests/stubs/g_config.c src/render/render_md.c src/utils/image_size.c src/utils/stb_image_impl.c
 RENDER_TESTS := tests/test_render_md_video tests/test_render_md_blocks tests/test_render_md_iframe tests/test_render_md_tikz \
                 tests/test_render_theme tests/test_render_totp
-THEME_TEST_OBJS := src/render/theme/theme.o src/render/theme/json.o src/render/theme/css.o src/render/theme/rules.o
+THEME_TEST_OBJS := src/render/theme/theme.o src/render/theme/json.o src/render/theme/css.o src/render/theme/rules.o src/render/theme/custom.o
 
 tests/test_render_theme: tests/test_render_theme.c tests/stubs/render_test_stubs.c $(THEME_TEST_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)

@@ -1,0 +1,103 @@
+#include "render.h"
+#include "theme.h"
+#include "config/config.h"
+#include <cwist/core/sstring/sstring.h>
+#include <string.h>
+
+static void append_input(cwist_sstring *b, const char *name, const char *value, const char *label) {
+    cwist_sstring_append(b, "<label class='appearance-field'><span>");
+    cwist_sstring_append(b, label);
+    cwist_sstring_append(b, "</span><input name='");
+    cwist_sstring_append(b, name);
+    cwist_sstring_append(b, "' value='");
+    cwist_sstring_append_escaped(b, value);
+    cwist_sstring_append(b, "' data-appearance-setting></label>");
+}
+
+static void append_theme_choice(cwist_sstring *b, const char *group, const char *value,
+                                const char *current, const char *label) {
+    cwist_sstring_append(b, "<label class='appearance-theme-choice'><input type='radio' name='");
+    cwist_sstring_append(b, group);
+    cwist_sstring_append(b, "' value='");
+    cwist_sstring_append(b, value);
+    cwist_sstring_append(b, "' data-theme-radio");
+    if (strcmp(value, "custom") == 0) cwist_sstring_append(b, " data-custom-choice");
+    if (strcmp(value, "custom") == 0 && !theme_custom_available()) cwist_sstring_append(b, " disabled");
+    if (strcmp(value, current) == 0) cwist_sstring_append(b, " checked");
+    cwist_sstring_append(b, "><span>");
+    cwist_sstring_append(b, label);
+    cwist_sstring_append(b, "</span></label>");
+}
+
+static void append_theme_group(cwist_sstring *b, const char *group, const char *current) {
+    append_theme_choice(b, group, "light", current, "Light");
+    append_theme_choice(b, group, "dark", current, "Dark");
+    append_theme_choice(b, group, "ocean", current, "Ocean");
+    append_theme_choice(b, group, "forest", current, "Forest");
+    append_theme_choice(b, group, "sepia", current, "Sepia");
+    append_theme_choice(b, group, "custom", current, "Custom");
+}
+
+cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool is_mobile, const char *msg) {
+    cwist_sstring *b = cwist_sstring_create();
+    cwist_sstring_assign(b, "<div class='hero'><h1>Appearance</h1><p>Choose a theme and tune typography while watching the blog preview.</p></div>");
+    if (msg && strcmp(msg, "saved") == 0) cwist_sstring_append(b, "<div class='alert'>Appearance settings saved.</div>");
+    else if (msg && msg[0]) cwist_sstring_append(b, "<div class='alert'>Settings were not saved. Check the uploaded files and field values.</div>");
+    cwist_sstring_append(b, "<style>.appearance-layout{display:grid;grid-template-columns:minmax(280px,420px) minmax(0,1fr);gap:20px;align-items:start}.appearance-controls{max-height:calc(100vh - 110px);overflow:auto;padding-right:8px}.appearance-preview{position:sticky;top:16px}.appearance-preview iframe{display:block;width:100%;height:calc(100vh - 150px);min-height:560px;border:1px solid var(--border);border-radius:18px;background:var(--panel)}.appearance-theme-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.appearance-theme-choice{display:flex;gap:6px;align-items:center;padding:8px;border:1px solid var(--border);border-radius:10px}.appearance-field{display:grid;gap:5px;margin:10px 0}.appearance-field input{width:100%;padding:8px;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:8px}.appearance-tune{display:grid;grid-template-columns:1fr 110px 90px;gap:8px;align-items:end}.appearance-actions{display:flex;gap:10px;align-items:center;margin:16px 0}.appearance-note{font-size:13px;color:var(--muted)}@media(max-width:1000px){.appearance-layout{grid-template-columns:1fr}.appearance-controls{max-height:none}.appearance-preview{position:static}.appearance-preview iframe{height:640px;min-height:0}}</style>");
+    cwist_sstring_append(b, "<form action='/admin/appearance' method='post' enctype='multipart/form-data' id='appearance-form'><div class='appearance-layout'><div class='appearance-controls'>");
+    cwist_sstring_append(b, "<section class='card'><h2>Theme</h2><p class='appearance-note'>Selecting a radio updates the preview immediately. Light and dark choices are saved independently.</p><h3>Light mode</h3><div class='appearance-theme-grid'>");
+    char light[64], dark_theme[64];
+    get_special_themes(light, dark_theme);
+    append_theme_group(b, "light_theme", light);
+    cwist_sstring_append(b, "</div><h3>Dark mode</h3><div class='appearance-theme-grid'>");
+    append_theme_group(b, "dark_theme", dark_theme);
+    cwist_sstring_append(b, "</div><label class='appearance-field'><span>Custom CWIST theme JSON</span><input type='file' name='theme_file' accept='.json,application/json' data-preview-theme></label>");
+    cwist_sstring_append(b, "<p class='appearance-note'>The file uses the same <code>name</code>, <code>vars</code>, and <code>rules</code> structure as <code>/themes.json</code>. Add <code>mode: \"light\"</code> or <code>\"dark\"</code>. Maximum 512 KiB.</p></section>");
+
+    cwist_sstring_append(b, "<section class='card'><h2>Font sources</h2><label class='appearance-field'><span>TTF, OTF, WOFF, or WOFF2</span><input type='file' name='font_file' accept='.ttf,.otf,.woff,.woff2' data-preview-font></label>");
+    append_input(b, "font_face_family", g_font_settings.face_family, "Uploaded font family name");
+    append_input(b, "font_import_url", g_font_settings.import_url, "Webfont CSS URL (optional)");
+    append_input(b, "font_script_url", g_font_settings.script_url, "Webfont JS URL (optional)");
+    cwist_sstring_append(b, "<label class='appearance-field'><span>Webfont JavaScript file (optional)</span><input type='file' name='font_script_file' accept='.js,text/javascript' data-preview-script></label><p class='appearance-note'>Uploading a file replaces its corresponding URL. JavaScript runs with page privileges; upload only code you trust.</p></section>");
+
+    cwist_sstring_append(b, "<section class='card'><h2>Font stacks</h2>");
+    append_input(b, "font_body", g_font_settings.body, "Body and Korean/Latin/Cyrillic fallback");
+    append_input(b, "font_heading", g_font_settings.heading, "Headings");
+    append_input(b, "font_ui", g_font_settings.ui, "UI, navigation, buttons, metadata");
+    append_input(b, "font_code", g_font_settings.code, "Code");
+    append_input(b, "font_blockquote", g_font_settings.blockquote, "Blockquotes");
+    append_input(b, "font_display", g_font_settings.display, "Display titles");
+    cwist_sstring_append(b, "</section>");
+
+    cwist_sstring_append(b, "<section class='card'><h2>Fine typography</h2><p class='appearance-note'>Each row controls the named page area. Weights accept 100 through 900; spacing accepts em, rem, px, or normal.</p>");
+    struct { const char *label; const char *spacing_name; const char *spacing; const char *weight_name; const char *weight; } rows[] = {
+        {"Body", "letter_spacing_body", g_font_settings.letter_spacing_body, "font_weight_body", g_font_settings.font_weight_body},
+        {"Page H1", "letter_spacing_h1", g_font_settings.letter_spacing_h1, "font_weight_h1", g_font_settings.font_weight_h1},
+        {"Page H2", "letter_spacing_h2", g_font_settings.letter_spacing_h2, "font_weight_h2", g_font_settings.font_weight_h2},
+        {"Page H3", "letter_spacing_h3", g_font_settings.letter_spacing_h3, "font_weight_h3", g_font_settings.font_weight_h3},
+        {"Page H4", "letter_spacing_h4", g_font_settings.letter_spacing_h4, "font_weight_h4", g_font_settings.font_weight_h4},
+        {"H5 and H6", "letter_spacing_h5h6", g_font_settings.letter_spacing_h5h6, "font_weight_h5h6", g_font_settings.font_weight_h5h6},
+        {"Top bar", "letter_spacing_topbar_title", g_font_settings.letter_spacing_topbar_title, "font_weight_topbar_title", g_font_settings.font_weight_topbar_title},
+        {"Buttons", "letter_spacing_btn", g_font_settings.letter_spacing_btn, "font_weight_btn", g_font_settings.font_weight_btn},
+        {"Board titles", "letter_spacing_board_line_title", g_font_settings.letter_spacing_board_line_title, "font_weight_board_line_title", g_font_settings.font_weight_board_line_title},
+        {"Hero title", "letter_spacing_hero_h1", g_font_settings.letter_spacing_hero_h1, "font_weight_hero_h1", g_font_settings.font_weight_hero_h1},
+        {"Post H1", "letter_spacing_post_h1", g_font_settings.letter_spacing_post_h1, "font_weight_post_h1", g_font_settings.font_weight_post_h1},
+        {"Markdown H1", "letter_spacing_md_h1", g_font_settings.letter_spacing_md_h1, "font_weight_md_h1", g_font_settings.font_weight_md_h1},
+        {"Markdown H2", "letter_spacing_md_h2", g_font_settings.letter_spacing_md_h2, "font_weight_md_h2", g_font_settings.font_weight_md_h2},
+        {"Markdown H3", "letter_spacing_md_h3", g_font_settings.letter_spacing_md_h3, "font_weight_md_h3", g_font_settings.font_weight_md_h3}
+    };
+    for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+        cwist_sstring_append(b, "<div class='appearance-tune'><span>");
+        cwist_sstring_append(b, rows[i].label);
+        cwist_sstring_append(b, "</span>");
+        append_input(b, rows[i].spacing_name, rows[i].spacing, "Spacing");
+        append_input(b, rows[i].weight_name, rows[i].weight, "Weight");
+        cwist_sstring_append(b, "</div>");
+    }
+    append_input(b, "letter_spacing_hero_p", g_font_settings.letter_spacing_hero_p, "Hero subtitle spacing");
+    cwist_sstring_append(b, "</section><div class='appearance-actions'><button type='submit' class='btn'>Save appearance</button><button type='reset' class='btn btn-outline' id='appearance-reset'>Reset preview</button><a href='/admin/dashboard' class='btn btn-outline'>Dashboard</a></div>");
+    cwist_sstring_append(b, "</div><aside class='appearance-preview'><div class='appearance-actions'><strong>Live preview</strong><select id='appearance-preview-mode' aria-label='Preview mode'><option value='light'>Light selection</option><option value='dark'>Dark selection</option></select></div><iframe id='appearance-preview' title='Live blog appearance preview' sandbox='allow-scripts allow-same-origin'></iframe><p class='appearance-note'>Nothing is applied to visitors until Save appearance is pressed.</p></aside></div></form><script src='/assets/js/appearance-editor.js'></script>");
+    cwist_sstring *page = render_page("Appearance", b->data, dark, "admin", profile_pic, is_mobile);
+    cwist_sstring_destroy(b);
+    return page;
+}

@@ -110,6 +110,15 @@ int main(void) {
     CHECK(config_vote_allowed(true, "user"), "logged-in vote allowed when authorized");
 
     remove(PATH);
+    CHECK(font_settings_load(PATH), "load default font settings");
+    snprintf(g_font_settings.script_url, sizeof(g_font_settings.script_url), "/assets/js/appearance-webfont.js?v=1");
+    snprintf(g_font_settings.body, sizeof(g_font_settings.body), "'Custom Font', sans-serif");
+    CHECK(font_settings_save(PATH), "save font settings from appearance editor");
+    CHECK(font_settings_load(PATH), "reload saved font settings");
+    CHECK(strcmp(g_font_settings.script_url, "/assets/js/appearance-webfont.js?v=1") == 0, "webfont script URL round trip");
+    CHECK(strcmp(g_font_settings.body, "'Custom Font', sans-serif") == 0, "font stack round trip");
+
+    remove(PATH);
     printf("%s\n", failures == 0 ? "ALL PASS" : "SOME FAILED");
     return failures == 0 ? 0 : 1;
 }

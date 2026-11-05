@@ -495,6 +495,16 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_set_text(dyn_style, critical_css ? critical_css : "");
     cwist_html_element_add_child(head, dyn_style);
     free(critical_css);
+    char light_theme[64], dark_theme[64];
+    get_special_themes(light_theme, dark_theme);
+    if (strcmp(dark ? dark_theme : light_theme, "custom") == 0) {
+        char *font_css = theme_build_font_css();
+        cwist_html_element_t *font_style = cwist_html_element_create("style");
+        cwist_html_element_add_attr(font_style, "id", "font-overrides");
+        cwist_html_element_set_text(font_style, font_css ? font_css : "");
+        cwist_html_element_add_child(head, font_style);
+        free(font_css);
+    }
 
     /* Placeholder for critical shell assets: font CSS and jwt.js + layout.js.
        These are required for the page chrome and theme to render correctly. */
@@ -878,6 +888,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     cwist_sstring_append(head_shell, "';font-display:swap;src:");
                     cwist_sstring_append(head_shell, g_font_settings.face_src);
                     cwist_sstring_append(head_shell, ";}</style>");
+                }
+                if (g_font_settings.script_url[0]) {
+                    cwist_sstring_append(head_shell, "<script src=\"");
+                    cwist_sstring_append(head_shell, g_font_settings.script_url);
+                    cwist_sstring_append(head_shell, "\"></script>");
                 }
                 if (inline_shell_enabled() && inline_asset_fits(a->font_css_small)) {
                     cwist_sstring_append(head_shell, "<style>");

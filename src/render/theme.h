@@ -33,5 +33,13 @@ cJSON *build_theme_object(const char *name, theme_color_t *t);
 char *theme_build_json(bool dark_mode);
 char *theme_build_all_json(void);
 char *theme_build_css(bool dark_mode);
+char *theme_build_font_css(void);
+
+bool theme_custom_load(const char *path);
+bool theme_custom_validate(const char *text, size_t length, char *error, size_t error_size);
+bool theme_custom_save(const char *path, const char *text, size_t length, char *error, size_t error_size);
+cJSON *theme_custom_object(void);
+bool theme_custom_available(void);
+bool theme_custom_is_dark(void);
 
 #endif

@@ -6,6 +6,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 blog_config_t g_config = {0};
 font_settings_t g_font_settings = {0};
@@ -737,6 +738,7 @@ static void font_set_default(void) {
      * external @import or @font-face URLs are needed by default. Leaving these
      * empty avoids extra round trips and keeps the page self-contained. */
     g_font_settings.import_url[0] = '\0';
+    g_font_settings.script_url[0] = '\0';
     snprintf(g_font_settings.face_family, sizeof(g_font_settings.face_family), "JetBrains Mono");
     g_font_settings.face_src[0] = '\0';
     g_font_settings.download_count = 0;
@@ -788,6 +790,7 @@ bool font_settings_load(const char *path) {
         f = fopen(path, "w");
         if (f) {
             fprintf(f, "font_import_url=%s\n", g_font_settings.import_url);
+            fprintf(f, "font_script_url=%s\n", g_font_settings.script_url);
             fprintf(f, "font_face_family=%s\n", g_font_settings.face_family);
             fprintf(f, "font_face_src=%s\n", g_font_settings.face_src);
             fprintf(f, "font_body=%s\n", g_font_settings.body);
@@ -840,6 +843,8 @@ bool font_settings_load(const char *path) {
         const char *val = eq + 1;
         if (strcmp(key, "font_import_url") == 0) {
             snprintf(g_font_settings.import_url, sizeof(g_font_settings.import_url), "%s", val);
+        } else if (strcmp(key, "font_script_url") == 0) {
+            snprintf(g_font_settings.script_url, sizeof(g_font_settings.script_url), "%s", val);
         } else if (strcmp(key, "font_face_family") == 0) {
             snprintf(g_font_settings.face_family, sizeof(g_font_settings.face_family), "%s", val);
         } else if (strcmp(key, "font_face_src") == 0) {
@@ -944,4 +949,63 @@ bool font_settings_load(const char *path) {
 /* Resolved mail domain for the local mail stack (see blog_config_load). */
 const char *fly_mail_domain(void) {
     return g_config.mail_domain[0] ? g_config.mail_domain : "localhost";
+}
+
+
+bool font_settings_save(const char *path) {
+    char temporary[512];
+    int needed = snprintf(temporary, sizeof(temporary), "%s.tmp.%ld", path, (long)getpid());
+    if (needed < 0 || (size_t)needed >= sizeof(temporary)) return false;
+    FILE *file = fopen(temporary, "w");
+    if (!file) return false;
+#define WRITE_FONT_SETTING(key, value) fprintf(file, key "=%s\n", value)
+    WRITE_FONT_SETTING("font_import_url", g_font_settings.import_url);
+    WRITE_FONT_SETTING("font_script_url", g_font_settings.script_url);
+    WRITE_FONT_SETTING("font_face_family", g_font_settings.face_family);
+    WRITE_FONT_SETTING("font_face_src", g_font_settings.face_src);
+    WRITE_FONT_SETTING("font_body", g_font_settings.body);
+    WRITE_FONT_SETTING("font_heading", g_font_settings.heading);
+    WRITE_FONT_SETTING("font_ui", g_font_settings.ui);
+    WRITE_FONT_SETTING("font_code", g_font_settings.code);
+    WRITE_FONT_SETTING("font_blockquote", g_font_settings.blockquote);
+    WRITE_FONT_SETTING("font_display", g_font_settings.display);
+    WRITE_FONT_SETTING("letter_spacing_body", g_font_settings.letter_spacing_body);
+    WRITE_FONT_SETTING("letter_spacing_h1", g_font_settings.letter_spacing_h1);
+    WRITE_FONT_SETTING("letter_spacing_h2", g_font_settings.letter_spacing_h2);
+    WRITE_FONT_SETTING("letter_spacing_h3", g_font_settings.letter_spacing_h3);
+    WRITE_FONT_SETTING("letter_spacing_h4", g_font_settings.letter_spacing_h4);
+    WRITE_FONT_SETTING("letter_spacing_h5h6", g_font_settings.letter_spacing_h5h6);
+    WRITE_FONT_SETTING("letter_spacing_topbar_title", g_font_settings.letter_spacing_topbar_title);
+    WRITE_FONT_SETTING("letter_spacing_btn", g_font_settings.letter_spacing_btn);
+    WRITE_FONT_SETTING("letter_spacing_board_line_title", g_font_settings.letter_spacing_board_line_title);
+    WRITE_FONT_SETTING("letter_spacing_hero_h1", g_font_settings.letter_spacing_hero_h1);
+    WRITE_FONT_SETTING("letter_spacing_hero_p", g_font_settings.letter_spacing_hero_p);
+    WRITE_FONT_SETTING("letter_spacing_md_h1", g_font_settings.letter_spacing_md_h1);
+    WRITE_FONT_SETTING("letter_spacing_md_h2", g_font_settings.letter_spacing_md_h2);
+    WRITE_FONT_SETTING("letter_spacing_md_h3", g_font_settings.letter_spacing_md_h3);
+    WRITE_FONT_SETTING("letter_spacing_post_h1", g_font_settings.letter_spacing_post_h1);
+    WRITE_FONT_SETTING("font_weight_body", g_font_settings.font_weight_body);
+    WRITE_FONT_SETTING("font_weight_h1", g_font_settings.font_weight_h1);
+    WRITE_FONT_SETTING("font_weight_h2", g_font_settings.font_weight_h2);
+    WRITE_FONT_SETTING("font_weight_h3", g_font_settings.font_weight_h3);
+    WRITE_FONT_SETTING("font_weight_h4", g_font_settings.font_weight_h4);
+    WRITE_FONT_SETTING("font_weight_h5h6", g_font_settings.font_weight_h5h6);
+    WRITE_FONT_SETTING("font_weight_topbar_title", g_font_settings.font_weight_topbar_title);
+    WRITE_FONT_SETTING("font_weight_btn", g_font_settings.font_weight_btn);
+    WRITE_FONT_SETTING("font_weight_board_line_title", g_font_settings.font_weight_board_line_title);
+    WRITE_FONT_SETTING("font_weight_hero_h1", g_font_settings.font_weight_hero_h1);
+    WRITE_FONT_SETTING("font_weight_md_h1", g_font_settings.font_weight_md_h1);
+    WRITE_FONT_SETTING("font_weight_md_h2", g_font_settings.font_weight_md_h2);
+    WRITE_FONT_SETTING("font_weight_md_h3", g_font_settings.font_weight_md_h3);
+    WRITE_FONT_SETTING("font_weight_post_h1", g_font_settings.font_weight_post_h1);
+#undef WRITE_FONT_SETTING
+    for (size_t i = 0; i < g_font_settings.download_count; i++)
+        fprintf(file, "font_file=%s %s\n", g_font_settings.download_name[i], g_font_settings.download_url[i]);
+    bool ok = fflush(file) == 0 && fsync(fileno(file)) == 0 && fclose(file) == 0;
+    if (!ok || rename(temporary, path) != 0) {
+        fclose(file);
+        unlink(temporary);
+        return false;
+    }
+    return true;
 }
