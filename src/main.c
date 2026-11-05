@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers/handlers.h"
 #include "auth/auth.h"
+#include "audit/audit.h"
 #include "crypto/fly_crypto.h"
 #include "db/db.h"
 #include "utils/spam_guard.h"
@@ -402,6 +403,17 @@ int main(int argc, char **argv) {
         return 1;
     }
     CWIST_LOG_INFO("Crypto initialized");
+
+    if (argc > 1 && strcmp(argv[1], "--audit-verify") == 0) {
+        const char *path = argc > 2 ? argv[2] : "data/audit.log";
+        uint64_t entries = 0;
+        char error[256] = {0};
+        bool ok = audit_verify(path, &entries, error, sizeof(error));
+        if (ok) printf("audit log OK: %llu entries\n", (unsigned long long)entries);
+        else fprintf(stderr, "audit log verification failed: %s\n", error);
+        fly_crypto_cleanup();
+        return ok ? 0 : 1;
+    }
 
     if (!auth_jwt_init("data/.jwt_secret")) {
         FLY_LOG_ERROR("JWT secret initialization failed");

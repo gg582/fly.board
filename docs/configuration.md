@@ -139,6 +139,13 @@ approval_queue=false
 The moderation model and exact limits are documented in
 [community.md](community.md) and [trust-and-spam.md](trust-and-spam.md).
 
+## audit.settings (optional)
+
+Hash-chained security audit storage is off by default. `enabled=true` enables
+it, `path=data/audit.log` selects the JSONL file, and `sign=true` adds ML-DSA
+site signatures. Verification, export, retention, and FlyWire semantics are in
+[audit.md](audit.md).
+
 ## flywire.settings (optional)
 
 FlyWire primary/replica sync - full documentation in [flywire.md](flywire.md):
