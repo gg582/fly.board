@@ -4,12 +4,12 @@
 
 `fly.board` can broadcast newly created post metadata over NATS so other nodes, bots, or sidecar services can react without polling the HTTP app.
 
-The current integration is intentionally narrow:
+The integration uses a small set of subjects:
 
-- One subject: `flyboard.posts`
-- One publisher path: post creation
-- One subscriber path: background dispatch thread
-- One PQC primitive: `ML-DSA-65` message signing
+- `flyboard.posts` for new post metadata
+- `flyboard.comments` for comment and reply notifications
+- Opt-in `flyboard.moderation.review` and `flyboard.moderation.decision` subjects for external moderation
+- Per-process background dispatch threads and `ML-DSA-65` message signing
 
 There is no PQC encryption in the current codebase. Message confidentiality still depends on network isolation and TLS around the NATS transport.
 
@@ -44,8 +44,11 @@ This matters because NATS payload signing depends on the global PQC keypair alre
 | Subject | Producer | Consumer | Purpose |
 |---------|----------|----------|---------|
 | `flyboard.posts` | `handler_post_new_post` | `on_post_msg` callback and any external subscribers | Broadcast new post metadata |
+| `flyboard.comments` | Comment creation | `on_comment_msg` callback and external subscribers | Deliver comment/reply notifications |
+| `flyboard.moderation.review` | Pending post/comment creation | External reviewer | Optional signed review request |
+| `flyboard.moderation.decision` | External reviewer | `on_moderation_decision` callback | Optional signed review decision |
 
-The publish call originates from the post creation handler after the database write succeeds. The post itself remains authoritative in SQLite; NATS is a fanout channel, not the source of truth.
+Publish calls originate after database writes succeed. SQLite remains authoritative; NATS is a fanout and asynchronous review channel, not the source of truth.
 
 ## Message Schema
 
@@ -91,15 +94,7 @@ If signing fails, publishing fails. That is intentional: externally exposed mess
 
 ## Subscriber Behavior
 
-The built-in subscriber is minimal by design. It currently:
-
-- subscribes to `flyboard.posts` in `fly_nats_init()`
-- receives messages in `on_post_msg(...)`
-- parses the payload
-- logs the `slug`
-- logs whether a signature field is present
-
-It does not yet perform full signature verification in-process. That is left open for a stricter downstream worker or a future hardening patch.
+The post-cache subscriber parses `flyboard.posts` messages in `on_post_msg(...)`, invalidates the affected cache entry, and logs the slug and whether a signature field is present. It does not verify post broadcast signatures in-process. Comment notification and external moderation subscribers have their own handlers; moderation decisions require full signature verification against the pinned reviewer key.
 
 ## Threading Model
 
@@ -165,6 +160,8 @@ If you add more subjects, keep the same pattern:
 - keep the authoritative state in the database, not in NATS
 
 That keeps attack surface smaller than introducing mutable event-only state or unsigned cross-node control traffic.
+
+The optional asynchronous external moderation contract is documented separately in [docs/moderation-webhooks.md](docs/moderation-webhooks.md). It is disabled by default and uses the `flyboard.moderation.review` and `flyboard.moderation.decision` subjects.
 
 ## Multi-Site Topology (Leaf Nodes)
 

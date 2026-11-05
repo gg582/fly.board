@@ -33,4 +33,17 @@ bool db_moderation_approve(cwist_db *db, const char *target_type, int target_id,
 bool db_moderation_reject(cwist_db *db, const char *target_type, int target_id, int reviewer_uid);
 void db_moderation_filter_comments(cwist_db *db, cJSON *comments);
 
+typedef enum {
+    MODERATION_EXTERNAL_ERROR = 0,
+    MODERATION_EXTERNAL_APPLIED,
+    MODERATION_EXTERNAL_DUPLICATE,
+    MODERATION_EXTERNAL_REJECTED
+} moderation_external_result_t;
+
+cJSON *db_moderation_external_create(cwist_db *db, const char *target_type, int target_id,
+                                     const char *correlation_id, long long issued_at, long long expires_at);
+moderation_external_result_t db_moderation_external_apply(cwist_db *db, const char *correlation_id,
+                                                         const char *decision_id, moderation_action_t action,
+                                                         long long issued_at, const char *reason, long long now);
+
 #endif

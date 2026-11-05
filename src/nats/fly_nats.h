@@ -2,6 +2,7 @@
 #define FLY_NATS_H
 
 #include <stdbool.h>
+#include <cwist/core/db/sql.h>
 
 /**
  * @brief Configure the flyboard NATS subsystem (no connection yet).
@@ -18,7 +19,12 @@ bool fly_nats_init(const char *url);
  * serving (always after the fork) and starts its connection + subscriptions.
  * Cheap after the first call. No-op when NATS is not configured.
  */
-void fly_nats_ensure(void);
+void fly_nats_ensure(cwist_db *db);
+
+/* Optional external moderation. Disabled unless a reviewer public key is
+ * configured. Publishing failure never changes the local pending item. */
+bool fly_nats_moderation_init(const char *reviewer_pubkey_b64, int timeout_seconds);
+bool fly_nats_publish_moderation(cwist_db *db, const char *target_type, int target_id);
 
 /**
  * @brief Publish post metadata to flyboard.posts subject.

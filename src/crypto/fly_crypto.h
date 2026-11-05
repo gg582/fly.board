@@ -48,6 +48,12 @@ bool fly_crypto_verify(const uint8_t *msg, size_t msg_len, const char *sig);
 bool fly_crypto_sign_manifest(const uint8_t *msg, size_t msg_len, char **sig_out);
 bool fly_crypto_verify_manifest(const char *pk_b64, const uint8_t *msg, size_t msg_len, const char *sig);
 
+/* Domain-separated external moderation protocol signatures. Decisions are
+ * verified only against the configured reviewer public key. */
+bool fly_crypto_sign_moderation_request(const uint8_t *msg, size_t msg_len, char **sig_out);
+bool fly_crypto_sign_moderation_decision(const uint8_t *msg, size_t msg_len, char **sig_out);
+bool fly_crypto_verify_moderation_decision(const char *pk_b64, const uint8_t *msg, size_t msg_len, const char *sig);
+
 /** @brief Sign / verify an audit entry hash (separate signing context). */
 bool fly_crypto_sign_audit(const uint8_t *msg, size_t msg_len, char **sig_out);
 bool fly_crypto_verify_audit(const uint8_t *msg, size_t msg_len, const char *sig);

@@ -240,7 +240,7 @@ SRCS := src/main.c \
         src/utils/email.c \
         src/utils/s3_client.c \
         src/utils/font_fetch.c \
-        src/nats/fly_nats.c \
+        src/nats/fly_nats.c src/nats/moderation.c \
         src/core/log.c \
         third_party/qrcodegen/qrcodegen.c \
         src/config/config.c \
@@ -451,7 +451,7 @@ tests/test_flywire_profile: tests/test_flywire_profile.c $(SERVER_OBJS) $(MD4C_L
 check-flywire-profile: tests/test_flywire_profile
 	./tests/test_flywire_profile
 
-COMMUNITY_TESTS := tests/test_utils_aho_moderation tests/test_community_roles tests/test_db_moderation tests/test_db_board_delegations \
+COMMUNITY_TESTS := tests/test_utils_aho_moderation tests/test_community_roles tests/test_db_moderation tests/test_db_board_delegations tests/test_nats_moderation \
                    tests/test_render_moderation tests/test_db_portability tests/test_db_sync_anti_entropy
 
 tests/test_utils_aho_moderation: tests/test_utils_aho_moderation.c src/utils/aho_moderation.c
@@ -461,6 +461,9 @@ tests/test_community_roles: tests/test_community_roles.c src/engine/community.c 
 	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -o $@ $^ $(LDFLAGS) $(LIBS)
 
 tests/test_db_moderation: tests/test_db_moderation.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
+
+tests/test_nats_moderation: tests/test_nats_moderation.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
 	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
 
 tests/test_db_board_delegations: tests/test_db_board_delegations.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)

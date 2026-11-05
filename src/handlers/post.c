@@ -1033,6 +1033,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         multipart_free(files);
         return;
     }
+    if (awaiting_review) fly_nats_publish_moderation(req->db, MODERATION_POST, created_id);
     /* Group tags, series/i18n, and media attachments into a single transaction
      * so they commit in one WAL write-lock hold instead of 10-20 autocommit
      * cycles that stall concurrent readers and writers. */

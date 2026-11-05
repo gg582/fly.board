@@ -29,7 +29,7 @@ env:
   CWIST_REF: v4.2
   # Bump when the post-clone cwist patch set or build flags change: the
   # cache key must not reuse an /usr/local built with the old configuration.
-  CWIST_PATCH: 2
+  CWIST_PATCH: 3
 
 concurrency:
   group: memory-checks-${{ github.ref }}
@@ -62,17 +62,14 @@ jobs:
       # of this job. The cache is keyed by CWIST_REF, so bumping the pin
       # invalidates it; there are no restore-keys on purpose, a stale
       # /usr/local from another cwist version must never be reused.
-      # cwist builds with -march=native, so a build from another runner CPU
-      # can die with SIGILL here; key the cache on the CPU model as well.
-      - name: Compute CPU cache key
-        id: cpu
-        run: echo "model=$(grep -m1 '^model name' /proc/cpuinfo | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      # CWIST_PORTABLE keeps cached libttak objects free of host-only
+      # instructions, so a cache created by one runner cannot SIGILL on another.
 
       - name: Cache cwist build
         uses: actions/cache@v4
         with:
           path: /usr/local
-          key: cwist-${{ env.CWIST_REF }}-p${{ env.CWIST_PATCH }}-${{ runner.os }}-${{ steps.cpu.outputs.model }}
+          key: cwist-${{ env.CWIST_REF }}-p${{ env.CWIST_PATCH }}-${{ runner.os }}-portable
         id: cwist-cache
 
       - name: Build and install cwist
@@ -93,7 +90,7 @@ jobs:
           # CI builds. The vendored dep does not need warnings-as-errors.
           sed -i 's|option(sctp_werror "Treat warning as error" 1)|option(sctp_werror "Treat warning as error" 0)|' lib/usrsctp/CMakeLists.txt
           # fly.board needs SQLite FTS5 for posts_fts full-text search.
-          make -j"$(nproc)" CWIST_SQLITE_FTS5=1
+          make -j"$(nproc)" CWIST_SQLITE_FTS5=1 CWIST_PORTABLE=1
           make install CWIST_SQLITE_FTS5=1
           rm -rf /tmp/cwist
 
@@ -177,17 +174,14 @@ jobs:
         with:
           submodules: recursive
 
-      # cwist builds with -march=native, so a build from another runner CPU
-      # can die with SIGILL here; key the cache on the CPU model as well.
-      - name: Compute CPU cache key
-        id: cpu
-        run: echo "model=$(grep -m1 '^model name' /proc/cpuinfo | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      # CWIST_PORTABLE keeps cached libttak objects free of host-only
+      # instructions, so a cache created by one runner cannot SIGILL on another.
 
       - name: Cache cwist build
         uses: actions/cache@v4
         with:
           path: /usr/local
-          key: cwist-${{ env.CWIST_REF }}-p${{ env.CWIST_PATCH }}-${{ runner.os }}-${{ steps.cpu.outputs.model }}
+          key: cwist-${{ env.CWIST_REF }}-p${{ env.CWIST_PATCH }}-${{ runner.os }}-portable
         id: cwist-cache
 
       - name: Build and install cwist
@@ -204,7 +198,7 @@ jobs:
           sed -i 's|FIND_PATH(ZLIB_INCLUDE_DIR NAMES zlib.h)|SET(ZLIB_INCLUDE_DIR /usr/include)|' lib/lsquic/CMakeLists.txt
           sed -i 's|FIND_LIBRARY(ZLIB_LIB libz${LIB_SUFFIX})|SET(ZLIB_LIB /usr/lib/libz.so)|' lib/lsquic/CMakeLists.txt
           sed -i 's|option(sctp_werror "Treat warning as error" 1)|option(sctp_werror "Treat warning as error" 0)|' lib/usrsctp/CMakeLists.txt
-          make -j"$(nproc)" CWIST_SQLITE_FTS5=1
+          make -j"$(nproc)" CWIST_SQLITE_FTS5=1 CWIST_PORTABLE=1
           make install CWIST_SQLITE_FTS5=1
           rm -rf /tmp/cwist
 
@@ -262,17 +256,14 @@ jobs:
         with:
           submodules: recursive
 
-      # cwist builds with -march=native, so a build from another runner CPU
-      # can die with SIGILL here; key the cache on the CPU model as well.
-      - name: Compute CPU cache key
-        id: cpu
-        run: echo "model=$(grep -m1 '^model name' /proc/cpuinfo | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      # CWIST_PORTABLE keeps cached libttak objects free of host-only
+      # instructions, so a cache created by one runner cannot SIGILL on another.
 
       - name: Cache cwist build
         uses: actions/cache@v4
         with:
           path: /usr/local
-          key: cwist-${{ env.CWIST_REF }}-p${{ env.CWIST_PATCH }}-${{ runner.os }}-${{ steps.cpu.outputs.model }}
+          key: cwist-${{ env.CWIST_REF }}-p${{ env.CWIST_PATCH }}-${{ runner.os }}-portable
         id: cwist-cache
 
       - name: Build and install cwist
@@ -293,7 +284,7 @@ jobs:
           # CI builds. The vendored dep does not need warnings-as-errors.
           sed -i 's|option(sctp_werror "Treat warning as error" 1)|option(sctp_werror "Treat warning as error" 0)|' lib/usrsctp/CMakeLists.txt
           # fly.board needs SQLite FTS5 for posts_fts full-text search.
-          make -j"$(nproc)" CWIST_SQLITE_FTS5=1
+          make -j"$(nproc)" CWIST_SQLITE_FTS5=1 CWIST_PORTABLE=1
           make install CWIST_SQLITE_FTS5=1
           rm -rf /tmp/cwist
 
