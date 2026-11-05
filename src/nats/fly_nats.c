@@ -8,7 +8,10 @@
 #  if __has_include (<cwist/net/nats/cwist_nats.h>)
 #    define HAVE_NATS 1
 #    include <cwist/net/nats/cwist_nats.h>
-#    include <nats.h>
+/* Public cnats API, declared here because installed CWIST exports the native
+ * handle but does not install cnats' own nats.h. CONNECTED is enum value 2. */
+extern int natsConnection_Status(natsConnection *nc);
+#define FLY_NATS_CONN_STATUS_CONNECTED 2
 #  endif
 #endif
 #include <cwist/core/mem/alloc.h>
@@ -463,7 +466,7 @@ bool fly_nats_is_connected(void) {
 #ifdef HAVE_NATS
     cwist_nats_t *nc = atomic_load_explicit(&g_ns_connection, memory_order_acquire);
     natsConnection *native = nc ? cwist_nats_native(nc) : NULL;
-    return native && natsConnection_Status(native) == NATS_CONN_STATUS_CONNECTED;
+    return native && natsConnection_Status(native) == FLY_NATS_CONN_STATUS_CONNECTED;
 #else
     return false;
 #endif
