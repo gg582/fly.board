@@ -2,6 +2,7 @@
 #include "moderation.h"
 #include "db_internal.h"
 #include "engine/community.h"
+#include "utils/moderation_filter.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -174,9 +175,16 @@ moderation_decision_t moderation_check_submission(cwist_db *db, int uid, const c
                                strcmp(target_type, MODERATION_COMMENT) != 0)) {
         return decision(MODERATION_REJECT, "invalid");
     }
-    if (moderation_can_review(role) || (!community.new_user_limits &&
-        !community.trust && !community.spam_detection && !community.approval_queue)) {
+    if (moderation_can_review(role)) return decision(MODERATION_ALLOW, "");
+    moderation_filter_policy_t filter = moderation_filter_get();
+    if (!filter.enabled && !community.new_user_limits &&
+        !community.trust && !community.spam_detection && !community.approval_queue) {
         return decision(MODERATION_ALLOW, "");
+    }
+    moderation_filter_action_t filter_action;
+    if (filter.enabled && moderation_filter_check(content, &filter_action)) {
+        return decision(filter_action == MODERATION_FILTER_REJECT ? MODERATION_REJECT : MODERATION_PENDING,
+                        "banned_content");
     }
     bool is_trusted = community.trust && trusted(db, uid);
     if (community.new_user_limits && !is_trusted && account_is_new(db, uid)) {

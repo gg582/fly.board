@@ -122,6 +122,43 @@ libmagic content sniffing, not extension:
 | `denylist` | executables/script interpreters + `message/news` | Comma-separated MIME types; `image/` (trailing slash or `/*`) matches a subtree, otherwise exact case-insensitive match |
 | `allowlist` | *(empty)* | Used when `mode=allowlist` |
 
+## Banned-word filter (admin dashboard, optional)
+
+The **Write Policy** section of the admin dashboard configures an optional
+Aho-Corasick banned-word filter for new post and comment bodies. It is disabled
+by default and does not require the community spam heuristics. A match either
+queues the submission as `pending` or rejects it, according to the configured
+action. Administrators and moderators bypass the filter; trusted accounts do
+not. Post titles, existing content, and post edits are not scanned.
+
+Rules are newline-delimited UTF-8 words or phrases. Blank lines are ignored,
+CRLF input is accepted, and all other whitespace is literal. Matching is by
+Unicode code-point substring, not word boundaries, so a rule can match inside a
+larger word. Overlapping rules and suffix matches all count. The match limit
+(1-1024, default 64) stops scanning after that many matches; one match is enough
+to apply the configured decision.
+
+The case-fold checkbox selects **simple** folding; when clear, matching is
+**exact**. Simple folding is one-to-one and covers ASCII, Latin-1 uppercase,
+Greek uppercase, and Cyrillic uppercase. Korean and all other code points remain
+unchanged. It is not full Unicode case folding: multi-character folds,
+locale-specific folds, normalization, and confusable-character detection are not
+performed. Malformed UTF-8 in a submission is consumed byte-by-byte as
+nonmatching input and cannot create a match; malformed UTF-8 in the rule list is
+rejected.
+
+At most 256 rules, 16,384 bytes of rule text, and 2,048 automaton states are
+accepted. Saving valid rules rebuilds the automaton and makes it available to
+all workers without a restart. Invalid changes leave the previous rules active.
+If stored rules are invalid at startup, the filter is disabled and a warning is
+logged.
+
+The settings are stored in `site_settings` as `moderation_filter_enabled`
+(`0`/`1`), `moderation_filter_action` (`pending`/`reject`),
+`moderation_filter_case_fold` (`exact`/`simple`),
+`moderation_filter_match_limit`, and `moderation_filter_rules`. Use the dashboard
+rather than editing these values directly.
+
 ## community.settings (optional)
 
 Every community protection is off by default. A missing file therefore keeps

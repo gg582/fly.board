@@ -5,6 +5,7 @@
 #include "config/write_policy.h"
 #include "tools/backup.h"
 #include "utils/email.h"
+#include "utils/moderation_filter.h"
 #include "engine/flywire.h"
 #include "engine/community.h"
 #include "../db/subscriber.h"
@@ -206,17 +207,31 @@ void handler_admin_write_policy_post(cwist_http_request *req, cwist_http_respons
     int limit_val = limit && limit[0] ? atoi(limit) : 0;
     if (limit_val < 0 || limit_val > SPAM_RATE_LIMIT_MAX) ok = false;
     else policy.spam_rate_limit = limit_val;
+    moderation_filter_policy_t filter = moderation_filter_get();
+    filter.enabled = cwist_query_map_get(kv, "moderation_filter_enabled") != NULL;
+    filter.case_fold = cwist_query_map_get(kv, "moderation_filter_case_fold") != NULL;
+    const char *filter_action = cwist_query_map_get(kv, "moderation_filter_action");
+    if (filter_action && strcmp(filter_action, "reject") == 0) filter.action = MODERATION_FILTER_REJECT;
+    else if (filter_action && strcmp(filter_action, "pending") == 0) filter.action = MODERATION_FILTER_PENDING;
+    else ok = false;
+    const char *filter_limit = cwist_query_map_get(kv, "moderation_filter_match_limit");
+    int filter_limit_val = filter_limit && filter_limit[0] ? atoi(filter_limit) : 0;
+    if (filter_limit_val <= 0 || filter_limit_val > MODERATION_FILTER_MATCH_LIMIT_MAX) ok = false;
+    else filter.match_limit = (size_t)filter_limit_val;
+    const char *rules = cwist_query_map_get(kv, "moderation_filter_rules");
+    if (!rules || strlen(rules) > AHO_MODERATION_RULES_MAX_BYTES) ok = false;
+    else snprintf(filter.rules, sizeof(filter.rules), "%s", rules);
     cwist_query_map_destroy(kv);
-    if (ok) ok = write_policy_set(req->db, &policy);
+    if (ok) ok = write_policy_set(req->db, &policy) && moderation_filter_set(req->db, &filter);
     if (ok) {
         int actor_uid = 0;
         char actor_role[32] = {0};
         auth_is_logged_in(req, &actor_uid, actor_role, sizeof(actor_role));
         audit_record(actor_uid, "admin.permission.write_policy", "site", "success", "posting and commenting scopes");
-        CWIST_LOG_INFO("Write policy updated: posts=%s comments=%s require_board=%s spam_honeypot=%s spam_rate_limit=%d",
+        CWIST_LOG_INFO("Write policy updated: posts=%s comments=%s require_board=%s spam_honeypot=%s spam_rate_limit=%d moderation_filter=%s",
                        write_scope_name(policy.post), write_scope_name(policy.comment),
                        policy.require_board ? "yes" : "no", policy.spam_honeypot ? "yes" : "no",
-                       policy.spam_rate_limit);
+                       policy.spam_rate_limit, filter.enabled ? "yes" : "no");
         /* Cached pages carry the New Post button and comment forms. This
          * also bumps the shared route BDR; the other workers' page caches
          * miss through the policy generation in their keys. */
