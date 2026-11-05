@@ -220,6 +220,7 @@ SRCS := src/main.c \
         src/utils/cache.c \
         src/utils/post_schedule.c \
         src/utils/spam_guard.c \
+        src/utils/traffic_guard.c \
         src/utils/ipban.c \
         src/tools/backup.c \
         src/tools/backup_schedule.c \
@@ -477,11 +478,18 @@ tests/test_audit: tests/test_audit.c src/audit/audit.c src/crypto/fly_crypto.o $
 check-audit: tests/test_audit
 	./tests/test_audit
 
-test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-audit $(TARGET)
+tests/test_utils_traffic_guard: tests/test_utils_traffic_guard.c src/utils/traffic_guard.c
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(CWIST_LIB) $(CWIST_DEPS) $(SSL_LIBS) -pthread -ldl -lm -lstdc++ -lz
+
+.PHONY: check-traffic-guard
+check-traffic-guard: tests/test_utils_traffic_guard
+	./tests/test_utils_traffic_guard
+
+test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-audit check-traffic-guard $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tools/connhold
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tests/test_utils_traffic_guard tools/connhold
 	rm -rf build-wasm
 
 # --- WASM: sandboxed TASFA crypto (opt-in, experimental) -------------------

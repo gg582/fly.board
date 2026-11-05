@@ -274,6 +274,44 @@ Sending new-post announcement emails is gated twice:
 |---|---|---|
 | `FLY_NEWSLETTER_SEND` | unset (off) | When `1`, the primary emails every active subscriber one plain-text message per published post (title, summary, link, unsubscribe link), paced at ~5/second. Unsubscribe works even with the newsletter disabled |
 
+### Adaptive traffic protection
+
+The optional token buckets run before route rendering and the route BDR. They
+supplement, rather than replace, the write-policy honeypot and 10-minute
+submission limiter. Both classes are disabled when their rate is `0`, so the
+default configuration does not change request handling.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `FLY_TRAFFIC_READ_RATE` | `0` (off) | Sustained GET/HEAD requests per second for each identity, 0–1,000,000 |
+| `FLY_TRAFFIC_READ_BURST` | `60` | Maximum saved read tokens; each new identity starts with this many |
+| `FLY_TRAFFIC_WRITE_RATE` | `0` (off) | Sustained non-GET/HEAD requests per second for each identity, 0–1,000,000 |
+| `FLY_TRAFFIC_WRITE_BURST` | `20` | Maximum saved write tokens |
+| `FLY_TRAFFIC_ACTION` | `429` | `429`: reject with `Retry-After`; `cached`: serve a fresh anonymous route-BDR hit when possible and otherwise return 429; `tarpit`: wait the configured delay, then return 429 |
+| `FLY_TRAFFIC_TARPIT_MS` | `100` | Fixed delay for the `tarpit` action, clamped to 0–250 ms; invalid values use the default |
+
+An identity is the connected IPv4 address or IPv6 `/64`. When no connected
+peer exists (for example HTTP/3), the session cookie is used instead; requests
+with neither identity fail open. Forwarded headers are not trusted. Identities
+are HMAC-keyed with a random startup secret and exist only in memory.
+
+The 4,096-slot table is allocated with `MAP_SHARED` before workers fork and
+protected by a robust process-shared mutex. Each key probes eight slots and
+evicts the least-recently-used entry when necessary, so unique source
+addresses cannot grow memory or create a queue. The existing request
+coalescer and BDR limits remain independent. A cached response never stores a
+new 429, and non-cacheable or personalized requests always fall back to 429.
+
+The tarpit delay is operator-controlled, occurs after releasing the bucket
+lock, and is hard-capped. It still occupies the dispatch thread during the
+delay; prefer `cached` or `429` on latency-sensitive or high-concurrency
+deployments. Restart after changing these environment variables.
+
+Persistent shadow bans are **not** provided by this traffic layer. They
+require account state and consistent author/moderator filtering across all
+post, comment, listing, search, feed, and cache paths; do not interpret a 429
+or cached response as a shadow ban.
+
 ### Backups
 
 | Variable | Default | Effect |
