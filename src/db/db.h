@@ -267,8 +267,9 @@ bool db_notification_create(cwist_db *db, int user_id, const char *actor_name, c
 int db_notification_unread_count(cwist_db *db, int user_id);
 cJSON *db_notification_list(cwist_db *db, int user_id, int limit);
 bool db_notification_mark_all_read(cwist_db *db, int user_id);
-/* Federated delivery: inserts only when the recipient exists locally. */
-bool db_notification_deliver_federated(long user_id, const char *actor_name, const char *kind, const char *post_slug, const char *excerpt);
+/* Federated delivery is idempotent per event_id and inserts only when the
+ * recipient exists locally. Legacy events without an id retain old behavior. */
+bool db_notification_deliver_federated(long user_id, const char *actor_name, const char *kind, const char *post_slug, const char *excerpt, const char *event_id);
 
 /* Webmail (src/db/db_email.c). Folders: INBOX | Sent | Trash. */
 #define MAIL_FOLDER_INBOX "INBOX"

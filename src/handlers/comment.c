@@ -71,7 +71,7 @@ static void notify_comment_recipient(cwist_db *db, int actor_uid, const char *ac
     snprintf(excerpt, sizeof(excerpt), "%s", content ? content : "");
 
     db_notification_create(db, recipient, actor_name, kind, post_id, post_slug, comment_id, excerpt);
-    fly_nats_publish_comment(g_config.root_url, actor_name, kind, post_slug, recipient, excerpt);
+    fly_nats_publish_comment(g_config.root_url, actor_name, kind, post_slug, recipient, excerpt, comment_id);
 }
 
 void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res) {

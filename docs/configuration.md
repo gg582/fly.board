@@ -52,6 +52,8 @@ the built-in defaults; a missing file is regenerated with them.
 | `use_tasfa` | `true` | TASFA resumable upload/download pipeline (protocol details: [tasfa.md](tasfa.md)) |
 | `use_rss` | `false` | Serve the RSS feed (`/rss.xml`) |
 | `newsletter_enabled` | `false` | Email subscription: shows the subscribe form on post lists, accepts `/subscribe` and confirm/unsubscribe links. Sending new-post emails additionally requires `FLY_NEWSLETTER_SEND=1` on the primary node (see below) |
+| `notification_aggregation` | `false` | Coalesce notifications by recipient, kind, and post target during the configured window. The latest actor and excerpt are shown as `A and N others`; actor history remains stored. A new event makes a previously read group unread again |
+| `notification_window_seconds` | `300` | Aggregation lookback from the latest event, clamped to 1–86400 seconds. Events outside the window start a new notification |
 | `use_tls` | `true` | HTTPS. Requires `server.crt`/`server.key` in the site root |
 | `use_http2` | `true` | HTTP/2 over TLS |
 | `use_http3` | `true` | HTTP/3 (QUIC) on the same port over UDP; enables 0-RTT + session resumption |
@@ -62,6 +64,13 @@ the built-in defaults; a missing file is regenerated with them.
 | `use_special_modes` | *(empty)* | Comma-separated theme pair replacing light/dark (`ocean,forest`, …) |
 | `vote_only` | *(empty = all)* | Voting policy: `all`, `authorized` (logged-in), `admin`; unknown values warn and fall back to all |
 | `mail_domain` | *(resolved)* | Local mail domain. Resolution order: `FLY_MAIL_DOMAIN` env → this key → host part of `root_url` → `localhost` |
+
+Notification rows remain node-local: FlyWire does not journal or replay them.
+NATS comment events carry an origin/comment event ID with a unique database
+index, so delivery of the same event to multiple worker processes is
+idempotent. Legacy NATS events without an event ID retain their original
+at-least-once behavior. Aggregation uses SQLite `BEGIN IMMEDIATE` to keep the
+read/update sequence atomic across processes.
 
 ## fonts.settings
 
@@ -113,6 +122,43 @@ libmagic content sniffing, not extension:
 | `denylist` | executables/script interpreters + `message/news` | Comma-separated MIME types; `image/` (trailing slash or `/*`) matches a subtree, otherwise exact case-insensitive match |
 | `allowlist` | *(empty)* | Used when `mode=allowlist` |
 
+## Banned-word filter (admin dashboard, optional)
+
+The **Write Policy** section of the admin dashboard configures an optional
+Aho-Corasick banned-word filter for new post and comment bodies. It is disabled
+by default and does not require the community spam heuristics. A match either
+queues the submission as `pending` or rejects it, according to the configured
+action. Administrators and moderators bypass the filter; trusted accounts do
+not. Post titles, existing content, and post edits are not scanned.
+
+Rules are newline-delimited UTF-8 words or phrases. Blank lines are ignored,
+CRLF input is accepted, and all other whitespace is literal. Matching is by
+Unicode code-point substring, not word boundaries, so a rule can match inside a
+larger word. Overlapping rules and suffix matches all count. The match limit
+(1-1024, default 64) stops scanning after that many matches; one match is enough
+to apply the configured decision.
+
+The case-fold checkbox selects **simple** folding; when clear, matching is
+**exact**. Simple folding is one-to-one and covers ASCII, Latin-1 uppercase,
+Greek uppercase, and Cyrillic uppercase. Korean and all other code points remain
+unchanged. It is not full Unicode case folding: multi-character folds,
+locale-specific folds, normalization, and confusable-character detection are not
+performed. Malformed UTF-8 in a submission is consumed byte-by-byte as
+nonmatching input and cannot create a match; malformed UTF-8 in the rule list is
+rejected.
+
+At most 256 rules, 16,384 bytes of rule text, and 2,048 automaton states are
+accepted. Saving valid rules rebuilds the automaton and makes it available to
+all workers without a restart. Invalid changes leave the previous rules active.
+If stored rules are invalid at startup, the filter is disabled and a warning is
+logged.
+
+The settings are stored in `site_settings` as `moderation_filter_enabled`
+(`0`/`1`), `moderation_filter_action` (`pending`/`reject`),
+`moderation_filter_case_fold` (`exact`/`simple`),
+`moderation_filter_match_limit`, and `moderation_filter_rules`. Use the dashboard
+rather than editing these values directly.
+
 ## community.settings (optional)
 
 Every community protection is off by default. A missing file therefore keeps
@@ -138,6 +184,13 @@ approval_queue=false
 
 The moderation model and exact limits are documented in
 [community.md](community.md) and [trust-and-spam.md](trust-and-spam.md).
+
+## audit.settings (optional)
+
+Hash-chained security audit storage is off by default. `enabled=true` enables
+it, `path=data/audit.log` selects the JSONL file, and `sign=true` adds ML-DSA
+site signatures. Verification, export, retention, and FlyWire semantics are in
+[audit.md](audit.md).
 
 ## flywire.settings (optional)
 
@@ -266,6 +319,44 @@ Sending new-post announcement emails is gated twice:
 | Variable | Default | Effect |
 |---|---|---|
 | `FLY_NEWSLETTER_SEND` | unset (off) | When `1`, the primary emails every active subscriber one plain-text message per published post (title, summary, link, unsubscribe link), paced at ~5/second. Unsubscribe works even with the newsletter disabled |
+
+### Adaptive traffic protection
+
+The optional token buckets run before route rendering and the route BDR. They
+supplement, rather than replace, the write-policy honeypot and 10-minute
+submission limiter. Both classes are disabled when their rate is `0`, so the
+default configuration does not change request handling.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `FLY_TRAFFIC_READ_RATE` | `0` (off) | Sustained GET/HEAD requests per second for each identity, 0–1,000,000 |
+| `FLY_TRAFFIC_READ_BURST` | `60` | Maximum saved read tokens; each new identity starts with this many |
+| `FLY_TRAFFIC_WRITE_RATE` | `0` (off) | Sustained non-GET/HEAD requests per second for each identity, 0–1,000,000 |
+| `FLY_TRAFFIC_WRITE_BURST` | `20` | Maximum saved write tokens |
+| `FLY_TRAFFIC_ACTION` | `429` | `429`: reject with `Retry-After`; `cached`: serve a fresh anonymous route-BDR hit when possible and otherwise return 429; `tarpit`: wait the configured delay, then return 429 |
+| `FLY_TRAFFIC_TARPIT_MS` | `100` | Fixed delay for the `tarpit` action, clamped to 0–250 ms; invalid values use the default |
+
+An identity is the connected IPv4 address or IPv6 `/64`. When no connected
+peer exists (for example HTTP/3), the session cookie is used instead; requests
+with neither identity fail open. Forwarded headers are not trusted. Identities
+are HMAC-keyed with a random startup secret and exist only in memory.
+
+The 4,096-slot table is allocated with `MAP_SHARED` before workers fork and
+protected by a robust process-shared mutex. Each key probes eight slots and
+evicts the least-recently-used entry when necessary, so unique source
+addresses cannot grow memory or create a queue. The existing request
+coalescer and BDR limits remain independent. A cached response never stores a
+new 429, and non-cacheable or personalized requests always fall back to 429.
+
+The tarpit delay is operator-controlled, occurs after releasing the bucket
+lock, and is hard-capped. It still occupies the dispatch thread during the
+delay; prefer `cached` or `429` on latency-sensitive or high-concurrency
+deployments. Restart after changing these environment variables.
+
+Persistent shadow bans are **not** provided by this traffic layer. They
+require account state and consistent author/moderator filtering across all
+post, comment, listing, search, feed, and cache paths; do not interpret a 429
+or cached response as a shadow ban.
 
 ### Backups
 

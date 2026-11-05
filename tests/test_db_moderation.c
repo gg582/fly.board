@@ -2,9 +2,11 @@
 #include "db/db_internal.h"
 #include "db/moderation.h"
 #include "engine/community.h"
+#include "utils/moderation_filter.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 static int failures;
@@ -36,6 +38,8 @@ int main(void) {
     CHECK(db_init(&db), "initialize main schema");
     CHECK(db_comment_init(comments_path), "initialize comments schema");
     CHECK(db_moderation_migrate(&db), "initialize moderation schema");
+    CHECK(moderation_filter_init(&db), "initialize disabled banned-word filter");
+    CHECK(!moderation_filter_get().enabled, "banned-word filter defaults off");
     CHECK(db_user_create(&db, "newbie", "new@example.com", "hash"), "create new account");
     CHECK(db_user_create(&db, "established", "old@example.com", "hash"), "create old account");
     cJSON *user = db_user_get_by_username(&db, "newbie");
@@ -132,6 +136,81 @@ int main(void) {
     CHECK(moderation_check_submission(&db, uid, "moderator", MODERATION_POST, "reviewer").action == MODERATION_ALLOW,
           "reviewer bypasses queue");
     reset_settings();
+
+    moderation_filter_policy_t filter = moderation_filter_get();
+    filter.enabled = true;
+    filter.action = MODERATION_FILTER_PENDING;
+    filter.case_fold = true;
+    filter.match_limit = 4;
+    snprintf(filter.rules, sizeof(filter.rules), "spam\n금지단어\nПЛОХОЕ");
+    CHECK(moderation_filter_set(&db, &filter), "enable and persist banned-word rules");
+    d = moderation_check_submission(&db, old_uid, "user", MODERATION_COMMENT, "clean comment");
+    CHECK(d.action == MODERATION_ALLOW, "enabled filter allows clean submission");
+    d = moderation_check_submission(&db, old_uid, "user", MODERATION_COMMENT, "contains SPAM");
+    CHECK(d.action == MODERATION_PENDING && strcmp(d.reason, "banned_content") == 0,
+          "matching comment becomes pending with banned_content reason");
+    d = moderation_check_submission(&db, old_uid, "user", MODERATION_POST, "금지단어 포함");
+    CHECK(d.action == MODERATION_PENDING, "Korean rule integrates with post moderation");
+    d = moderation_check_submission(&db, old_uid, "user", MODERATION_POST, "плохое слово");
+    CHECK(d.action == MODERATION_PENDING, "Cyrillic rule uses configured case folding");
+    community.roles = true;
+    CHECK(moderation_check_submission(&db, uid, "moderator", MODERATION_POST, "spam").action == MODERATION_ALLOW,
+          "reviewer bypass preserves existing moderation policy");
+    community.roles = false;
+
+    filter.action = MODERATION_FILTER_REJECT;
+    snprintf(filter.rules, sizeof(filter.rules), "newrule");
+    CHECK(moderation_filter_set(&db, &filter), "reload changed action and rules");
+    d = moderation_check_submission(&db, old_uid, "user", MODERATION_POST, "newrule here");
+    CHECK(d.action == MODERATION_REJECT && strcmp(d.reason, "banned_content") == 0,
+          "reloaded rules reject without restart");
+    CHECK(moderation_check_submission(&db, old_uid, "user", MODERATION_POST, "spam").action == MODERATION_ALLOW,
+          "reload removes old rules");
+    filter.enabled = false;
+    CHECK(moderation_filter_set(&db, &filter), "disable filter after reload");
+    CHECK(moderation_check_submission(&db, old_uid, "user", MODERATION_POST, "newrule").action == MODERATION_ALLOW,
+          "disabled filter preserves allow behavior");
+    filter.enabled = true;
+    snprintf(filter.rules, sizeof(filter.rules), "bad\xff");
+    CHECK(!moderation_filter_set(&db, &filter), "invalid UTF-8 configuration is rejected without reload");
+    CHECK(moderation_check_submission(&db, old_uid, "user", MODERATION_POST, "clean").action == MODERATION_ALLOW,
+          "invalid configuration leaves previous policy intact");
+
+    filter.enabled = true;
+    filter.action = MODERATION_FILTER_PENDING;
+    snprintf(filter.rules, sizeof(filter.rules), "oldrule");
+    CHECK(moderation_filter_set(&db, &filter), "prepare forked worker reload");
+    int parent_to_child[2], child_to_parent[2];
+    CHECK(pipe(parent_to_child) == 0 && pipe(child_to_parent) == 0, "create reload synchronization pipes");
+    pid_t child = fork();
+    CHECK(child >= 0, "fork worker for shared reload");
+    if (child == 0) {
+        close(parent_to_child[1]);
+        close(child_to_parent[0]);
+        char token;
+        d = moderation_check_submission(&db, old_uid, "user", MODERATION_POST, "oldrule");
+        bool initial_ok = d.action == MODERATION_PENDING;
+        CHECK(write(child_to_parent[1], "x", 1) == 1, "child ready");
+        CHECK(read(parent_to_child[0], &token, 1) == 1, "child resumes");
+        bool old_removed = moderation_check_submission(&db, old_uid, "user", MODERATION_POST, "oldrule").action == MODERATION_ALLOW;
+        d = moderation_check_submission(&db, old_uid, "user", MODERATION_POST, "newrule");
+        _exit(initial_ok && old_removed && d.action == MODERATION_REJECT ? 0 : 1);
+    }
+    close(parent_to_child[0]);
+    close(child_to_parent[1]);
+    char token;
+    CHECK(read(child_to_parent[0], &token, 1) == 1, "worker loaded original rules");
+    filter.action = MODERATION_FILTER_REJECT;
+    snprintf(filter.rules, sizeof(filter.rules), "newrule");
+    CHECK(moderation_filter_set(&db, &filter), "publish rules to forked worker");
+    CHECK(write(parent_to_child[1], "x", 1) == 1, "resume forked worker");
+    int child_status = 0;
+    CHECK(waitpid(child, &child_status, 0) == child && WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0,
+          "forked worker atomically reloads added and removed rules");
+    close(parent_to_child[1]);
+    close(child_to_parent[0]);
+    filter.enabled = false;
+    CHECK(moderation_filter_set(&db, &filter), "restore disabled default");
 
     db_comment_close_thread();
     db_comment_close();

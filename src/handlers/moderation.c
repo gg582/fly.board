@@ -81,6 +81,11 @@ void handler_admin_moderation_action(cwist_http_request *req, cwist_http_respons
     } else if (valid && action && strcmp(action, "reject") == 0) {
         ok = db_moderation_reject(req->db, target_type, target_id, uid);
     }
+    if (ok) {
+        char target[96];
+        snprintf(target, sizeof(target), "%s:%d", target_type, target_id);
+        audit_record(uid, "moderation.decision", target, action, "approval queue");
+    }
     cwist_query_map_destroy(form);
     if (ok) {
         invalidate_moderated_target(req->db, target_type, target_id);

@@ -616,6 +616,11 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     bool post_public = post_is_public(post) && !pending;
+    if (json_int(post, "is_secret", 0)) {
+        char target[64];
+        snprintf(target, sizeof(target), "post:%d", json_int(post, "id", 0));
+        audit_record(uid, "content.secret.read", target, "success", "direct post view");
+    }
 
     bool leader = false;
     cwist_sstring *shared = reqshare_wait_or_start(key, &leader);
