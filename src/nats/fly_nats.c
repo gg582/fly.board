@@ -27,7 +27,7 @@
 
 static char g_reviewer_pubkey[8192];
 static int g_moderation_timeout = 300;
-static cwist_db *g_moderation_db;
+static _Atomic cwist_db *g_moderation_db;
 
 #ifdef HAVE_NATS
 /* cnats is not fork-safe: a connection (and the library's own timer and
@@ -216,8 +216,9 @@ static char *build_signed_comment_payload(const char *origin, const char *actor_
 
 static void on_moderation_decision(const char *subject, const char *data, size_t len, void *ctx) {
     (void)subject; (void)ctx;
-    if (!g_moderation_db) return;
-    moderation_external_result_t result = fly_moderation_process_decision(g_moderation_db, data, len,
+    cwist_db *db = atomic_load_explicit(&g_moderation_db, memory_order_acquire);
+    if (!db) return;
+    moderation_external_result_t result = fly_moderation_process_decision(db, data, len,
                                                                          g_reviewer_pubkey, (long long)time(NULL));
     if (result == MODERATION_EXTERNAL_APPLIED) {
         page_cache_invalidate_all();
@@ -377,7 +378,7 @@ static void ensure_process_state(void) {
 #endif
 
 void fly_nats_ensure(cwist_db *db) {
-    if (db) g_moderation_db = db;
+    if (db) atomic_store_explicit(&g_moderation_db, db, memory_order_release);
 #ifdef HAVE_NATS
     if (!g_nats_url[0]) return;
     if (!atomic_load_explicit(&g_ns_serving, memory_order_relaxed)) atomic_store(&g_ns_serving, true);
