@@ -240,6 +240,88 @@ cJSON *db_user_list(cwist_db *db) {
     return db_sqlite3_rows_to_json(stmt);
 }
 
+static bool ghost_bound_exec(sqlite3 *conn, const char *sql, int id) {
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+bool db_user_ghost(cwist_db *db, int id) {
+    if (!db || id <= 0) return false;
+    sqlite3 *conn = fly_db_conn(db);
+    sqlite3 *comments = db_comment_conn();
+    if (!conn || !comments) return false;
+    if (!db_transaction_begin(db)) return false;
+    if (sqlite3_exec(comments, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) {
+        db_transaction_rollback(db);
+        return false;
+    }
+
+    static const char *const purge_sql[] = {
+        "DELETE FROM files WHERE user_id=?",
+        "DELETE FROM post_votes WHERE user_id=?",
+        "DELETE FROM email_tokens WHERE user_id=?",
+        "DELETE FROM emails WHERE owner_id=?",
+        "DELETE FROM board_permissions WHERE user_id=?",
+        "DELETE FROM notifications WHERE user_id=?",
+        "DELETE FROM guestbook WHERE owner_uid=? OR author_uid=?",
+        "UPDATE post_revisions SET editor_id=0 WHERE editor_id=?",
+        "UPDATE posts SET delete_pin_hash='' WHERE user_id=?",
+    };
+    bool ok = true;
+    for (size_t i = 0; i < sizeof(purge_sql) / sizeof(purge_sql[0]); i++) {
+        /* The guestbook statement has two placeholders for the same owner. */
+        if (i == 6) {
+            sqlite3_stmt *stmt = NULL;
+            ok = sqlite3_prepare_v2(conn, purge_sql[i], -1, &stmt, NULL) == SQLITE_OK;
+            if (ok) {
+                sqlite3_bind_int(stmt, 1, id);
+                sqlite3_bind_int(stmt, 2, id);
+                ok = sqlite3_step(stmt) == SQLITE_DONE;
+            }
+            sqlite3_finalize(stmt);
+        } else {
+            ok = ghost_bound_exec(conn, purge_sql[i], id);
+        }
+        if (!ok) break;
+    }
+    if (ok) ok = ghost_bound_exec(comments,
+        "UPDATE comments SET author_name='Deleted user', updated_at=CURRENT_TIMESTAMP WHERE user_id=?", id);
+    if (ok) {
+        char username[64], email[96];
+        snprintf(username, sizeof(username), "ghost-%d", id);
+        snprintf(email, sizeof(email), "ghost+%d@deleted.invalid", id);
+        const char *sql = "UPDATE users SET username=?, email=?, password_hash='!', role='user', "
+                          "profile_pic='', nickname='Deleted user', bio='', active=0, ghosted=1, "
+                          "email_verified=0, guestbook_anon=0, totp_secret='', totp_enabled=0, "
+                          "totp_recovery='' WHERE id=? AND ghosted=0";
+        sqlite3_stmt *stmt = NULL;
+        ok = sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) == SQLITE_OK;
+        if (ok) {
+            sqlite3_bind_text(stmt, 1, username, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2, email, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(stmt, 3, id);
+            ok = sqlite3_step(stmt) == SQLITE_DONE && sqlite3_changes(conn) == 1;
+        }
+        sqlite3_finalize(stmt);
+    }
+    if (ok && sqlite3_exec(comments, "COMMIT", NULL, NULL, NULL) != SQLITE_OK) ok = false;
+    if (!ok) {
+        sqlite3_exec(comments, "ROLLBACK", NULL, NULL, NULL);
+        db_transaction_rollback(db);
+        return false;
+    }
+    if (!db_transaction_commit(db)) {
+        db_transaction_rollback(db);
+        return false;
+    }
+    journal_user_row(db, id);
+    return true;
+}
+
 bool db_user_delete_with_cascade(cwist_db *db, int id, bool delete_replies) {
     /* All tables with a foreign key into users.id (PRAGMA foreign_keys=ON on
      * every connection). Deleting a user that still owns a row in any of them

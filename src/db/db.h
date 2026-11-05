@@ -39,6 +39,9 @@ bool db_user_create(cwist_db *db, const char *username, const char *email, const
  * keeping its name in step with admin.settings. 0 on failure. */
 int db_user_ensure_site_admin(cwist_db *db, const char *username);
 bool db_user_delete(cwist_db *db, int id);
+/* Convert an account to a non-login author placeholder. Posts and comments
+ * keep their ids and relationships; credentials and private owned rows go. */
+bool db_user_ghost(cwist_db *db, int id);
 bool db_user_update_role(cwist_db *db, int id, const char *role);
 bool db_user_update_profile_pic(cwist_db *db, int id, const char *profile_pic);
 bool db_user_update_profile(cwist_db *db, int id, const char *nickname, const char *bio, const char *profile_pic);

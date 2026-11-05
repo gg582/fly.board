@@ -190,6 +190,9 @@ unset.
 
 ### Core
 
+Personal data export and account ghosting are documented in
+[privacy-rights.md](privacy-rights.md).
+
 | Variable | Default | Effect |
 |---|---|---|
 | `BLOG_ROOT` | - | Site root override when `public/` is not in the current directory |
@@ -197,6 +200,8 @@ unset.
 | `MV_DEBUG` | - | Debug flag in the media preview path |
 | `CWIST_C1M_MODE` | `1` (set by the app itself) | Event-driven C1M reactor; set `0` to force the legacy thread-pool path |
 | `NATS_URL` | - | e.g. `nats://localhost:4222`; enables the NATS messaging gateway |
+| `FLY_EXPORT_DIR` | `data/exports` | Short-lived personal export state and archive directory |
+| `FLY_EXPORT_TTL_SECONDS` | `900` | Personal export lifetime, clamped to 60–3600 seconds |
 | `FLY_DB_BACKEND` | `sqlite` | Database backend; other values are rejected because no server SQL driver is currently implemented |
 | `FLY_DB_LOCATION` | `data/blog.db` | Main SQLite path or `file:` URI. Auxiliary databases stay local; see [database.md](database.md) |
 | `FLYWIRE_ANTI_ENTROPY` | off | `1` enables optional deterministic mutation-union repair on every failover-cluster node |

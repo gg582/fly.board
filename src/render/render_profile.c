@@ -178,7 +178,7 @@ static void append_qr_svg(cwist_sstring *b, const char *text) {
     cwist_sstring_append(b, "</svg>");
 }
 
-cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewer_role, const char *profile_pic, const char *error, bool is_mobile, int draft_count, bool totp_enabled, bool totp_pending, const char *totp_secret_b32, const char *totp_notice) {
+cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewer_role, const char *profile_pic, const char *error, bool is_mobile, int draft_count, bool totp_enabled, bool totp_pending, const char *totp_secret_b32, const char *totp_notice, const char *export_id) {
     cwist_sstring *b = cwist_sstring_create();
     const char *username = cJSON_GetObjectItem(user, "username")->valuestring;
     const char *email = cJSON_GetObjectItem(user, "email")->valuestring;
@@ -297,6 +297,23 @@ cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewe
     cwist_sstring_append(b, "<br>Email: ");
     cwist_sstring_append_escaped(b, email);
     cwist_sstring_append(b, "</p>");
+
+    cwist_sstring_append(b, "<hr style='margin:24px 0;border:0;border-top:1px solid var(--border)'>");
+    cwist_sstring_append(b, "<h3>Personal data</h3><p style='font-size:14px;color:var(--muted)'>Download your profile, posts, comments, and uploads in a tar.zst archive. Exports expire after 15 minutes.</p>");
+    cwist_sstring_append(b, "<form action='/account/export' method='post'><button type='submit' class='btn btn-outline'>Create personal data export</button></form>");
+    if (export_id && export_id[0]) {
+        cwist_sstring_append(b, "<p id='export-status' data-export='");
+        cwist_sstring_append_escaped(b, export_id);
+        cwist_sstring_append(b, "' style='font-size:14px'>Export queued...</p><script>(function(){var el=document.getElementById('export-status');if(!el)return;var id=el.dataset.export;function poll(){fetch('/account/export/'+encodeURIComponent(id)+'/status',{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error();return r.json();}).then(function(j){if(j.state==='ready'){var a=document.createElement('a');a.href=j.download_url;a.textContent='Download personal data export';a.className='btn btn-outline';el.textContent='Ready. ';el.appendChild(a);}else if(j.state==='failed'){el.textContent='Export failed. Please try again.';}else{setTimeout(poll,1000);}}).catch(function(){el.textContent='Export status unavailable.';});}poll();})();</script>");
+    }
+
+    cwist_sstring_append(b, "<hr style='margin:24px 0;border:0;border-top:1px solid var(--border)'>");
+    cwist_sstring_append(b, "<h3 style='color:#c00'>Delete account</h3><p style='font-size:14px;color:var(--muted)'>This cannot be undone. Your posts and comments remain under “Deleted user” so discussions stay intact. Credentials, sessions, two-factor secrets, messages, votes, and owned uploads are deleted. Export your data first if needed.</p>");
+    cwist_sstring_append(b, "<form action='/account/delete' method='post' data-confirm='Permanently delete this account?'>");
+    cwist_sstring_append(b, "<label>Password</label><input name='password' type='password' autocomplete='current-password' required>");
+    if (totp_enabled) cwist_sstring_append(b, "<label>Code (authenticator or recovery)</label><input name='code' required>");
+    cwist_sstring_append(b, "<label>Type DELETE to confirm</label><input name='confirmation' autocomplete='off' required>");
+    cwist_sstring_append(b, "<div style='margin-top:12px'><button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Delete my account</button></div></form>");
 
     if (flywire_is_replica() && viewer_role && strcmp(viewer_role, "admin") != 0) {
         cwist_sstring_append(b, "<hr style='margin:24px 0;border:0;border-top:1px solid var(--border)'>");

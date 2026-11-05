@@ -467,6 +467,9 @@ bool db_migrate(cwist_db *db) {
     db_exec_sql(db, "ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''");
     db_exec_sql(db, "ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0");
     db_exec_sql(db, "ALTER TABLE users ADD COLUMN totp_recovery TEXT NOT NULL DEFAULT ''");
+    /* Privacy ghosting keeps this row as a non-login author placeholder so
+     * posts and comment parent links retain their original numeric ids. */
+    db_exec_sql(db, "ALTER TABLE users ADD COLUMN ghosted INTEGER NOT NULL DEFAULT 0");
     db_exec_sql(db,
         "CREATE TABLE IF NOT EXISTS guestbook ("
         "  id INTEGER PRIMARY KEY AUTOINCREMENT,"

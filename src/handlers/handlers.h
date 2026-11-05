@@ -55,6 +55,10 @@ void handler_register_post(cwist_http_request *req, cwist_http_response *res);
 void handler_verify_email_get(cwist_http_request *req, cwist_http_response *res);
 void handler_resend_verification_post(cwist_http_request *req, cwist_http_response *res);
 void handler_unregister_post(cwist_http_request *req, cwist_http_response *res);
+void handler_account_delete_post(cwist_http_request *req, cwist_http_response *res);
+void handler_account_export_post(cwist_http_request *req, cwist_http_response *res);
+void handler_account_export_status(cwist_http_request *req, cwist_http_response *res);
+void handler_account_export_download(cwist_http_request *req, cwist_http_response *res);
 
 void handler_profile_get(cwist_http_request *req, cwist_http_response *res);
 void handler_profile_post(cwist_http_request *req, cwist_http_response *res);

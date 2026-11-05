@@ -11,7 +11,7 @@ int main(void) {
     snprintf(g_config.title, sizeof(g_config.title), "오보로나의 집");
 
     cwist_sstring *page = render_account_settings(user, false, "admin", NULL, NULL,
-        false, 0, false, true, "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", NULL);
+        false, 0, false, true, "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", NULL, NULL);
 
 #define CHECK(condition, name) do { \
     if (condition) printf("PASS: %s\n", name); \

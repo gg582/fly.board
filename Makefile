@@ -214,8 +214,9 @@ SRCS := src/main.c \
         src/wasm_host/tasfa_crypto_wasm.c \
         src/render/theme/theme.c src/render/theme/rules.c src/render/theme/json.c src/render/theme/css.c \
         src/render/render_common.c src/render/render_page.c src/render/render_md.c src/render/render_auth.c src/render/render_profile.c src/render/render_post.c src/render/render_board.c src/render/render_admin.c src/render/render_file.c src/render/render_notifications.c src/render/render_mail.c src/render/render_guestbook.c src/render/render_moderation.c \
-        src/handlers/handlers.c src/handlers/home.c src/handlers/blog.c src/handlers/report.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/notifications.c src/handlers/file.c src/handlers/mail.c src/handlers/guestbook.c src/handlers/subscribe.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c src/handlers/moderation.c \
+        src/handlers/handlers.c src/handlers/home.c src/handlers/blog.c src/handlers/report.c src/handlers/auth.c src/handlers/board.c src/handlers/post.c src/handlers/comment.c src/handlers/notifications.c src/handlers/file.c src/handlers/mail.c src/handlers/guestbook.c src/handlers/subscribe.c src/handlers/privacy.c src/handlers/tasfa/common.c src/handlers/tasfa/crypto.c src/handlers/tasfa/queue.c src/handlers/tasfa/cache.c src/handlers/tasfa/session.c src/handlers/tasfa/scheduler.c src/handlers/tasfa/htp.c src/handlers/tasfa/upload.c src/handlers/tasfa/download.c src/handlers/tasfa/asset.c src/handlers/admin.c src/handlers/api.c src/handlers/moderation.c \
         src/utils/utils.c \
+        src/utils/privacy.c \
         src/utils/cache.c \
         src/utils/post_schedule.c \
         src/utils/spam_guard.c \
@@ -447,6 +448,13 @@ tests/test_flywire_profile: tests/test_flywire_profile.c $(SERVER_OBJS) $(MD4C_L
 check-flywire-profile: tests/test_flywire_profile
 	./tests/test_flywire_profile
 
+tests/test_privacy_rights: tests/test_privacy_rights.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
+
+.PHONY: check-privacy-rights
+check-privacy-rights: tests/test_privacy_rights
+	./tests/test_privacy_rights
+
 COMMUNITY_TESTS := tests/test_community_roles tests/test_db_moderation tests/test_render_moderation \
                    tests/test_db_portability tests/test_db_sync_anti_entropy
 
@@ -469,11 +477,11 @@ tests/test_db_sync_anti_entropy: tests/test_db_sync_anti_entropy.c src/db/db_syn
 check-community: $(COMMUNITY_TESTS)
 	@for t in $(COMMUNITY_TESTS); do $$t || exit 1; done
 
-test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community $(TARGET)
+test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-privacy-rights $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tools/connhold
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tests/test_privacy_rights tools/connhold
 	rm -rf build-wasm
 
 # --- WASM: sandboxed TASFA crypto (opt-in, experimental) -------------------
