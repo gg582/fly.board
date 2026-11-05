@@ -149,9 +149,11 @@ static void url_encode_segment(const char *in, char *out, size_t out_cap) {
  * qrcodegen, third_party/qrcodegen). Self-contained: no JS, no external
  * image request, prints identically in light and dark mode. */
 static void append_qr_svg(cwist_sstring *b, const char *text) {
-    uint8_t temp[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
-    uint8_t code[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
-    if (!qrcodegen_encodeText(text, temp, code, qrcodegen_Ecc_QUARTILE, 4, 10, qrcodegen_Mask_AUTO, true)) {
+    uint8_t temp[qrcodegen_BUFFER_LEN_MAX];
+    uint8_t code[qrcodegen_BUFFER_LEN_MAX];
+    if (!qrcodegen_encodeText(text, temp, code, qrcodegen_Ecc_QUARTILE,
+                              qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
+                              qrcodegen_Mask_AUTO, true)) {
         cwist_sstring_append(b, "<p style='color:var(--muted);font-size:13px'>(QR unavailable - enter the secret manually.)</p>");
         return;
     }
@@ -159,7 +161,7 @@ static void append_qr_svg(cwist_sstring *b, const char *text) {
     int quiet = 4;
     int total = size + quiet * 2;
     int scale = 6;
-    char hdr[160];
+    char hdr[256];
     snprintf(hdr, sizeof(hdr),
              "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 %d %d' width='%d' height='%d'"
              " style='background:#fff;border-radius:8px;display:block;margin:0 auto' role='img' aria-label='TOTP setup QR code'>",

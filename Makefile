@@ -324,7 +324,7 @@ setup:
 # Markdown renderer regression tests.
 RENDER_TEST_SRCS := tests/stubs/g_config.c src/render/render_md.c src/utils/image_size.c src/utils/stb_image_impl.c
 RENDER_TESTS := tests/test_render_md_video tests/test_render_md_blocks tests/test_render_md_iframe tests/test_render_md_tikz \
-                tests/test_render_theme
+                tests/test_render_theme tests/test_render_totp
 THEME_TEST_OBJS := src/render/theme/theme.o src/render/theme/json.o src/render/theme/css.o src/render/theme/rules.o
 
 tests/test_render_theme: tests/test_render_theme.c tests/stubs/render_test_stubs.c $(THEME_TEST_OBJS)
@@ -369,6 +369,9 @@ tests/test_mp_%: tests/test_mp_%.c $(MULTIPART_DIR)/multipart_parser.c
 # utils.c transitively needs db/media/s3 symbols, so link the whole server
 # object set (minus main.o) the same way $(TARGET) does.
 SERVER_OBJS := $(filter-out src/main.o,$(OBJS))
+
+tests/test_render_totp: tests/test_render_totp.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
 
 # Mail stack helpers (Dovecot checkpassword, Postfix pipe delivery agent,
 # alias map builder). Each links the full server object set so db/auth/utils
