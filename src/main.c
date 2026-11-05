@@ -13,6 +13,7 @@
 #include "utils/media_preview.h"
 #include "cwist/board_tree.h"
 #include "nats/fly_nats.h"
+#include "realtime/realtime.h"
 #include "config/config.h"
 #include "config/write_policy.h"
 #include "engine/pool.h"
@@ -416,6 +417,8 @@ int main(int argc, char **argv) {
     image_inline_cache_build();
     CWIST_LOG_INFO("Inline image cache built");
     image_invert_cache_build();
+    /* Shared before CWIST forks so every local worker enforces the same leases. */
+    if (g_config.realtime_enabled) realtime_init();
 
     if (!engine_pool_init()) {
         fly_crypto_cleanup();

@@ -38,6 +38,8 @@ int main(void) {
     CHECK(access(PATH, F_OK) == 0, "missing file created with defaults");
     CHECK(g_config.title[0] != '\0', "default title set");
     CHECK(g_config.port > 0, "default port set");
+    CHECK(!g_config.realtime_enabled, "realtime disabled by default");
+    CHECK(!g_config.realtime_typing, "typing disabled by default");
     CHECK(strcmp(g_config.language, "ko") == 0, "default language is ko");
     /* a just-created file is written with defaults but not parsed until the
      * next load; mail_domain resolves on the reload */
@@ -54,6 +56,8 @@ int main(void) {
         "language=en\n"
         "invert_logo=true\n"
         "use_tasfa=true\n"
+        "realtime_enabled=true\n"
+        "realtime_typing=true\n"
         "roundness=0.75\n"
         "max_upload_size=5M\n"
         "vote_only=authorized\n"
@@ -66,6 +70,7 @@ int main(void) {
     CHECK(strcmp(g_config.language, "en") == 0, "language parsed");
     CHECK(g_config.invert_logo == true, "invert_logo bool parsed");
     CHECK(g_config.use_tasfa == true, "use_tasfa bool parsed");
+    CHECK(g_config.realtime_enabled && g_config.realtime_typing, "realtime flags parsed");
     CHECK(g_config.roundness > 0.7f && g_config.roundness < 0.8f, "roundness parsed");
     CHECK(g_config.max_upload_size == 5LL * 1024 * 1024, "max_upload_size parsed");
     CHECK(strcmp(g_config.vote_only, "authorized") == 0, "vote_only parsed");

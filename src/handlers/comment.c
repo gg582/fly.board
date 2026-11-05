@@ -153,6 +153,8 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
             CWIST_LOG_INFO("Comment created: target_type=%s target_id=%d uid=%d pending=%d", target_type, target_id, uid, awaiting_review);
             if (!awaiting_review) {
                 invalidate_comment_target(req->db, target_type, target_id);
+                if (g_config.realtime_enabled && strcmp(target_type, "post") == 0)
+                    (void)fly_nats_publish_realtime_comment(target_id, new_comment_id);
                 notify_comment_recipient(req->db, uid, author_name, target_type, target_id, parent_id, content, new_comment_id);
             }
         } else {

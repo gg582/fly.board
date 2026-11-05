@@ -4,12 +4,15 @@
 
 `fly.board` can broadcast newly created post metadata over NATS so other nodes, bots, or sidecar services can react without polling the HTTP app.
 
-The current integration is intentionally narrow:
+The durable-content integration is intentionally narrow:
 
-- One subject: `flyboard.posts`
-- One publisher path: post creation
-- One subscriber path: background dispatch thread
-- One PQC primitive: `ML-DSA-65` message signing
+- Content subjects: `flyboard.posts` and `flyboard.comments`
+- Publisher paths: post creation and comment/reply notification
+- One wildcard subscriber path: `flyboard.>` on the background thread
+- One PQC primitive for signed content events: `ML-DSA-65` message signing
+
+Opt-in realtime adds unsigned, ephemeral `flyboard.realtime.*` subjects. See
+[docs/realtime.md](docs/realtime.md) for their privacy and lease model.
 
 There is no PQC encryption in the current codebase. Message confidentiality still depends on network isolation and TLS around the NATS transport.
 
@@ -44,6 +47,8 @@ This matters because NATS payload signing depends on the global PQC keypair alre
 | Subject | Producer | Consumer | Purpose |
 |---------|----------|----------|---------|
 | `flyboard.posts` | `handler_post_new_post` | `on_post_msg` callback and any external subscribers | Broadcast new post metadata |
+| `flyboard.comments` | `handler_comment_new_post` | `on_comment_msg` callback and external subscribers | Federated comment/reply notifications |
+| `flyboard.realtime.*` | realtime handlers | `on_realtime_msg` and external subscribers | Optional ephemeral presence, typing, and comment hints |
 
 The publish call originates from the post creation handler after the database write succeeds. The post itself remains authoritative in SQLite; NATS is a fanout channel, not the source of truth.
 
@@ -93,8 +98,8 @@ If signing fails, publishing fails. That is intentional: externally exposed mess
 
 The built-in subscriber is minimal by design. It currently:
 
-- subscribes to `flyboard.posts` in `fly_nats_init()`
-- receives messages in `on_post_msg(...)`
+- subscribes to `flyboard.>` after the process forks
+- routes content events to `on_post_msg(...)` / `on_comment_msg(...)` and realtime events to `on_realtime_msg(...)`
 - parses the payload
 - logs the `slug`
 - logs whether a signature field is present
@@ -106,7 +111,7 @@ It does not yet perform full signature verification in-process. That is left ope
 Every serving process (the supervisor and each forked worker) owns one NATS connection and one NATS thread, started after the fork.
 
 - Publishing (`fly_nats_publish_post/comment`) signs the payload on the caller's thread and only enqueues it (bounded at 256 messages; overflow is logged and dropped). The NATS thread sends it, so a slow or absent NATS server never blocks a request.
-- The NATS thread connects with backoff (1 s doubling to 30 s) and subscribes to `flyboard.posts` and `flyboard.comments`. cnats delivers inbound messages on its own threads, in every process, so a post broadcast invalidates every worker's page cache.
+- The NATS thread connects with backoff (1 s doubling to 30 s) and subscribes to `flyboard.>`. cnats delivers inbound messages on its own threads, in every process, so a post broadcast invalidates every worker's page cache and realtime events update each worker's ephemeral state.
 - On shutdown each process stops and joins only the thread it started; unsent queued messages are dropped.
 
 ## Security Model

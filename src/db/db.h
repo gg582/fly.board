@@ -192,6 +192,8 @@ bool db_comment_update(cwist_db *db, int id, int user_id, const char *content);
 bool db_comment_delete(cwist_db *db, int id, int user_id);
 cJSON *db_comment_get_by_id(cwist_db *db, int id);
 cJSON *db_comment_list_by_target(cwist_db *db, const char *target_type, int target_id);
+cJSON *db_comment_list_by_target_after(cwist_db *db, const char *target_type, int target_id,
+                                       int after_id, int limit);
 bool db_comment_delete_by_target(const char *target_type, int target_id);
 
 /* Post signing keys (src/db/pqc_keys.c): register the current key, load all

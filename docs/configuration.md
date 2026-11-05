@@ -52,6 +52,8 @@ the built-in defaults; a missing file is regenerated with them.
 | `use_tasfa` | `true` | TASFA resumable upload/download pipeline (protocol details: [tasfa.md](tasfa.md)) |
 | `use_rss` | `false` | Serve the RSS feed (`/rss.xml`) |
 | `newsletter_enabled` | `false` | Email subscription: shows the subscribe form on post lists, accepts `/subscribe` and confirm/unsubscribe links. Sending new-post emails additionally requires `FLY_NEWSLETTER_SEND=1` on the primary node (see below) |
+| `realtime_enabled` | `false` | Opt-in post viewer counts and new-comment updates over short SSE responses and the existing NATS fabric; see [realtime.md](realtime.md) |
+| `realtime_typing` | `false` | Separate opt-in for anonymous, short-lease, rate-limited typing indicators; requires `realtime_enabled=true` |
 | `use_tls` | `true` | HTTPS. Requires `server.crt`/`server.key` in the site root |
 | `use_http2` | `true` | HTTP/2 over TLS |
 | `use_http3` | `true` | HTTP/3 (QUIC) on the same port over UDP; enables 0-RTT + session resumption |
