@@ -27,9 +27,12 @@ typedef struct cache_entry {
 } cache_entry_t;
 
 static cache_entry_t *g_buckets[CACHE_BUCKETS];
+static cache_entry_t *g_retired;
 static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 static size_t g_total_bytes = 0;
-static size_t g_max_bytes = 64 * 1024 * 1024; /* 64 MB default */
+static size_t g_max_bytes = 64 * 1024 * 1024;
+static time_t g_swr_seconds = 0;
+static uint64_t g_generation = 1;
 
 static uint32_t hash_str(const char *s) {
     uint32_t h = 5381;
@@ -46,9 +49,20 @@ bool page_cache_init(void) {
             g_max_bytes = (size_t)mb * 1024 * 1024;
         }
     }
+    const char *swr = getenv("FLY_PAGE_SWR_SECONDS");
+    if (swr) {
+        char *end = NULL;
+        long seconds = strtol(swr, &end, 10);
+        if (end != swr && *end == '\0' && seconds >= 0 && seconds <= 86400) {
+            g_swr_seconds = (time_t)seconds;
+        }
+    }
     memset(g_buckets, 0, sizeof(g_buckets));
+    g_retired = NULL;
     g_total_bytes = 0;
-    CWIST_LOG_INFO("Page cache initialized (max %zu MB)", g_max_bytes / (1024 * 1024));
+    g_generation = 1;
+    CWIST_LOG_INFO("Page cache initialized (max %zu MB, SWR %lld seconds)",
+                   g_max_bytes / (1024 * 1024), (long long)g_swr_seconds);
     return true;
 }
 
@@ -65,7 +79,8 @@ static void free_entry(cache_entry_t *e) {
     cache_free(e);
 }
 
-bool page_cache_set(const char *key, const char *data, size_t len, uint32_t ttl_sec) {
+static bool page_cache_set_internal(const char *key, const char *data, size_t len,
+                                    uint32_t ttl_sec, uint64_t expected_generation) {
     if (!key || !data || len == 0 || ttl_sec == 0) return false;
     if (len > g_max_bytes / 4) {
         CWIST_LOG_DEBUG("Cache entry too large: %zu bytes for key %s", len, key);
@@ -73,24 +88,24 @@ bool page_cache_set(const char *key, const char *data, size_t len, uint32_t ttl_
     }
 
     pthread_mutex_lock(&g_mutex);
+    if (expected_generation && expected_generation != g_generation) {
+        pthread_mutex_unlock(&g_mutex);
+        return false;
+    }
     uint32_t h = hash_str(key) % CACHE_BUCKETS;
 
-    /* Remove existing entry with the same key.  A pinned entry is being read
-     * by another thread right now; freeing it here is a use-after-free (and
-     * corrupts the tcache once the chunk is reused).  Mark it expired instead
-     * and skip the write - the last reader's release will reclaim it, and the
-     * next request can populate the cache fresh. */
     cache_entry_t **prev = &g_buckets[h];
     while (*prev) {
         if (strcmp((*prev)->key, key) == 0) {
-            if ((*prev)->pin_count > 0) {
-                (*prev)->expires_at = 0;
-                pthread_mutex_unlock(&g_mutex);
-                return false;
-            }
             cache_entry_t *old = *prev;
             *prev = old->next;
-            free_entry(old);
+            if (old->pin_count > 0) {
+                old->expires_at = 0;
+                old->next = g_retired;
+                g_retired = old;
+            } else {
+                free_entry(old);
+            }
             break;
         }
         prev = &(*prev)->next;
@@ -157,7 +172,25 @@ bool page_cache_set(const char *key, const char *data, size_t len, uint32_t ttl_
     return true;
 }
 
-bool page_cache_get(const char *key, const char **out_data, size_t *out_len, uint32_t *out_ttl_remaining) {
+bool page_cache_set(const char *key, const char *data, size_t len, uint32_t ttl_sec) {
+    return page_cache_set_internal(key, data, len, ttl_sec, 0);
+}
+
+bool page_cache_set_if_generation(const char *key, const char *data, size_t len,
+                                  uint32_t ttl_sec, uint64_t generation) {
+    return page_cache_set_internal(key, data, len, ttl_sec, generation);
+}
+
+uint64_t page_cache_generation(void) {
+    pthread_mutex_lock(&g_mutex);
+    uint64_t generation = g_generation;
+    pthread_mutex_unlock(&g_mutex);
+    return generation;
+}
+
+static bool page_cache_get_expired(const char *key, const char **out_data,
+                                   size_t *out_len, uint32_t *out_ttl_remaining,
+                                   bool stale) {
     if (!key) return false;
     pthread_mutex_lock(&g_mutex);
     uint32_t h = hash_str(key) % CACHE_BUCKETS;
@@ -166,23 +199,23 @@ bool page_cache_get(const char *key, const char **out_data, size_t *out_len, uin
     while (*prev) {
         cache_entry_t *e = *prev;
         if (strcmp(e->key, key) == 0) {
-            if (e->expires_at <= now) {
-                if (e->pin_count > 0) {
-                    /* In use by another thread; do not delete yet.  Report a miss
-                     * so the caller computes its own copy and releases the pin
-                     * later. */
-                    pthread_mutex_unlock(&g_mutex);
-                    return false;
+            if (stale && e->expires_at == 0) {
+                pthread_mutex_unlock(&g_mutex);
+                return false;
+            }
+            bool expired = e->expires_at <= now;
+            if (expired != stale) {
+                if (expired && e->pin_count == 0 && now - e->expires_at >= g_swr_seconds) {
+                    *prev = e->next;
+                    free_entry(e);
                 }
-                *prev = e->next;
-                free_entry(e);
                 pthread_mutex_unlock(&g_mutex);
                 return false;
             }
             e->pin_count++;
             if (out_data) *out_data = e->data;
             if (out_len) *out_len = e->len;
-            if (out_ttl_remaining) *out_ttl_remaining = (uint32_t)(e->expires_at - now);
+            if (out_ttl_remaining) *out_ttl_remaining = expired ? 0 : (uint32_t)(e->expires_at - now);
             pthread_mutex_unlock(&g_mutex);
             return true;
         }
@@ -192,25 +225,42 @@ bool page_cache_get(const char *key, const char **out_data, size_t *out_len, uin
     return false;
 }
 
+bool page_cache_get(const char *key, const char **out_data, size_t *out_len,
+                    uint32_t *out_ttl_remaining) {
+    return page_cache_get_expired(key, out_data, out_len, out_ttl_remaining, false);
+}
+
+bool page_cache_get_stale(const char *key, const char **out_data, size_t *out_len) {
+    if (g_swr_seconds <= 0) return false;
+    return page_cache_get_expired(key, out_data, out_len, NULL, true);
+}
+
 void page_cache_release(const char *key) {
     if (!key) return;
     pthread_mutex_lock(&g_mutex);
     uint32_t h = hash_str(key) % CACHE_BUCKETS;
-    time_t now = time(NULL);
     cache_entry_t **prev = &g_buckets[h];
-    while (*prev) {
-        cache_entry_t *e = *prev;
-        if (strcmp(e->key, key) == 0) {
-            if (e->pin_count > 0) e->pin_count--;
-            /* If the entry expired while pinned, free it now that the last pin
-             * is gone. */
-            if (e->pin_count == 0 && e->expires_at <= now) {
-                *prev = e->next;
-                free_entry(e);
-            }
-            break;
+    while (*prev && (strcmp((*prev)->key, key) != 0 || (*prev)->pin_count == 0)) {
+        prev = &(*prev)->next;
+    }
+    bool retired = false;
+    if (!*prev) {
+        prev = &g_retired;
+        retired = true;
+        while (*prev && (strcmp((*prev)->key, key) != 0 || (*prev)->pin_count == 0)) {
+            prev = &(*prev)->next;
         }
-        prev = &e->next;
+    }
+    cache_entry_t *e = *prev;
+    if (e) {
+        e->pin_count--;
+        time_t now = time(NULL);
+        bool collect = retired || e->expires_at == 0 ||
+                       (e->expires_at <= now && now - e->expires_at >= g_swr_seconds);
+        if (e->pin_count == 0 && collect) {
+            *prev = e->next;
+            free_entry(e);
+        }
     }
     pthread_mutex_unlock(&g_mutex);
 }
@@ -234,6 +284,7 @@ void page_cache_delete(const char *key) {
         }
         prev = &(*prev)->next;
     }
+    g_generation++;
     pthread_mutex_unlock(&g_mutex);
     /* Every invalidation is a content change for the route BDR too. */
     engine_bdr_bump();
@@ -261,7 +312,9 @@ void page_cache_clear(void) {
             e = next;
         }
     }
+    for (cache_entry_t *e = g_retired; e; e = e->next) remaining += e->len;
     g_total_bytes = remaining;
+    g_generation++;
     pthread_mutex_unlock(&g_mutex);
     /* Every invalidation is a content change for the route BDR too. */
     engine_bdr_bump();
@@ -299,6 +352,7 @@ static void page_cache_clear_prefixes_raw(const char *const *prefixes, size_t co
             }
         }
     }
+    g_generation++;
     pthread_mutex_unlock(&g_mutex);
 }
 

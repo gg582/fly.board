@@ -7,3 +7,6 @@
 unsigned post_schedule_generation(void) { return 0; }
 unsigned write_policy_generation(void) { return 0; }
 void engine_bdr_bump(void) {}
+void engine_bdr_bump_listings(void) {}
+void engine_bdr_bump_post(const char *slug) { (void)slug; }
+void engine_bdr_bump_board(const char *slug) { (void)slug; }

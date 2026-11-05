@@ -199,6 +199,44 @@ cwist_sstring *reqshare_wait_or_start(const char *key, bool *leader) {
     return NULL;
 }
 
+bool reqshare_try_start(const char *key) {
+    if (!key) return false;
+    pthread_mutex_lock(&g_mutex);
+    uint32_t h = hash_str(key) % RS_BUCKETS;
+    time_t now = time(NULL);
+    rs_entry_t **prev = &g_buckets[h];
+    while (*prev) {
+        rs_entry_t *e = *prev;
+        if (strcmp(e->key, key) == 0) {
+            if ((e->state == RS_IN_PROGRESS || e->state == RS_DONE) && e->expires_at > now) {
+                pthread_mutex_unlock(&g_mutex);
+                return false;
+            }
+            unlink_entry(prev, e);
+            break;
+        }
+        prev = &e->next;
+    }
+    rs_entry_t *e = calloc(1, sizeof(*e));
+    if (!e) {
+        pthread_mutex_unlock(&g_mutex);
+        return false;
+    }
+    e->key = strdup(key);
+    if (!e->key) {
+        free(e);
+        pthread_mutex_unlock(&g_mutex);
+        return false;
+    }
+    e->state = RS_IN_PROGRESS;
+    e->expires_at = now + RS_LEADER_TTL_SEC;
+    pthread_cond_init(&e->cond, NULL);
+    e->next = g_buckets[h];
+    g_buckets[h] = e;
+    pthread_mutex_unlock(&g_mutex);
+    return true;
+}
+
 void reqshare_finish(const char *key, cwist_sstring *html) {
     if (!key) return;
     pthread_mutex_lock(&g_mutex);

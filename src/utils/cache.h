@@ -29,6 +29,16 @@ bool page_cache_set(const char *key, const char *data, size_t len, uint32_t ttl_
  * until the next cache mutation call. */
 bool page_cache_get(const char *key, const char **out_data, size_t *out_len, uint32_t *out_ttl_remaining);
 
+/* Expired entries remain available for FLY_PAGE_SWR_SECONDS (default 0).
+ * A stale hit is pinned and must be released like a normal hit. */
+bool page_cache_get_stale(const char *key, const char **out_data, size_t *out_len);
+
+/* Background renders use the generation captured before reading the database.
+ * Any mutation invalidation in between makes the conditional store fail. */
+uint64_t page_cache_generation(void);
+bool page_cache_set_if_generation(const char *key, const char *data, size_t len,
+                                  uint32_t ttl_sec, uint64_t generation);
+
 void page_cache_delete(const char *key);
 void page_cache_clear(void);
 void page_cache_clear_prefix(const char *prefix);

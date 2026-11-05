@@ -469,6 +469,7 @@ void engine_bdr_store(cwist_http_request *req, cwist_http_response *res, const c
     if (res->status_code != CWIST_HTTP_OK) return;
     if (res->use_file_stream || res->stream_mode) return;
     if (cwist_http_header_get(res->headers, "Set-Cookie")) return;
+    if (cwist_http_header_get(res->headers, "X-Fly-Cache-Status")) return;
 
     const char *body;
     size_t body_len;

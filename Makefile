@@ -251,6 +251,7 @@ SRCS := src/main.c \
         src/engine/settings.c \
         src/engine/routes.c \
         src/engine/async_route.c \
+        src/engine/refresh.c \
         src/engine/bdr.c \
         src/engine/warmup.c
 
@@ -469,11 +470,27 @@ tests/test_db_sync_anti_entropy: tests/test_db_sync_anti_entropy.c src/db/db_syn
 check-community: $(COMMUNITY_TESTS)
 	@for t in $(COMMUNITY_TESTS); do $$t || exit 1; done
 
-test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community $(TARGET)
+UTIL_TESTS := tests/test_utils_cache tests/test_utils_reqshare tests/test_utils_swr
+UTIL_LIBS := $(CWIST_LIB) $(CWIST_DEPS) -pthread -ldl -lm -lstdc++ -lz
+
+tests/test_utils_cache: tests/test_utils_cache.c tests/stubs/utils_test_stubs.c src/utils/cache.c
+	$(CC) $(CFLAGS) -o $@ $^ $(UTIL_LIBS)
+
+tests/test_utils_reqshare: tests/test_utils_reqshare.c tests/stubs/utils_test_stubs.c src/utils/reqshare.c
+	$(CC) $(CFLAGS) -o $@ $^ $(UTIL_LIBS)
+
+tests/test_utils_swr: tests/test_utils_swr.c tests/stubs/utils_test_stubs.c src/utils/cache.c src/utils/reqshare.c src/engine/refresh.c
+	$(CC) $(CFLAGS) -o $@ $^ $(UTIL_LIBS)
+
+.PHONY: check-utils
+check-utils: $(UTIL_TESTS)
+	@for t in $(UTIL_TESTS); do $$t || exit 1; done
+
+test: check-utils check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tools/connhold
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile $(UTIL_TESTS) tools/connhold
 	rm -rf build-wasm
 
 # --- WASM: sandboxed TASFA crypto (opt-in, experimental) -------------------

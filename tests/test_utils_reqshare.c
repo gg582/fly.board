@@ -83,6 +83,12 @@ int main(void) {
           "superseding leader's result served");
     if (copy) cwist_sstring_destroy(copy);
 
+    CHECK(reqshare_try_start("refresh:timeout"), "background refresh starts without waiting");
+    CHECK(!reqshare_try_start("refresh:timeout"), "duplicate background refresh is suppressed");
+    sleep(6);
+    CHECK(reqshare_try_start("refresh:timeout"), "timed-out background leader can be replaced");
+    reqshare_finish("refresh:timeout", NULL);
+
     /* write lock: second try fails, release allows re-acquire */
     CHECK(reqshare_write_lock_try("write:post:1"), "write lock acquired");
     CHECK(!reqshare_write_lock_try("write:post:1"), "duplicate write lock rejected");
