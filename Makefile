@@ -490,6 +490,17 @@ tests/test_db_portability: tests/test_db_portability.c src/db/db_portability.c
 tests/test_db_sync_anti_entropy: tests/test_db_sync_anti_entropy.c src/db/db_sync_anti_entropy.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
+.PHONY: check-sqlite-partition-poc
+check-sqlite-partition-poc:
+	@set -eu; \
+	$(PKG_CONFIG) --exists sqlite3; \
+	bin=$$(mktemp "$${TMPDIR:-/tmp}/sqlite-partition-poc.XXXXXX"); \
+	trap 'rm -f "$$bin"' EXIT HUP INT TERM; \
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror \
+	  $$($(PKG_CONFIG) --cflags sqlite3) tests/test_sqlite_partition_poc.c \
+	  -o "$$bin" $$($(PKG_CONFIG) --libs sqlite3); \
+	"$$bin"
+
 .PHONY: check-community
 check-community: $(COMMUNITY_TESTS)
 	@for t in $(COMMUNITY_TESTS); do $$t || exit 1; done
@@ -508,7 +519,7 @@ tests/test_utils_traffic_guard: tests/test_utils_traffic_guard.c src/utils/traff
 check-traffic-guard: tests/test_utils_traffic_guard
 	./tests/test_utils_traffic_guard
 
-test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-audit check-traffic-guard check-notifications $(TARGET)
+test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-audit check-traffic-guard check-notifications check-sqlite-partition-poc $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
