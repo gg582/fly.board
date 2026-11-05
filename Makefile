@@ -252,6 +252,7 @@ SRCS := src/main.c \
         src/engine/flywire.c \
         src/engine/flywire_cluster.c \
         src/engine/forkgate.c \
+        src/engine/refresh.c \
         src/engine/community.c \
         src/engine/settings.c \
         src/engine/routes.c \
@@ -516,6 +517,22 @@ check-sqlite-partition-poc:
 check-community: $(COMMUNITY_TESTS)
 	@for t in $(COMMUNITY_TESTS); do $$t || exit 1; done
 
+UTIL_TESTS := tests/test_utils_cache tests/test_utils_reqshare tests/test_utils_swr
+UTIL_LIBS := $(CWIST_LIB) $(CWIST_DEPS) -pthread -ldl -lm -lstdc++ -lz
+
+tests/test_utils_cache: tests/test_utils_cache.c tests/stubs/utils_test_stubs.c src/utils/cache.c
+	$(CC) $(CFLAGS) -o $@ $^ $(UTIL_LIBS)
+
+tests/test_utils_reqshare: tests/test_utils_reqshare.c tests/stubs/utils_test_stubs.c src/utils/reqshare.c
+	$(CC) $(CFLAGS) -o $@ $^ $(UTIL_LIBS)
+
+tests/test_utils_swr: tests/test_utils_swr.c src/utils/cache.c src/utils/reqshare.c src/engine/refresh.c tests/stubs/utils_test_stubs.c
+	$(CC) $(CFLAGS) -o $@ $^ $(UTIL_LIBS)
+
+.PHONY: check-utils
+check-utils: $(UTIL_TESTS)
+	@for t in $(UTIL_TESTS); do $$t || exit 1; done
+
 tests/test_audit: tests/test_audit.c src/audit/audit.c src/crypto/fly_crypto.o $(MD4C_LIB) $(LIBMAGIC_A)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
@@ -530,11 +547,11 @@ tests/test_utils_traffic_guard: tests/test_utils_traffic_guard.c src/utils/traff
 check-traffic-guard: tests/test_utils_traffic_guard
 	./tests/test_utils_traffic_guard
 
-test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-audit check-traffic-guard check-notifications check-sqlite-partition-poc check-privacy-rights $(TARGET)
+test: check-utils check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-audit check-traffic-guard check-notifications check-sqlite-partition-poc check-privacy-rights $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tests/test_utils_traffic_guard tests/test_privacy_rights $(NOTIFICATION_TESTS) tools/connhold
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tests/test_utils_traffic_guard tests/test_privacy_rights $(UTIL_TESTS) $(NOTIFICATION_TESTS) tools/connhold
 	rm -rf build-wasm
 
 # --- WASM: sandboxed TASFA crypto (opt-in, experimental) -------------------

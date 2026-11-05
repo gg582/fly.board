@@ -274,7 +274,10 @@ Personal data export and account ghosting are documented in
 
 | Variable | Default | Effect |
 |---|---|---|
-| `FLYBOARD_CACHE_MAX_MB` | unlimited | Soft cap on the in-memory page cache, 1–1024 MiB |
+| `FLYBOARD_CACHE_MAX_MB` | `64` | Soft cap on the in-memory page cache, 1–1024 MiB |
+| `FLY_PAGE_SWR_SECONDS` | `0` (off) | Seconds an expired hot page may be served while one background leader refreshes it; see [stale-while-revalidate](stale-while-revalidate.md) |
+| `FLY_PAGE_REFRESH_WORKERS` | `2` | Background page-render threads per serving process, 1–16 |
+| `FLY_PAGE_REFRESH_QUEUE_MAX` | `64` | Waiting background page renders per serving process, 1–4096 |
 | `FLYBOARD_INLINE_IMAGES` | off | Inline images as base64 data URIs |
 | `FLYBOARD_INLINE_ALL_ASSETS` | off | Also inline scripts/styles |
 | `FLYBOARD_INLINE_SHELL` / `FLYBOARD_INLINE_CDN` | off | Finer-grained inlining toggles (each implies ALL_ASSETS behavior for its group) |

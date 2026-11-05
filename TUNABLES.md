@@ -26,7 +26,10 @@ Benchmarks run against `https://127.0.0.x:8888/` via `run_all_bench.sh`.
 | `CWIST_WORKER_THREADS` | `cpu_cores * 4`, clamped `[16, 128]` | threads | Number of HTTP worker threads spawned by CWIST. Each request handler runs on one of these threads. |
 | `FLYBOARD_ADVERTISE_H3` | `true` | bool | Whether `Alt-Svc` is advertised when HTTP/3 is enabled. |
 | `FLYBOARD_ALT_SVC_MAX_AGE` | `300` | seconds | `ma` parameter for the `Alt-Svc` header. |
-| `FLYBOARD_CACHE_MAX_MB` | *(unlimited)* | MiB | Soft cap for the in-memory page cache. |
+| `FLYBOARD_CACHE_MAX_MB` | `64` | MiB | Soft cap for the in-memory page cache. |
+| `FLY_PAGE_SWR_SECONDS` | `0` | seconds | Stale-serving window for hot pages; disabled by default. See [docs/stale-while-revalidate.md](docs/stale-while-revalidate.md). |
+| `FLY_PAGE_REFRESH_WORKERS` | `2` | threads | Background page-render workers per serving process. |
+| `FLY_PAGE_REFRESH_QUEUE_MAX` | `64` | jobs | Maximum waiting background page renders per serving process. |
 
 ### Asset inlining
 
