@@ -22,6 +22,15 @@ Spam detection never deletes or rejects content by itself. A match creates a pen
 - **Excessive links:** more than **5** case-insensitive occurrences of `http://` or `https://` in the post or comment body.
 - **Duplicate content:** the normalized body exactly matches an earlier body by the same account and of the same content type. For anonymous writers, the comparison group is all anonymous writers. Normalization trims leading and trailing ASCII whitespace, collapses each ASCII whitespace run to one space, and maps `A`–`Z` to `a`–`z`. Post titles are not part of the comparison. Pending comment snapshots are included in duplicate checks.
 
+## Banned-word filter
+
+The independently configured dashboard banned-word filter is also optional and
+off by default. Unlike the spam heuristics, it can either queue or reject a
+submission. It matches administrator-supplied UTF-8 patterns with a bounded
+Aho-Corasick automaton, including overlapping matches, and reloads changed rules
+without a restart. Its case-fold policy, limits, and UTF-8 behavior are specified
+in [configuration.md](configuration.md#banned-word-filter-admin-dashboard-optional).
+
 ## Approval and rejection
 
 When `approval_queue` is enabled, every non-trusted submission is pending. Spam matches are also pending when `spam_detection` is enabled. Pending posts use the `pending` publication status, so public listings, feeds, and searches exclude them. Pending comments are soft-deleted placeholders; their original text is stored only in the moderation queue and is restored on approval. Neither pending type generates a public notification or announcement.

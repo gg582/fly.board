@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "db.h"
 #include "db_internal.h"
+#include "engine/community.h"
 #include <cwist/core/mem/alloc.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,6 +131,85 @@ cJSON *db_board_perm_list(cwist_db *db, int board_id) {
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_int(stmt, 1, board_id);
     return db_sqlite3_rows_to_json(stmt);
+}
+
+bool db_board_delegation_grant(cwist_db *db, int board_id, int user_id, bool can_moderate,
+                               bool can_notice, const char *expires_at) {
+    if (!community.board_delegations || board_id <= 0 || user_id <= 0 || (!can_moderate && !can_notice)) return false;
+    const char *sql = "INSERT INTO board_delegations (board_id,user_id,can_moderate,can_notice,expires_at) VALUES (?,?,?,?,?)"
+                      " ON CONFLICT(board_id,user_id) DO UPDATE SET can_moderate=excluded.can_moderate,"
+                      "can_notice=excluded.can_notice,expires_at=excluded.expires_at,updated_at=CURRENT_TIMESTAMP";
+    sqlite3_stmt *stmt = NULL;
+    sqlite3 *conn = fly_db_conn(db);
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, board_id);
+    sqlite3_bind_int(stmt, 2, user_id);
+    sqlite3_bind_int(stmt, 3, can_moderate ? 1 : 0);
+    sqlite3_bind_int(stmt, 4, can_notice ? 1 : 0);
+    if (expires_at && expires_at[0]) sqlite3_bind_text(stmt, 5, expires_at, -1, SQLITE_TRANSIENT);
+    else sqlite3_bind_null(stmt, 5);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) {
+        sqlite3_stmt *id_stmt = NULL;
+        if (sqlite3_prepare_v2(conn, "SELECT id FROM board_delegations WHERE board_id=? AND user_id=?", -1, &id_stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(id_stmt, 1, board_id);
+            sqlite3_bind_int(id_stmt, 2, user_id);
+            if (sqlite3_step(id_stmt) == SQLITE_ROW)
+                db_sync_journal_row(db, "board_delegations", "board_delegation", sqlite3_column_int(id_stmt, 0));
+        }
+        sqlite3_finalize(id_stmt);
+    }
+    return rc == SQLITE_DONE;
+}
+
+bool db_board_delegation_revoke(cwist_db *db, int board_id, int user_id) {
+    if (board_id <= 0 || user_id <= 0) return false;
+    sqlite3 *conn = fly_db_conn(db);
+    sqlite3_stmt *stmt = NULL;
+    int id = 0;
+    if (sqlite3_prepare_v2(conn, "SELECT id FROM board_delegations WHERE board_id=? AND user_id=?", -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, board_id);
+    sqlite3_bind_int(stmt, 2, user_id);
+    if (sqlite3_step(stmt) == SQLITE_ROW) id = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    if (id <= 0 || sqlite3_prepare_v2(conn, "DELETE FROM board_delegations WHERE id=?", -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE && sqlite3_changes(conn) == 1) db_sync_journal(db, "board_delegation", id, "delete", "");
+    return rc == SQLITE_DONE;
+}
+
+cJSON *db_board_delegation_list(cwist_db *db, int board_id) {
+    const char *sql = "SELECT d.id,d.board_id,d.user_id,d.can_moderate,d.can_notice,d.expires_at,u.username,u.email"
+                      " FROM board_delegations d JOIN users u ON d.user_id=u.id WHERE d.board_id=? ORDER BY u.username";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_int(stmt, 1, board_id);
+    return db_sqlite3_rows_to_json(stmt);
+}
+
+static bool board_delegation_allowed(cwist_db *db, int board_id, int user_id, const char *column) {
+    if (!community.board_delegations || board_id <= 0 || user_id <= 0) return false;
+    char sql[256];
+    snprintf(sql, sizeof(sql), "SELECT 1 FROM board_delegations WHERE board_id=? AND user_id=? AND %s=1"
+                               " AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP) LIMIT 1", column);
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, board_id);
+    sqlite3_bind_int(stmt, 2, user_id);
+    bool allowed = sqlite3_step(stmt) == SQLITE_ROW;
+    sqlite3_finalize(stmt);
+    return allowed;
+}
+
+bool db_board_user_can_moderate(cwist_db *db, int board_id, int user_id, const char *role) {
+    return community_role_can_moderate(role) || board_delegation_allowed(db, board_id, user_id, "can_moderate");
+}
+
+bool db_board_user_can_notice(cwist_db *db, int board_id, int user_id, const char *role) {
+    return community_role_can_moderate(role) || board_delegation_allowed(db, board_id, user_id, "can_notice");
 }
 
 int db_post_create(cwist_db *db, int board_id, int user_id, const char *title, const char *slug, const char *content, const char *summary, const char *pqc_signature, int is_notice, int is_secret, const char *category) {

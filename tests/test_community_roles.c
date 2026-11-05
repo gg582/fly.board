@@ -78,6 +78,7 @@ int main(void) {
 
     CHECK(community_config_load(settings), "missing settings are optional");
     CHECK(!community_roles_enabled(), "roles default to false");
+    CHECK(!community.board_delegations, "board delegations default to false");
     CHECK(community_role_can_moderate("admin"), "admin moderates with roles off");
     CHECK(!community_role_can_moderate("moderator"), "moderator is inert with roles off");
     CHECK(!community_role_can_moderate("user"), "user cannot moderate");
@@ -86,6 +87,9 @@ int main(void) {
     CHECK(community_config_load(settings) && community_roles_enabled(), "roles=true enables the model");
     CHECK(community_role_can_moderate("moderator"), "moderator can process reports");
     CHECK(community_role_can_moderate("admin"), "admin retains report access");
+    write_settings(settings, "board_delegations=true\n");
+    CHECK(community_config_load(settings) && community.board_delegations && !community_roles_enabled(),
+          "board delegations enable independently of global roles");
 
     write_settings(settings, "roles=maybe\n");
     CHECK(!community_config_load(settings), "invalid boolean is reported");

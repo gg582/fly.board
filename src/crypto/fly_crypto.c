@@ -29,6 +29,9 @@
  * manifest signature, or the other way round. */
 #define CTX_POST "fly.board/post/v1"
 #define CTX_BACKUP "fly.board/backup-manifest/v1"
+#define CTX_MODERATION_REQUEST "fly.board/moderation-request/v1"
+#define CTX_MODERATION_DECISION "fly.board/moderation-decision/v1"
+#define CTX_AUDIT "fly.board/audit/v1"
 
 #define MAX_VERIFY_KEYS 32
 
@@ -243,6 +246,30 @@ bool fly_crypto_verify_manifest(const char *pk_b64, const uint8_t *msg, size_t m
     /* The signature must name the key it is checked against. */
     if (!sig || strncmp(sig, id, FLY_PQC_KEY_ID_LEN) != 0 || sig[FLY_PQC_KEY_ID_LEN] != ':') return false;
     return verify_ctx(CTX_BACKUP, &pub, msg, msg_len, sig);
+}
+
+bool fly_crypto_sign_moderation_request(const uint8_t *msg, size_t msg_len, char **sig_out) {
+    return sign_ctx(CTX_MODERATION_REQUEST, msg, msg_len, sig_out);
+}
+
+bool fly_crypto_sign_moderation_decision(const uint8_t *msg, size_t msg_len, char **sig_out) {
+    return sign_ctx(CTX_MODERATION_DECISION, msg, msg_len, sig_out);
+}
+
+bool fly_crypto_verify_moderation_decision(const char *pk_b64, const uint8_t *msg, size_t msg_len, const char *sig) {
+    struct MLDSA65_public_key pub;
+    char id[FLY_PQC_KEY_ID_LEN + 1];
+    if (!parse_public_key(pk_b64, &pub, id)) return false;
+    if (!sig || strncmp(sig, id, FLY_PQC_KEY_ID_LEN) != 0 || sig[FLY_PQC_KEY_ID_LEN] != ':') return false;
+    return verify_ctx(CTX_MODERATION_DECISION, &pub, msg, msg_len, sig);
+}
+
+bool fly_crypto_sign_audit(const uint8_t *msg, size_t msg_len, char **sig_out) {
+    return sign_ctx(CTX_AUDIT, msg, msg_len, sig_out);
+}
+
+bool fly_crypto_verify_audit(const uint8_t *msg, size_t msg_len, const char *sig) {
+    return verify_ctx(CTX_AUDIT, NULL, msg, msg_len, sig);
 }
 
 bool fly_crypto_key_id_of(const char *pk_b64, char out[FLY_PQC_KEY_ID_LEN + 1]) {

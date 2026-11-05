@@ -4,6 +4,7 @@
 #include <cwist/core/sstring/sstring.h>
 #include <cwist/core/template/template.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 cwist_sstring *render_notifications_page(cJSON *notifs, bool dark, const char *user_role, const char *profile_pic, bool is_mobile) {
@@ -37,13 +38,22 @@ cwist_sstring *render_notifications_page(cJSON *notifs, bool dark, const char *u
         cJSON *excerpt = cJSON_GetObjectItem(it, "excerpt");
         cJSON *created = cJSON_GetObjectItem(it, "created_at");
         cJSON *is_read = cJSON_GetObjectItem(it, "is_read");
+        cJSON *actor_count = cJSON_GetObjectItem(it, "actor_count");
         const char *actor_s = (actor && cJSON_IsString(actor) && actor->valuestring && actor->valuestring[0]) ? actor->valuestring : "Anonymous";
+        int count = (actor_count && cJSON_IsNumber(actor_count)) ? actor_count->valueint : 1;
+        char *actor_display = NULL;
+        if (count > 1) {
+            size_t len = strlen(actor_s) + 64;
+            actor_display = malloc(len);
+            if (actor_display) snprintf(actor_display, len, "%s and %d others", actor_s, count - 1);
+        }
         const char *kind_s = (kind && cJSON_IsString(kind) && kind->valuestring) ? kind->valuestring : "";
         const char *slug_s = (slug && cJSON_IsString(slug) && slug->valuestring) ? slug->valuestring : "";
         bool unread = !(is_read && cJSON_IsNumber(is_read) && is_read->valueint);
 
         cJSON *row = cJSON_CreateObject();
-        cJSON_AddStringToObject(row, "actor", actor_s);
+        cJSON_AddStringToObject(row, "actor", actor_display ? actor_display : actor_s);
+        free(actor_display);
         cJSON_AddStringToObject(row, "action_label",
             strcmp(kind_s, "reply") == 0 ? " replied to your comment" : " commented on your post");
         cJSON_AddStringToObject(row, "slug", slug_s);

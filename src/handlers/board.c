@@ -2,6 +2,7 @@
 #include "handlers_internal.h"
 #include "cwist/board_tree.h"
 #include "../db/db_internal.h"
+#include "engine/community.h"
 #include <pthread.h>
 #include <stdlib.h>
 
@@ -511,17 +512,31 @@ void handler_board_perms_get(cwist_http_request *req, cwist_http_response *res) 
     int bid = json_int(board, "id", 0);
     if (bid <= 0) { cJSON_Delete(board); redirect(res, "/boards"); return; }
     cJSON *perms = db_board_perm_list(req->db, bid);
+    cJSON *delegations = community.board_delegations ? db_board_delegation_list(req->db, bid) : NULL;
     cJSON *users = db_user_list(req->db);
     int uid = 0; char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     char *pp = get_profile_pic(req->db, uid, role);
     const char *msg = cwist_query_map_get(req->query_params, "msg");
-    cwist_sstring *page = render_board_perms(board, perms, users, is_dark(req), msg, pp, is_mobile_request(req));
+    cwist_sstring *page = render_board_perms(board, perms, users, delegations, community.board_delegations,
+                                             is_dark(req), msg, pp, is_mobile_request(req));
     cJSON_Delete(board);
     if (perms) cJSON_Delete(perms);
+    if (delegations) cJSON_Delete(delegations);
     if (users) cJSON_Delete(users);
     send_html_res(res, page);
     free(pp);
+}
+
+static bool delegation_expiry_valid(const char *value) {
+    if (!value || !value[0]) return true;
+    int y, mo, d, h, mi, s;
+    char tail;
+    if (sscanf(value, "%4d-%2d-%2d %2d:%2d:%2d%c", &y, &mo, &d, &h, &mi, &s, &tail) != 6) return false;
+    static const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int max_day = mo >= 1 && mo <= 12 ? days[mo - 1] : 0;
+    if (mo == 2 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0)) max_day++;
+    return y >= 1970 && y <= 9999 && d >= 1 && d <= max_day && h >= 0 && h <= 23 && mi >= 0 && mi <= 59 && s >= 0 && s <= 59;
 }
 
 void handler_board_perms_post(cwist_http_request *req, cwist_http_response *res) {
@@ -530,7 +545,19 @@ void handler_board_perms_post(cwist_http_request *req, cwist_http_response *res)
     const char *bid = cwist_query_map_get(kv, "board_id");
     const char *uid_str = cwist_query_map_get(kv, "user_id");
     const char *msg = "error";
-    if (bid && uid_str) {
+    bool delegation = cwist_query_map_get(kv, "delegation") != NULL;
+    if (delegation && community.board_delegations && bid && uid_str) {
+        int board_id = atoi(bid);
+        int user_id = atoi(uid_str);
+        const char *expires_at = cwist_query_map_get(kv, "expires_at");
+        bool moderate = cwist_query_map_get(kv, "can_moderate") != NULL;
+        bool notice = cwist_query_map_get(kv, "can_notice") != NULL;
+        if (delegation_expiry_valid(expires_at) &&
+            db_board_delegation_grant(req->db, board_id, user_id, moderate, notice, expires_at)) {
+            msg = "granted";
+            page_cache_invalidate_all();
+        }
+    } else if (!delegation && bid && uid_str) {
         int board_id = atoi(bid);
         int user_id = atoi(uid_str);
         if (board_id > 0 && user_id > 0) {
@@ -564,10 +591,15 @@ void handler_board_perms_revoke_post(cwist_http_request *req, cwist_http_respons
     const char *bid = cwist_query_map_get(kv, "board_id");
     const char *uid_str = cwist_query_map_get(kv, "user_id");
     const char *msg = "error";
+    bool delegation = cwist_query_map_get(kv, "delegation") != NULL;
     if (bid && uid_str) {
         int board_id = atoi(bid);
         int user_id = atoi(uid_str);
-        if (board_id > 0 && user_id > 0 && db_board_perm_revoke(req->db, board_id, user_id)) {
+        if (delegation && community.board_delegations && board_id > 0 && user_id > 0 &&
+            db_board_delegation_revoke(req->db, board_id, user_id)) {
+            msg = "revoked";
+            page_cache_invalidate_all();
+        } else if (!delegation && board_id > 0 && user_id > 0 && db_board_perm_revoke(req->db, board_id, user_id)) {
             msg = "revoked";
             CWIST_LOG_INFO("Board permission revoked: board_id=%d user_id=%d", board_id, user_id);
             cJSON *board = db_board_get_by_id(req->db, board_id);

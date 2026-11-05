@@ -1,6 +1,7 @@
 #include "engine/settings.h"
 #include "engine/community.h"
 #include "auth/auth.h"
+#include "audit/audit.h"
 #include "config/config.h"
 #include "utils/font_fetch.h"
 #include <cwist/core/log.h>
@@ -23,6 +24,7 @@ bool engine_settings_load(void) {
     upload_policy_load("upload.settings");
     CWIST_LOG_INFO("Upload policy loaded (mode=%s)", upload_policy_mode());
     community_config_load("community.settings");
+    if (!audit_init("audit.settings")) return false;
     flywire_config_load("flywire.settings");
     if (flywire_is_primary()) CWIST_LOG_INFO("FlyWire: primary mode (serving /flywire/feed)");
     else if (flywire_is_replica()) CWIST_LOG_INFO("FlyWire: replica of %s", flywire_primary_url());
