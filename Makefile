@@ -461,6 +461,21 @@ tests/test_db_moderation: tests/test_db_moderation.c $(SERVER_OBJS) $(MD4C_LIB) 
 tests/test_render_moderation: tests/test_render_moderation.c src/render/render_moderation.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
+NOTIFICATION_TESTS := tests/test_config tests/test_db_notification tests/test_render_notifications
+
+tests/test_config: tests/test_config.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
+
+tests/test_db_notification: tests/test_db_notification.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
+
+tests/test_render_notifications: tests/test_render_notifications.c src/render/render_notifications.c
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+
+.PHONY: check-notifications
+check-notifications: $(NOTIFICATION_TESTS)
+	@for t in $(NOTIFICATION_TESTS); do $$t || exit 1; done
+
 tests/test_db_portability: tests/test_db_portability.c src/db/db_portability.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
@@ -485,11 +500,11 @@ tests/test_utils_traffic_guard: tests/test_utils_traffic_guard.c src/utils/traff
 check-traffic-guard: tests/test_utils_traffic_guard
 	./tests/test_utils_traffic_guard
 
-test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-audit check-traffic-guard $(TARGET)
+test: check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-audit check-traffic-guard check-notifications $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tests/test_utils_traffic_guard tools/connhold
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tests/test_utils_traffic_guard $(NOTIFICATION_TESTS) tools/connhold
 	rm -rf build-wasm
 
 # --- WASM: sandboxed TASFA crypto (opt-in, experimental) -------------------

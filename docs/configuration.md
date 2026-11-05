@@ -52,6 +52,8 @@ the built-in defaults; a missing file is regenerated with them.
 | `use_tasfa` | `true` | TASFA resumable upload/download pipeline (protocol details: [tasfa.md](tasfa.md)) |
 | `use_rss` | `false` | Serve the RSS feed (`/rss.xml`) |
 | `newsletter_enabled` | `false` | Email subscription: shows the subscribe form on post lists, accepts `/subscribe` and confirm/unsubscribe links. Sending new-post emails additionally requires `FLY_NEWSLETTER_SEND=1` on the primary node (see below) |
+| `notification_aggregation` | `false` | Coalesce notifications by recipient, kind, and post target during the configured window. The latest actor and excerpt are shown as `A and N others`; actor history remains stored. A new event makes a previously read group unread again |
+| `notification_window_seconds` | `300` | Aggregation lookback from the latest event, clamped to 1–86400 seconds. Events outside the window start a new notification |
 | `use_tls` | `true` | HTTPS. Requires `server.crt`/`server.key` in the site root |
 | `use_http2` | `true` | HTTP/2 over TLS |
 | `use_http3` | `true` | HTTP/3 (QUIC) on the same port over UDP; enables 0-RTT + session resumption |
@@ -62,6 +64,13 @@ the built-in defaults; a missing file is regenerated with them.
 | `use_special_modes` | *(empty)* | Comma-separated theme pair replacing light/dark (`ocean,forest`, …) |
 | `vote_only` | *(empty = all)* | Voting policy: `all`, `authorized` (logged-in), `admin`; unknown values warn and fall back to all |
 | `mail_domain` | *(resolved)* | Local mail domain. Resolution order: `FLY_MAIL_DOMAIN` env → this key → host part of `root_url` → `localhost` |
+
+Notification rows remain node-local: FlyWire does not journal or replay them.
+NATS comment events carry an origin/comment event ID with a unique database
+index, so delivery of the same event to multiple worker processes is
+idempotent. Legacy NATS events without an event ID retain their original
+at-least-once behavior. Aggregation uses SQLite `BEGIN IMMEDIATE` to keep the
+read/update sequence atomic across processes.
 
 ## fonts.settings
 
