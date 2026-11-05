@@ -2,6 +2,7 @@
 #include "handlers_internal.h"
 #include "utils/email.h"
 #include "utils/ipban.h"
+#include "utils/privacy.h"
 #include "../auth/totp.h"
 #include "render/render.h"
 #include <cwist/security/jwt/jwt.h>
@@ -273,12 +274,12 @@ void handler_logout(cwist_http_request *req, cwist_http_response *res) {
  * confirm handler. */
 static cwist_sstring *render_account_settings_totp(cJSON *user, bool dark, const char *role,
                                                    const char *pp, const char *error, bool mobile,
-                                                   int drafts) {
+                                                   int drafts, const char *export_id) {
     bool enabled = user && json_int(user, "totp_enabled", 0) == 1;
     const char *secret = json_string_or_empty(user, "totp_secret");
     bool pending = !enabled && secret[0];
     return render_account_settings(user, dark, role, pp, error, mobile, drafts,
-                                   enabled, pending, secret, "");
+                                   enabled, pending, secret, "", export_id);
 }
 
 #define TOTP_RECOVERY_COUNT 5
@@ -458,7 +459,7 @@ void handler_account_totp_post(cwist_http_request *req, cwist_http_response *res
         } else {
             send_html_res(res, render_account_settings(user, dark, role, pp,
                 "Could not start two-factor setup. Try again.", mobile, draft_count,
-                false, false, "", ""));
+                false, false, "", "", NULL));
         }
         cJSON_Delete(user);
         cwist_query_map_destroy(kv);
@@ -482,16 +483,16 @@ void handler_account_totp_post(cwist_http_request *req, cwist_http_response *res
                     11, shown, 11, shown + 12, 11, shown + 24, 11, shown + 36, 11, shown + 48);
                 CWIST_LOG_INFO("TOTP enabled: uid=%d", uid);
                 send_html_res(res, render_account_settings(user, dark, role, pp, NULL, mobile,
-                    draft_count, true, false, "", notice));
+                    draft_count, true, false, "", notice, NULL));
             } else {
                 send_html_res(res, render_account_settings(user, dark, role, pp,
                     "Could not finish two-factor setup. Try again.", mobile, draft_count,
-                    false, true, secret_stored, ""));
+                    false, true, secret_stored, "", NULL));
             }
         } else {
             send_html_res(res, render_account_settings(user, dark, role, pp,
                 "That code does not match. Check your app's clock and try again.", mobile,
-                draft_count, false, true, secret_stored, ""));
+                draft_count, false, true, secret_stored, "", NULL));
         }
         cJSON_Delete(user);
         cwist_query_map_destroy(kv);
@@ -520,7 +521,7 @@ void handler_account_totp_post(cwist_http_request *req, cwist_http_response *res
         }
         send_html_res(res, render_account_settings(user, dark, role, pp,
             "Two-factor was NOT disabled: the password or code did not match.", mobile,
-            draft_count, true, false, "", ""));
+            draft_count, true, false, "", "", NULL));
         cJSON_Delete(user);
         cwist_query_map_destroy(kv);
         free(pp);
@@ -720,6 +721,95 @@ void handler_unregister_post(cwist_http_request *req, cwist_http_response *res) 
     redirect(res, "/admin/users");
 }
 
+static void unlink_under_root(const char *path, const char *root) {
+    char resolved_path[PATH_MAX], resolved_root[PATH_MAX];
+    if (!path || !realpath(path, resolved_path) || !realpath(root, resolved_root)) return;
+    size_t root_len = strlen(resolved_root);
+    if (strncmp(resolved_path, resolved_root, root_len) == 0 && resolved_path[root_len] == '/')
+        unlink(resolved_path);
+}
+
+static void remove_owned_file_bytes(cJSON *files) {
+    cJSON *file;
+    cJSON_ArrayForEach(file, files) {
+        static const char *const keys[] = {"file_path", "thumb_path", "preview_path"};
+        for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+            const char *path = cJSON_GetStringValue(cJSON_GetObjectItem(file, keys[i]));
+            unlink_under_root(path, "public/uploads");
+        }
+    }
+}
+
+void handler_account_delete_post(cwist_http_request *req, cwist_http_response *res) {
+    int uid = 0;
+    char role[32] = {0};
+    if (!auth_require_login(req, res, &uid, role, sizeof(role))) return;
+    if (auth_is_site_admin(uid)) {
+        res->status_code = CWIST_HTTP_FORBIDDEN;
+        cwist_sstring_assign(res->body, "The site admin account cannot be deleted here");
+        return;
+    }
+    cwist_query_map *kv = cwist_query_map_create();
+    if (!kv || !req->body || !req->body->data) {
+        if (kv) cwist_query_map_destroy(kv);
+        redirect(res, "/account/settings");
+        return;
+    }
+    cwist_query_map_parse(kv, req->body->data);
+    const char *password = cwist_query_map_get(kv, "password");
+    const char *confirmation = cwist_query_map_get(kv, "confirmation");
+    const char *code = cwist_query_map_get(kv, "code");
+    cJSON *user = db_user_get_by_id(req->db, uid);
+    const char *hash = user ? json_string_or_empty(user, "password_hash") : "";
+    bool password_ok = password && auth_verify_password(password, hash);
+    bool confirmed = confirmation && strcmp(confirmation, "DELETE") == 0;
+    bool code_ok = true;
+    if (user && json_int(user, "totp_enabled", 0) == 1) {
+        const char *secret = json_string_or_empty(user, "totp_secret");
+        code_ok = secret[0] && totp_verify(secret, code);
+        if (!code_ok && password_ok && confirmed)
+            code_ok = totp_recovery_consume(req->db, uid, json_string_or_empty(user, "totp_recovery"), code);
+    }
+    if (!user || !password_ok || !confirmed || !code_ok) {
+        char *pp = get_profile_pic(req->db, uid, role);
+        int drafts = db_post_count_drafts(req->db, uid);
+        send_html_res(res, render_account_settings_totp(user, is_dark(req), role, pp,
+            "Account was NOT deleted. Check the password, DELETE confirmation, and two-factor code.",
+            is_mobile_request(req), drafts, NULL));
+        free(pp);
+        if (user) cJSON_Delete(user);
+        cwist_query_map_destroy(kv);
+        return;
+    }
+
+    cJSON *files = db_file_list_by_user(req->db, uid, INT_MAX);
+    char profile_path[PATH_MAX] = {0};
+    const char *pic = json_string_or_empty(user, "profile_pic");
+    if (strncmp(pic, "/assets/profile/", 16) == 0)
+        snprintf(profile_path, sizeof(profile_path), "public/profile/%s", pic + 16);
+    bool ok = files != NULL;
+    if (ok) {
+        privacy_export_revoke_user(uid);
+        ok = db_user_ghost(req->db, uid);
+        privacy_export_revoke_user(uid);
+    }
+    if (ok) {
+        remove_owned_file_bytes(files);
+        if (profile_path[0]) unlink_under_root(profile_path, "public/profile");
+        CWIST_LOG_INFO("Account ghosted: uid=%d", uid);
+        page_cache_invalidate_all();
+    }
+    if (files) cJSON_Delete(files);
+    cJSON_Delete(user);
+    cwist_query_map_destroy(kv);
+    if (!ok) {
+        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
+        cwist_sstring_assign(res->body, "Account deletion failed; no credentials were changed");
+        return;
+    }
+    handler_logout(req, res);
+}
+
 /* ---- Boards ---- */
 void handler_profile_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;
@@ -790,7 +880,9 @@ void handler_account_settings_get(cwist_http_request *req, cwist_http_response *
     } else if (msg && strcmp(msg, "admin_request_failed") == 0) {
         notice = "Could not send the admin promotion request to the primary site. Please try again later.";
     }
-    send_html_res(res, render_account_settings_totp(user, is_dark(req), role, pp, notice, is_mobile_request(req), draft_count));
+    const char *export_id = target_uid == uid ? cwist_query_map_get(req->query_params, "export") : NULL;
+    send_html_res(res, render_account_settings_totp(user, is_dark(req), role, pp, notice,
+                                                    is_mobile_request(req), draft_count, export_id));
     cJSON_Delete(user);
     free(pp);
 }
@@ -925,7 +1017,8 @@ void handler_account_settings_post(cwist_http_request *req, cwist_http_response 
         cJSON *user = db_user_get_by_id(req->db, target_uid);
         char *pp = get_profile_pic(req->db, uid, role);
         int draft_count = db_post_count_drafts(req->db, target_uid);
-        send_html_res(res, render_account_settings_totp(user, is_dark(req), role, pp, "Invalid form data", is_mobile_request(req), draft_count));
+        send_html_res(res, render_account_settings_totp(user, is_dark(req), role, pp, "Invalid form data",
+                                                        is_mobile_request(req), draft_count, NULL));
         if (user) cJSON_Delete(user);
         free(pp);
         cwist_free(nickname); cwist_free(bio); cwist_free(profile_pic_url);

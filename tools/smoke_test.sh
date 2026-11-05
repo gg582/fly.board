@@ -107,6 +107,66 @@ else
     fail=1
 fi
 
+# Privacy workflow: real authenticated routes, archive ownership, byte ranges,
+# and immediate session invalidation after ghosting.
+alice_input="aA1-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+bob_input="bB2-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+wrong_input="cC3-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+curl -s -o /dev/null --max-time 5 -X POST --data "username=privacy-alice&email=alice%40example.com&password=$alice_input" "http://127.0.0.1:$PORT/register"
+curl -s -c "$TMP/alice.cookies" -o /dev/null --max-time 5 -X POST --data "username=privacy-alice&password=$alice_input" "http://127.0.0.1:$PORT/login"
+location="$(curl -s -b "$TMP/alice.cookies" -D - -o /dev/null --max-time 5 -X POST "http://127.0.0.1:$PORT/account/export" | tr -d '\r')"
+export_id="$(printf '%s\n' "$location" | sed -n 's/.*export=\([a-f0-9]\{64\}\).*/\1/p')"
+ready=0
+if [ -n "$export_id" ]; then
+    for _ in $(seq 1 50); do
+        status="$(curl -s -b "$TMP/alice.cookies" --max-time 5 "http://127.0.0.1:$PORT/account/export/$export_id/status")"
+        if [[ "$status" == *'"state":"ready"'* ]]; then ready=1; break; fi
+        sleep 0.1
+    done
+fi
+if [ "$ready" -eq 1 ]; then
+    echo "smoke: authenticated asynchronous export OK"
+else
+    echo "smoke: authenticated asynchronous export FAIL" >&2
+    fail=1
+fi
+if [ "$ready" -eq 1 ]; then
+    archive_code="$(curl -s -b "$TMP/alice.cookies" -o "$TMP/export.tar.zst" -w '%{http_code}' --max-time 10 "http://127.0.0.1:$PORT/account/export/$export_id/download")"
+    range_code="$(curl -s -b "$TMP/alice.cookies" -o "$TMP/export.range" -w '%{http_code}' --max-time 10 -H 'Range: bytes=0-15' "http://127.0.0.1:$PORT/account/export/$export_id/download")"
+    dd if="$TMP/export.tar.zst" of="$TMP/export.first" bs=1 count=16 status=none
+    if [ "$archive_code" = 200 ] && [ "$range_code" = 206 ] && cmp -s "$TMP/export.range" "$TMP/export.first"; then
+        echo "smoke: export download and resumable range OK"
+    else
+        echo "smoke: export download and resumable range FAIL (full=$archive_code range=$range_code)" >&2
+        fail=1
+    fi
+fi
+curl -s -o /dev/null --max-time 5 -X POST --data "username=privacy-bob&email=bob%40example.com&password=$bob_input" "http://127.0.0.1:$PORT/register"
+curl -s -c "$TMP/bob.cookies" -o /dev/null --max-time 5 -X POST --data "username=privacy-bob&password=$bob_input" "http://127.0.0.1:$PORT/login"
+other_code="$(curl -s -b "$TMP/bob.cookies" -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$PORT/account/export/$export_id/status")"
+if [ "$other_code" = 404 ]; then
+    echo "smoke: cross-account export authorization OK"
+else
+    echo "smoke: cross-account export authorization FAIL ($other_code)" >&2
+    fail=1
+fi
+curl -s -b "$TMP/alice.cookies" -o /dev/null --max-time 5 -X POST --data "password=$wrong_input&confirmation=DELETE" "http://127.0.0.1:$PORT/account/delete"
+still_valid="$(curl -s -b "$TMP/alice.cookies" -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$PORT/account/export/$export_id/status")"
+if [ "$still_valid" = 200 ]; then
+    echo "smoke: deletion rejects wrong password OK"
+else
+    echo "smoke: deletion rejects wrong password FAIL ($still_valid)" >&2
+    fail=1
+fi
+curl -s -b "$TMP/alice.cookies" -o /dev/null --max-time 5 -X POST --data "password=$alice_input&confirmation=DELETE" "http://127.0.0.1:$PORT/account/delete"
+ghost_code="$(curl -s -b "$TMP/alice.cookies" -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$PORT/account/export/$export_id/status")"
+if [ "$ghost_code" = 302 ]; then
+    echo "smoke: account ghosting invalidates session and export OK"
+else
+    echo "smoke: account ghosting invalidates session and export FAIL ($ghost_code)" >&2
+    fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
     echo "smoke: FAILED" >&2
     exit 1

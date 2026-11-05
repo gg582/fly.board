@@ -86,4 +86,5 @@ docs/mail.md
 *.db-wal
 flywire.settings
 data/.compress/
+data/exports/
 build-wasm/

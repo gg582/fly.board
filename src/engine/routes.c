@@ -72,6 +72,10 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/verify-email", handler_verify_email_get);
     engine_async_post(app, "/resend-verification", handler_resend_verification_post);
     engine_async_post(app, "/unregister", handler_unregister_post);
+    engine_async_post(app, "/account/delete", handler_account_delete_post);
+    engine_async_post(app, "/account/export", handler_account_export_post);
+    engine_async_get(app, "/account/export/:id/status", handler_account_export_status);
+    engine_async_get(app, "/account/export/:id/download", handler_account_export_download);
 
     engine_async_get(app, "/profile", handler_profile_get);
     engine_async_post(app, "/profile", handler_profile_post);
