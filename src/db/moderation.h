@@ -28,6 +28,7 @@ int db_moderation_create_pending_comment(cwist_db *db, const char *target_type, 
                                          int uid, const char *author_name, int parent_id,
                                          const char *content, const char *reason);
 cJSON *db_moderation_list_pending(cwist_db *db);
+int db_moderation_target_board_id(cwist_db *db, const char *target_type, int target_id);
 bool db_moderation_approve(cwist_db *db, const char *target_type, int target_id, int reviewer_uid);
 bool db_moderation_reject(cwist_db *db, const char *target_type, int target_id, int reviewer_uid);
 void db_moderation_filter_comments(cwist_db *db, cJSON *comments);

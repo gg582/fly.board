@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "ipban.h"
+#include "audit/audit.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <cwist/core/log.h>
@@ -192,6 +193,7 @@ void ipban_note_failure(cwist_http_request *req) {
     uint64_t key = 0;
     if (!peer_key(req, addr, &addr_len, &key)) return;
     time_t now = time(NULL);
+    bool created = false;
     lock_stripe(g_ipban, stripe_for(key));
     ipban_slot_t *s = slot_for(g_ipban, key, addr, addr_len, true);
     if (s) {
@@ -206,10 +208,16 @@ void ipban_note_failure(cwist_http_request *req) {
             if (s->fails >= g_threshold) {
                 s->banned_until = now + g_duration_sec;
                 g_bans_created++;
+                created = true;
             }
         }
     }
     pthread_mutex_unlock(&g_ipban->locks[stripe_for(key)]);
+    if (created) {
+        char target[32];
+        snprintf(target, sizeof(target), "address:%016llx", (unsigned long long)key);
+        audit_record(0, "security.ip_ban", target, "created", "automatic login failure threshold");
+    }
     if (s) stats_log();
 }
 

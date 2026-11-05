@@ -413,6 +413,7 @@ static const flywire_entity_t k_entities[] = {
     { "post",       "posts",           FLYWIRE_DB_MAIN,     false },
     { "board",      "boards",          FLYWIRE_DB_MAIN,     false },
     { "board_perm", "board_permissions", FLYWIRE_DB_MAIN,   true  },
+    { "board_delegation", "board_delegations", FLYWIRE_DB_MAIN, false },
     { "file",       "files",           FLYWIRE_DB_MAIN,     false },
     { "series",     "series",          FLYWIRE_DB_MAIN,     false },
     { "tag",        "tags",            FLYWIRE_DB_MAIN,     false },
@@ -461,7 +462,7 @@ static flywire_cols_t *flywire_cols_slot(const char *table) {
         { "posts", 0 }, { "boards", 1 }, { "files", 2 }, { "series", 3 },
         { "tags", 4 }, { "post_votes", 5 }, { "post_votes_anon", 6 },
         { "comments", 7 }, { "board_tree", 8 }, { "users", 9 },
-        { "emails", 10 }, { "guestbook", 11 },
+        { "emails", 10 }, { "guestbook", 11 }, { "board_delegations", 12 },
     };
     for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
         if (strcmp(map[i].t, table) == 0) return &g_cols[map[i].slot];

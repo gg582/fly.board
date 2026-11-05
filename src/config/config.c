@@ -71,6 +71,8 @@ static void set_default(void) {
     g_config.use_tasfa = true;
     g_config.use_rss = false;
     g_config.newsletter_enabled = false;
+    g_config.notification_aggregation = false;
+    g_config.notification_window_seconds = 300;
     g_config.use_tls = true;
     g_config.use_http2 = true;
     g_config.use_http3 = true;
@@ -127,6 +129,8 @@ bool blog_config_load(const char *path) {
             fprintf(f, "use_tasfa=%s\n", g_config.use_tasfa ? "true" : "false");
             fprintf(f, "use_rss=%s\n", g_config.use_rss ? "true" : "false");
             fprintf(f, "newsletter_enabled=%s\n", g_config.newsletter_enabled ? "true" : "false");
+            fprintf(f, "notification_aggregation=%s\n", g_config.notification_aggregation ? "true" : "false");
+            fprintf(f, "notification_window_seconds=%d\n", g_config.notification_window_seconds);
             fprintf(f, "use_tls=%s\n", g_config.use_tls ? "true" : "false");
             fprintf(f, "use_http2=%s\n", g_config.use_http2 ? "true" : "false");
             fprintf(f, "use_http3=%s\n", g_config.use_http3 ? "true" : "false");
@@ -208,6 +212,10 @@ bool blog_config_load(const char *path) {
             g_config.use_rss = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "newsletter_enabled") == 0) {
             g_config.newsletter_enabled = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
+        } else if (strcmp(key, "notification_aggregation") == 0) {
+            g_config.notification_aggregation = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
+        } else if (strcmp(key, "notification_window_seconds") == 0) {
+            g_config.notification_window_seconds = atoi(val);
         } else if (strcmp(key, "use_tls") == 0) {
             g_config.use_tls = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "use_http2") == 0) {
@@ -242,6 +250,7 @@ bool blog_config_load(const char *path) {
     g_config.max_total_parallel_uploads = clamp_int_config(g_config.max_total_parallel_uploads, 1, 512);
     g_config.max_upload_parallel_chunks = clamp_int_config(g_config.max_upload_parallel_chunks, 1, 64);
     g_config.max_concurrent_downloads = clamp_int_config(g_config.max_concurrent_downloads, 1, 512);
+    g_config.notification_window_seconds = clamp_int_config(g_config.notification_window_seconds, 1, 86400);
     if (strcmp(g_config.bg_invert_algo, "oklch") != 0) {
         /* Unknown values (including empty) fall back to the default. */
         snprintf(g_config.bg_invert_algo, sizeof(g_config.bg_invert_algo), "luminv");
