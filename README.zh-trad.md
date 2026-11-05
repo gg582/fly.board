@@ -25,7 +25,7 @@ make
 ```
 
 相依套件：
-- [CWIST](https://github.com/religiya-serdtsa/cwist) - TLS 1.3 / HTTP/3（QUIC）由 CWIST 內建的 BoringSSL 處理，無需額外設定。
+- [CWIST](https://github.com/c4punks/cwist) - TLS 1.3 / HTTP/3（QUIC）由 CWIST 內建的 BoringSSL 處理，無需額外設定。
 - OpenSSL 3.x（Argon2id KDF）
 - ngtcp2 / nghttp3（HTTP/3）
 - cJSON、SQLite3

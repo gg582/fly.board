@@ -25,7 +25,7 @@ make
 ```
 
 依存関係:
-- [CWIST](https://github.com/religiya-serdtsa/cwist) - TLS 1.3 / HTTP/3（QUIC）は CWIST に組み込まれた BoringSSL で処理されます。別途インストールは不要です。
+- [CWIST](https://github.com/c4punks/cwist) - TLS 1.3 / HTTP/3（QUIC）は CWIST に組み込まれた BoringSSL で処理されます。別途インストールは不要です。
 - OpenSSL 3.x（Argon2id KDF）
 - ngtcp2 / nghttp3（HTTP/3）
 - cJSON、SQLite3

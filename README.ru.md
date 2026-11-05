@@ -25,7 +25,7 @@ make
 ```
 
 Зависимости:
-- [CWIST](https://github.com/religiya-serdtsa/cwist) - TLS 1.3 / HTTP/3 (QUIC) обрабатывается встроенным BoringSSL внутри CWIST; дополнительная установка не требуется.
+- [CWIST](https://github.com/c4punks/cwist) - TLS 1.3 / HTTP/3 (QUIC) обрабатывается встроенным BoringSSL внутри CWIST; дополнительная установка не требуется.
 - OpenSSL 3.x (Argon2id KDF)
 - ngtcp2 / nghttp3 (HTTP/3)
 - cJSON, SQLite3
