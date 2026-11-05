@@ -52,6 +52,8 @@ the built-in defaults; a missing file is regenerated with them.
 | `use_tasfa` | `true` | TASFA resumable upload/download pipeline (protocol details: [tasfa.md](tasfa.md)) |
 | `use_rss` | `false` | Serve the RSS feed (`/rss.xml`) |
 | `newsletter_enabled` | `false` | Email subscription: shows the subscribe form on post lists, accepts `/subscribe` and confirm/unsubscribe links. Sending new-post emails additionally requires `FLY_NEWSLETTER_SEND=1` on the primary node (see below) |
+| `notification_aggregation` | `false` | Coalesce notifications by recipient, kind, and post target during the configured window. The latest actor and excerpt are shown as `A and N others`; actor history remains stored. A new event makes a previously read group unread again |
+| `notification_window_seconds` | `300` | Aggregation lookback from the latest event, clamped to 1–86400 seconds. Events outside the window start a new notification |
 | `use_tls` | `true` | HTTPS. Requires `server.crt`/`server.key` in the site root |
 | `use_http2` | `true` | HTTP/2 over TLS |
 | `use_http3` | `true` | HTTP/3 (QUIC) on the same port over UDP; enables 0-RTT + session resumption |
@@ -62,6 +64,13 @@ the built-in defaults; a missing file is regenerated with them.
 | `use_special_modes` | *(empty)* | Comma-separated theme pair replacing light/dark (`ocean,forest`, …) |
 | `vote_only` | *(empty = all)* | Voting policy: `all`, `authorized` (logged-in), `admin`; unknown values warn and fall back to all |
 | `mail_domain` | *(resolved)* | Local mail domain. Resolution order: `FLY_MAIL_DOMAIN` env → this key → host part of `root_url` → `localhost` |
+
+Notification rows remain node-local: FlyWire does not journal or replay them.
+NATS comment events carry an origin/comment event ID with a unique database
+index, so delivery of the same event to multiple worker processes is
+idempotent. Legacy NATS events without an event ID retain their original
+at-least-once behavior. Aggregation uses SQLite `BEGIN IMMEDIATE` to keep the
+read/update sequence atomic across processes.
 
 ## fonts.settings
 
@@ -175,6 +184,13 @@ approval_queue=false
 
 The moderation model and exact limits are documented in
 [community.md](community.md) and [trust-and-spam.md](trust-and-spam.md).
+
+## audit.settings (optional)
+
+Hash-chained security audit storage is off by default. `enabled=true` enables
+it, `path=data/audit.log` selects the JSONL file, and `sign=true` adds ML-DSA
+site signatures. Verification, export, retention, and FlyWire semantics are in
+[audit.md](audit.md).
 
 ## flywire.settings (optional)
 
@@ -303,6 +319,44 @@ Sending new-post announcement emails is gated twice:
 | Variable | Default | Effect |
 |---|---|---|
 | `FLY_NEWSLETTER_SEND` | unset (off) | When `1`, the primary emails every active subscriber one plain-text message per published post (title, summary, link, unsubscribe link), paced at ~5/second. Unsubscribe works even with the newsletter disabled |
+
+### Adaptive traffic protection
+
+The optional token buckets run before route rendering and the route BDR. They
+supplement, rather than replace, the write-policy honeypot and 10-minute
+submission limiter. Both classes are disabled when their rate is `0`, so the
+default configuration does not change request handling.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `FLY_TRAFFIC_READ_RATE` | `0` (off) | Sustained GET/HEAD requests per second for each identity, 0–1,000,000 |
+| `FLY_TRAFFIC_READ_BURST` | `60` | Maximum saved read tokens; each new identity starts with this many |
+| `FLY_TRAFFIC_WRITE_RATE` | `0` (off) | Sustained non-GET/HEAD requests per second for each identity, 0–1,000,000 |
+| `FLY_TRAFFIC_WRITE_BURST` | `20` | Maximum saved write tokens |
+| `FLY_TRAFFIC_ACTION` | `429` | `429`: reject with `Retry-After`; `cached`: serve a fresh anonymous route-BDR hit when possible and otherwise return 429; `tarpit`: wait the configured delay, then return 429 |
+| `FLY_TRAFFIC_TARPIT_MS` | `100` | Fixed delay for the `tarpit` action, clamped to 0–250 ms; invalid values use the default |
+
+An identity is the connected IPv4 address or IPv6 `/64`. When no connected
+peer exists (for example HTTP/3), the session cookie is used instead; requests
+with neither identity fail open. Forwarded headers are not trusted. Identities
+are HMAC-keyed with a random startup secret and exist only in memory.
+
+The 4,096-slot table is allocated with `MAP_SHARED` before workers fork and
+protected by a robust process-shared mutex. Each key probes eight slots and
+evicts the least-recently-used entry when necessary, so unique source
+addresses cannot grow memory or create a queue. The existing request
+coalescer and BDR limits remain independent. A cached response never stores a
+new 429, and non-cacheable or personalized requests always fall back to 429.
+
+The tarpit delay is operator-controlled, occurs after releasing the bucket
+lock, and is hard-capped. It still occupies the dispatch thread during the
+delay; prefer `cached` or `429` on latency-sensitive or high-concurrency
+deployments. Restart after changing these environment variables.
+
+Persistent shadow bans are **not** provided by this traffic layer. They
+require account state and consistent author/moderator filtering across all
+post, comment, listing, search, feed, and cache paths; do not interpret a 429
+or cached response as a shadow ban.
 
 ### Backups
 

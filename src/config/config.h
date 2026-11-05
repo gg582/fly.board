@@ -56,6 +56,8 @@ typedef struct {
      * sending additionally requires FLY_NEWSLETTER_SEND=1 on the primary
      * node so replicas never double-send. */
     bool newsletter_enabled;
+    bool notification_aggregation;
+    int notification_window_seconds;
     bool use_tls;
     bool use_http2;
     bool use_http3;

@@ -223,6 +223,11 @@ void handler_admin_reports_action(cwist_http_request *req, cwist_http_response *
                 msg = "deleted";
             }
         }
+        if (strcmp(msg, "error") != 0) {
+            char target[96];
+            snprintf(target, sizeof(target), "%s:%d", type, id);
+            audit_record(uid, "moderation.report", target, action, msg);
+        }
         CWIST_LOG_INFO("Report action: %s %s %d by uid=%d -> %s", action, type, id, uid, msg);
     }
     cwist_query_map_destroy(kv);

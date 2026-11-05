@@ -224,6 +224,10 @@ void handler_admin_write_policy_post(cwist_http_request *req, cwist_http_respons
     cwist_query_map_destroy(kv);
     if (ok) ok = write_policy_set(req->db, &policy) && moderation_filter_set(req->db, &filter);
     if (ok) {
+        int actor_uid = 0;
+        char actor_role[32] = {0};
+        auth_is_logged_in(req, &actor_uid, actor_role, sizeof(actor_role));
+        audit_record(actor_uid, "admin.permission.write_policy", "site", "success", "posting and commenting scopes");
         CWIST_LOG_INFO("Write policy updated: posts=%s comments=%s require_board=%s spam_honeypot=%s spam_rate_limit=%d moderation_filter=%s",
                        write_scope_name(policy.post), write_scope_name(policy.comment),
                        policy.require_board ? "yes" : "no", policy.spam_honeypot ? "yes" : "no",
@@ -260,6 +264,12 @@ void handler_admin_upload_policy_post(cwist_http_request *req, cwist_http_respon
         if (ok) upload_policy_load("upload.settings");
     }
     cwist_query_map_destroy(kv);
+    if (ok) {
+        int actor_uid = 0;
+        char actor_role[32] = {0};
+        auth_is_logged_in(req, &actor_uid, actor_role, sizeof(actor_role));
+        audit_record(actor_uid, "admin.permission.upload_policy", "site", "success", upload_policy_mode());
+    }
     if (ok)
         CWIST_LOG_INFO("Upload policy updated: mode=%s list=%s", upload_policy_mode(), upload_policy_active_list());
     else
@@ -282,6 +292,9 @@ void handler_admin_users(cwist_http_request *req, cwist_http_response *res) {
 
 void handler_admin_user_role(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
+    int actor_uid = 0;
+    char actor_role[32] = {0};
+    auth_is_logged_in(req, &actor_uid, actor_role, sizeof(actor_role));
     cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
     const char *id_str = cwist_query_map_get(kv, "id");
     const char *role = cwist_query_map_get(kv, "role");
@@ -294,6 +307,9 @@ void handler_admin_user_role(cwist_http_request *req, cwist_http_response *res) 
         if (!target || auth_is_site_admin(target_uid) || strcmp(target_role, "admin") == 0) {
             CWIST_LOG_WARN("User status update refused: uid=%d is missing or an admin", target_uid);
         } else if (valid && community_user_set_active(req->db, target_uid, active[0] == '1')) {
+            char target[64];
+            snprintf(target, sizeof(target), "user:%d", target_uid);
+            audit_record(actor_uid, "admin.user.active", target, active[0] == '1' ? "enabled" : "disabled", "account status");
             CWIST_LOG_INFO("User status updated: uid=%d active=%s", target_uid, active);
         } else {
             CWIST_LOG_ERROR("User status update failed: uid=%d active='%s'", target_uid, active);
@@ -305,6 +321,9 @@ void handler_admin_user_role(cwist_http_request *req, cwist_http_response *res) 
         if (auth_is_site_admin(target_uid)) {
             CWIST_LOG_WARN("User role update refused: uid=%d is the admin.settings account", target_uid);
         } else if (target_uid > 0 && valid_role && db_user_update_role(req->db, target_uid, role)) {
+            char target[64];
+            snprintf(target, sizeof(target), "user:%d", target_uid);
+            audit_record(actor_uid, "admin.user.role", target, "success", role);
             CWIST_LOG_INFO("User role updated: uid=%d role='%s'", target_uid, role);
             page_cache_invalidate_all();
         } else {
