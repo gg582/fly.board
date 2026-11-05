@@ -27,7 +27,7 @@
 
 static char g_reviewer_pubkey[8192];
 static int g_moderation_timeout = 300;
-static _Atomic cwist_db *g_moderation_db;
+static _Atomic(cwist_db *) g_moderation_db;
 
 #ifdef HAVE_NATS
 /* cnats is not fork-safe: a connection (and the library's own timer and
