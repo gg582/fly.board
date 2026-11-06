@@ -197,13 +197,27 @@ void handler_admin_appearance_post(cwist_http_request *req, cwist_http_response 
     const char *import_url = field_value(fields, "font_import_url");
     const char *script_url = field_value(fields, "font_script_url");
     if (!safe_url(import_url) || !safe_url(script_url) || !safe_family(field_value(fields, "font_face_family"))) valid = false;
-    const char *layout_names[] = {"navigation", "content_style", "density", "list_style", "content_width"};
+    const char *layout_names[] = {"navigation", "content_style", "density", "list_style", "content_width", "panel_style"};
     char *layout_values[] = {g_layout_settings.navigation, g_layout_settings.content_style,
-                             g_layout_settings.density, g_layout_settings.list_style, g_layout_settings.content_width};
+                             g_layout_settings.density, g_layout_settings.list_style, g_layout_settings.content_width,
+                             g_layout_settings.panel_style};
     for (size_t i = 0; i < sizeof(layout_names) / sizeof(layout_names[0]); i++) {
         const char *value = field_value(fields, layout_names[i]);
         if (!layout_value_valid(layout_names[i], value)) { valid = false; break; }
         snprintf(layout_values[i], 16, "%s", value);
+    }
+    const char *panel_width = field_value(fields, "panel_width");
+    const char *panel_x = field_value(fields, "panel_x");
+    const char *panel_y = field_value(fields, "panel_y");
+    const char *panel_color = field_value(fields, "panel_color");
+    if (!layout_value_valid("panel_width", panel_width) || !layout_value_valid("panel_x", panel_x) ||
+        !layout_value_valid("panel_y", panel_y) || !layout_value_valid("panel_color", panel_color)) {
+        valid = false;
+    } else {
+        g_layout_settings.panel_width = atoi(panel_width);
+        g_layout_settings.panel_x = atoi(panel_x);
+        g_layout_settings.panel_y = atoi(panel_y);
+        snprintf(g_layout_settings.panel_color, sizeof(g_layout_settings.panel_color), "%s", panel_color);
     }
 
     form_field_t *font_file = form_find(fields, "font_file");

@@ -1,6 +1,7 @@
 #include "config.h"
 #include "../engine/flywire.h"
 #include <cwist/core/log.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -953,16 +954,38 @@ static void layout_set_default(void) {
     snprintf(g_layout_settings.density, sizeof(g_layout_settings.density), "comfortable");
     snprintf(g_layout_settings.list_style, sizeof(g_layout_settings.list_style), "feed");
     snprintf(g_layout_settings.content_width, sizeof(g_layout_settings.content_width), "standard");
+    snprintf(g_layout_settings.panel_style, sizeof(g_layout_settings.panel_style), "square");
+    g_layout_settings.panel_color[0] = '\0';
+    g_layout_settings.panel_width = 380;
+    g_layout_settings.panel_x = 0;
+    g_layout_settings.panel_y = 0;
+}
+
+static bool layout_number_valid(const char *value, int min_value, int max_value) {
+    if (!value[0]) return false;
+    char *end = NULL;
+    long parsed = strtol(value, &end, 10);
+    return end && *end == '\0' && parsed >= min_value && parsed <= max_value;
 }
 
 bool layout_value_valid(const char *key, const char *value) {
-    static const char *keys[] = {"navigation", "content_style", "density", "list_style", "content_width"};
+    if (strcmp(key, "panel_width") == 0) return layout_number_valid(value, 240, 520);
+    if (strcmp(key, "panel_x") == 0 || strcmp(key, "panel_y") == 0)
+        return layout_number_valid(value, -600, 600);
+    if (strcmp(key, "panel_color") == 0) {
+        if (!value[0]) return true;
+        if (strlen(value) != 9 || value[0] != '#') return false;
+        for (size_t i = 1; i < 9; i++) if (!isxdigit((unsigned char)value[i])) return false;
+        return true;
+    }
+    static const char *keys[] = {"navigation", "content_style", "density", "list_style", "content_width", "panel_style"};
     static const char *values[][4] = {
         {"topbar", "hamburger", NULL, NULL},
         {"blog", "community", NULL, NULL},
         {"compact", "comfortable", "spacious", NULL},
         {"feed", "cards", "table", NULL},
-        {"narrow", "standard", "wide", NULL}
+        {"narrow", "standard", "wide", NULL},
+        {"square", "round", "bubble", NULL}
     };
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
         if (strcmp(key, keys[i]) != 0) continue;
@@ -980,9 +1003,12 @@ bool layout_settings_save(const char *path) {
     FILE *f = fopen(temporary, "w");
     if (!f) return false;
     bool ok = fprintf(f,
-        "navigation=%s\ncontent_style=%s\ndensity=%s\nlist_style=%s\ncontent_width=%s\n",
+        "navigation=%s\ncontent_style=%s\ndensity=%s\nlist_style=%s\ncontent_width=%s\n"
+        "panel_style=%s\npanel_color=%s\npanel_width=%d\npanel_x=%d\npanel_y=%d\n",
         g_layout_settings.navigation, g_layout_settings.content_style, g_layout_settings.density,
-        g_layout_settings.list_style, g_layout_settings.content_width) >= 0 &&
+        g_layout_settings.list_style, g_layout_settings.content_width, g_layout_settings.panel_style,
+        g_layout_settings.panel_color, g_layout_settings.panel_width,
+        g_layout_settings.panel_x, g_layout_settings.panel_y) >= 0 &&
         fflush(f) == 0 && fsync(fileno(f)) == 0 && fclose(f) == 0 && rename(temporary, path) == 0;
     if (!ok) { fclose(f); unlink(temporary); }
     return ok;
@@ -1010,6 +1036,16 @@ bool layout_settings_load(const char *path) {
             snprintf(g_layout_settings.list_style, sizeof(g_layout_settings.list_style), "%s", value);
         else if (strcmp(line, "content_width") == 0)
             snprintf(g_layout_settings.content_width, sizeof(g_layout_settings.content_width), "%s", value);
+        else if (strcmp(line, "panel_style") == 0)
+            snprintf(g_layout_settings.panel_style, sizeof(g_layout_settings.panel_style), "%s", value);
+        else if (strcmp(line, "panel_color") == 0)
+            snprintf(g_layout_settings.panel_color, sizeof(g_layout_settings.panel_color), "%s", value);
+        else if (strcmp(line, "panel_width") == 0)
+            g_layout_settings.panel_width = atoi(value);
+        else if (strcmp(line, "panel_x") == 0)
+            g_layout_settings.panel_x = atoi(value);
+        else if (strcmp(line, "panel_y") == 0)
+            g_layout_settings.panel_y = atoi(value);
     }
     fclose(f);
     return true;
@@ -1051,12 +1087,27 @@ char *layout_build_css(void) {
         "body.nav-hamburger:not(.mobile) .mobile-account-header{display:flex;padding:16px 24px;gap:12px;align-items:center;border-bottom:1px solid var(--border);order:-1;}"
         "body.nav-hamburger:not(.mobile) .nav-board-dropdown,body.nav-hamburger:not(.mobile) .nav-admin-dropdown{display:block;width:100%;padding:0;margin:0;}"
         "body.nav-hamburger:not(.mobile) .nav-board-menu,body.nav-hamburger:not(.mobile) .nav-admin-menu{position:static;min-width:0;box-shadow:none;}"
+        "body.nav-hamburger:not(.mobile) .nav-links{width:min(%dpx,100vw);transform:translate(%dpx,%dpx);border-radius:%s;background:%s;%s}"
         "body.list-table .post-row-meta{float:right;padding-left:16px;}}"
         "@media(max-width:600px){body.list-cards .post-row,body.list-cards .post-row.featured{padding:18px;}body.list-table .post-row-meta{display:flex;float:none;padding:4px 0 0;}body.density-spacious .board-line{padding:26px;}}";
-    int needed = snprintf(NULL, 0, format, width, row_padding, item_padding, board_gap);
+    int needed = snprintf(NULL, 0, format, width, row_padding, item_padding, board_gap,
+                          g_layout_settings.panel_width, g_layout_settings.panel_x, g_layout_settings.panel_y,
+                          strcmp(g_layout_settings.panel_style, "square") == 0 ? "0" :
+                          strcmp(g_layout_settings.panel_style, "round") == 0 ? "18px" : "32px",
+                          g_layout_settings.panel_color[0] ? g_layout_settings.panel_color :
+                          "color-mix(in srgb,var(--glass-bg) 96%,transparent)",
+                          strcmp(g_layout_settings.panel_style, "bubble") == 0 ?
+                          "border-width:2px;box-shadow:0 24px 70px var(--shadow);" : "");
     if (needed < 0) return NULL;
     char *css = malloc((size_t)needed + 1);
-    if (css) snprintf(css, (size_t)needed + 1, format, width, row_padding, item_padding, board_gap);
+    if (css) snprintf(css, (size_t)needed + 1, format, width, row_padding, item_padding, board_gap,
+                      g_layout_settings.panel_width, g_layout_settings.panel_x, g_layout_settings.panel_y,
+                      strcmp(g_layout_settings.panel_style, "square") == 0 ? "0" :
+                      strcmp(g_layout_settings.panel_style, "round") == 0 ? "18px" : "32px",
+                      g_layout_settings.panel_color[0] ? g_layout_settings.panel_color :
+                      "color-mix(in srgb,var(--glass-bg) 96%,transparent)",
+                      strcmp(g_layout_settings.panel_style, "bubble") == 0 ?
+                      "border-width:2px;box-shadow:0 24px 70px var(--shadow);" : "");
     return css;
 }
 

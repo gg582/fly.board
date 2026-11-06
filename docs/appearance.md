@@ -11,10 +11,13 @@ The layout controls are independent of the color theme and font configuration:
 - **Post list:** feed with excerpts, separated cards, or compact rows without excerpts.
 - **Density:** compact, comfortable (the existing spacing), or spacious.
 - **Content width:** narrow, standard (the existing responsive maximum), or wide.
+- **Menu panel:** square (the existing appearance), round, or bubble. Width ranges from 240 to 520 px.
+- **Panel position:** open the hamburger preview and drag its grip. X/Y offsets range from -600 to 600 px and can also be edited numerically. Position and geometry apply to the desktop drawer; mobile retains the full-width responsive menu.
+- **Panel color:** follow the active light/dark theme by default, or override it with an independent RGB color and 0-100% alpha channel. The saved CSS value uses eight-digit `#RRGGBBAA` notation.
 
-The preview can switch between a representative post list and an article, light and dark selections, and desktop and mobile viewport widths. In hamburger mode the preview drawer can be opened and closed. Defaults preserve the previous responsive navigation and editorial feed appearance.
+The preview can switch between a representative post list and an article, light and dark selections, and desktop and mobile viewport widths. In hamburger mode the preview drawer can be opened, closed, and dragged. Defaults preserve the previous responsive navigation, square theme-colored panel, and editorial feed appearance.
 
-Settings are parsed from `layout.settings`. Unknown values are ignored on startup and rejected by the editor. The server adds explicit navigation, content style, density, list style, and width classes to the body and emits layout overrides separately from the replaceable color-theme CSS.
+Settings are parsed from `layout.settings`. Unknown values are ignored on startup and rejected by the editor. The server adds explicit navigation, content style, density, list style, width, and panel style classes to the body and emits layout overrides separately from the replaceable color-theme CSS.
 
 ## Custom CWIST themes
 

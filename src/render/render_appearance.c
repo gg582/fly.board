@@ -2,6 +2,8 @@
 #include "theme.h"
 #include "config/config.h"
 #include <cwist/core/sstring/sstring.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static void append_input(cwist_sstring *b, const char *name, const char *value, const char *label) {
@@ -63,7 +65,35 @@ cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool 
     cwist_sstring_append(b, "<section class='card'><h2>Layout and navigation</h2><p class='appearance-note'>These controls change the actual page structure and reading rhythm, not just its colors. Mobile always keeps the drawer menu.</p><h3>Desktop navigation</h3><div class='appearance-option-grid'>");
     append_layout_choice(b, "navigation", "topbar", g_layout_settings.navigation, "Top menu", "Visible links across the header");
     append_layout_choice(b, "navigation", "hamburger", g_layout_settings.navigation, "Hamburger", "A drawer on desktop and mobile");
-    cwist_sstring_append(b, "</div><h3>Site character</h3><div class='appearance-option-grid'>");
+    cwist_sstring_append(b, "</div><h3>Menu panel</h3><p class='appearance-note'>Open the hamburger in the preview and drag its grip to move the desktop panel.</p><div class='appearance-option-grid'>");
+    append_layout_choice(b, "panel_style", "square", g_layout_settings.panel_style, "Square panel", "Current square corners");
+    append_layout_choice(b, "panel_style", "round", g_layout_settings.panel_style, "Round panel", "Soft rounded corners");
+    append_layout_choice(b, "panel_style", "bubble", g_layout_settings.panel_style, "Bubble panel", "Floating pill-like glass and shadow");
+    cwist_sstring_append(b, "</div>");
+    char panel_width[16], panel_x[16], panel_y[16];
+    snprintf(panel_width, sizeof(panel_width), "%d", g_layout_settings.panel_width);
+    snprintf(panel_x, sizeof(panel_x), "%d", g_layout_settings.panel_x);
+    snprintf(panel_y, sizeof(panel_y), "%d", g_layout_settings.panel_y);
+    cwist_sstring_append(b, "<label class='appearance-field'><span>Panel width: <output id='appearance-panel-width-value'>");
+    cwist_sstring_append(b, panel_width);
+    cwist_sstring_append(b, "</output> px</span><input type='range' name='panel_width' min='240' max='520' step='10' value='");
+    cwist_sstring_append(b, panel_width);
+    cwist_sstring_append(b, "' data-appearance-setting data-panel-width></label><div class='appearance-tune'><span>Panel offset</span>");
+    append_input(b, "panel_x", panel_x, "X (-600 to 600)");
+    append_input(b, "panel_y", panel_y, "Y (-600 to 600)");
+    cwist_sstring_append(b, "</div><input type='hidden' name='panel_color' id='appearance-panel-color' value='");
+    cwist_sstring_append_escaped(b, g_layout_settings.panel_color);
+    cwist_sstring_append(b, "' data-appearance-setting><label class='check-row'><input type='checkbox' id='appearance-panel-color-enabled'");
+    if (g_layout_settings.panel_color[0]) cwist_sstring_append(b, " checked");
+    cwist_sstring_append(b, "> Override panel color independently of light/dark theme</label><div class='appearance-color-controls'><input type='color' id='appearance-panel-color-picker' value='");
+    char panel_rgb[8] = "#ffffff";
+    if (strlen(g_layout_settings.panel_color) == 9) memcpy(panel_rgb, g_layout_settings.panel_color, 7);
+    cwist_sstring_append(b, panel_rgb);
+    cwist_sstring_append(b, "' aria-label='Panel color'><label>Alpha <input type='range' id='appearance-panel-alpha' min='0' max='100' value='");
+    char alpha[8] = "85";
+    if (strlen(g_layout_settings.panel_color) == 9) snprintf(alpha, sizeof(alpha), "%d", (int)strtol(g_layout_settings.panel_color + 7, NULL, 16) * 100 / 255);
+    cwist_sstring_append(b, alpha);
+    cwist_sstring_append(b, "'></label></div><h3>Site character</h3><div class='appearance-option-grid'>");
     append_layout_choice(b, "content_style", "blog", g_layout_settings.content_style, "Blog / series", "Editorial headings and prominent stories");
     append_layout_choice(b, "content_style", "community", g_layout_settings.content_style, "Web community", "Compact headings and scan-friendly posts");
     cwist_sstring_append(b, "</div><h3>Post list</h3><div class='appearance-option-grid'>");

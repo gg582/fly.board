@@ -163,6 +163,11 @@ typedef struct {
     char density[16];
     char list_style[16];
     char content_width[16];
+    char panel_style[16];
+    char panel_color[16];
+    int panel_width;
+    int panel_x;
+    int panel_y;
 } layout_settings_t;
 
 extern layout_settings_t g_layout_settings;
