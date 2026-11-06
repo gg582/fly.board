@@ -443,6 +443,9 @@ cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool i
     cwist_sstring *b = cwist_sstring_create();
     cwist_sstring_assign(b, "<div class='hero'><h1>Dashboard</h1></div>");
     cwist_sstring_append(b, "<div class='board-list stagger'>");
+    cwist_sstring_append(b, "<section class='board-line fade-in'><div class='board-line-head'><h2 class='board-line-title'>Appearance</h2></div>");
+    cwist_sstring_append(b, "<p class='board-card-desc'>Choose site themes and tune fonts in a live blog preview.</p>");
+    cwist_sstring_append(b, "<a href='/admin/appearance' class='btn'>Open Live Preview Editor</a></section>");
     char reports_line[160];
     snprintf(reports_line, sizeof(reports_line), "<p class='board-card-desc'>%d open report%s waiting for review.</p>",
              open_reports, open_reports == 1 ? "" : "s");

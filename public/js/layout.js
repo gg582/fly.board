@@ -24,6 +24,7 @@
         return hasMobileUa()||w<=768||(hasCoarseInput()&&hasMobileAspect());
     }
     function isMobileLayout(){return document.documentElement.classList.contains('mobile')||(document.body&&document.body.classList.contains('mobile'));}
+    function usesDrawerNav(){return isMobileLayout()||(document.body&&document.body.classList.contains('nav-hamburger'));}
     function setMobileLayout(on){document.documentElement.classList.toggle('mobile',on);if(document.body)document.body.classList.toggle('mobile',on);}
     function closeMobileNav(){
         var nav=document.querySelector('.nav-links');
@@ -37,7 +38,7 @@
     function syncMobileLayout(){
         var on=shouldUseMobileNav();
         setMobileLayout(on);
-        if(!on)closeMobileNav();
+        if(!usesDrawerNav())closeMobileNav();
     }
     syncMobileLayout();
     window.addEventListener('resize',syncMobileLayout);
@@ -45,7 +46,7 @@
     if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',syncMobileLayout);}else{syncMobileLayout();}
     function toggleMobileNav(){
         syncMobileLayout();
-        if(!isMobileLayout())return;
+        if(!usesDrawerNav())return;
         var nav=document.querySelector('.nav-links');
         var overlay=document.querySelector('.mobile-overlay');
         var btn=document.querySelector('.burger-btn');
@@ -88,7 +89,7 @@
     }
 
     // 2. Theme toggle (simple click-to-toggle)
-    var CACHE_KEY='fly_themes_v3';
+    var CACHE_KEY='fly_themes_v4';
     var CACHE_TTL_MS=300000; // 5 minutes: long enough to avoid FOUC, short enough to pick up config changes
     // monotonic generation counter so async theme operations never overwrite a newer toggle
     var themeGen=0;
@@ -113,8 +114,9 @@
     function syncHlTheme(){
         // Guard against stale highlight state after navigation or cache restore.
         var link=document.getElementById('hl-theme');
-        if(link && link.dataset.active!==mode){
-            setHlCss(mode);
+        var base=modeBase(mode);
+        if(link && link.dataset.active!==base){
+            setHlCss(base);
         }
     }
     function updateBtn(name,gen){
@@ -153,12 +155,18 @@
         document.head.appendChild(s);
         requestAnimationFrame(function(){requestAnimationFrame(function(){var e=document.getElementById(id);if(e)e.remove();});});
     }
-    function modeBase(m){return(m==='light'||m==='sepia')?'light':'dark';}
+    function modeBase(m){
+        if(m==='custom'){
+            var custom=findTheme(themes||[],m);
+            return custom&&custom.mode==='light'?'light':'dark';
+        }
+        return(m==='light'||m==='sepia')?'light':'dark';
+    }
     var d=document.documentElement;
     var themes=loadThemes();
     var c=document.cookie.match(/theme=(\w+)/);
     var mode=c?c[1]:(d.classList.contains('dark')?'dark':'light');
-    if(!/^(light|dark|ocean|forest|sepia)$/.test(mode))mode='light';
+    if(!/^(light|dark|ocean|forest|sepia|custom)$/.test(mode))mode='light';
     var serverBase=d.getAttribute('data-server-theme');
     function applyCached(){
         if(!themes)return;

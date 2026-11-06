@@ -110,6 +110,53 @@ int main(void) {
     CHECK(config_vote_allowed(true, "user"), "logged-in vote allowed when authorized");
 
     remove(PATH);
+    CHECK(font_settings_load(PATH), "load default font settings");
+    snprintf(g_font_settings.script_url, sizeof(g_font_settings.script_url), "/assets/js/appearance-webfont.js?v=1");
+    snprintf(g_font_settings.body, sizeof(g_font_settings.body), "'Custom Font', sans-serif");
+    CHECK(font_settings_save(PATH), "save font settings from appearance editor");
+    CHECK(font_settings_load(PATH), "reload saved font settings");
+    CHECK(strcmp(g_font_settings.script_url, "/assets/js/appearance-webfont.js?v=1") == 0, "webfont script URL round trip");
+    CHECK(strcmp(g_font_settings.body, "'Custom Font', sans-serif") == 0, "font stack round trip");
+
+    remove(PATH);
+    CHECK(layout_settings_load(PATH), "load default layout settings");
+    CHECK(strcmp(g_layout_settings.navigation, "topbar") == 0, "responsive top bar is the default");
+    CHECK(strcmp(g_layout_settings.content_style, "blog") == 0, "blog presentation is the default");
+    CHECK(strcmp(g_layout_settings.density, "comfortable") == 0, "comfortable density is the default");
+    snprintf(g_layout_settings.navigation, sizeof(g_layout_settings.navigation), "hamburger");
+    snprintf(g_layout_settings.content_style, sizeof(g_layout_settings.content_style), "community");
+    snprintf(g_layout_settings.density, sizeof(g_layout_settings.density), "compact");
+    snprintf(g_layout_settings.list_style, sizeof(g_layout_settings.list_style), "table");
+    snprintf(g_layout_settings.content_width, sizeof(g_layout_settings.content_width), "wide");
+    snprintf(g_layout_settings.panel_style, sizeof(g_layout_settings.panel_style), "bubble");
+    snprintf(g_layout_settings.panel_color, sizeof(g_layout_settings.panel_color), "#12345680");
+    g_layout_settings.panel_width = 460;
+    g_layout_settings.panel_x = -120;
+    g_layout_settings.panel_y = 80;
+    CHECK(layout_settings_save(PATH), "save layout settings from appearance editor");
+    memset(&g_layout_settings, 0, sizeof(g_layout_settings));
+    CHECK(layout_settings_load(PATH), "reload saved layout settings");
+    CHECK(strcmp(g_layout_settings.navigation, "hamburger") == 0, "navigation round trip");
+    CHECK(strcmp(g_layout_settings.content_style, "community") == 0, "content style round trip");
+    CHECK(strcmp(g_layout_settings.density, "compact") == 0, "density round trip");
+    CHECK(strcmp(g_layout_settings.list_style, "table") == 0, "list style round trip");
+    CHECK(strcmp(g_layout_settings.content_width, "wide") == 0, "content width round trip");
+    CHECK(strcmp(g_layout_settings.panel_style, "bubble") == 0, "panel style round trip");
+    CHECK(strcmp(g_layout_settings.panel_color, "#12345680") == 0, "RGBA panel color round trip");
+    CHECK(g_layout_settings.panel_width == 460 && g_layout_settings.panel_x == -120 && g_layout_settings.panel_y == 80,
+          "panel geometry round trip");
+    CHECK(!layout_value_valid("density", "invalid"), "invalid layout value rejected");
+    CHECK(!layout_value_valid("panel_color", "#12345"), "invalid panel color rejected");
+    CHECK(!layout_value_valid("panel_width", "900"), "out-of-range panel width rejected");
+    char *layout_css = layout_build_css();
+    CHECK(layout_css && strstr(layout_css, "nav-hamburger") && strstr(layout_css, "density-compact"),
+          "layout CSS reflects saved navigation and density");
+    CHECK(layout_css && strstr(layout_css, "width:min(460px,100vw)") &&
+          strstr(layout_css, "translate(-120px,80px)") && strstr(layout_css, "#12345680") &&
+          strstr(layout_css, "border-radius:32px"), "panel geometry, RGBA color, and bubble style rendered");
+    free(layout_css);
+
+    remove(PATH);
     printf("%s\n", failures == 0 ? "ALL PASS" : "SOME FAILED");
     return failures == 0 ? 0 : 1;
 }

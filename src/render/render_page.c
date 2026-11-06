@@ -495,6 +495,22 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_set_text(dyn_style, critical_css ? critical_css : "");
     cwist_html_element_add_child(head, dyn_style);
     free(critical_css);
+    char *layout_css = layout_build_css();
+    cwist_html_element_t *layout_style = cwist_html_element_create("style");
+    cwist_html_element_add_attr(layout_style, "id", "layout-overrides");
+    cwist_html_element_set_text(layout_style, layout_css ? layout_css : "");
+    cwist_html_element_add_child(head, layout_style);
+    free(layout_css);
+    char light_theme[64], dark_theme[64];
+    get_special_themes(light_theme, dark_theme);
+    if (strcmp(dark ? dark_theme : light_theme, "custom") == 0) {
+        char *font_css = theme_build_font_css();
+        cwist_html_element_t *font_style = cwist_html_element_create("style");
+        cwist_html_element_add_attr(font_style, "id", "font-overrides");
+        cwist_html_element_set_text(font_style, font_css ? font_css : "");
+        cwist_html_element_add_child(head, font_style);
+        free(font_css);
+    }
 
     /* Placeholder for critical shell assets: font CSS and jwt.js + layout.js.
        These are required for the page chrome and theme to render correctly. */
@@ -512,6 +528,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(body, "data-server-theme", dark ? "dark" : "light");
     if (dark) cwist_html_element_add_class(body, "dark");
     if (is_mobile) cwist_html_element_add_class(body, "mobile");
+    char body_class[160];
+    snprintf(body_class, sizeof(body_class), "nav-%s layout-%s density-%s list-%s width-%s panel-%s",
+             g_layout_settings.navigation, g_layout_settings.content_style, g_layout_settings.density,
+             g_layout_settings.list_style, g_layout_settings.content_width, g_layout_settings.panel_style);
+    cwist_html_element_add_class(body, body_class);
 
 
     /* Nav */
@@ -878,6 +899,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     cwist_sstring_append(head_shell, "';font-display:swap;src:");
                     cwist_sstring_append(head_shell, g_font_settings.face_src);
                     cwist_sstring_append(head_shell, ";}</style>");
+                }
+                if (g_font_settings.script_url[0]) {
+                    cwist_sstring_append(head_shell, "<script src=\"");
+                    cwist_sstring_append(head_shell, g_font_settings.script_url);
+                    cwist_sstring_append(head_shell, "\"></script>");
                 }
                 if (inline_shell_enabled() && inline_asset_fits(a->font_css_small)) {
                     cwist_sstring_append(head_shell, "<style>");

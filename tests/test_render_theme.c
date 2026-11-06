@@ -129,6 +129,30 @@ int main(void) {
     CHECK(strlen(special_dark) < sizeof(special_dark), "long dark theme name stays bounded");
     g_config.use_special_modes[0] = '\0';
 
+    /* ---- uploaded CWIST custom theme ---- */
+    const char *custom_json = "{\"name\":\"uploaded\",\"mode\":\"dark\",\"vars\":{\"--bg\":\"#101218\",\"--fg\":\"#f8fafc\"},\"rules\":[{\"sel\":\"body\",\"decls\":{\"background\":\"var(--bg)\",\"color\":\"var(--fg)\"}}]}";
+    char theme_error[128] = {0};
+    CHECK(theme_custom_validate(custom_json, strlen(custom_json), theme_error, sizeof(theme_error)), "valid CWIST custom theme accepted");
+    char *exported_theme = theme_build_json(false);
+    bool export_valid = exported_theme && theme_custom_validate(exported_theme, strlen(exported_theme), theme_error, sizeof(theme_error));
+    if (!export_valid) fprintf(stderr, "theme validation: %s\n", theme_error);
+    CHECK(export_valid, "existing CWIST theme export passes upload validation");
+    free(exported_theme);
+    const char *invalid_rule = "{\"vars\":{},\"rules\":[{\"sel\":\"body{\",\"decls\":{}}]}";
+    CHECK(!theme_custom_validate(invalid_rule, strlen(invalid_rule), theme_error, sizeof(theme_error)), "unsafe selector is rejected");
+    CHECK(theme_custom_save("/tmp/flyboard-test-custom-theme.json", custom_json, strlen(custom_json), theme_error, sizeof(theme_error)), "custom theme saved atomically");
+    CHECK(theme_custom_available(), "custom theme becomes selectable");
+    CHECK(theme_custom_is_dark(), "custom theme retains its color family");
+    snprintf(g_config.use_special_modes, sizeof(g_config.use_special_modes), "custom,custom");
+    char *custom_css = theme_build_css(true);
+    CHECK(custom_css && strstr(custom_css, "#101218") && strstr(custom_css, "background:var(--bg)"), "custom CSS renders uploaded vars and rules");
+    free(custom_css);
+    char *custom_font_css = theme_build_font_css();
+    CHECK(custom_font_css && strstr(custom_font_css, "font-family") && strstr(custom_font_css, "font-weight"), "font overrides remain independent of custom theme");
+    free(custom_font_css);
+    g_config.use_special_modes[0] = '\0';
+    remove("/tmp/flyboard-test-custom-theme.json");
+
     /* ---- theme lookup ---- */
     CHECK(theme_by_name("ocean") == &ocean, "theme_by_name finds ocean");
     CHECK(theme_by_name("nonexistent-theme") == &light, "theme_by_name falls back to light");

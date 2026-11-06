@@ -107,6 +107,7 @@ bool config_vote_allowed(bool logged_in, const char *role);
 
 typedef struct {
     char import_url[512];
+    char script_url[512];
     char face_family[64];
     char face_src[512];
     char body[256];
@@ -154,6 +155,27 @@ typedef struct {
 extern font_settings_t g_font_settings;
 
 bool font_settings_load(const char *path);
+bool font_settings_save(const char *path);
+
+typedef struct {
+    char navigation[16];
+    char content_style[16];
+    char density[16];
+    char list_style[16];
+    char content_width[16];
+    char panel_style[16];
+    char panel_color[16];
+    int panel_width;
+    int panel_x;
+    int panel_y;
+} layout_settings_t;
+
+extern layout_settings_t g_layout_settings;
+
+bool layout_settings_load(const char *path);
+bool layout_settings_save(const char *path);
+bool layout_value_valid(const char *key, const char *value);
+char *layout_build_css(void);
 
 typedef struct s3_config_s {
     /* All fields empty means S3 is disabled (the default).  S3 is used only

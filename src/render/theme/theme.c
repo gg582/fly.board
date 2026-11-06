@@ -91,6 +91,8 @@ theme_color_t *theme_by_name(const char *name) {
     else if (strcmp(resolved, "light") == 0) resolved = l_theme;
     else if (strcmp(resolved, "dark") == 0) resolved = d_theme;
 
+    if (strcmp(resolved, "custom") == 0 && theme_custom_available())
+        return theme_custom_is_dark() ? &dark : &light;
     if (strcmp(resolved, "dark") == 0) return &dark;
     if (strcmp(resolved, "ocean") == 0) return &ocean;
     if (strcmp(resolved, "forest") == 0) return &forest;

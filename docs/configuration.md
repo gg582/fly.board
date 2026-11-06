@@ -80,7 +80,9 @@ Typography. Loaded by `font_settings_load()` with built-in defaults; a
 missing file is regenerated with every key, so the generated file is the
 reference. Key groups:
 
-- `font_import_url`, `font_face_family`, `font_face_src` - external font CSS
+- `font_import_url`, `font_script_url`, `font_face_family`, `font_face_src` - external font CSS/JavaScript and uploaded font declarations
+
+Use **Dashboard > Appearance** for the live preview editor and validated theme/font uploads. See [appearance.md](appearance.md).
 - `font_file=<basename> <http(s)://url>` - fonts downloaded at startup into
   `public/fonts/` when missing (basename must not contain `/` or `\`)
 - `font_body`, `font_heading`, `font_ui`, `font_code`, `font_blockquote`,
