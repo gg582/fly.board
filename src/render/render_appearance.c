@@ -14,6 +14,21 @@ static void append_input(cwist_sstring *b, const char *name, const char *value, 
     cwist_sstring_append(b, "' data-appearance-setting></label>");
 }
 
+static void append_layout_choice(cwist_sstring *b, const char *group, const char *value,
+                                 const char *current, const char *label, const char *detail) {
+    cwist_sstring_append(b, "<label class='appearance-theme-choice appearance-layout-choice'><input type='radio' name='");
+    cwist_sstring_append(b, group);
+    cwist_sstring_append(b, "' value='");
+    cwist_sstring_append(b, value);
+    cwist_sstring_append(b, "' data-appearance-setting");
+    if (strcmp(value, current) == 0) cwist_sstring_append(b, " checked");
+    cwist_sstring_append(b, "><span><strong>");
+    cwist_sstring_append(b, label);
+    cwist_sstring_append(b, "</strong><small>");
+    cwist_sstring_append(b, detail);
+    cwist_sstring_append(b, "</small></span></label>");
+}
+
 static void append_theme_choice(cwist_sstring *b, const char *group, const char *value,
                                 const char *current, const char *label) {
     cwist_sstring_append(b, "<label class='appearance-theme-choice'><input type='radio' name='");
@@ -40,11 +55,30 @@ static void append_theme_group(cwist_sstring *b, const char *group, const char *
 
 cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool is_mobile, const char *msg) {
     cwist_sstring *b = cwist_sstring_create();
-    cwist_sstring_assign(b, "<div class='hero'><h1>Appearance</h1><p>Choose a theme and tune typography while watching the blog preview.</p></div>");
+    cwist_sstring_assign(b, "<div class='hero'><h1>Appearance</h1><p>Choose the site structure, navigation, list presentation, theme, and typography in a live preview.</p></div>");
     if (msg && strcmp(msg, "saved") == 0) cwist_sstring_append(b, "<div class='alert'>Appearance settings saved.</div>");
     else if (msg && msg[0]) cwist_sstring_append(b, "<div class='alert'>Settings were not saved. Check the uploaded files and field values.</div>");
-    cwist_sstring_append(b, "<style>.appearance-layout{display:grid;grid-template-columns:minmax(280px,420px) minmax(0,1fr);gap:20px;align-items:start}.appearance-controls{max-height:calc(100vh - 110px);overflow:auto;padding-right:8px}.appearance-preview{position:sticky;top:16px}.appearance-preview iframe{display:block;width:100%;height:calc(100vh - 150px);min-height:560px;border:1px solid var(--border);border-radius:18px;background:var(--panel)}.appearance-theme-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.appearance-theme-choice{display:flex;gap:6px;align-items:center;padding:8px;border:1px solid var(--border);border-radius:10px}.appearance-field{display:grid;gap:5px;margin:10px 0}.appearance-field input{width:100%;padding:8px;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:8px}.appearance-tune{display:grid;grid-template-columns:1fr 110px 90px;gap:8px;align-items:end}.appearance-actions{display:flex;gap:10px;align-items:center;margin:16px 0}.appearance-note{font-size:13px;color:var(--muted)}@media(max-width:1000px){.appearance-layout{grid-template-columns:1fr}.appearance-controls{max-height:none}.appearance-preview{position:static}.appearance-preview iframe{height:640px;min-height:0}}</style>");
+    cwist_sstring_append(b, "<style>.appearance-layout{display:grid;grid-template-columns:minmax(300px,440px) minmax(0,1fr);gap:20px;align-items:start}.appearance-controls{max-height:calc(100vh - 110px);overflow:auto;padding-right:8px}.appearance-preview{position:sticky;top:16px}.appearance-frame-wrap{display:flex;justify-content:center}.appearance-preview iframe{display:block;width:100%;height:calc(100vh - 170px);min-height:560px;border:1px solid var(--border);border-radius:18px;background:var(--panel);transition:width .2s}.appearance-preview iframe.appearance-preview-mobile{width:390px;max-width:100%}.appearance-theme-grid,.appearance-option-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.appearance-option-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.appearance-theme-choice{display:flex;gap:6px;align-items:center;padding:8px;border:1px solid var(--border);border-radius:10px}.appearance-layout-choice{align-items:flex-start}.appearance-layout-choice span{display:grid;gap:3px}.appearance-layout-choice small{color:var(--muted);font-size:11px;line-height:1.35}.appearance-field{display:grid;gap:5px;margin:10px 0}.appearance-field input{width:100%;padding:8px;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:8px}.appearance-tune{display:grid;grid-template-columns:1fr 110px 90px;gap:8px;align-items:end}.appearance-actions{display:flex;gap:10px;align-items:center;margin:16px 0}.appearance-preview-tools{flex-wrap:wrap}.appearance-preview-tools select{width:auto;min-width:0;padding:6px}.appearance-note{font-size:13px;color:var(--muted)}@media(max-width:1000px){.appearance-layout{grid-template-columns:1fr}.appearance-controls{max-height:none}.appearance-preview{position:static}.appearance-preview iframe{height:640px;min-height:0}}</style>");
     cwist_sstring_append(b, "<form action='/admin/appearance' method='post' enctype='multipart/form-data' id='appearance-form'><div class='appearance-layout'><div class='appearance-controls'>");
+    cwist_sstring_append(b, "<section class='card'><h2>Layout and navigation</h2><p class='appearance-note'>These controls change the actual page structure and reading rhythm, not just its colors. Mobile always keeps the drawer menu.</p><h3>Desktop navigation</h3><div class='appearance-option-grid'>");
+    append_layout_choice(b, "navigation", "topbar", g_layout_settings.navigation, "Top menu", "Visible links across the header");
+    append_layout_choice(b, "navigation", "hamburger", g_layout_settings.navigation, "Hamburger", "A drawer on desktop and mobile");
+    cwist_sstring_append(b, "</div><h3>Site character</h3><div class='appearance-option-grid'>");
+    append_layout_choice(b, "content_style", "blog", g_layout_settings.content_style, "Blog / series", "Editorial headings and prominent stories");
+    append_layout_choice(b, "content_style", "community", g_layout_settings.content_style, "Web community", "Compact headings and scan-friendly posts");
+    cwist_sstring_append(b, "</div><h3>Post list</h3><div class='appearance-option-grid'>");
+    append_layout_choice(b, "list_style", "feed", g_layout_settings.list_style, "Feed", "Titles, excerpts, and metadata");
+    append_layout_choice(b, "list_style", "cards", g_layout_settings.list_style, "Cards", "Separated glass panels");
+    append_layout_choice(b, "list_style", "table", g_layout_settings.list_style, "Compact rows", "Titles and metadata without excerpts");
+    cwist_sstring_append(b, "</div><h3>Density</h3><div class='appearance-option-grid'>");
+    append_layout_choice(b, "density", "compact", g_layout_settings.density, "Compact", "More posts per screen");
+    append_layout_choice(b, "density", "comfortable", g_layout_settings.density, "Comfortable", "Current balanced spacing");
+    append_layout_choice(b, "density", "spacious", g_layout_settings.density, "Spacious", "Generous editorial whitespace");
+    cwist_sstring_append(b, "</div><h3>Content width</h3><div class='appearance-option-grid'>");
+    append_layout_choice(b, "content_width", "narrow", g_layout_settings.content_width, "Narrow", "Focused reading column");
+    append_layout_choice(b, "content_width", "standard", g_layout_settings.content_width, "Standard", "Current responsive width");
+    append_layout_choice(b, "content_width", "wide", g_layout_settings.content_width, "Wide", "More room for large displays");
+    cwist_sstring_append(b, "</div></section>");
     cwist_sstring_append(b, "<section class='card'><h2>Theme</h2><p class='appearance-note'>Selecting a radio updates the preview immediately. Light and dark choices are saved independently.</p><h3>Light mode</h3><div class='appearance-theme-grid'>");
     char light[64], dark_theme[64];
     get_special_themes(light, dark_theme);
@@ -96,7 +130,7 @@ cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool 
     }
     append_input(b, "letter_spacing_hero_p", g_font_settings.letter_spacing_hero_p, "Hero subtitle spacing");
     cwist_sstring_append(b, "</section><div class='appearance-actions'><button type='submit' class='btn'>Save appearance</button><button type='reset' class='btn btn-outline' id='appearance-reset'>Reset preview</button><a href='/admin/dashboard' class='btn btn-outline'>Dashboard</a></div>");
-    cwist_sstring_append(b, "</div><aside class='appearance-preview'><div class='appearance-actions'><strong>Live preview</strong><select id='appearance-preview-mode' aria-label='Preview mode'><option value='light'>Light selection</option><option value='dark'>Dark selection</option></select></div><iframe id='appearance-preview' title='Live blog appearance preview' sandbox='allow-scripts allow-same-origin'></iframe><p class='appearance-note'>Nothing is applied to visitors until Save appearance is pressed.</p></aside></div></form><script src='/assets/js/appearance-editor.js'></script>");
+    cwist_sstring_append(b, "</div><aside class='appearance-preview'><div class='appearance-actions appearance-preview-tools'><strong>Live preview</strong><select id='appearance-preview-page' aria-label='Preview page'><option value='list'>Post list</option><option value='article'>Article</option></select><select id='appearance-preview-mode' aria-label='Preview mode'><option value='light'>Light</option><option value='dark'>Dark</option></select><select id='appearance-preview-size' aria-label='Preview viewport'><option value='desktop'>Desktop</option><option value='mobile'>Mobile</option></select></div><div class='appearance-frame-wrap'><iframe id='appearance-preview' title='Live blog appearance preview' sandbox='allow-scripts allow-same-origin'></iframe></div><p class='appearance-note'>Nothing is applied to visitors until Save appearance is pressed.</p></aside></div></form><script src='/assets/js/appearance-editor.js'></script>");
     cwist_sstring *page = render_page("Appearance", b->data, dark, "admin", profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;

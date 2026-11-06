@@ -16,8 +16,9 @@ bool engine_settings_load(void) {
     blog_config_load("blog.settings");
     CWIST_LOG_INFO("Blog config loaded");
     font_settings_load("fonts.settings");
+    layout_settings_load("layout.settings");
     theme_custom_load("data/custom-theme.json");
-    CWIST_LOG_INFO("Font and custom theme settings loaded");
+    CWIST_LOG_INFO("Font, layout, and custom theme settings loaded");
     font_files_ensure_downloaded();
     s3_config_load("s3.settings");
     if (s3_config_enabled()) CWIST_LOG_INFO("S3 storage enabled (bucket=%s)", g_s3_config.bucket);

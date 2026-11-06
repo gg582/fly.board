@@ -1,6 +1,20 @@
 # Appearance and live preview editor
 
-Administrators can open **Dashboard > Appearance** to select the light and dark themes independently. Selecting a radio button immediately redraws the embedded blog preview; visitors see no change until **Save appearance** succeeds.
+Administrators can open **Dashboard > Appearance** to select the site structure, light and dark themes, and typography independently. Selecting a control immediately redraws the embedded blog preview; visitors see no change until **Save appearance** succeeds.
+
+## Layout and navigation
+
+The layout controls are independent of the color theme and font configuration:
+
+- **Desktop navigation:** a visible top menu or a hamburger drawer. Mobile uses the drawer in either mode.
+- **Site character:** blog/series presentation with editorial hierarchy, or web community presentation with compact, scan-friendly headings.
+- **Post list:** feed with excerpts, separated cards, or compact rows without excerpts.
+- **Density:** compact, comfortable (the existing spacing), or spacious.
+- **Content width:** narrow, standard (the existing responsive maximum), or wide.
+
+The preview can switch between a representative post list and an article, light and dark selections, and desktop and mobile viewport widths. In hamburger mode the preview drawer can be opened and closed. Defaults preserve the previous responsive navigation and editorial feed appearance.
+
+Settings are parsed from `layout.settings`. Unknown values are ignored on startup and rejected by the editor. The server adds explicit navigation, content style, density, list style, and width classes to the body and emits layout overrides separately from the replaceable color-theme CSS.
 
 ## Custom CWIST themes
 
@@ -44,4 +58,4 @@ Webfont JavaScript executes with page privileges. Install only trusted code. Ext
 
 The body, heading, UI, code, blockquote, and display stacks can include separate Korean, Latin, and Cyrillic fallbacks. Fine typography controls cover body text, page headings H1-H6, the top bar, buttons, board titles, hero title and subtitle, post title, and Markdown H1-H3. Weights range from 100 to 900. Spacing accepts `em`, `rem`, `px`, or `normal`.
 
-Settings are written atomically to `fonts.settings`, `blog.settings`, and `data/custom-theme.json`. Uploaded binary files are stored under `public/fonts` and `public/js`. Existing files and settings remain unchanged when form validation fails.
+Settings are written atomically to `layout.settings`, `fonts.settings`, `blog.settings`, and `data/custom-theme.json`. Uploaded binary files are stored under `public/fonts` and `public/js`. Existing files and settings remain unchanged when form validation fails.

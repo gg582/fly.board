@@ -495,6 +495,12 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_set_text(dyn_style, critical_css ? critical_css : "");
     cwist_html_element_add_child(head, dyn_style);
     free(critical_css);
+    char *layout_css = layout_build_css();
+    cwist_html_element_t *layout_style = cwist_html_element_create("style");
+    cwist_html_element_add_attr(layout_style, "id", "layout-overrides");
+    cwist_html_element_set_text(layout_style, layout_css ? layout_css : "");
+    cwist_html_element_add_child(head, layout_style);
+    free(layout_css);
     char light_theme[64], dark_theme[64];
     get_special_themes(light_theme, dark_theme);
     if (strcmp(dark ? dark_theme : light_theme, "custom") == 0) {
@@ -522,6 +528,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(body, "data-server-theme", dark ? "dark" : "light");
     if (dark) cwist_html_element_add_class(body, "dark");
     if (is_mobile) cwist_html_element_add_class(body, "mobile");
+    char body_class[160];
+    snprintf(body_class, sizeof(body_class), "nav-%s layout-%s density-%s list-%s width-%s",
+             g_layout_settings.navigation, g_layout_settings.content_style, g_layout_settings.density,
+             g_layout_settings.list_style, g_layout_settings.content_width);
+    cwist_html_element_add_class(body, body_class);
 
 
     /* Nav */

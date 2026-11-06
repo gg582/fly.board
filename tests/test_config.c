@@ -119,6 +119,30 @@ int main(void) {
     CHECK(strcmp(g_font_settings.body, "'Custom Font', sans-serif") == 0, "font stack round trip");
 
     remove(PATH);
+    CHECK(layout_settings_load(PATH), "load default layout settings");
+    CHECK(strcmp(g_layout_settings.navigation, "topbar") == 0, "responsive top bar is the default");
+    CHECK(strcmp(g_layout_settings.content_style, "blog") == 0, "blog presentation is the default");
+    CHECK(strcmp(g_layout_settings.density, "comfortable") == 0, "comfortable density is the default");
+    snprintf(g_layout_settings.navigation, sizeof(g_layout_settings.navigation), "hamburger");
+    snprintf(g_layout_settings.content_style, sizeof(g_layout_settings.content_style), "community");
+    snprintf(g_layout_settings.density, sizeof(g_layout_settings.density), "compact");
+    snprintf(g_layout_settings.list_style, sizeof(g_layout_settings.list_style), "table");
+    snprintf(g_layout_settings.content_width, sizeof(g_layout_settings.content_width), "wide");
+    CHECK(layout_settings_save(PATH), "save layout settings from appearance editor");
+    memset(&g_layout_settings, 0, sizeof(g_layout_settings));
+    CHECK(layout_settings_load(PATH), "reload saved layout settings");
+    CHECK(strcmp(g_layout_settings.navigation, "hamburger") == 0, "navigation round trip");
+    CHECK(strcmp(g_layout_settings.content_style, "community") == 0, "content style round trip");
+    CHECK(strcmp(g_layout_settings.density, "compact") == 0, "density round trip");
+    CHECK(strcmp(g_layout_settings.list_style, "table") == 0, "list style round trip");
+    CHECK(strcmp(g_layout_settings.content_width, "wide") == 0, "content width round trip");
+    CHECK(!layout_value_valid("density", "invalid"), "invalid layout value rejected");
+    char *layout_css = layout_build_css();
+    CHECK(layout_css && strstr(layout_css, "nav-hamburger") && strstr(layout_css, "density-compact"),
+          "layout CSS reflects saved navigation and density");
+    free(layout_css);
+
+    remove(PATH);
     printf("%s\n", failures == 0 ? "ALL PASS" : "SOME FAILED");
     return failures == 0 ? 0 : 1;
 }

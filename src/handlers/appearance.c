@@ -197,6 +197,14 @@ void handler_admin_appearance_post(cwist_http_request *req, cwist_http_response 
     const char *import_url = field_value(fields, "font_import_url");
     const char *script_url = field_value(fields, "font_script_url");
     if (!safe_url(import_url) || !safe_url(script_url) || !safe_family(field_value(fields, "font_face_family"))) valid = false;
+    const char *layout_names[] = {"navigation", "content_style", "density", "list_style", "content_width"};
+    char *layout_values[] = {g_layout_settings.navigation, g_layout_settings.content_style,
+                             g_layout_settings.density, g_layout_settings.list_style, g_layout_settings.content_width};
+    for (size_t i = 0; i < sizeof(layout_names) / sizeof(layout_names[0]); i++) {
+        const char *value = field_value(fields, layout_names[i]);
+        if (!layout_value_valid(layout_names[i], value)) { valid = false; break; }
+        snprintf(layout_values[i], 16, "%s", value);
+    }
 
     form_field_t *font_file = form_find(fields, "font_file");
     const char *extension = font_extension(font_file);
@@ -246,12 +254,13 @@ void handler_admin_appearance_post(cwist_http_request *req, cwist_http_response 
         }
         if (!found) files_ok = false;
     }
-    bool ok = files_ok && font_settings_save("fonts.settings") && update_theme_modes(light, dark);
+    bool ok = files_ok && layout_settings_save("layout.settings") &&
+              font_settings_save("fonts.settings") && update_theme_modes(light, dark);
     if (ok) {
         int uid = 0;
         char role[32] = {0};
         auth_is_logged_in(req, &uid, role, sizeof(role));
-        audit_record(uid, "admin.appearance.update", "site", "success", "theme and typography");
+        audit_record(uid, "admin.appearance.update", "site", "success", "layout, theme, and typography");
         page_cache_invalidate_all();
     }
     multipart_free(fields);

@@ -157,6 +157,21 @@ extern font_settings_t g_font_settings;
 bool font_settings_load(const char *path);
 bool font_settings_save(const char *path);
 
+typedef struct {
+    char navigation[16];
+    char content_style[16];
+    char density[16];
+    char list_style[16];
+    char content_width[16];
+} layout_settings_t;
+
+extern layout_settings_t g_layout_settings;
+
+bool layout_settings_load(const char *path);
+bool layout_settings_save(const char *path);
+bool layout_value_valid(const char *key, const char *value);
+char *layout_build_css(void);
+
 typedef struct s3_config_s {
     /* All fields empty means S3 is disabled (the default).  S3 is used only
      * when endpoint, bucket, access_key and secret_key are all set. */

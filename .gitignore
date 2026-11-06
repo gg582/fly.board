@@ -66,6 +66,7 @@ tests/lib/libmagic.so
 
 blog.settings
 fonts.settings
+layout.settings
 s3.settings
 
 # Server-generated image variants (WebP optimize + dark-mode inversion)
