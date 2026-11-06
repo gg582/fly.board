@@ -518,8 +518,14 @@ check-sqlite-partition-poc:
 check-community: $(COMMUNITY_TESTS)
 	@for t in $(COMMUNITY_TESTS); do $$t || exit 1; done
 
-UTIL_TESTS := tests/test_utils_cache tests/test_utils_reqshare tests/test_utils_swr
+UTIL_TESTS := tests/test_utils_cache tests/test_utils_reqshare tests/test_utils_swr tests/test_image_size tests/test_mecab_concurrency
 UTIL_LIBS := $(CWIST_LIB) $(CWIST_DEPS) -pthread -ldl -lm -lstdc++ -lz
+
+tests/test_image_size: tests/test_image_size.c src/utils/image_size.c src/utils/stb_image_impl.c
+	$(CC) $(CFLAGS) -o $@ $^ -pthread -lm
+
+tests/test_mecab_concurrency: tests/test_mecab_concurrency.c src/db/fts5_mecab_tokenizer.c
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(UTIL_LIBS) $(MECAB_LIBS)
 
 tests/test_utils_cache: tests/test_utils_cache.c tests/stubs/utils_test_stubs.c src/utils/cache.c
 	$(CC) $(CFLAGS) -o $@ $^ $(UTIL_LIBS)

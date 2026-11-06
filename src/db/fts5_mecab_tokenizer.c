@@ -1,6 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
 #include "fts5_mecab.h"
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,11 +14,11 @@
 
 /* ---- MeCab instance management -------------------------------------------
  *
- * Tokenizer objects are created per FTS5 table use; sharing one MeCab tagger
- * process-wide behind a mutex avoids hundreds of tagger opens. MeCab analysis
- * is read-only, so a single tagger is safe to time-slice across threads. */
-static mecab_t *g_tagger;
-static pthread_mutex_t g_tagger_lock = PTHREAD_MUTEX_INITIALIZER;
+ * mecab_sparse_tonode() reuses the tagger's internal lattice and is not thread
+ * safe. Give each serving thread its own tagger so independent FTS5 queries do
+ * not serialize on a process-wide lock. Dictionary-backed pages remain shared
+ * by the operating system within the process. */
+static __thread mecab_t *t_tagger;
 
 /* Candidate dictionary locations, tried in order when MECAB_DIC_DIR is not
  * set: mecab-ko-dic installs into the distro prefix on Debian/Ubuntu and
@@ -47,11 +46,8 @@ static mecab_t *tagger_open(void) {
 }
 
 static mecab_t *tagger_get(void) {
-    pthread_mutex_lock(&g_tagger_lock);
-    if (!g_tagger) g_tagger = tagger_open();
-    mecab_t *m = g_tagger;
-    pthread_mutex_unlock(&g_tagger_lock);
-    return m;
+    if (!t_tagger) t_tagger = tagger_open();
+    return t_tagger;
 }
 
 /* ---- FTS5 tokenizer vtable ----------------------------------------------- */
@@ -104,22 +100,7 @@ static int mecab_xTokenize(Fts5Tokenizer *pTok, void *pCtx, int flags,
         int rc = xToken(pCtx, 0, pText + start, len, start, start + len);
         if (rc != SQLITE_OK) return rc;
 
-        /* mecab_sparse_tonode() needs a NUL-terminated string. */
-        char stack_buf[1024];
-        char *heap = NULL;
-        const char *span = pText + start;
-        if (len < (int)sizeof(stack_buf)) {
-            memcpy(stack_buf, span, (size_t)len);
-            stack_buf[len] = '\0';
-            span = stack_buf;
-        } else {
-            heap = strndup(span, (size_t)len);
-            if (!heap) return SQLITE_NOMEM;
-            span = heap;
-        }
-
-        pthread_mutex_lock(&g_tagger_lock);
-        const mecab_node_t *node = mecab_sparse_tonode(tagger, span);
+        const mecab_node_t *node = mecab_sparse_tonode2(tagger, pText + start, (size_t)len);
         int first = 1;
         for (; node; node = node->next) {
             if (node->length == 0) continue;
@@ -130,8 +111,6 @@ static int mecab_xTokenize(Fts5Tokenizer *pTok, void *pCtx, int flags,
             pos++;
             if (rc != SQLITE_OK) break;
         }
-        pthread_mutex_unlock(&g_tagger_lock);
-        free(heap);
         if (rc != SQLITE_OK) return rc;
         if (first) pos++; /* no morphemes emitted: eojeol still occupies a slot */
     }
@@ -183,7 +162,6 @@ int fts5_mecab_split_term(const char *term, char out[][64], int max) {
     mecab_t *tagger = tagger_get();
     if (!tagger) return 0;
     int n = 0;
-    pthread_mutex_lock(&g_tagger_lock);
     const mecab_node_t *node = mecab_sparse_tonode(tagger, term);
     for (; node && n < max; node = node->next) {
         if (node->length == 0) continue;
@@ -192,7 +170,6 @@ int fts5_mecab_split_term(const char *term, char out[][64], int max) {
         out[n][len] = '\0';
         n++;
     }
-    pthread_mutex_unlock(&g_tagger_lock);
     return n;
 #else
     (void)term;
