@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "image_inline.h"
 #include "config/config.h"
+#include "cwist/image_size.h"
 #include "stb_image.h"
 #ifdef HAVE_WEBP
 #include <webp/encode.h>
@@ -461,8 +462,7 @@ bool image_file_dimensions_from_url(const char *url, int *out_w, int *out_h) {
         if (w > 0 && h > 0) { *out_w = w; *out_h = h; return true; }
         return false;
     }
-    int w = 0, h = 0, ch = 0;
-    if (stbi_info(path, &w, &h, &ch)) { *out_w = w; *out_h = h; return true; }
+    if (get_image_dimensions(path, out_w, out_h)) return true;
 #ifdef HAVE_WEBP
     size_t len = 0;
     unsigned char *data = read_file(path, &len);

@@ -302,6 +302,40 @@ static char *read_js_asset(const char *path) {
     return read_file_to_string(path);
 }
 
+static char *read_custom_font_css(const char *path) {
+    static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
+    static char cached_path[320];
+    static time_t cached_mtime;
+    static off_t cached_size;
+    static char *cached_body;
+
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) return NULL;
+
+    pthread_mutex_lock(&mtx);
+    if (cached_body && strcmp(cached_path, path) == 0 &&
+        cached_mtime == st.st_mtime && cached_size == st.st_size) {
+        char *copy = strdup(cached_body);
+        pthread_mutex_unlock(&mtx);
+        return copy;
+    }
+    pthread_mutex_unlock(&mtx);
+
+    char *body = read_file_to_string(path);
+    if (!body) return NULL;
+    pthread_mutex_lock(&mtx);
+    char *stored = strdup(body);
+    if (stored) {
+        snprintf(cached_path, sizeof(cached_path), "%s", path);
+        cached_mtime = st.st_mtime;
+        cached_size = st.st_size;
+        free(cached_body);
+        cached_body = stored;
+    }
+    pthread_mutex_unlock(&mtx);
+    return body;
+}
+
 static bool body_needs_highlight(const char *html) {
     return html && strstr(html, "<code class=\"language-") != NULL;
 }
@@ -860,6 +894,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                      * trip; inline the file body when it points at one of
                      * our own sheets (e.g. the Pretendard subset). */
                     const char *import_body = g_font_settings.import_url;
+                    char *owned_import_body = NULL;
                     char import_buf[256];
                     const char *p = strstr(g_font_settings.import_url, "url(\"");
                     if (p) {
@@ -879,19 +914,14 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                             }
                             char fs_path[320];
                             snprintf(fs_path, sizeof(fs_path), "%s", fs_rel);
-                            FILE *cssf = fopen(fs_path, "rb");
-                            if (cssf) {
-                                static char css_body[64 * 1024];
-                                size_t cssn = fread(css_body, 1, sizeof(css_body) - 1, cssf);
-                                fclose(cssf);
-                                css_body[cssn] = '\0';
-                                import_body = css_body;
-                            }
+                            owned_import_body = read_custom_font_css(fs_path);
+                            if (owned_import_body) import_body = owned_import_body;
                         }
                     }
                     cwist_sstring_append(head_shell, "<style>");
                     cwist_sstring_append(head_shell, import_body);
                     cwist_sstring_append(head_shell, "</style>");
+                    free(owned_import_body);
                 }
                 if (g_font_settings.face_src[0]) {
                     cwist_sstring_append(head_shell, "<style>@font-face{font-family:'");

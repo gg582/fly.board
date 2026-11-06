@@ -97,15 +97,23 @@ static bool filename_is_svg(const char *path) {
 
 /* ---------- Caching ---------- */
 
+#define STYLE_CACHE_SIZE 16
+
 typedef struct {
-    char path[256];
+    char path[512];
     time_t mtime;
+    off_t size;
+    bool dark_bg;
     char bg_style[512];
     char text_style[256];
     char logo_filter[128];
     char overlay_style[256];
     int valid;
 } style_cache_t;
+
+static pthread_mutex_t g_image_contrast_mutex = PTHREAD_MUTEX_INITIALIZER;
+static style_cache_t g_style_cache[STYLE_CACHE_SIZE];
+static int g_style_cache_next;
 
 /* ---------- Public API ---------- */
 
@@ -116,23 +124,27 @@ int get_image_text_style(const char *image_path, const char *image_url, bool dar
                          char *overlay_style_out, size_t overlay_style_len)
 {
     (void)image_url;
-    static pthread_mutex_t g_image_contrast_mutex = PTHREAD_MUTEX_INITIALIZER;
-    static style_cache_t cache = {0};
 
     struct stat st;
     time_t mtime = 0;
+    off_t size = 0;
     if (stat(image_path, &st) == 0) {
         mtime = st.st_mtime;
+        size = st.st_size;
     }
 
     pthread_mutex_lock(&g_image_contrast_mutex);
-    if (cache.valid && strcmp(cache.path, image_path) == 0 && cache.mtime == mtime) {
-        snprintf(shell_style_out, shell_style_len, "%s", cache.bg_style);
-        snprintf(text_style_out, text_style_len, "%s", cache.text_style);
-        snprintf(logo_filter_out, logo_filter_len, "%s", cache.logo_filter);
-        snprintf(overlay_style_out, overlay_style_len, "%s", cache.overlay_style);
-        pthread_mutex_unlock(&g_image_contrast_mutex);
-        return 0;
+    for (int i = 0; i < STYLE_CACHE_SIZE; i++) {
+        style_cache_t *cache = &g_style_cache[i];
+        if (cache->valid && strcmp(cache->path, image_path) == 0 &&
+            cache->mtime == mtime && cache->size == size && cache->dark_bg == dark_bg) {
+            snprintf(shell_style_out, shell_style_len, "%s", cache->bg_style);
+            snprintf(text_style_out, text_style_len, "%s", cache->text_style);
+            snprintf(logo_filter_out, logo_filter_len, "%s", cache->logo_filter);
+            snprintf(overlay_style_out, overlay_style_len, "%s", cache->overlay_style);
+            pthread_mutex_unlock(&g_image_contrast_mutex);
+            return 0;
+        }
     }
     pthread_mutex_unlock(&g_image_contrast_mutex);
 
@@ -237,15 +249,18 @@ int get_image_text_style(const char *image_path, const char *image_url, bool dar
                  "drop-shadow(0 1px 2px %s)", logo_rgba);
     }
 
-    /* Cache result */
     pthread_mutex_lock(&g_image_contrast_mutex);
-    snprintf(cache.path, sizeof(cache.path), "%s", image_path);
-    cache.mtime = mtime;
-    snprintf(cache.bg_style, sizeof(cache.bg_style), "%s", shell_style_out);
-    snprintf(cache.text_style, sizeof(cache.text_style), "%s", text_style_out);
-    snprintf(cache.logo_filter, sizeof(cache.logo_filter), "%s", logo_filter_out);
-    snprintf(cache.overlay_style, sizeof(cache.overlay_style), "%s", overlay_style_out);
-    cache.valid = 1;
+    style_cache_t *cache = &g_style_cache[g_style_cache_next];
+    g_style_cache_next = (g_style_cache_next + 1) % STYLE_CACHE_SIZE;
+    snprintf(cache->path, sizeof(cache->path), "%s", image_path);
+    cache->mtime = mtime;
+    cache->size = size;
+    cache->dark_bg = dark_bg;
+    snprintf(cache->bg_style, sizeof(cache->bg_style), "%s", shell_style_out);
+    snprintf(cache->text_style, sizeof(cache->text_style), "%s", text_style_out);
+    snprintf(cache->logo_filter, sizeof(cache->logo_filter), "%s", logo_filter_out);
+    snprintf(cache->overlay_style, sizeof(cache->overlay_style), "%s", overlay_style_out);
+    cache->valid = 1;
     pthread_mutex_unlock(&g_image_contrast_mutex);
 
     return 0;
