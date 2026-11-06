@@ -41,9 +41,20 @@ static void append_theme_choice(cwist_sstring *b, const char *group, const char 
     if (strcmp(value, "custom") == 0) cwist_sstring_append(b, " data-custom-choice");
     if (strcmp(value, "custom") == 0 && !theme_custom_available()) cwist_sstring_append(b, " disabled");
     if (strcmp(value, current) == 0) cwist_sstring_append(b, " checked");
-    cwist_sstring_append(b, "><span>");
+    cwist_sstring_append(b, "><span class='appearance-theme-name'>");
     cwist_sstring_append(b, label);
-    cwist_sstring_append(b, "</span></label>");
+    cwist_sstring_append(b, "</span>");
+    if (strcmp(value, "custom") != 0) {
+        theme_color_t *palette = theme_builtin_by_name(value);
+        cwist_sstring_append(b, "<span class='appearance-theme-swatches' aria-hidden='true'><i style='background:");
+        cwist_sstring_append(b, palette->bg);
+        cwist_sstring_append(b, "'></i><i style='background:");
+        cwist_sstring_append(b, palette->accent);
+        cwist_sstring_append(b, "'></i><i style='background:");
+        cwist_sstring_append(b, palette->fg);
+        cwist_sstring_append(b, "'></i></span>");
+    }
+    cwist_sstring_append(b, "</label>");
 }
 
 static void append_theme_group(cwist_sstring *b, const char *group, const char *current) {
@@ -52,6 +63,12 @@ static void append_theme_group(cwist_sstring *b, const char *group, const char *
     append_theme_choice(b, group, "ocean", current, "Ocean");
     append_theme_choice(b, group, "forest", current, "Forest");
     append_theme_choice(b, group, "sepia", current, "Sepia");
+    append_theme_choice(b, group, "paper", current, "Paper");
+    append_theme_choice(b, group, "glacier", current, "Glacier");
+    append_theme_choice(b, group, "rose", current, "Rose");
+    append_theme_choice(b, group, "midnight", current, "Midnight");
+    append_theme_choice(b, group, "plum", current, "Plum");
+    append_theme_choice(b, group, "ember", current, "Ember");
     append_theme_choice(b, group, "custom", current, "Custom");
 }
 
@@ -60,7 +77,7 @@ cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool 
     cwist_sstring_assign(b, "<div class='hero'><h1>Appearance</h1><p>Choose the site structure, navigation, list presentation, theme, and typography in a live preview.</p></div>");
     if (msg && strcmp(msg, "saved") == 0) cwist_sstring_append(b, "<div class='alert'>Appearance settings saved.</div>");
     else if (msg && msg[0]) cwist_sstring_append(b, "<div class='alert'>Settings were not saved. Check the uploaded files and field values.</div>");
-    cwist_sstring_append(b, "<style>.appearance-layout{display:grid;grid-template-columns:minmax(300px,440px) minmax(0,1fr);gap:20px;align-items:start}.appearance-controls{max-height:calc(100vh - 110px);overflow:auto;padding-right:8px}.appearance-preview{position:sticky;top:16px}.appearance-frame-wrap{display:flex;justify-content:center}.appearance-preview iframe{display:block;width:100%;height:calc(100vh - 170px);min-height:560px;border:1px solid var(--border);border-radius:18px;background:var(--panel);transition:width .2s}.appearance-preview iframe.appearance-preview-mobile{width:390px;max-width:100%}.appearance-theme-grid,.appearance-option-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.appearance-option-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.appearance-theme-choice{display:flex;gap:6px;align-items:center;padding:8px;border:1px solid var(--border);border-radius:10px}.appearance-layout-choice{align-items:flex-start}.appearance-layout-choice span{display:grid;gap:3px}.appearance-layout-choice small{color:var(--muted);font-size:11px;line-height:1.35}.appearance-field{display:grid;gap:5px;margin:10px 0}.appearance-field input{width:100%;padding:8px;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:8px}.appearance-tune{display:grid;grid-template-columns:1fr 110px 90px;gap:8px;align-items:end}.appearance-actions{display:flex;gap:10px;align-items:center;margin:16px 0}.appearance-preview-tools{flex-wrap:wrap}.appearance-preview-tools select{width:auto;min-width:0;padding:6px}.appearance-note{font-size:13px;color:var(--muted)}@media(max-width:1000px){.appearance-layout{grid-template-columns:1fr}.appearance-controls{max-height:none}.appearance-preview{position:static}.appearance-preview iframe{height:640px;min-height:0}}</style>");
+    cwist_sstring_append(b, "<style>.appearance-layout{display:grid;grid-template-columns:minmax(300px,440px) minmax(0,1fr);gap:20px;align-items:start}.appearance-controls{max-height:calc(100vh - 110px);overflow:auto;padding-right:8px}.appearance-preview{position:sticky;top:16px}.appearance-frame-wrap{display:flex;justify-content:center}.appearance-preview iframe{display:block;width:100%;height:calc(100vh - 170px);min-height:560px;border:1px solid var(--border);border-radius:18px;background:var(--panel);transition:width .2s}.appearance-preview iframe.appearance-preview-mobile{width:390px;max-width:100%}.appearance-theme-grid,.appearance-option-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.appearance-option-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.appearance-theme-choice{display:flex;gap:6px;align-items:center;justify-content:space-between;padding:8px;border:1px solid var(--border);border-radius:10px}.appearance-theme-swatches{display:flex;gap:3px}.appearance-theme-swatches i{display:block;width:11px;height:11px;border:1px solid var(--border);border-radius:50%}.appearance-layout-choice{align-items:flex-start}.appearance-layout-choice span{display:grid;gap:3px}.appearance-layout-choice small{color:var(--muted);font-size:11px;line-height:1.35}.appearance-field{display:grid;gap:5px;margin:10px 0}.appearance-field input{width:100%;padding:8px;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:8px}.appearance-tune{display:grid;grid-template-columns:1fr 110px 90px;gap:8px;align-items:end}.appearance-actions{display:flex;gap:10px;align-items:center;margin:16px 0}.appearance-preview-tools{flex-wrap:wrap}.appearance-preview-tools select{width:auto;min-width:0;padding:6px}.appearance-note{font-size:13px;color:var(--muted)}@media(max-width:1000px){.appearance-layout{grid-template-columns:1fr}.appearance-controls{max-height:none}.appearance-preview{position:static}.appearance-preview iframe{height:640px;min-height:0}}</style>");
     cwist_sstring_append(b, "<form action='/admin/appearance' method='post' enctype='multipart/form-data' id='appearance-form'><div class='appearance-layout'><div class='appearance-controls'>");
     cwist_sstring_append(b, "<section class='card'><h2>Layout and navigation</h2><p class='appearance-note'>These controls change the actual page structure and reading rhythm, not just its colors. Mobile always keeps the drawer menu.</p><h3>Desktop navigation</h3><div class='appearance-option-grid'>");
     append_layout_choice(b, "navigation", "topbar", g_layout_settings.navigation, "Top menu", "Visible links across the header");

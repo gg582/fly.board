@@ -95,12 +95,16 @@ int main(void) {
     snprintf(g_config.bg_full_light, sizeof(g_config.bg_full_light), "bg-light.svg");
     snprintf(g_config.bg_full_dark, sizeof(g_config.bg_full_dark), "bg-dark.svg");
     snprintf(g_config.accent, sizeof(g_config.accent), "#ff0088");
+    snprintf(g_config.use_special_modes, sizeof(g_config.use_special_modes), "ocean,midnight");
     char *all = theme_build_all_json();
     cJSON *arr = all ? cJSON_Parse(all) : NULL;
     CHECK(cJSON_IsArray(arr), "theme_build_all_json parses as an array");
+    CHECK(arr && cJSON_GetArraySize(arr) == 11, "all eleven built-in themes are exported");
     const struct { const char *name; const char *wallpaper; } want[] = {
         {"light", "bg-light.svg"}, {"sepia", "bg-light.svg"},
+        {"paper", "bg-light.svg"}, {"glacier", "bg-light.svg"}, {"rose", "bg-light.svg"},
         {"dark", "bg-dark.svg"}, {"ocean", "bg-dark.svg"}, {"forest", "bg-dark.svg"},
+        {"midnight", "bg-dark.svg"}, {"plum", "bg-dark.svg"}, {"ember", "bg-dark.svg"},
     };
     for (size_t i = 0; i < sizeof(want) / sizeof(want[0]); i++) {
         cJSON *t = NULL, *it = NULL;
@@ -127,6 +131,19 @@ int main(void) {
     get_special_themes(special_light, special_dark);
     CHECK(strlen(special_light) < sizeof(special_light), "long light theme name stays bounded");
     CHECK(strlen(special_dark) < sizeof(special_dark), "long dark theme name stays bounded");
+    g_config.use_special_modes[0] = '\0';
+
+    FILE *modes_file = fopen("/tmp/flyboard-test-theme-modes.settings", "w");
+    CHECK(modes_file != NULL, "theme mode fixture opens");
+    if (modes_file) {
+        fputs("title=Theme test\nuse_special_modes=paper,ember\n", modes_file);
+        fclose(modes_file);
+        CHECK(theme_modes_load("/tmp/flyboard-test-theme-modes.settings"), "theme modes reload from settings");
+        get_special_themes(special_light, special_dark);
+        CHECK(strcmp(special_light, "paper") == 0 && strcmp(special_dark, "ember") == 0,
+              "reloaded light and dark themes are immediately visible");
+        remove("/tmp/flyboard-test-theme-modes.settings");
+    }
     g_config.use_special_modes[0] = '\0';
 
     /* ---- uploaded CWIST custom theme ---- */

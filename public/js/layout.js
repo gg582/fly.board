@@ -90,7 +90,10 @@
 
     // 2. Theme toggle (simple click-to-toggle)
     var CACHE_KEY='fly_themes_v4';
-    var CACHE_TTL_MS=300000; // 5 minutes: long enough to avoid FOUC, short enough to pick up config changes
+    var CACHE_TTL_MS=300000;
+    var THEME_VERSION=document.documentElement.getAttribute('data-theme-version')||'0';
+    var THEMES_URL='/themes.json?v='+encodeURIComponent(THEME_VERSION);
+    var THEME_NAMES=/^(light|dark|ocean|forest|sepia|paper|glacier|rose|midnight|plum|ember|custom)$/;
     // monotonic generation counter so async theme operations never overwrite a newer toggle
     var themeGen=0;
     function buildCss(t){
@@ -134,12 +137,12 @@
         );
     }
     function saveThemes(arr){
-        try{localStorage.setItem(CACHE_KEY,JSON.stringify({themes:arr,ts:Date.now()}));}catch(e){}
+        try{localStorage.setItem(CACHE_KEY,JSON.stringify({themes:arr,ts:Date.now(),version:THEME_VERSION}));}catch(e){}
     }
     function loadThemes(){
         try{
             var p=JSON.parse(localStorage.getItem(CACHE_KEY));
-            if(p && Array.isArray(p.themes) && typeof p.ts==='number' && (Date.now()-p.ts)<CACHE_TTL_MS){
+            if(p && p.version===THEME_VERSION && Array.isArray(p.themes) && typeof p.ts==='number' && (Date.now()-p.ts)<CACHE_TTL_MS){
                 return p.themes;
             }
         }catch(e){}
@@ -160,13 +163,13 @@
             var custom=findTheme(themes||[],m);
             return custom&&custom.mode==='light'?'light':'dark';
         }
-        return(m==='light'||m==='sepia')?'light':'dark';
+        return(m==='light'||m==='sepia'||m==='paper'||m==='glacier'||m==='rose')?'light':'dark';
     }
     var d=document.documentElement;
     var themes=loadThemes();
     var c=document.cookie.match(/theme=(\w+)/);
     var mode=c?c[1]:(d.classList.contains('dark')?'dark':'light');
-    if(!/^(light|dark|ocean|forest|sepia|custom)$/.test(mode))mode='light';
+    if(!THEME_NAMES.test(mode))mode='light';
     var serverBase=d.getAttribute('data-server-theme');
     function applyCached(){
         if(!themes)return;
@@ -186,7 +189,7 @@
         // First load this session: the response is Cache-Control: public,
         // max-age=60, so a full navigation within that window is served from
         // the HTTP cache instead of extending the critical chain.
-        fetch('/themes.json',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
+        fetch(THEMES_URL,{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
             if(themeGen!==0)return;
             saveThemes(arr);
             themes=arr;
@@ -203,7 +206,7 @@
             // Background revalidation of possibly-stale cached themes; the
             // server sends max-age=60, so this only hits the network when the
             // entry expired (or the HTTP cache was bypassed).
-            fetch('/themes.json',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
+            fetch(THEMES_URL,{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(arr){
                 if(themeGen!==0)return;
                 saveThemes(arr);
                 themes=arr;
@@ -277,7 +280,7 @@
     function syncThemeFromCookie(){
         var m=document.cookie.match(/theme=(\w+)/);
         var t=m?m[1]:null;
-        if(!t||!/^(light|dark|ocean|forest|sepia)$/.test(t)||t===mode)return;
+        if(!t||t==='custom'||!THEME_NAMES.test(t)||t===mode)return;
         mode=t;
         if(serverBase&&modeBase(mode)!==serverBase)suppressTransition();
         if(themes)applyTheme(findTheme(themes,mode));

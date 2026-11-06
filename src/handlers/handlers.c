@@ -29,14 +29,10 @@
 #include <stdatomic.h>
 #include <sqlite3.h>
 
-/* Returns true when the requested theme needs the dark highlight.js stylesheet.
-   This includes the explicit dark theme as well as the dark-themed variants
-   (ocean, forest, sepia). A missing or unrecognized theme defaults to light. */
 bool is_dark(cwist_http_request *req) {
     char theme_name[64] = "light";
     auth_get_cookie(req, "theme", theme_name, sizeof(theme_name));
-    theme_color_t *t = theme_by_name(theme_name);
-    return (t == &dark || t == &ocean || t == &forest);
+    return theme_by_name(theme_name)->dark_family;
 }
 
 void redirect(cwist_http_response *res, const char *url) {

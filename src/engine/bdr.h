@@ -27,6 +27,10 @@ void engine_bdr_init(cwist_app *app);
 /* Content changed somewhere: stale every cached reply in every process. */
 void engine_bdr_bump(void);
 
+/* Appearance saves also tell every serving process to reload its theme. */
+void engine_bdr_bump_appearance(void);
+uint64_t engine_bdr_appearance_version(void);
+
 /* Narrower invalidations: only bump the BDR domain(s) affected by a post,
  * board, or listing change so unrelated cached routes (other posts, static
  * meta endpoints, user profiles) keep hitting across worker processes. */

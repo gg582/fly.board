@@ -5,6 +5,7 @@
 #include <cjson/cJSON.h>
 
 typedef struct theme_color {
+    bool dark_family;
     const char *bg;
     const char *fg;
     const char *muted;
@@ -25,9 +26,17 @@ extern theme_color_t dark;
 extern theme_color_t ocean;
 extern theme_color_t forest;
 extern theme_color_t sepia;
+extern theme_color_t paper;
+extern theme_color_t glacier;
+extern theme_color_t rose;
+extern theme_color_t midnight;
+extern theme_color_t plum;
+extern theme_color_t ember;
 
 theme_color_t *theme_by_name(const char *name);
+theme_color_t *theme_builtin_by_name(const char *name);
 void get_special_themes(char *out_light, char *out_dark);
+bool theme_modes_load(const char *path);
 
 cJSON *build_theme_object(const char *name, theme_color_t *t);
 char *theme_build_json(bool dark_mode);

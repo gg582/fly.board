@@ -19,6 +19,12 @@ The preview can switch between a representative post list and an article, light 
 
 Settings are parsed from `layout.settings`. Unknown values are ignored on startup and rejected by the editor. The server adds explicit navigation, content style, density, list style, width, and panel style classes to the body and emits layout overrides separately from the replaceable color-theme CSS.
 
+## Built-in themes
+
+Light, Dark, Ocean, Forest, Sepia, Paper, Glacier, Rose, Midnight, Plum, and Ember are built in. Paper, Glacier, and Rose use the light wallpaper and syntax-highlighting family; Midnight, Plum, and Ember use the dark family. Radio cards show background, accent, and foreground swatches. Preview JSON always contains the actual base palettes, independent of the currently saved selection.
+
+A successful save advances a shared appearance version. Every serving process reloads the selected light/dark modes and uploaded custom theme before its next response, and the HTML version invalidates both browser HTTP and localStorage theme caches. Visitors therefore do not need to wait for the former five-minute cache expiry or restart the server.
+
 ## Custom CWIST themes
 
 Upload a UTF-8 JSON document of at most 512 KiB with the same shape as `/themes.json`:

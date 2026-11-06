@@ -4,5 +4,6 @@
 #include <stdbool.h>
 
 bool engine_settings_load(void);
+void engine_settings_appearance_refresh(void);
 
 #endif

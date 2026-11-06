@@ -5,6 +5,7 @@
 #include <limits.h>
 #include "config/config.h"
 #include "engine/community.h"
+#include "engine/bdr.h"
 #include "utils/image_inline.h"
 #include "utils/image_invert.h"
 #include <cwist/core/html/builder.h>
@@ -441,6 +442,10 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     const char *page_lang = (pm.lang && pm.lang[0]) ? pm.lang : (g_config.language[0] ? g_config.language : "ko");
     cwist_html_element_add_attr(html, "lang", page_lang);
     cwist_html_element_add_attr(html, "data-server-theme", dark ? "dark" : "light");
+    char appearance_version[32];
+    snprintf(appearance_version, sizeof(appearance_version), "%llu",
+             (unsigned long long)engine_bdr_appearance_version());
+    cwist_html_element_add_attr(html, "data-theme-version", appearance_version);
     if (is_mobile) cwist_html_element_add_class(html, "mobile");
 
     cwist_html_element_t *head = cwist_html_element_create("head");

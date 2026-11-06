@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
 #include "audit/audit.h"
+#include "engine/bdr.h"
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -106,7 +107,7 @@ static bool update_theme_modes(const char *light, const char *dark) {
               fsync(fileno(output)) == 0 && fclose(output) == 0 && rename(temporary, "blog.settings") == 0;
     if (!ok) { fclose(output); unlink(temporary); }
     cwist_sstring_destroy(content);
-    if (ok) blog_config_load("blog.settings");
+    if (ok) theme_modes_load("blog.settings");
     return ok;
 }
 
@@ -259,7 +260,8 @@ void handler_admin_appearance_post(cwist_http_request *req, cwist_http_response 
                                                             theme_file->file_size, theme_error, sizeof(theme_error));
     const char *light = field_value(fields, "light_theme");
     const char *dark = field_value(fields, "dark_theme");
-    const char *allowed[] = {"light", "dark", "ocean", "forest", "sepia", "custom"};
+    const char *allowed[] = {"light", "dark", "ocean", "forest", "sepia", "paper",
+                             "glacier", "rose", "midnight", "plum", "ember", "custom"};
     for (int pass = 0; pass < 2; pass++) {
         const char *selected = pass == 0 ? light : dark;
         bool found = false;
@@ -276,6 +278,7 @@ void handler_admin_appearance_post(cwist_http_request *req, cwist_http_response 
         auth_is_logged_in(req, &uid, role, sizeof(role));
         audit_record(uid, "admin.appearance.update", "site", "success", "layout, theme, and typography");
         page_cache_invalidate_all();
+        engine_bdr_bump_appearance();
     }
     multipart_free(fields);
     redirect(res, ok ? "/admin/appearance?msg=saved" : "/admin/appearance?msg=error");

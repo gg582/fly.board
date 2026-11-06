@@ -1,5 +1,6 @@
 #include "engine/async_route.h"
 #include "engine/bdr.h"
+#include "engine/settings.h"
 #include "utils/traffic_guard.h"
 #include <cwist/core/log.h>
 #include <cwist/core/mem/gc.h>
@@ -397,6 +398,7 @@ static void async_gate(cwist_http_request *req, cwist_http_response *res, cwist_
         next(req, res);
         return;
     }
+    engine_settings_appearance_refresh();
     char key[ENGINE_BDR_KEY_MAX];
     bool keyed = engine_bdr_key(req, key, sizeof(key));
     unsigned retry_after = 1;

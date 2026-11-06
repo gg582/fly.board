@@ -17,12 +17,14 @@ char *theme_build_json(bool dark_mode) {
 }
 
 char *theme_build_all_json(void) {
+    static const char *const names[] = {
+        "light", "dark", "ocean", "forest", "sepia", "paper",
+        "glacier", "rose", "midnight", "plum", "ember"
+    };
     cJSON *arr = cJSON_CreateArray();
-    cJSON_AddItemToArray(arr, build_theme_object("light", theme_by_name("light")));
-    cJSON_AddItemToArray(arr, build_theme_object("dark", theme_by_name("dark")));
-    cJSON_AddItemToArray(arr, build_theme_object("ocean", &ocean));
-    cJSON_AddItemToArray(arr, build_theme_object("forest", &forest));
-    cJSON_AddItemToArray(arr, build_theme_object("sepia", &sepia));
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        cJSON_AddItemToArray(arr, build_theme_object(names[i], theme_builtin_by_name(names[i])));
+    }
     cJSON *custom = theme_custom_object();
     if (custom) cJSON_AddItemToArray(arr, custom);
     char *out = cJSON_PrintUnformatted(arr);

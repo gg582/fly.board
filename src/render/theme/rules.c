@@ -70,12 +70,8 @@ static const char *radius_str(float base) {
     return buf;
 }
 
-/* t must be one of the shared palettes (light, dark, ...), not a copy: the
- * wallpaper choice below tells the light family from the dark one by pointer
- * identity, and a copy made every theme pick the dark wallpaper (black page
- * behind dark text). Sepia is light-based, as in is_dark() and layout.js. */
 void rule_root(cJSON *vars, theme_color_t *t) {
-    bool light_family = (t == &light || t == &sepia);
+    bool light_family = !t->dark_family;
     /* The configured accent overrides every palette's accent and accent2.
      * Applied here, at read time: writing it into the shared palettes on each
      * render raced with other request workers reading them (caught by TSan). */

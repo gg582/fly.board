@@ -208,7 +208,8 @@
         frame.classList.toggle('appearance-preview-mobile',sizeSelect.value==='mobile');
         scheduleRender();
     });
-    fetch('/themes.json',{credentials:'same-origin'}).then(function(response){
+    var themeVersion=document.documentElement.getAttribute('data-theme-version')||'0';
+    fetch('/themes.json?v='+encodeURIComponent(themeVersion),{credentials:'same-origin'}).then(function(response){
         if(!response.ok)throw new Error('Theme list unavailable');
         return response.json();
     }).then(function(list){themes=list;scheduleRender();}).catch(function(error){

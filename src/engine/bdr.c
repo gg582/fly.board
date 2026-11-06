@@ -34,6 +34,7 @@ static time_t g_ttl_sec = 30;
 typedef struct {
     _Atomic uint64_t global_ver;
     _Atomic uint64_t listings_ver;
+    _Atomic uint64_t appearance_ver;
     _Atomic uint64_t post_ver[BDR_POST_BUCKETS];
 } bdr_shared_versions_t;
 
@@ -100,6 +101,7 @@ void engine_bdr_init(cwist_app *app) {
     g_versions = mem;
     atomic_init(&g_versions->global_ver, 1);
     atomic_init(&g_versions->listings_ver, 1);
+    atomic_init(&g_versions->appearance_ver, 1);
     for (size_t i = 0; i < BDR_POST_BUCKETS; i++) {
         atomic_init(&g_versions->post_ver[i], 1);
     }
@@ -242,6 +244,16 @@ uint64_t engine_bdr_version_for_key(const char *key) {
 
 uint64_t engine_bdr_version(void) {
     return engine_bdr_version_for_key(NULL);
+}
+
+uint64_t engine_bdr_appearance_version(void) {
+    return g_versions ? atomic_load_explicit(&g_versions->appearance_ver, memory_order_acquire) : 0;
+}
+
+void engine_bdr_bump_appearance(void) {
+    if (!g_versions) return;
+    atomic_fetch_add_explicit(&g_versions->appearance_ver, 1, memory_order_acq_rel);
+    engine_bdr_bump();
 }
 
 void engine_bdr_bump(void) {
