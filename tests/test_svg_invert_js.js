@@ -13,12 +13,12 @@ assert.equal(svg.hasTransparentBackground(pixels(0), 2, 2), true);
 assert.equal(svg.hasTransparentBackground(pixels(255), 2, 2), false);
 assert.equal(svg.hasTransparentBackground(new Uint8ClampedArray(3), 2, 2), false);
 
-function fixture(alpha, src = '/assets/uploads/diagram.svg') {
+function fixture(alpha, src = '/assets/uploads/diagram.svg', alt = '') {
     const listeners = {};
     const img = {
         dataset: {}, complete: true, naturalWidth: 2, naturalHeight: 2,
         currentSrc: src,
-        getAttribute: name => name === 'src' ? src : null,
+        getAttribute: name => name === 'src' ? src : name === 'alt' ? alt : null,
         addEventListener: (name, fn) => { listeners[name] = fn; }
     };
     const doc = {
@@ -42,6 +42,19 @@ assert.equal(svg.inspectImage(test.img, test.doc), true);
 assert.equal(test.img.dataset.svgTransparent, 'false');
 
 test = fixture(0, '/assets/uploads/photo.png');
+assert.equal(svg.inspectImage(test.img, test.doc), false);
+assert.equal(test.img.dataset.svgTransparencyChecked, 'not-svg');
+
+test = fixture(0, 'https://oborona.zip/file/preview/242?poster=1', 'diagram.svg');
+assert.equal(svg.inspectImage(test.img, test.doc), true);
+assert.equal(test.img.dataset.svgTransparent, 'true');
+assert.equal(test.img.dataset.svgTransparencyChecked, 'checked');
+
+test = fixture(255, '/file/preview/244?poster=1', 'opaque.svg');
+assert.equal(svg.inspectImage(test.img, test.doc), true);
+assert.equal(test.img.dataset.svgTransparent, 'false');
+
+test = fixture(0, '/file/preview/246?poster=1', 'photo.webp');
 assert.equal(svg.inspectImage(test.img, test.doc), false);
 assert.equal(test.img.dataset.svgTransparencyChecked, 'not-svg');
 

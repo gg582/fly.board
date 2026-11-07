@@ -11,7 +11,9 @@
 
     function isSvg(img){
         var src=img.currentSrc||img.getAttribute('src')||'';
-        return /\.svg(?:$|[?#])/i.test(src);
+        if(/\.svg(?:$|[?#])/i.test(src))return true;
+        return /\/file\/(?:preview|download)\/\d+(?:[?#]|$)/i.test(src)&&
+               /\.svg$/i.test(img.getAttribute('alt')||'');
     }
 
     function hasTransparentBackground(pixels,width,height){
