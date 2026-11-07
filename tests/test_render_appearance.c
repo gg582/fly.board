@@ -11,32 +11,50 @@ static int failures;
 
 int main(void) {
     const char *path = "/tmp/flyboard-appearance-layout.settings";
-    const char *checked = "name='invert_transparent_svg' value='true' data-appearance-setting checked";
+    const char *checked = "name='invert_transparent_images' value='true' data-appearance-setting checked";
     remove(path);
     CHECK(layout_settings_load(path), "appearance fixture loads defaults");
 
     cwist_sstring *page = render_admin_appearance(true, NULL, false, NULL);
     CHECK(page != NULL, "appearance page renders");
     if (page) {
-        CHECK(strstr(page->data, checked) != NULL, "SVG inversion checkbox is checked by default");
-        CHECK(strstr(page->data, "class=\"dark svg-invert-enabled nav-") != NULL,
-              "dark page enables SVG inversion");
+        CHECK(strstr(page->data, checked) != NULL, "image inversion checkbox is checked by default");
+        CHECK(strstr(page->data, "class=\"dark transparent-image-invert-enabled nav-") != NULL,
+              "dark page enables transparent image inversion");
+        CHECK(strstr(page->data, "data-invert-transparent-formats=\"svg\"") != NULL,
+              "SVG is the only default client format");
+        CHECK(strstr(page->data, "name='transparent_format_svg' value='svg' data-transparent-format data-appearance-setting checked") != NULL,
+              "SVG format checkbox is checked by default");
+        CHECK(strstr(page->data, "name='transparent_format_png' value='png' data-transparent-format data-appearance-setting>") != NULL,
+              "PNG format is opt-in");
         CHECK(strstr(page->data, "data-theme-base=\"dark\"") != NULL,
               "page exposes its initial theme family");
-        CHECK(strstr(page->data, "html[data-theme-base=dark] body.svg-invert-enabled") != NULL,
-              "enabled page contains the dark SVG filter");
+        CHECK(strstr(page->data, "html[data-theme-base=dark] body.transparent-image-invert-enabled") != NULL,
+              "enabled page contains the dark image filter");
         cwist_sstring_destroy(page);
     }
 
-    g_layout_settings.invert_transparent_svg = false;
+    g_layout_settings.invert_transparent_images = false;
     page = render_admin_appearance(true, NULL, false, NULL);
     CHECK(page != NULL, "appearance page renders with inversion disabled");
     if (page) {
-        CHECK(strstr(page->data, checked) == NULL, "disabled SVG inversion is unchecked");
-        CHECK(strstr(page->data, "class=\"dark svg-invert-enabled nav-") == NULL,
+        CHECK(strstr(page->data, checked) == NULL, "disabled image inversion is unchecked");
+        CHECK(strstr(page->data, "class=\"dark transparent-image-invert-enabled nav-") == NULL,
               "disabled page omits the inversion body class");
-        CHECK(strstr(page->data, "html[data-theme-base=dark] body.svg-invert-enabled") == NULL,
-              "disabled page omits the SVG filter");
+        CHECK(strstr(page->data, "html[data-theme-base=dark] body.transparent-image-invert-enabled") == NULL,
+              "disabled page omits the image filter");
+        cwist_sstring_destroy(page);
+    }
+
+    g_layout_settings.invert_transparent_images = true;
+    snprintf(g_layout_settings.transparent_image_formats, sizeof(g_layout_settings.transparent_image_formats), "all");
+    page = render_admin_appearance(true, NULL, false, NULL);
+    CHECK(page != NULL, "appearance page renders in all-format mode");
+    if (page) {
+        CHECK(strstr(page->data, "data-invert-transparent-formats=\"all\"") != NULL,
+              "all-format mode reaches the client");
+        CHECK(strstr(page->data, "name='transparent_format_all' value='all' data-transparent-format-all data-appearance-setting checked") != NULL,
+              "all-format checkbox is checked");
         cwist_sstring_destroy(page);
     }
 

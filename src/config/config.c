@@ -959,7 +959,8 @@ static void layout_set_default(void) {
     g_layout_settings.panel_width = 380;
     g_layout_settings.panel_x = 0;
     g_layout_settings.panel_y = 0;
-    g_layout_settings.invert_transparent_svg = true;
+    g_layout_settings.invert_transparent_images = true;
+    snprintf(g_layout_settings.transparent_image_formats, sizeof(g_layout_settings.transparent_image_formats), "svg");
 }
 
 static bool layout_number_valid(const char *value, int min_value, int max_value) {
@@ -969,10 +970,31 @@ static bool layout_number_valid(const char *value, int min_value, int max_value)
     return end && *end == '\0' && parsed >= min_value && parsed <= max_value;
 }
 
+static bool transparent_formats_valid(const char *value) {
+    if (!value || !value[0]) return false;
+    if (strcmp(value, "all") == 0) return true;
+    static const char *allowed[] = {"svg", "png", "webp", "gif", "avif", "jpg", "bmp", "ico"};
+    const char *p = value;
+    while (*p) {
+        const char *end = strchr(p, ',');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        bool found = false;
+        for (size_t i = 0; i < sizeof(allowed) / sizeof(allowed[0]); i++) {
+            if (strlen(allowed[i]) == len && strncmp(p, allowed[i], len) == 0) { found = true; break; }
+        }
+        if (!found) return false;
+        if (!end) break;
+        p = end + 1;
+        if (!*p) return false;
+    }
+    return true;
+}
+
 bool layout_value_valid(const char *key, const char *value) {
-    if (strcmp(key, "invert_transparent_svg") == 0)
+    if (strcmp(key, "invert_transparent_images") == 0 || strcmp(key, "invert_transparent_svg") == 0)
         return strcmp(value, "true") == 0 || strcmp(value, "false") == 0 ||
                strcmp(value, "1") == 0 || strcmp(value, "0") == 0;
+    if (strcmp(key, "transparent_image_formats") == 0) return transparent_formats_valid(value);
     if (strcmp(key, "panel_width") == 0) return layout_number_valid(value, 240, 520);
     if (strcmp(key, "panel_x") == 0 || strcmp(key, "panel_y") == 0)
         return layout_number_valid(value, -600, 600);
@@ -1009,12 +1031,13 @@ bool layout_settings_save(const char *path) {
     bool ok = fprintf(f,
         "navigation=%s\ncontent_style=%s\ndensity=%s\nlist_style=%s\ncontent_width=%s\n"
         "panel_style=%s\npanel_color=%s\npanel_width=%d\npanel_x=%d\npanel_y=%d\n"
-        "invert_transparent_svg=%s\n",
+        "invert_transparent_images=%s\ntransparent_image_formats=%s\n",
         g_layout_settings.navigation, g_layout_settings.content_style, g_layout_settings.density,
         g_layout_settings.list_style, g_layout_settings.content_width, g_layout_settings.panel_style,
         g_layout_settings.panel_color, g_layout_settings.panel_width,
         g_layout_settings.panel_x, g_layout_settings.panel_y,
-        g_layout_settings.invert_transparent_svg ? "true" : "false") >= 0 &&
+        g_layout_settings.invert_transparent_images ? "true" : "false",
+        g_layout_settings.transparent_image_formats) >= 0 &&
         fflush(f) == 0 && fsync(fileno(f)) == 0 && fclose(f) == 0 && rename(temporary, path) == 0;
     if (!ok) { fclose(f); unlink(temporary); }
     return ok;
@@ -1024,6 +1047,7 @@ bool layout_settings_load(const char *path) {
     layout_set_default();
     FILE *f = fopen(path, "r");
     if (!f) return layout_settings_save(path);
+    bool enable_seen = false, legacy_seen = false, legacy_enabled = true;
     char line[128];
     while (fgets(line, sizeof(line), f)) {
         trim_newline(line);
@@ -1052,9 +1076,16 @@ bool layout_settings_load(const char *path) {
             g_layout_settings.panel_x = atoi(value);
         else if (strcmp(line, "panel_y") == 0)
             g_layout_settings.panel_y = atoi(value);
-        else if (strcmp(line, "invert_transparent_svg") == 0)
-            g_layout_settings.invert_transparent_svg = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
+        else if (strcmp(line, "invert_transparent_images") == 0) {
+            enable_seen = true;
+            g_layout_settings.invert_transparent_images = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
+        } else if (strcmp(line, "invert_transparent_svg") == 0) {
+            legacy_seen = true;
+            legacy_enabled = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
+        } else if (strcmp(line, "transparent_image_formats") == 0)
+            snprintf(g_layout_settings.transparent_image_formats, sizeof(g_layout_settings.transparent_image_formats), "%s", value);
     }
+    if (!enable_seen && legacy_seen) g_layout_settings.invert_transparent_images = legacy_enabled;
     fclose(f);
     return true;
 }
@@ -1116,8 +1147,8 @@ char *layout_build_css(void) {
                       "color-mix(in srgb,var(--glass-bg) 96%,transparent)",
                       strcmp(g_layout_settings.panel_style, "bubble") == 0 ?
                       "border-width:2px;box-shadow:0 24px 70px var(--shadow);" : "");
-    if (css && g_layout_settings.invert_transparent_svg) {
-        const char rule[] = "html[data-theme-base=dark] body.svg-invert-enabled img[data-svg-transparent=true]:not(.hero-bg){filter:invert(1) hue-rotate(180deg);}";
+    if (css && g_layout_settings.invert_transparent_images) {
+        const char rule[] = "html[data-theme-base=dark] body.transparent-image-invert-enabled img[data-svg-transparent=true]:not(.hero-bg){filter:invert(1) hue-rotate(180deg);}";
         size_t current = strlen(css), extra = strlen(rule);
         char *extended = realloc(css, current + extra + 1);
         if (extended) {

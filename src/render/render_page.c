@@ -568,9 +568,10 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
 
     cwist_html_element_t *body = cwist_html_element_create("body");
     cwist_html_element_add_attr(body, "data-server-theme", dark ? "dark" : "light");
+    cwist_html_element_add_attr(body, "data-invert-transparent-formats", g_layout_settings.transparent_image_formats);
     if (dark) cwist_html_element_add_class(body, "dark");
     if (is_mobile) cwist_html_element_add_class(body, "mobile");
-    if (g_layout_settings.invert_transparent_svg) cwist_html_element_add_class(body, "svg-invert-enabled");
+    if (g_layout_settings.invert_transparent_images) cwist_html_element_add_class(body, "transparent-image-invert-enabled");
     char body_class[160];
     snprintf(body_class, sizeof(body_class), "nav-%s layout-%s density-%s list-%s width-%s panel-%s",
              g_layout_settings.navigation, g_layout_settings.content_style, g_layout_settings.density,
@@ -973,14 +974,14 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                         cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=3\" defer></script>");
                     }
                     if (!a->svg_invert_js) {
-                        cwist_sstring_append(head_shell, "<script src=\"/assets/js/svg-invert.js?v=2\" defer></script>");
+                        cwist_sstring_append(head_shell, "<script src=\"/assets/js/svg-invert.js?v=3\" defer></script>");
                     }
                     if (!a->layout_js) {
                         cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js?v=3\" defer></script>");
                     }
                 } else {
                     cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=3\" defer></script>");
-                    cwist_sstring_append(head_shell, "<script src=\"/assets/js/svg-invert.js?v=2\" defer></script>");
+                    cwist_sstring_append(head_shell, "<script src=\"/assets/js/svg-invert.js?v=3\" defer></script>");
                     cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js?v=3\" defer></script>");
                 }
                 /* Progressive enhancement only: WebGPU Lanczos-3 upscaling

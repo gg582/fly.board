@@ -220,7 +220,31 @@ void handler_admin_appearance_post(cwist_http_request *req, cwist_http_response 
         g_layout_settings.panel_y = atoi(panel_y);
         snprintf(g_layout_settings.panel_color, sizeof(g_layout_settings.panel_color), "%s", panel_color);
     }
-    g_layout_settings.invert_transparent_svg = form_find(fields, "invert_transparent_svg") != NULL;
+    g_layout_settings.invert_transparent_images = form_find(fields, "invert_transparent_images") != NULL ||
+                                                  form_find(fields, "invert_transparent_svg") != NULL;
+    g_layout_settings.transparent_image_formats[0] = '\0';
+    if (form_find(fields, "transparent_format_all")) {
+        snprintf(g_layout_settings.transparent_image_formats, sizeof(g_layout_settings.transparent_image_formats), "all");
+    } else {
+        const char *formats[] = {"svg", "png", "webp", "gif", "avif", "jpg", "bmp", "ico"};
+        size_t used = 0;
+        for (size_t i = 0; i < sizeof(formats) / sizeof(formats[0]); i++) {
+            char name[64];
+            snprintf(name, sizeof(name), "transparent_format_%s", formats[i]);
+            if (!form_find(fields, name)) continue;
+            int written = snprintf(g_layout_settings.transparent_image_formats + used,
+                                   sizeof(g_layout_settings.transparent_image_formats) - used,
+                                   "%s%s", used ? "," : "", formats[i]);
+            if (written < 0 || (size_t)written >= sizeof(g_layout_settings.transparent_image_formats) - used) {
+                valid = false;
+                break;
+            }
+            used += (size_t)written;
+        }
+    }
+    if (g_layout_settings.invert_transparent_images && !g_layout_settings.transparent_image_formats[0]) valid = false;
+    if (!g_layout_settings.transparent_image_formats[0])
+        snprintf(g_layout_settings.transparent_image_formats, sizeof(g_layout_settings.transparent_image_formats), "svg");
 
     form_field_t *font_file = form_find(fields, "font_file");
     const char *extension = font_extension(font_file);

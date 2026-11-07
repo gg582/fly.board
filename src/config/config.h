@@ -168,7 +168,8 @@ typedef struct {
     int panel_width;
     int panel_x;
     int panel_y;
-    bool invert_transparent_svg;
+    bool invert_transparent_images;
+    char transparent_image_formats[64];
 } layout_settings_t;
 
 extern layout_settings_t g_layout_settings;

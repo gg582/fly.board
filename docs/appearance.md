@@ -25,11 +25,13 @@ Light, Dark, Ocean, Forest, Sepia, Paper, Glacier, Rose, Midnight, Plum, and Emb
 
 A successful save advances a shared appearance version. Every serving process reloads the selected light/dark modes and uploaded custom theme before its next response, and the HTML version invalidates both browser HTTP and localStorage theme caches. Visitors therefore do not need to wait for the former five-minute cache expiry or restart the server.
 
-## Transparent SVG images
+## Transparent images
 
-**Invert transparent SVG images in dark mode** is enabled by default. The browser draws each content SVG to a small canvas and checks alpha values along its outer edge. Images with a transparent background receive a hue-preserving inversion in dark-family themes; opaque images and every image in light-family themes keep their original colors. Theme switches update the filter without reloading the page. Uploaded SVGs rendered through `/file/preview/<id>` are also detected from their original filename, including when the preview itself is a WebP image with preserved transparency.
+**Invert transparent images in dark mode** is enabled by default. Administrators select the target extensions: SVG, PNG, WebP, GIF, AVIF, JPEG, BMP, ICO, or **All transparent formats**. The default selection is SVG only. The browser draws each selected image to a small canvas and checks alpha values along its outer edge. Images with a transparent background receive a hue-preserving inversion in dark-family themes; opaque images and every image in light-family themes keep their original colors. Theme switches update the filter without reloading the page.
 
-The setting is stored as `invert_transparent_svg=true|false` in `layout.settings`. Existing files without this key retain the enabled default. SVGs that cannot be drawn without cross-origin canvas restrictions are left unchanged. Hero backgrounds and logos with an explicit light/dark variant keep their existing inversion behavior.
+Direct image URLs, data URIs, and `/file/preview/<id>` images are supported. Uploaded files are identified by the original filename even when their preview is a WebP image. In `all` mode every image format is eligible for the same transparency check. Images that cannot be drawn without cross-origin canvas restrictions are left unchanged. Hero backgrounds and logos with an explicit light/dark variant keep their existing inversion behavior.
+
+The settings are stored as `invert_transparent_images=true|false` and `transparent_image_formats=svg,png,...|all` in `layout.settings`. Existing `invert_transparent_svg` values are migrated automatically and retain their previous enabled or disabled state. Files without either new key retain the SVG-only default.
 
 ## Custom CWIST themes
 

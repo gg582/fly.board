@@ -16,6 +16,34 @@ static void append_input(cwist_sstring *b, const char *name, const char *value, 
     cwist_sstring_append(b, "' data-appearance-setting></label>");
 }
 
+static bool transparent_format_selected(const char *format) {
+    const char *formats = g_layout_settings.transparent_image_formats;
+    if (strcmp(formats, "all") == 0) return true;
+    size_t wanted = strlen(format);
+    const char *p = formats;
+    while (*p) {
+        const char *end = strchr(p, ',');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        if (len == wanted && strncmp(p, format, wanted) == 0) return true;
+        if (!end) break;
+        p = end + 1;
+    }
+    return false;
+}
+
+static void append_transparent_format(cwist_sstring *b, const char *format, const char *label, bool all) {
+    cwist_sstring_append(b, "<label class='check-row'><input type='checkbox' name='transparent_format_");
+    cwist_sstring_append(b, all ? "all" : format);
+    cwist_sstring_append(b, "' value='");
+    cwist_sstring_append(b, all ? "all" : format);
+    cwist_sstring_append(b, all ? "' data-transparent-format-all" : "' data-transparent-format");
+    cwist_sstring_append(b, " data-appearance-setting");
+    if (transparent_format_selected(format)) cwist_sstring_append(b, " checked");
+    cwist_sstring_append(b, "> ");
+    cwist_sstring_append(b, label);
+    cwist_sstring_append(b, "</label>");
+}
+
 static void append_layout_choice(cwist_sstring *b, const char *group, const char *value,
                                  const char *current, const char *label, const char *detail) {
     cwist_sstring_append(b, "<label class='appearance-theme-choice appearance-layout-choice'><input type='radio' name='");
@@ -132,9 +160,19 @@ cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool 
     append_theme_group(b, "light_theme", light);
     cwist_sstring_append(b, "</div><h3>Dark mode</h3><div class='appearance-theme-grid'>");
     append_theme_group(b, "dark_theme", dark_theme);
-    cwist_sstring_append(b, "</div><label class='check-row'><input type='checkbox' name='invert_transparent_svg' value='true' data-appearance-setting");
-    if (g_layout_settings.invert_transparent_svg) cwist_sstring_append(b, " checked");
-    cwist_sstring_append(b, "> Invert transparent SVG images in dark mode</label><p class='appearance-note'>Only SVGs with a transparent background are changed. Opaque SVGs and all light-mode images keep their original colors.</p><label class='appearance-field'><span>Custom CWIST theme JSON</span><input type='file' name='theme_file' accept='.json,application/json' data-preview-theme></label>");
+    cwist_sstring_append(b, "</div><label class='check-row'><input type='checkbox' name='invert_transparent_images' value='true' data-appearance-setting");
+    if (g_layout_settings.invert_transparent_images) cwist_sstring_append(b, " checked");
+    cwist_sstring_append(b, "> Invert transparent images in dark mode</label><div class='appearance-field'><span>Formats to invert</span><div class='appearance-option-grid'>");
+    append_transparent_format(b, "all", "All transparent formats", true);
+    append_transparent_format(b, "svg", "SVG", false);
+    append_transparent_format(b, "png", "PNG", false);
+    append_transparent_format(b, "webp", "WebP", false);
+    append_transparent_format(b, "gif", "GIF", false);
+    append_transparent_format(b, "avif", "AVIF", false);
+    append_transparent_format(b, "jpg", "JPEG", false);
+    append_transparent_format(b, "bmp", "BMP", false);
+    append_transparent_format(b, "ico", "ICO", false);
+    cwist_sstring_append(b, "</div></div><p class='appearance-note'>Only selected formats with transparent backgrounds are changed. Opaque images and all light-mode images keep their original colors. The default is SVG only.</p><label class='appearance-field'><span>Custom CWIST theme JSON</span><input type='file' name='theme_file' accept='.json,application/json' data-preview-theme></label>");
     cwist_sstring_append(b, "<p class='appearance-note'>The file uses the same <code>name</code>, <code>vars</code>, and <code>rules</code> structure as <code>/themes.json</code>. Add <code>mode: \"light\"</code> or <code>\"dark\"</code>. Maximum 512 KiB.</p></section>");
 
     cwist_sstring_append(b, "<section class='card'><h2>Font sources</h2><label class='appearance-field'><span>TTF, OTF, WOFF, or WOFF2</span><input type='file' name='font_file' accept='.ttf,.otf,.woff,.woff2' data-preview-font></label>");
