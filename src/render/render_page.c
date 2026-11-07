@@ -36,6 +36,7 @@ static const char *footer_logo_sized(const char *url, char *buf, size_t buf_len)
  * separate cached files so the browser can reuse them across navigations. */
 typedef struct {
     char *jwt_js;
+    char *svg_invert_js;
     char *layout_js;
     char *font_css;          /* google-fonts.css (large; kept external by default) */
     char *font_css_small;    /* pretendard.css + d2coding.css (small; inlined) */
@@ -79,6 +80,7 @@ static char *concat_two_files(const char *a, const char *b);
 
 static void load_inline_assets(void) {
     g_inline_assets.jwt_js            = read_js_asset("public/js/jwt.js");
+    g_inline_assets.svg_invert_js     = read_js_asset("public/js/svg-invert.js");
     g_inline_assets.layout_js         = read_js_asset("public/js/layout.js");
     /* Split font CSS: the Google Fonts file is large and font-heavy, so keep it
      * as a separate cached request.  Only the small local fallback font CSS is
@@ -442,6 +444,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     const char *page_lang = (pm.lang && pm.lang[0]) ? pm.lang : (g_config.language[0] ? g_config.language : "ko");
     cwist_html_element_add_attr(html, "lang", page_lang);
     cwist_html_element_add_attr(html, "data-server-theme", dark ? "dark" : "light");
+    cwist_html_element_add_attr(html, "data-theme-base", dark ? "dark" : "light");
     char appearance_version[32];
     snprintf(appearance_version, sizeof(appearance_version), "%llu",
              (unsigned long long)engine_bdr_appearance_version());
@@ -551,7 +554,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
         free(font_css);
     }
 
-    /* Placeholder for critical shell assets: font CSS and jwt.js + layout.js.
+    /* Placeholder for critical shell assets: font CSS and page scripts.
        These are required for the page chrome and theme to render correctly. */
     cwist_html_element_t *inline_head_shell = cwist_html_element_create("meta");
     cwist_html_element_add_attr(inline_head_shell, "data-inline-head-shell", "1");
@@ -567,6 +570,7 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_attr(body, "data-server-theme", dark ? "dark" : "light");
     if (dark) cwist_html_element_add_class(body, "dark");
     if (is_mobile) cwist_html_element_add_class(body, "mobile");
+    if (g_layout_settings.invert_transparent_svg) cwist_html_element_add_class(body, "svg-invert-enabled");
     char body_class[160];
     snprintf(body_class, sizeof(body_class), "nav-%s layout-%s density-%s list-%s width-%s panel-%s",
              g_layout_settings.navigation, g_layout_settings.content_style, g_layout_settings.density,
@@ -959,19 +963,25 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                 if (inline_shell_enabled()) {
                     cwist_sstring_append(head_shell, "<script>");
                     if (a->jwt_js) cwist_sstring_append(head_shell, a->jwt_js);
-                    if (a->jwt_js && a->layout_js) cwist_sstring_append(head_shell, "\n");
+                    if (a->jwt_js && (a->svg_invert_js || a->layout_js)) cwist_sstring_append(head_shell, "\n");
+                    if (a->svg_invert_js) cwist_sstring_append(head_shell, a->svg_invert_js);
+                    if (a->svg_invert_js && a->layout_js) cwist_sstring_append(head_shell, "\n");
                     if (a->layout_js) cwist_sstring_append(head_shell, a->layout_js);
                     cwist_sstring_append(head_shell, "</script>");
 
                     if (!a->jwt_js) {
                         cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=3\" defer></script>");
                     }
+                    if (!a->svg_invert_js) {
+                        cwist_sstring_append(head_shell, "<script src=\"/assets/js/svg-invert.js?v=1\" defer></script>");
+                    }
                     if (!a->layout_js) {
-                        cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js?v=2\" defer></script>");
+                        cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js?v=3\" defer></script>");
                     }
                 } else {
                     cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=3\" defer></script>");
-                    cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js?v=2\" defer></script>");
+                    cwist_sstring_append(head_shell, "<script src=\"/assets/js/svg-invert.js?v=1\" defer></script>");
+                    cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js?v=3\" defer></script>");
                 }
                 /* Progressive enhancement only: WebGPU Lanczos-3 upscaling
                  * for high-DPI displays.  Deferred and fully fail-safe, so it

@@ -219,6 +219,7 @@
      * wallpaper follows the toggle through its CSS variable. */
     function swapHeroBgs(name){
         var suffix=(modeBase(name)==='light')?'light':'dark';
+        document.documentElement.setAttribute('data-theme-base',suffix);
         document.querySelectorAll('[data-hero-bg]').forEach(function(w){
             /* Always overwrite the inline style: when the target mode has no
              * per-mode style the attribute is omitted server-side, and keeping

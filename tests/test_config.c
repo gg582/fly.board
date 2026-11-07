@@ -123,6 +123,7 @@ int main(void) {
     CHECK(strcmp(g_layout_settings.navigation, "topbar") == 0, "responsive top bar is the default");
     CHECK(strcmp(g_layout_settings.content_style, "blog") == 0, "blog presentation is the default");
     CHECK(strcmp(g_layout_settings.density, "comfortable") == 0, "comfortable density is the default");
+    CHECK(g_layout_settings.invert_transparent_svg, "transparent SVG inversion enabled by default");
     snprintf(g_layout_settings.navigation, sizeof(g_layout_settings.navigation), "hamburger");
     snprintf(g_layout_settings.content_style, sizeof(g_layout_settings.content_style), "community");
     snprintf(g_layout_settings.density, sizeof(g_layout_settings.density), "compact");
@@ -133,6 +134,7 @@ int main(void) {
     g_layout_settings.panel_width = 460;
     g_layout_settings.panel_x = -120;
     g_layout_settings.panel_y = 80;
+    g_layout_settings.invert_transparent_svg = false;
     CHECK(layout_settings_save(PATH), "save layout settings from appearance editor");
     memset(&g_layout_settings, 0, sizeof(g_layout_settings));
     CHECK(layout_settings_load(PATH), "reload saved layout settings");
@@ -145,15 +147,24 @@ int main(void) {
     CHECK(strcmp(g_layout_settings.panel_color, "#12345680") == 0, "RGBA panel color round trip");
     CHECK(g_layout_settings.panel_width == 460 && g_layout_settings.panel_x == -120 && g_layout_settings.panel_y == 80,
           "panel geometry round trip");
+    CHECK(!g_layout_settings.invert_transparent_svg, "disabled SVG inversion round trip");
     CHECK(!layout_value_valid("density", "invalid"), "invalid layout value rejected");
     CHECK(!layout_value_valid("panel_color", "#12345"), "invalid panel color rejected");
     CHECK(!layout_value_valid("panel_width", "900"), "out-of-range panel width rejected");
+    CHECK(!layout_value_valid("invert_transparent_svg", "sometimes"), "invalid SVG inversion value rejected");
     char *layout_css = layout_build_css();
     CHECK(layout_css && strstr(layout_css, "nav-hamburger") && strstr(layout_css, "density-compact"),
           "layout CSS reflects saved navigation and density");
     CHECK(layout_css && strstr(layout_css, "width:min(460px,100vw)") &&
           strstr(layout_css, "translate(-120px,80px)") && strstr(layout_css, "#12345680") &&
           strstr(layout_css, "border-radius:32px"), "panel geometry, RGBA color, and bubble style rendered");
+    CHECK(layout_css && !strstr(layout_css, "data-svg-transparent"), "disabled SVG inversion emits no filter");
+    free(layout_css);
+    g_layout_settings.invert_transparent_svg = true;
+    layout_css = layout_build_css();
+    CHECK(layout_css && strstr(layout_css, "html[data-theme-base=dark]") &&
+          strstr(layout_css, "img[data-svg-transparent=true]") && strstr(layout_css, "invert(1)"),
+          "enabled SVG inversion renders the dark-only filter");
     free(layout_css);
 
     remove(PATH);

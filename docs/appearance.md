@@ -25,6 +25,12 @@ Light, Dark, Ocean, Forest, Sepia, Paper, Glacier, Rose, Midnight, Plum, and Emb
 
 A successful save advances a shared appearance version. Every serving process reloads the selected light/dark modes and uploaded custom theme before its next response, and the HTML version invalidates both browser HTTP and localStorage theme caches. Visitors therefore do not need to wait for the former five-minute cache expiry or restart the server.
 
+## Transparent SVG images
+
+**Invert transparent SVG images in dark mode** is enabled by default. The browser draws each content SVG to a small canvas and checks alpha values along its outer edge. Images with a transparent background receive a hue-preserving inversion in dark-family themes; opaque images and every image in light-family themes keep their original colors. Theme switches update the filter without reloading the page.
+
+The setting is stored as `invert_transparent_svg=true|false` in `layout.settings`. Existing files without this key retain the enabled default. SVGs that cannot be drawn without cross-origin canvas restrictions are left unchanged. Hero backgrounds and logos with an explicit light/dark variant keep their existing inversion behavior.
+
 ## Custom CWIST themes
 
 Upload a UTF-8 JSON document of at most 512 KiB with the same shape as `/themes.json`:

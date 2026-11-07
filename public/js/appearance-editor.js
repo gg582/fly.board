@@ -91,6 +91,11 @@
         }else css+='.burger-btn{display:none;}';
         return css;
     }
+    function svgInversionCss(){
+        var control=form.elements.invert_transparent_svg;
+        if(!control||!control.checked)return '';
+        return 'html[data-theme-base=dark] body.svg-invert-enabled img[data-svg-transparent=true]:not(.hero-bg){filter:invert(1) hue-rotate(180deg);}';
+    }
     function navigationMarkup(){
         return '<header class="topbar"><button type="button" class="burger-btn" aria-label="Menu" aria-expanded="false"><span class="burger-icon">☰</span></button>'+
             '<a class="topbar-brand" href="#"><span class="topbar-title">Fly Board</span></a>'+
@@ -113,6 +118,7 @@
         return '<article class="post-content"><h1 class="post-title">A typographically detailed post</h1><div class="post-meta">6 November 2026 · 5 min read</div>'+
             '<div class="markdown-body"><h1>Markdown heading one</h1><h2>Markdown heading two</h2><h3>Markdown heading three</h3>'+
             '<p>Adjust the controls and this text changes immediately. 가독성과 개성을 함께 확인할 수 있습니다.</p>'+
+            '<figure><img data-svg-transparent="true" alt="Transparent SVG preview" width="180" height="72" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22180%22 height=%2272%22 viewBox=%220 0 180 72%22%3E%3Ccircle cx=%2236%22 cy=%2236%22 r=%2224%22 fill=%22black%22/%3E%3Cpath d=%22M76 24h80M76 40h64M76 56h48%22 stroke=%22black%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3C/svg%3E"><figcaption>Transparent background SVG</figcaption></figure>'+
             '<blockquote>A quote can use a contrasting serif stack without changing body copy.</blockquote>'+
             '<pre><code>const preview = "live";\nconsole.log(preview);</code></pre></div></article>';
     }
@@ -125,14 +131,15 @@
         var externalScript=scriptUrl||field('font_script_url');
         var script=externalScript?'<script src="'+externalScript.replace(/["<>]/g,'')+'"><\/script>':'';
         var bodyClass='nav-'+field('navigation')+' layout-'+field('content_style')+' density-'+field('density')+' list-'+field('list_style')+' width-'+field('content_width')+' panel-'+field('panel_style');
+        if(form.elements.invert_transparent_svg&&form.elements.invert_transparent_svg.checked)bodyClass+=' svg-invert-enabled';
         var panelX=parseInt(field('panel_x'),10)||0,panelY=parseInt(field('panel_y'),10)||0;
         var panelScript='<script>var b=document.querySelector(".burger-btn"),n=document.querySelector(".nav-links"),g=document.querySelector(".appearance-panel-grip"),drag=null,x='+panelX+',y='+panelY+';'+
             'if(b)b.addEventListener("click",function(){var o=n.classList.toggle("open");b.setAttribute("aria-expanded",o?"true":"false");});'+
             'if(g)g.addEventListener("pointerdown",function(e){e.preventDefault();drag={px:e.clientX,py:e.clientY,x:x,y:y};g.setPointerCapture(e.pointerId);g.style.cursor="grabbing";});'+
             'if(g)g.addEventListener("pointermove",function(e){if(!drag)return;x=Math.max(-600,Math.min(600,drag.x+e.clientX-drag.px));y=Math.max(-600,Math.min(600,drag.y+e.clientY-drag.py));n.style.transform="translate("+x+"px,"+y+"px)";});'+
             'if(g)g.addEventListener("pointerup",function(e){if(!drag)return;drag=null;g.releasePointerCapture(e.pointerId);g.style.cursor="grab";parent.postMessage({type:"fly-panel-position",x:x,y:y},"*");});<\/script>';
-        frame.srcdoc='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>'+
-            fontSourceCss()+buildThemeCss(theme)+typographyCss()+layoutCss()+
+        frame.srcdoc='<!doctype html><html data-theme-base="'+modeSelect.value+'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>'+
+            fontSourceCss()+buildThemeCss(theme)+typographyCss()+layoutCss()+svgInversionCss()+
             '.topbar{display:flex;justify-content:space-between;align-items:center;position:relative}.nav-links{display:flex;gap:12px;align-items:center}.topbar-brand{text-decoration:none}.post-content{margin-top:24px}.markdown-body{line-height:1.75}pre{overflow:auto;padding:14px}blockquote{margin-left:0;padding-left:16px}.hero{margin-bottom:24px}.board-line{margin-bottom:24px}.tag{display:inline-block;padding:3px 8px}.post-row-title{cursor:pointer}.post-list{padding:0}.shell{width:100%;box-sizing:border-box}.appearance-panel-grip{display:none;cursor:grab;touch-action:none;user-select:none;text-align:center;padding:8px;margin:-6px 0 8px;border-bottom:1px dashed var(--border);font-size:11px;color:var(--muted)}.nav-hamburger .appearance-panel-grip{display:block}@media(max-width:600px){.shell{padding:18px}.post-row-meta{display:flex;padding:6px 0 0}}</style>'+
             '</head><body class="'+bodyClass+'">'+previewMarkup()+script+panelScript+'</body></html>';
     }

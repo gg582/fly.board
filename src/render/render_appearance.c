@@ -132,7 +132,9 @@ cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool 
     append_theme_group(b, "light_theme", light);
     cwist_sstring_append(b, "</div><h3>Dark mode</h3><div class='appearance-theme-grid'>");
     append_theme_group(b, "dark_theme", dark_theme);
-    cwist_sstring_append(b, "</div><label class='appearance-field'><span>Custom CWIST theme JSON</span><input type='file' name='theme_file' accept='.json,application/json' data-preview-theme></label>");
+    cwist_sstring_append(b, "</div><label class='check-row'><input type='checkbox' name='invert_transparent_svg' value='true' data-appearance-setting");
+    if (g_layout_settings.invert_transparent_svg) cwist_sstring_append(b, " checked");
+    cwist_sstring_append(b, "> Invert transparent SVG images in dark mode</label><p class='appearance-note'>Only SVGs with a transparent background are changed. Opaque SVGs and all light-mode images keep their original colors.</p><label class='appearance-field'><span>Custom CWIST theme JSON</span><input type='file' name='theme_file' accept='.json,application/json' data-preview-theme></label>");
     cwist_sstring_append(b, "<p class='appearance-note'>The file uses the same <code>name</code>, <code>vars</code>, and <code>rules</code> structure as <code>/themes.json</code>. Add <code>mode: \"light\"</code> or <code>\"dark\"</code>. Maximum 512 KiB.</p></section>");
 
     cwist_sstring_append(b, "<section class='card'><h2>Font sources</h2><label class='appearance-field'><span>TTF, OTF, WOFF, or WOFF2</span><input type='file' name='font_file' accept='.ttf,.otf,.woff,.woff2' data-preview-font></label>");

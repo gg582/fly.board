@@ -331,7 +331,7 @@ setup:
 # Markdown renderer regression tests.
 RENDER_TEST_SRCS := tests/stubs/g_config.c src/render/render_md.c src/utils/image_size.c src/utils/stb_image_impl.c
 RENDER_TESTS := tests/test_render_md_video tests/test_render_md_blocks tests/test_render_md_iframe tests/test_render_md_tikz \
-                tests/test_render_theme tests/test_render_totp
+                tests/test_render_theme tests/test_render_totp tests/test_render_appearance
 THEME_TEST_OBJS := src/render/theme/theme.o src/render/theme/json.o src/render/theme/css.o src/render/theme/rules.o src/render/theme/custom.o
 
 tests/test_render_theme: tests/test_render_theme.c tests/stubs/render_test_stubs.c $(THEME_TEST_OBJS)
@@ -343,8 +343,9 @@ tests/test_render_%: tests/test_render_%.c $(RENDER_TEST_SRCS) $(MD4C_OBJS)
 tests/render_file: tests/render_file.c $(RENDER_TEST_SRCS) $(MD4C_OBJS)
 	$(CC) $(CFLAGS) -Ithird_party/stb -o $@ $^ $(LDFLAGS) $(LIBS)
 
-check-render: $(RENDER_TESTS)
+check-render: $(RENDER_TESTS) minjs
 	@for t in $(RENDER_TESTS); do $$t || exit 1; done
+	node tests/test_svg_invert_js.js
 
 # Deterministic RSS-growth regression test: calls render_markdown_to_html()
 # in a short warm-up batch then a much larger batch and fails if RSS keeps
@@ -378,6 +379,9 @@ tests/test_mp_%: tests/test_mp_%.c $(MULTIPART_DIR)/multipart_parser.c
 SERVER_OBJS := $(filter-out src/main.o,$(OBJS))
 
 tests/test_render_totp: tests/test_render_totp.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
+
+tests/test_render_appearance: tests/test_render_appearance.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
 	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
 
 # Mail stack helpers (Dovecot checkpassword, Postfix pipe delivery agent,

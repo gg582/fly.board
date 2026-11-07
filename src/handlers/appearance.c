@@ -220,6 +220,7 @@ void handler_admin_appearance_post(cwist_http_request *req, cwist_http_response 
         g_layout_settings.panel_y = atoi(panel_y);
         snprintf(g_layout_settings.panel_color, sizeof(g_layout_settings.panel_color), "%s", panel_color);
     }
+    g_layout_settings.invert_transparent_svg = form_find(fields, "invert_transparent_svg") != NULL;
 
     form_field_t *font_file = form_find(fields, "font_file");
     const char *extension = font_extension(font_file);
