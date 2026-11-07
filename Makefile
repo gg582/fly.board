@@ -345,7 +345,6 @@ tests/render_file: tests/render_file.c $(RENDER_TEST_SRCS) $(MD4C_OBJS)
 
 check-render: $(RENDER_TESTS) minjs
 	@for t in $(RENDER_TESTS); do $$t || exit 1; done
-	node tests/test_svg_invert_js.js
 
 # Deterministic RSS-growth regression test: calls render_markdown_to_html()
 # in a short warm-up batch then a much larger batch and fails if RSS keeps
@@ -558,6 +557,7 @@ check-realtime: tests/test_realtime tests/test_config minjs
 	./tests/test_realtime
 	./tests/test_config
 	node tests/test_realtime_js.js
+	node tests/test_svg_invert_js.js
 
 check-realtime-http: $(TARGET)
 	./tools/realtime_smoke_test.sh
