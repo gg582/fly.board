@@ -17,6 +17,7 @@ setTimeout(function(){btn.textContent='Copy';},1500);
 pre.appendChild(btn);
 });
 }
+window.__initCopyButtons=initCopyButtons;
 if(document.readyState==='loading'){
 document.addEventListener('DOMContentLoaded',initCopyButtons);
 }else{

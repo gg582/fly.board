@@ -122,7 +122,7 @@ int main(void) {
     cJSON_AddItemToArray(list, comment_row(4, 99, "orphan", "parent missing"));
     cJSON_AddItemToArray(list, comment_row(5, 5, "loop", "self parent"));
     cJSON_AddItemToArray(list, comment_row(6, 3, "carol", "$x^2$"));
-    cwist_sstring *html = render_post_comment_list(list, "", 0, 42);
+    cwist_sstring *html = render_post_comment_list(list, "", 0, 42, NULL);
     const char *h = html ? html->data : "";
     CHECK(pos(h, "<strong>bold</strong>"), "bold renders");
     CHECK(pos(h, "<code>code</code>"), "inline code renders");
@@ -174,13 +174,64 @@ int main(void) {
     if (html) cwist_sstring_destroy(html);
 
     cwist_sstring *fb = cwist_sstring_create();
-    render_comment_tree(fb, list, "file", 7, 0, "");
+    render_comment_tree(fb, list, "file", 7, 0, "", NULL);
     CHECK(pos(fb->data, "name='target_type' value='file'") && !pos(fb->data, "value='post'"),
           "file comment replies target the file, not a post");
     cwist_sstring_destroy(fb);
     cJSON_Delete(list);
 
-    cwist_sstring *empty = render_post_comment_list(NULL, "", 0, 1);
+    /* Same pipeline as the body, byte for byte: Markdown with CRLF line
+     * endings (as browsers submit textareas; this is post54's comment),
+     * code fences, display/inline math and TikZ. */
+    const char *samples[] = {
+        "## \xea\xb0\x99\xec\x9d\x80 \xea\xb2\x83\r\n\r\n```python\r\nimport math\r\nprint(f\"{'N':>8}\")\r\n```",
+        "Inline $a^2+b^2=c^2$ and display:\n\n$$\\int_0^1 x\\,dx$$\n",
+        "```tikz\n\\begin{tikzpicture}\\draw (0,0) -- (1,1);\\end{tikzpicture}\n```",
+        "\\[ e^{i\\pi}+1=0 \\]",
+        "| a | b |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\n> quote\n> two",
+    };
+    for (size_t k = 0; k < sizeof(samples) / sizeof(samples[0]); k++) {
+        cJSON *one = cJSON_CreateArray();
+        cJSON_AddItemToArray(one, comment_row(1, 0, "a", samples[k]));
+        cwist_sstring *thread = render_post_comment_list(one, "", 0, 1, NULL);
+        cwist_sstring *body_html = render_markdown_to_html(samples[k]);
+        cwist_sstring *want = cwist_sstring_create();
+        cwist_sstring_assign(want, "<div class='markdown-body comment-markdown'>");
+        cwist_sstring_append(want, body_html ? body_html->data : "");
+        cwist_sstring_append(want, "</div>");
+        char name[64];
+        snprintf(name, sizeof(name), "comment HTML equals body HTML (sample %zu)", k);
+        CHECK(body_html && strstr(thread->data, want->data) != NULL, name);
+        cwist_sstring_destroy(want);
+        if (body_html) cwist_sstring_destroy(body_html);
+        cwist_sstring_destroy(thread);
+        cJSON_Delete(one);
+    }
+    {
+        cJSON *one = cJSON_CreateArray();
+        cJSON_AddItemToArray(one, comment_row(1, 0, "a", "## T\r\n\r\n```python\r\nx = 1\r\n```"));
+        cwist_sstring *t = render_post_comment_list(one, "", 0, 1, NULL);
+        CHECK(strstr(t->data, "<h2>T</h2>") && strstr(t->data, "<code class=\"language-python\">"),
+              "CRLF comment gets heading and highlighted code fence");
+        cwist_sstring_destroy(t);
+        cJSON_Delete(one);
+
+        one = cJSON_CreateArray();
+        cJSON_AddItemToArray(one, comment_row(1, 0, "a", "listen: [song](/file/download/5)"));
+        cJSON *files = cJSON_CreateArray();
+        cJSON *f = cJSON_CreateObject();
+        cJSON_AddNumberToObject(f, "id", 5);
+        cJSON_AddStringToObject(f, "mime_type", "audio/mpeg");
+        cJSON_AddStringToObject(f, "filename", "song.mp3");
+        cJSON_AddItemToArray(files, f);
+        t = render_post_comment_list(one, "", 0, 1, files);
+        CHECK(strstr(t->data, "<audio") != NULL, "attachment link in a comment becomes a player, as in the body");
+        cwist_sstring_destroy(t);
+        cJSON_Delete(files);
+        cJSON_Delete(one);
+    }
+
+    cwist_sstring *empty = render_post_comment_list(NULL, "", 0, 1, NULL);
     CHECK(pos(empty->data, "No comments yet."), "empty thread message");
     cwist_sstring_destroy(empty);
 

@@ -62,8 +62,8 @@ int main(int argc, char **argv) {
     TIME("  page_cache_invalidate_post", 200, { page_cache_invalidate_post(slug); });
     TIME("db_comment_list_by_target", 200, { cJSON *l = db_comment_list_by_target(&g_db, "post", pid); cJSON_Delete(l); });
     cJSON *list = db_comment_list_by_target(&g_db, "post", pid);
-    TIME("render_post_comment_list", 20, { cwist_sstring *h = render_post_comment_list(list, "", 0, pid); cwist_sstring_destroy(h); });
-    { cwist_sstring *h = render_post_comment_list(list, "", 0, pid); printf("  list bytes=%zu\n", h->size); cwist_sstring_destroy(h); }
+    TIME("render_post_comment_list", 20, { cwist_sstring *h = render_post_comment_list(list, "", 0, pid, NULL); cwist_sstring_destroy(h); });
+    { cwist_sstring *h = render_post_comment_list(list, "", 0, pid, NULL); printf("  list bytes=%zu\n", h->size); cwist_sstring_destroy(h); }
     cJSON_Delete(list);
     TIME("render one comment markdown", 200, { cwist_sstring *h = render_markdown_to_html("A **formatted** comment with `code`, a list:\n\n- one\n- two\n\nand $a+b$."); cwist_sstring_destroy(h); });
     TIME("render plain markdown 'hi'", 200, { cwist_sstring *h = render_markdown_to_html("hi"); cwist_sstring_destroy(h); });

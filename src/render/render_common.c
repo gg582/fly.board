@@ -39,7 +39,7 @@ cwist_sstring *build_form(const char *title, const char *action, const char *met
 }
 
 const char *code_copy_script =
-    "<script src='/assets/js/copy.js' defer></script>";
+    "<script src='/assets/js/copy.js?v=2' defer></script>";
 
 const char *login_register_script =
     "<script src='/assets/js/auth.js' defer></script>";

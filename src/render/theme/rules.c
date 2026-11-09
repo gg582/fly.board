@@ -1008,33 +1008,18 @@ void rule_components(cJSON *rules) {
     add_decl(cbody, "line-height", "1.6");
     cJSON_AddItemToArray(rules, cbody);
 
-    cJSON *cbody_p = create_rule(".comment-body p");
+    cJSON *cbody_p = create_rule(".comment-body > p");
     add_decl(cbody_p, "margin", "0 0 8px");
     cJSON_AddItemToArray(rules, cbody_p);
 
-    /* Comments share the post body's Markdown renderer; scale it down so a
-     * heading or a wide table in a reply does not dwarf the thread. */
+    /* Comments are rendered exactly like the post body and take the same
+     * .markdown-body typography; only the column centring is dropped so the
+     * text lines up with the comment header. */
     cJSON *cmd = create_rule(".comment-body .comment-markdown");
     add_decl(cmd, "max-width", "none");
     add_decl(cmd, "margin", "0");
-    add_decl(cmd, "line-height", "1.6");
     add_decl(cmd, "overflow-x", "auto");
     cJSON_AddItemToArray(rules, cmd);
-
-    cJSON *cmd_h = create_rule(".comment-markdown h1, .comment-markdown h2, .comment-markdown h3, .comment-markdown h4");
-    add_decl(cmd_h, "font-size", "1.05em");
-    add_decl(cmd_h, "margin", "10px 0 6px");
-    cJSON_AddItemToArray(rules, cmd_h);
-
-    cJSON *cmd_last = create_rule(".comment-markdown > :last-child");
-    add_decl(cmd_last, "margin-bottom", "4px");
-    cJSON_AddItemToArray(rules, cmd_last);
-
-    cJSON *cmd_img = create_rule(".comment-markdown img, .comment-markdown video, .comment-markdown iframe");
-    add_decl(cmd_img, "max-width", "100%");
-    add_decl(cmd_img, "max-height", "480px");
-    add_decl(cmd_img, "height", "auto");
-    cJSON_AddItemToArray(rules, cmd_img);
 
     cJSON *cin = create_rule(".comment-input");
     add_decl(cin, "width", "100%");

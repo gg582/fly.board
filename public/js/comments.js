@@ -6,15 +6,98 @@
 (function (global) {
     'use strict';
 
-    function typeset(win, list) {
-        if (typeof win.__renderBlogMath === 'function') {
-            try { win.__renderBlogMath(list); } catch (_) {}
-        }
-        if (win.hljs && list.querySelectorAll) {
-            Array.prototype.forEach.call(list.querySelectorAll('pre code[class*="language-"]'), function (el) {
-                try { win.hljs.highlightElement(el); } catch (_) {}
+    /* Comment HTML comes from the post body's renderer; this finishes it the
+     * way the post page does. A server-rendered page already loaded
+     * highlight.js / KaTeX / katex-render.js / copy.js when its HTML (comments
+     * included) needed them. A thread swapped in later may need one the page
+     * never loaded, so fetch exactly what render_page.c would have emitted,
+     * then run the same entry points. */
+    var HL = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/';
+    var HL_LANGS = ['fortran', 'prolog', 'erlang', 'elixir', 'elm', 'haskell', 'ocaml', 'scheme', 'lisp',
+        'clojure', 'vhdl', 'verilog', 'matlab', 'r', 'perl', 'groovy', 'nix', 'x86asm', 'llvm',
+        'brainfuck', 'freedesktop'];
+    var KATEX = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/';
+    var KATEX_RENDER = '/assets/js/katex-render.js?v=11';
+    var loads = {};
+
+    function loadScript(doc, src) {
+        if (loads[src]) return loads[src];
+        loads[src] = new Promise(function (resolve, reject) {
+            var s = doc.createElement('script');
+            s.src = src;
+            s.async = false;
+            s.onload = function () { resolve(); };
+            s.onerror = function () { delete loads[src]; reject(new Error(src)); };
+            doc.head.appendChild(s);
+        });
+        return loads[src];
+    }
+
+    function loadCss(doc, href, id) {
+        if ((id && doc.getElementById(id)) || doc.querySelector('link[href="' + href + '"]')) return;
+        var l = doc.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = href;
+        if (id) l.id = id;
+        doc.head.appendChild(l);
+        return l;
+    }
+
+    function needsHighlight(list) {
+        return !!list.querySelector('code[class*="language-"]');
+    }
+
+    function needsKatex(list) {
+        return !!list.querySelector('.math-block, .math-inline, .tikz-block, code.language-tikz');
+    }
+
+    function ensureHighlight(win, doc) {
+        if (win.hljs) return Promise.resolve();
+        var dark = doc.documentElement.getAttribute('data-theme-base') === 'dark';
+        var link = loadCss(doc, HL + 'styles/github' + (dark ? '-dark' : '') + '.min.css', 'hl-theme');
+        if (link) link.setAttribute('data-active', dark ? 'dark' : 'light');
+        return loadScript(doc, HL + 'highlight.min.js').then(function () {
+            return Promise.all(HL_LANGS.map(function (lang) {
+                return loadScript(doc, HL + 'languages/' + lang + '.min.js').catch(function () {});
+            }));
+        });
+    }
+
+    function ensureKatex(win, doc) {
+        if (typeof win.__renderBlogMath === 'function') return Promise.resolve(false);
+        loadCss(doc, KATEX + 'katex.min.css');
+        var core = win.katex ? Promise.resolve() : loadScript(doc, KATEX + 'katex.min.js');
+        /* katex-render.js typesets document.body itself once it loads. */
+        return core.then(function () { return loadScript(doc, KATEX_RENDER); }).then(function () { return true; });
+    }
+
+    function ensureCopy(win, doc) {
+        if (typeof win.__initCopyButtons === 'function') return Promise.resolve(false);
+        return loadScript(doc, '/assets/js/copy.js?v=2').then(function () { return true; });
+    }
+
+    function typeset(win, doc, list) {
+        if (!list || !list.querySelector) return Promise.resolve();
+        var steps = Promise.resolve();
+        if (needsHighlight(list)) {
+            steps = steps.then(function () { return ensureHighlight(win, doc); }).then(function () {
+                Array.prototype.forEach.call(list.querySelectorAll('pre code[class*="language-"]:not([data-highlighted])'),
+                    function (el) { try { win.hljs.highlightElement(el); } catch (_) {} });
             });
         }
+        if (needsKatex(list)) {
+            steps = steps.then(function () { return ensureKatex(win, doc); }).then(function (fresh) {
+                if (!fresh && typeof win.__renderBlogMath === 'function') {
+                    try { win.__renderBlogMath(list); } catch (_) {}
+                }
+            });
+        }
+        if (list.querySelector('.markdown-body pre')) {
+            steps = steps.then(function () { return ensureCopy(win, doc); }).then(function (fresh) {
+                if (!fresh && typeof win.__initCopyButtons === 'function') win.__initCopyButtons();
+            });
+        }
+        return steps.catch(function () { /* a CDN miss leaves readable source */ });
     }
 
     function status(doc, form, text, isError) {
@@ -34,7 +117,7 @@
     function bind(env) {
         var win = env.window;
         var doc = env.document;
-        if (!win.fetch || !win.URLSearchParams || !win.FormData) return null;
+        if (!win.fetch || !win.URLSearchParams || !win.FormData || typeof Promise === 'undefined') return null;
 
         function onSubmit(event) {
             var form = event.target;
@@ -90,7 +173,7 @@
                 if (!data) return;
                 done();
                 list.innerHTML = data.html || '';
-                typeset(win, list);
+                typeset(win, doc, list);
                 var textarea = form.querySelector('textarea[name="content"]');
                 if (textarea && form.getAttribute('action') === '/comment/new') textarea.value = '';
                 if (data.pending) {
@@ -111,6 +194,8 @@
         }
 
         doc.addEventListener('submit', onSubmit);
+        /* realtime.js swaps the thread too and finishes it the same way. */
+        win.__flyTypesetComments = function (list) { return typeset(win, doc, list); };
         return {stop: function () { doc.removeEventListener('submit', onSubmit); }};
     }
 

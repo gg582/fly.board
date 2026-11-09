@@ -47,7 +47,9 @@ cwist_sstring *render_login_2fa(bool dark, const char *pending_token, const char
 cwist_sstring *render_register(bool dark, const char *error, bool is_mobile, cJSON *legal_docs);
 cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const char *user_role, int page, int total_pages, const char *board_slug, const char *search, const char *search_type, const search_filters *filters, const char *profile_pic, int user_id, bool is_mobile, cJSON *children);
 cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, const char *author_profile_pic, int user_id, const char *ephemeral_delete_pin, bool is_mobile);
-cwist_sstring *render_post_comment_list(cJSON *comments, const char *user_role, int user_id, int post_id);
+/* files: the post's attachments, so comment links to them become players as
+ * in the body (NULL for none). */
+cwist_sstring *render_post_comment_list(cJSON *comments, const char *user_role, int user_id, int post_id, cJSON *files);
 cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const char *user_role, const char *profile_pic, int user_id, bool is_mobile);
 /* Password prompt for a locked post: title, author, date and a form that
  * POSTs to /post/<slug>/unlock. error is shown above the field when set. */
@@ -78,7 +80,7 @@ cwist_sstring *render_markdown_to_html(const char *md);
 /* Render a comment thread for target ("post" or "file"). Returns the number
  * of comments, 0 when there are none (nothing is appended then). */
 int render_comment_tree(cwist_sstring *b, cJSON *comments, const char *target_type, int target_id,
-                        int user_id, const char *user_role);
+                        int user_id, const char *user_role, cJSON *files);
 /* Plain-text excerpt of Markdown (max_cp code points), for notifications. */
 void render_text_excerpt(const char *md, size_t max_cp, char *out, size_t out_size);
 /* Post index pages (tag, month): heading, optional lead line, rows, pager

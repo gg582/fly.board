@@ -99,5 +99,26 @@ const tick = () => new Promise(r => setTimeout(r, 0));
     await tick();
     assert.equal(called, false, 'unrelated or cancelled submits are not intercepted');
 
+    // Typesetting a swapped thread loads what render_page.c would have, in order.
+    {
+        const appended = [];
+        const head = {appendChild(el) { appended.push(el.src || el.href); setTimeout(() => el.onload && el.onload(), 0); }};
+        const doc = {
+            head,
+            documentElement: {getAttribute: () => 'dark'},
+            addEventListener() {}, getElementById: () => null, querySelector: () => null,
+            createElement: () => ({setAttribute() {}})
+        };
+        const win = {fetch() {}, URLSearchParams: class {}, FormData: class {}};
+        bind({window: win, document: doc});
+        const list = {querySelector: sel => sel.indexOf('.math-inline') !== -1 ? {} : null, querySelectorAll: () => []};
+        await win.__flyTypesetComments(list);
+        assert.deepStrictEqual(appended, [
+            'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
+            'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js',
+            '/assets/js/katex-render.js?v=11'
+        ], 'KaTeX assets match the page path');
+    }
+
     console.log('comments.js in-page submit tests passed');
 })().catch(e => { console.error(e); process.exit(1); });

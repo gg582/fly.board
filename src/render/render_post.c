@@ -369,6 +369,7 @@ typedef struct {
     int target_id;
     int user_id;
     const char *user_role;
+    cJSON *files;
 } comment_ctx_t;
 
 /* qsort has no context argument; renders run on many threads. */
@@ -402,9 +403,14 @@ static void append_initial(cwist_sstring *b, const char *name) {
     cwist_sstring_append_escaped(b, initial);
 }
 
-static void append_comment_markdown(cwist_sstring *b, const char *content) {
+/* Exactly the post body's path (render_post_detail): Markdown, math/TikZ/
+ * media placeholders, then attachment links upgraded to players, in a
+ * .markdown-body so the page's highlight/KaTeX/TikZ/copy/lightbox passes
+ * (all keyed on that HTML) treat it the same. */
+static void append_comment_markdown(cwist_sstring *b, const char *content, cJSON *files) {
     cwist_sstring *html = (content && content[0]) ? render_markdown_to_html(content) : NULL;
     if (html) {
+        upgrade_markdown_file_links_to_media(html, files);
         cwist_sstring_append(b, "<div class='markdown-body comment-markdown'>");
         cwist_sstring_append_sstring(b, html);
         cwist_sstring_append(b, "</div>");
@@ -471,7 +477,7 @@ static void render_comment_slot(cwist_sstring *out, cwist_sstring *scratch, comm
     if (deleted) {
         cwist_sstring_append(b, "<p style='color:var(--muted);font-style:italic;margin:0'>Deleted comment</p>");
     } else {
-        append_comment_markdown(b, text);
+        append_comment_markdown(b, text, ctx->files);
     }
     cwist_sstring_append(b, "</div>");
 
@@ -532,7 +538,7 @@ static void render_comment_slot(cwist_sstring *out, cwist_sstring *scratch, comm
  * for every node's children. A reply whose parent is missing from the list
  * is shown at the top level rather than dropped. */
 int render_comment_tree(cwist_sstring *b, cJSON *comments, const char *target_type, int target_id,
-                        int user_id, const char *user_role) {
+                        int user_id, const char *user_role, cJSON *files) {
     int n = cJSON_IsArray(comments) ? cJSON_GetArraySize(comments) : 0;
     if (n <= 0) return 0;
     comment_slot_t *slots = calloc((size_t)n, sizeof(*slots));
@@ -570,7 +576,7 @@ int render_comment_tree(cwist_sstring *b, cJSON *comments, const char *target_ty
             root_last = i;
         }
     }
-    comment_ctx_t ctx = {target_type ? target_type : "post", target_id, user_id, user_role};
+    comment_ctx_t ctx = {target_type ? target_type : "post", target_id, user_id, user_role, files};
     cwist_sstring *scratch = cwist_sstring_create();
     if (scratch) {
         for (int r = root_first; r >= 0; r = slots[r].next_sibling)
@@ -582,9 +588,9 @@ int render_comment_tree(cwist_sstring *b, cJSON *comments, const char *target_ty
     return n;
 }
 
-cwist_sstring *render_post_comment_list(cJSON *comments, const char *user_role, int user_id, int post_id) {
+cwist_sstring *render_post_comment_list(cJSON *comments, const char *user_role, int user_id, int post_id, cJSON *files) {
     cwist_sstring *out = cwist_sstring_create();
-    if (render_comment_tree(out, comments, "post", post_id, user_id, user_role) == 0)
+    if (render_comment_tree(out, comments, "post", post_id, user_id, user_role, files) == 0)
         cwist_sstring_append(out, "<p style='color:var(--muted)'>No comments yet.</p>");
     return out;
 }
@@ -2081,7 +2087,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
                                 "<span id='realtime-typing' role='status' aria-live='polite' hidden>Someone is typing...</span></div>");
     }
     cwist_sstring_append(b, "<div id='comments-list'>");
-    cwist_sstring *comment_list = render_post_comment_list(comments, user_role, user_id, post_id_val);
+    cwist_sstring *comment_list = render_post_comment_list(comments, user_role, user_id, post_id_val, files);
     cwist_sstring_append_sstring(b, comment_list);
     cwist_sstring_destroy(comment_list);
     cwist_sstring_append(b, "</div>");
@@ -2103,10 +2109,10 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         render_comment_closed_note(b, user_role);
     }
     cwist_sstring_append(b, "</div>");
-    if (realtime) cwist_sstring_append(b, "<script src='/assets/js/realtime.js?v=2' defer></script>");
+    if (realtime) cwist_sstring_append(b, "<script src='/assets/js/realtime.js?v=3' defer></script>");
     cwist_sstring_append(b, "<script src='/assets/js/lightbox.js?v=1' defer></script>");
-    if (write_policy_can_comment(user_role) || user_id > 0)
-        cwist_sstring_append(b, "<script src='/assets/js/comments.js?v=1' defer></script>");
+    /* Also finishes realtime-refreshed threads (math, code, copy buttons). */
+    cwist_sstring_append(b, "<script src='/assets/js/comments.js?v=2' defer></script>");
 
     /* <head> metadata: summary (or an excerpt of the body) as the
      * description, the first image as og:image. */

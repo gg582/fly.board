@@ -48,15 +48,8 @@
                 if (stopped) return;
                 var list = doc.getElementById('comments-list');
                 list.innerHTML = html;
-                /* Comments are Markdown: typeset math and code like the body. */
-                if (typeof win.__renderBlogMath === 'function') {
-                    try { win.__renderBlogMath(list); } catch (_) {}
-                }
-                if (win.hljs && list.querySelectorAll) {
-                    Array.prototype.forEach.call(list.querySelectorAll('pre code[class*="language-"]'), function (el) {
-                        try { win.hljs.highlightElement(el); } catch (_) {}
-                    });
-                }
+                /* Same finishing as the post body (comments.js loads what is missing). */
+                if (typeof win.__flyTypesetComments === 'function') win.__flyTypesetComments(list);
             }).catch(function () {
                 /* The server-rendered comments remain usable; the next event retries. */
             }).then(function () {

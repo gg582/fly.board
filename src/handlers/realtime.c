@@ -168,7 +168,9 @@ void handler_realtime_comments_get(cwist_http_request *req, cwist_http_response 
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     cJSON *comments = db_comment_list_by_target(req->db, "post", post_id);
-    cwist_sstring *html = render_post_comment_list(comments, role, uid, post_id);
+    cJSON *files = db_file_list_by_post(req->db, post_id);
+    cwist_sstring *html = render_post_comment_list(comments, role, uid, post_id, files);
+    if (files) cJSON_Delete(files);
     cwist_sstring_assign(res->body, html->data);
     cwist_sstring_destroy(html);
     if (comments) cJSON_Delete(comments);

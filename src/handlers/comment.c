@@ -90,9 +90,11 @@ static void comment_send_fragment(cwist_http_request *req, cwist_http_response *
     cJSON *list = db_comment_list_by_target(req->db, target_type, target_id);
     db_moderation_filter_comments(req->db, list);
     cwist_sstring *html = cwist_sstring_create();
-    if (html && render_comment_tree(html, list, target_type, target_id, uid, role) == 0)
+    cJSON *files = strcmp(target_type, "post") == 0 ? db_file_list_by_post(req->db, target_id) : NULL;
+    if (html && render_comment_tree(html, list, target_type, target_id, uid, role, files) == 0)
         cwist_sstring_append(html, "<p style='color:var(--muted)'>No comments yet.</p>");
     if (list) cJSON_Delete(list);
+    if (files) cJSON_Delete(files);
     cJSON *out = cJSON_CreateObject();
     cJSON_AddNumberToObject(out, "id", comment_id);
     cJSON_AddBoolToObject(out, "pending", pending);
