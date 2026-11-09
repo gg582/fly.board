@@ -151,10 +151,27 @@ bool db_comment_update(cwist_db *db, int id, int user_id, const char *content) {
     sqlite3_bind_int(stmt, 3, user_id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    if (rc == SQLITE_DONE && sqlite3_changes(conn) > 0) {
-        db_sync_journal_external_row(conn, "comments", "id", "comment", id);
-    }
-    return rc == SQLITE_DONE;
+    bool changed = rc == SQLITE_DONE && sqlite3_changes(conn) > 0;
+    if (changed) db_sync_journal_external_row(conn, "comments", "id", "comment", id);
+    /* False when nothing matched (not the author, or deleted): callers used
+     * to report such edits as saved. */
+    return changed;
+}
+
+bool db_comment_update_admin(cwist_db *db, int id, const char *content) {
+    (void)db;
+    sqlite3 *conn = comments_db_conn();
+    if (!conn) return false;
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn, "UPDATE comments SET content=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND deleted=0",
+                           -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, content, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    bool changed = rc == SQLITE_DONE && sqlite3_changes(conn) > 0;
+    if (changed) db_sync_journal_external_row(conn, "comments", "id", "comment", id);
+    return changed;
 }
 
 bool db_comment_delete(cwist_db *db, int id, int user_id) {

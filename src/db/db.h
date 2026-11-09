@@ -227,6 +227,8 @@ bool db_comment_init(const char *path);
 void db_comment_close(void);
 int db_comment_create(cwist_db *db, const char *target_type, int target_id, int user_id, const char *author_name, int parent_id, const char *content);
 bool db_comment_update(cwist_db *db, int id, int user_id, const char *content);
+/* Admin edit of any live comment (the UI offers Edit to admins). */
+bool db_comment_update_admin(cwist_db *db, int id, const char *content);
 bool db_comment_delete(cwist_db *db, int id, int user_id);
 cJSON *db_comment_get_by_id(cwist_db *db, int id);
 cJSON *db_comment_list_by_target(cwist_db *db, const char *target_type, int target_id);

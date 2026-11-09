@@ -18,10 +18,6 @@ int json_int(cJSON *obj, const char *key, int def);
 const char *json_string_or_empty(cJSON *obj, const char *key);
 /* Shown in place of the comment form when the write policy excludes the viewer. */
 void render_comment_closed_note(cwist_sstring *b, const char *user_role);
-/* Render a comment thread for target ("post" or "file"). Returns the number
- * of comments, 0 when there are none (nothing is appended then). */
-int render_comment_tree(cwist_sstring *b, cJSON *comments, const char *target_type, int target_id,
-                        int user_id, const char *user_role);
 /* "Markdown supported" note under comment textareas. */
 void render_comment_format_hint(cwist_sstring *b);
 

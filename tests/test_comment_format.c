@@ -41,6 +41,24 @@ static const char *pos(const char *hay, const char *needle) {
     return hay ? strstr(hay, needle) : NULL;
 }
 
+typedef void (*handler_fn)(cwist_http_request *, cwist_http_response *);
+
+static cwist_http_response *call_handler(handler_fn fn, const char *body, bool fragment, const char *cookie) {
+    cwist_http_request *req = cwist_http_request_create();
+    cwist_http_response *res = cwist_http_response_create();
+    req->db = &g_db;
+    req->method = CWIST_HTTP_POST;
+    req->client_fd = -1;
+    if (!req->path_params) req->path_params = cwist_query_map_create();
+    if (!req->query_params) req->query_params = cwist_query_map_create();
+    if (fragment) cwist_http_header_add(&req->headers, "X-Fly-Comment", "fragment");
+    if (cookie) cwist_http_header_add(&req->headers, "Cookie", cookie);
+    cwist_sstring_assign(req->body, body);
+    fn(req, res);
+    cwist_http_request_destroy(req);
+    return res;
+}
+
 static cwist_http_response *post_comment(const char *body) {
     cwist_http_request *req = cwist_http_request_create();
     cwist_http_response *res = cwist_http_response_create();
@@ -224,13 +242,74 @@ int main(void) {
         CHECK((int)res->status_code == 404, "comment on a missing post is a 404");
         cwist_http_response_destroy(res);
 
+        /* In-page submit: JSON with the re-rendered thread instead of a redirect. */
+        snprintf(body, sizeof(body), "target_type=post&target_id=%d&author_name=Guest&content=_frag_", post_id);
+        res = call_handler(handler_comment_new_post, body, true, NULL);
+        const char *ctype = cwist_http_header_get(res->headers, "Content-Type");
+        cJSON *frag = cJSON_Parse(res->body->data);
+        int frag_id = json_int(frag, "id", 0);
+        char anchor[64];
+        snprintf(anchor, sizeof(anchor), "id='comment-%d'", frag_id);
+        const char *fh = json_string_or_empty(frag, "html");
+        CHECK((int)res->status_code == 200 && ctype && strncmp(ctype, "application/json", 16) == 0, "fragment submit answers JSON");
+        CHECK(frag_id > 0 && strstr(fh, anchor) && strstr(fh, "<em>frag</em>"), "fragment holds the rendered new comment");
+        CHECK(!cwist_http_header_get(res->headers, "Location"), "fragment submit does not redirect");
+        if (frag) cJSON_Delete(frag);
+        cwist_http_response_destroy(res);
+
+        snprintf(body, sizeof(body), "target_type=post&target_id=%d&content=", post_id);
+        res = call_handler(handler_comment_new_post, body, true, NULL);
+        CHECK((int)res->status_code == 400, "fragment submit reports errors by status");
+        cwist_http_response_destroy(res);
+
+        /* Edits: author, stranger, admin. */
+        CHECK(db_user_create(&g_db, "stranger", "s@example.com", "hash"), "create stranger");
+        cJSON *su = db_user_get_by_username(&g_db, "stranger");
+        int stranger = json_int(su, "id", 0);
+        cJSON_Delete(su);
+        int own = db_comment_create(&g_db, "post", post_id, author, "writer", 0, "before");
+        char *tok_author = auth_jwt_issue(author, "writer", "user");
+        char *tok_stranger = auth_jwt_issue(stranger, "stranger", "user");
+        char *tok_admin = auth_jwt_issue(author, "writer", "admin");
+        char ck[1024];
+        snprintf(body, sizeof(body), "id=%d&content=**after**", own);
+        snprintf(ck, sizeof(ck), "jwt_access=%s", tok_stranger ? tok_stranger : "");
+        res = call_handler(handler_comment_edit_post, body, true, ck);
+        CHECK((int)res->status_code == 403, "stranger edit is refused, not reported as saved");
+        cwist_http_response_destroy(res);
+        cJSON *still = db_comment_get_by_id(&g_db, own);
+        CHECK(still && strcmp(json_string_or_empty(still, "content"), "before") == 0, "stranger edit changed nothing");
+        if (still) cJSON_Delete(still);
+
+        snprintf(ck, sizeof(ck), "jwt_access=%s", tok_author ? tok_author : "");
+        res = call_handler(handler_comment_edit_post, body, true, ck);
+        CHECK((int)res->status_code == 200 && strstr(res->body->data, "<strong>after</strong>"), "author edit returns the updated thread");
+        cwist_http_response_destroy(res);
+
+        CHECK(db_user_create(&g_db, "boss", "b@example.com", "hash"), "create admin user");
+        cJSON *bu = db_user_get_by_username(&g_db, "boss");
+        int boss = json_int(bu, "id", 0);
+        cJSON_Delete(bu);
+        db_user_update_role(&g_db, boss, "admin");
+        free(tok_admin);
+        tok_admin = auth_jwt_issue(boss, "boss", "admin");
+        snprintf(body, sizeof(body), "id=%d&content=edited-by-admin", own);
+        snprintf(ck, sizeof(ck), "jwt_access=%s", tok_admin ? tok_admin : "");
+        res = call_handler(handler_comment_edit_post, body, true, ck);
+        if ((int)res->status_code != 200) printf("  admin edit status=%d body=%s\n", (int)res->status_code, res->body->data);
+        cwist_http_response_destroy(res);
+        still = db_comment_get_by_id(&g_db, own);
+        CHECK(still && strcmp(json_string_or_empty(still, "content"), "edited-by-admin") == 0, "admin edit is applied");
+        if (still) cJSON_Delete(still);
+        free(tok_author); free(tok_stranger); free(tok_admin);
+
         cwist_http_request *rq = cwist_http_request_create();
         rq->db = &g_db;
         rq->client_fd = -1;
         if (!rq->path_params) rq->path_params = cwist_query_map_create();
         if (!rq->query_params) rq->query_params = cwist_query_map_create();
         cJSON *thread = db_comment_list_by_target(&g_db, "post", post_id);
-        CHECK(cJSON_GetArraySize(thread) == 1, "thread holds the comment");
+        CHECK(cJSON_GetArraySize(thread) == 3, "thread holds the comments");
         if (thread) cJSON_Delete(thread);
         cwist_http_request_destroy(rq);
     }

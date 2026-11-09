@@ -467,9 +467,13 @@ check-post-lock: tests/test_post_lock
 tests/test_comment_format: tests/test_comment_format.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
 	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
 
+tests/bench_comment_submit: tests/bench_comment_submit.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
+
 .PHONY: check-comment-format
 check-comment-format: tests/test_comment_format
 	./tests/test_comment_format
+	node tests/test_comments_js.js
 
 tests/test_privacy_rights: tests/test_privacy_rights.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
 	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)

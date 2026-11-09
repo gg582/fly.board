@@ -75,6 +75,38 @@ static void notify_comment_recipient(cwist_db *db, int actor_uid, const char *ac
     fly_nats_publish_comment(g_config.root_url, actor_name, kind, slug, recipient, excerpt, comment_id);
 }
 
+/* In-page submit (public/js/comments.js) asks for the re-rendered thread
+ * instead of a redirect, so the browser swaps one list rather than
+ * reloading the whole post page. Through a FlyWire replica this request is
+ * proxied, and the primary - which already has the comment - renders it. */
+static bool comment_wants_fragment(cwist_http_request *req) {
+    const char *v = cwist_http_header_get(req->headers, "X-Fly-Comment");
+    return v && strcmp(v, "fragment") == 0;
+}
+
+static void comment_send_fragment(cwist_http_request *req, cwist_http_response *res,
+                                  const char *target_type, int target_id, int uid, const char *role,
+                                  int comment_id, bool pending) {
+    cJSON *list = db_comment_list_by_target(req->db, target_type, target_id);
+    db_moderation_filter_comments(req->db, list);
+    cwist_sstring *html = cwist_sstring_create();
+    if (html && render_comment_tree(html, list, target_type, target_id, uid, role) == 0)
+        cwist_sstring_append(html, "<p style='color:var(--muted)'>No comments yet.</p>");
+    if (list) cJSON_Delete(list);
+    cJSON *out = cJSON_CreateObject();
+    cJSON_AddNumberToObject(out, "id", comment_id);
+    cJSON_AddBoolToObject(out, "pending", pending);
+    cJSON_AddStringToObject(out, "html", html && html->data ? html->data : "");
+    if (html) cwist_sstring_destroy(html);
+    char *json = cJSON_PrintUnformatted(out);
+    cJSON_Delete(out);
+    res->status_code = CWIST_HTTP_OK;
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json; charset=utf-8");
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-store");
+    cwist_sstring_assign(res->body, json ? json : "{}");
+    if (json) cJSON_free(json);
+}
+
 static void comment_reject(cwist_http_response *res, cwist_http_status_t status, const char *msg) {
     res->status_code = status;
     cwist_http_header_add(&res->headers, "Content-Type", "text/plain; charset=utf-8");
@@ -196,6 +228,12 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
         fly_nats_publish_moderation(req->db, MODERATION_COMMENT, new_comment_id);
     }
 
+    if (comment_wants_fragment(req)) {
+        comment_send_fragment(req, res, target_type, target.id, uid, role, new_comment_id, awaiting_review);
+        cwist_query_map_destroy(kv);
+        return;
+    }
+
     /* Land on the new comment. A pending one is not shown yet. */
     char location[384];
     if (target.is_post && target.slug[0]) {
@@ -231,25 +269,38 @@ void handler_comment_edit_post(cwist_http_request *req, cwist_http_response *res
         comment_reject(res, (cwist_http_status_t)413, "Comments are limited to " COMMENT_CONTENT_MAX_STR " characters.");
         return;
     }
-    if (id_str && content && content[0]) {
-        cJSON *comment = db_comment_get_by_id(req->db, atoi(id_str));
-        if (db_comment_update(req->db, atoi(id_str), uid, content)) {
-            CWIST_LOG_INFO("Comment updated: id=%s uid=%d", id_str, uid);
-            if (comment) {
-                cJSON *tt = cJSON_GetObjectItem(comment, "target_type");
-                cJSON *ti = cJSON_GetObjectItem(comment, "target_id");
-                if (tt && cJSON_IsString(tt) && ti && cJSON_IsNumber(ti)) {
-                    invalidate_comment_target(req->db, tt->valuestring, ti->valueint);
-                }
-            }
-        } else {
-            CWIST_LOG_ERROR("Comment update failed: id=%s uid=%d", id_str, uid);
-        }
-        if (comment) cJSON_Delete(comment);
-    } else {
+    bool fragment = comment_wants_fragment(req);
+    if (!id_str || !content || !content[0]) {
         CWIST_LOG_WARN("Comment update failed: missing fields");
+        cwist_query_map_destroy(kv);
+        if (fragment) comment_reject(res, CWIST_HTTP_BAD_REQUEST, "The comment is empty.");
+        else redirect_referer_safe(res, referer, "/");
+        return;
+    }
+    int cid = atoi(id_str);
+    cJSON *comment = db_comment_get_by_id(req->db, cid);
+    bool admin = strcmp(role, "admin") == 0;
+    bool updated = comment && (admin ? db_comment_update_admin(req->db, cid, content)
+                                     : db_comment_update(req->db, cid, uid, content));
+    char target_type[16] = {0};
+    int target_id = 0;
+    if (comment) {
+        snprintf(target_type, sizeof(target_type), "%s", json_string_or_empty(comment, "target_type"));
+        target_id = json_int(comment, "target_id", 0);
+        cJSON_Delete(comment);
     }
     cwist_query_map_destroy(kv);
+    if (updated) {
+        CWIST_LOG_INFO("Comment updated: id=%d uid=%d", cid, uid);
+        invalidate_comment_target(req->db, target_type, target_id);
+    } else {
+        CWIST_LOG_ERROR("Comment update failed: id=%d uid=%d", cid, uid);
+    }
+    if (fragment) {
+        if (updated) comment_send_fragment(req, res, target_type, target_id, uid, role, cid, false);
+        else comment_reject(res, CWIST_HTTP_FORBIDDEN, "This comment could not be updated.");
+        return;
+    }
     redirect_referer_safe(res, referer, "/");
 }
 

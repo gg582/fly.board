@@ -50,9 +50,10 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
 
     /* Comments */
     int file_id_val = json_int(file, "id", 0);
-    cwist_sstring_append(b, "<div style='margin-top:40px'><h2>Comments</h2>");
+    cwist_sstring_append(b, "<div style='margin-top:40px'><h2>Comments</h2><div id='comments-list'>");
     if (render_comment_tree(b, comments, "file", file_id_val, user_id, user_role) == 0)
         cwist_sstring_append(b, "<p style='color:var(--muted)'>No comments yet.</p>");
+    cwist_sstring_append(b, "</div>");
     char fid_buf2[32]; snprintf(fid_buf2, sizeof(fid_buf2), "%d", file_id_val);
     if (write_policy_can_comment(user_role)) {
         cwist_sstring_append(b, "<form action='/comment/new' method='post' style='margin-top:18px'>");
@@ -72,6 +73,7 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
         render_comment_closed_note(b, user_role);
     }
     cwist_sstring_append(b, "</div>");
+    cwist_sstring_append(b, "<script src='/assets/js/comments.js?v=1' defer></script>");
 
     cwist_sstring *page = render_page(fname && fname->valuestring ? fname->valuestring : "File Detail", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);

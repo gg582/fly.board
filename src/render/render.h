@@ -75,6 +75,10 @@ cwist_sstring *render_admin_boards(cJSON *boards, cJSON *tree, bool dark, const 
 cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, int user_id, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_notifications_page(cJSON *notifs, bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_markdown_to_html(const char *md);
+/* Render a comment thread for target ("post" or "file"). Returns the number
+ * of comments, 0 when there are none (nothing is appended then). */
+int render_comment_tree(cwist_sstring *b, cJSON *comments, const char *target_type, int target_id,
+                        int user_id, const char *user_role);
 /* Plain-text excerpt of Markdown (max_cp code points), for notifications. */
 void render_text_excerpt(const char *md, size_t max_cp, char *out, size_t out_size);
 /* Post index pages (tag, month): heading, optional lead line, rows, pager

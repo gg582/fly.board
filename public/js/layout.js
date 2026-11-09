@@ -447,45 +447,30 @@
         bindAdvSearchToggle();
     }
 
-    // 7. Generic toggle buttons (replaces inline onclick for edit/reply panels)
-    function bindToggleButtons(){
-        document.querySelectorAll('[data-toggle-target]').forEach(function(btn){
-            if(btn.dataset.toggleBound)return;
-            btn.dataset.toggleBound='1';
-            btn.addEventListener('click',function(){
-                var el=document.getElementById(btn.dataset.toggleTarget);
-                if(!el)return;
-                el.style.display=el.style.display==='none'?'block':'none';
-            });
-        });
-    }
-    if(document.readyState==='loading'){
-        document.addEventListener('DOMContentLoaded',bindToggleButtons);
-    }else{
-        bindToggleButtons();
-    }
+    // 7. Generic toggle buttons (replaces inline onclick for edit/reply panels).
+    // Delegated: comment threads are re-rendered in place (realtime refresh,
+    // in-page comment submit), and per-element listeners died with them.
+    document.addEventListener('click',function(e){
+        var btn=e.target&&e.target.closest?e.target.closest('[data-toggle-target]'):null;
+        if(!btn)return;
+        var el=document.getElementById(btn.getAttribute('data-toggle-target'));
+        if(!el)return;
+        el.style.display=el.style.display==='none'?'block':'none';
+        if(el.style.display==='block'){
+            var input=el.querySelector('textarea');
+            if(input)input.focus();
+        }
+    });
 
-    // 8. Confirm dialogs (replaces inline onclick/onsubmit for delete actions)
-    function bindConfirmActions(){
-        document.querySelectorAll('a[data-confirm], button[data-confirm], form[data-confirm]').forEach(function(el){
-            if(el.dataset.confirmBound)return;
-            el.dataset.confirmBound='1';
-            if(el.tagName==='FORM'){
-                el.addEventListener('submit',function(e){
-                    if(!confirm(el.dataset.confirm))e.preventDefault();
-                });
-            }else{
-                el.addEventListener('click',function(e){
-                    if(!confirm(el.dataset.confirm))e.preventDefault();
-                });
-            }
-        });
-    }
-    if(document.readyState==='loading'){
-        document.addEventListener('DOMContentLoaded',bindConfirmActions);
-    }else{
-        bindConfirmActions();
-    }
+    // 8. Confirm dialogs (replaces inline onclick/onsubmit for delete actions), delegated too.
+    document.addEventListener('submit',function(e){
+        var form=e.target;
+        if(form&&form.matches&&form.matches('form[data-confirm]')&&!confirm(form.getAttribute('data-confirm')))e.preventDefault();
+    },true);
+    document.addEventListener('click',function(e){
+        var el=e.target&&e.target.closest?e.target.closest('a[data-confirm], button[data-confirm]'):null;
+        if(el&&!confirm(el.getAttribute('data-confirm')))e.preventDefault();
+    });
 
     // 9. Service Worker
     if('serviceWorker'in navigator){

@@ -430,11 +430,17 @@ void render_comment_format_hint(cwist_sstring *b) {
     cwist_sstring_append(b, "<div class='comment-format-hint'>Markdown supported: **bold**, *italic*, `code`, lists, links, images, $math$.</div>");
 }
 
-static void render_comment_slot(cwist_sstring *b, comment_slot_t *slots, int idx, int depth,
-                                const comment_ctx_t *ctx) {
+/* Each node is built in a small scratch buffer and flushed to out with one
+ * length-tracked append: cwist_sstring_append measures the whole target
+ * with strlen on every call, so dozens of small appends per comment
+ * straight into a thread-sized buffer made a long thread quadratic. */
+static void render_comment_slot(cwist_sstring *out, cwist_sstring *scratch, comment_slot_t *slots,
+                                int idx, int depth, const comment_ctx_t *ctx) {
     comment_slot_t *slot = &slots[idx];
     if (slot->rendered) return; /* parent cycles in bad data */
     slot->rendered = true;
+    cwist_sstring *b = scratch;
+    cwist_sstring_assign(b, "");
     cJSON *comment = slot->comment;
     int cid = slot->id;
     int comment_user_id = json_int(comment, "user_id", 0);
@@ -516,9 +522,10 @@ static void render_comment_slot(cwist_sstring *b, comment_slot_t *slots, int idx
         cwist_sstring_append(b, "</div>");
     }
     cwist_sstring_append(b, "</div>");
+    cwist_sstring_append_len(out, b->data, b->size);
 
     for (int c = slot->first_child; c >= 0; c = slots[c].next_sibling)
-        render_comment_slot(b, slots, c, depth + 1, ctx);
+        render_comment_slot(out, scratch, slots, c, depth + 1, ctx);
 }
 
 /* Threads are linked once (O(n log n)) instead of rescanning every comment
@@ -564,8 +571,12 @@ int render_comment_tree(cwist_sstring *b, cJSON *comments, const char *target_ty
         }
     }
     comment_ctx_t ctx = {target_type ? target_type : "post", target_id, user_id, user_role};
-    for (int r = root_first; r >= 0; r = slots[r].next_sibling)
-        render_comment_slot(b, slots, r, 0, &ctx);
+    cwist_sstring *scratch = cwist_sstring_create();
+    if (scratch) {
+        for (int r = root_first; r >= 0; r = slots[r].next_sibling)
+            render_comment_slot(b, scratch, slots, r, 0, &ctx);
+        cwist_sstring_destroy(scratch);
+    }
     free(slots);
     free(by_id);
     return n;
@@ -2094,6 +2105,8 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring_append(b, "</div>");
     if (realtime) cwist_sstring_append(b, "<script src='/assets/js/realtime.js?v=2' defer></script>");
     cwist_sstring_append(b, "<script src='/assets/js/lightbox.js?v=1' defer></script>");
+    if (write_policy_can_comment(user_role) || user_id > 0)
+        cwist_sstring_append(b, "<script src='/assets/js/comments.js?v=1' defer></script>");
 
     /* <head> metadata: summary (or an excerpt of the body) as the
      * description, the first image as og:image. */
