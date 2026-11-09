@@ -59,6 +59,7 @@ the built-in defaults; a missing file is regenerated with them.
 | `use_tls` | `true` | HTTPS. Requires `server.crt`/`server.key` in the site root |
 | `use_http2` | `true` | HTTP/2 over TLS |
 | `use_http3` | `true` | HTTP/3 (QUIC) on the same port over UDP; enables 0-RTT + session resumption |
+| `h3_advertise_port` | `0` | UDP port advertised in `Alt-Svc`. `0` advertises the listening port (CWIST default). Set it to the public port when the node listens elsewhere behind NAT, e.g. `443` for a router that forwards 443 to 8088 |
 | `max_upload_size` | `1G` | Per-file upload limit; suffixes `K/KB/M/MB/G/GB/T/TB` |
 | `max_total_parallel_uploads` | `8` | Site-wide concurrent uploads, clamped 1–512 |
 | `max_upload_parallel_chunks` | `48` | Parallel chunks per upload, clamped 1–64 |

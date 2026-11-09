@@ -64,6 +64,10 @@ typedef struct {
     bool use_tls;
     bool use_http2;
     bool use_http3;
+    /* UDP port advertised in Alt-Svc for HTTP/3 (0 = the listening port,
+     * CWIST's default). For a node behind NAT that listens on another port
+     * than the public one, e.g. 8088 behind a router forwarding 443. */
+    int h3_advertise_port;
     float roundness;
     long long max_upload_size;
     int max_total_parallel_uploads;

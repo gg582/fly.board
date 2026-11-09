@@ -233,6 +233,9 @@ bool blog_config_load(const char *path) {
             g_config.use_http2 = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "use_http3") == 0) {
             g_config.use_http3 = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
+        } else if (strcmp(key, "h3_advertise_port") == 0) {
+            long port = strtol(val, NULL, 10);
+            g_config.h3_advertise_port = (port > 0 && port <= 65535) ? (int)port : 0;
         } else if (strcmp(key, "roundness") == 0) {
             g_config.roundness = strtof(val, NULL);
             if (g_config.roundness < 0.0f) g_config.roundness = 0.0f;

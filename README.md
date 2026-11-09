@@ -188,6 +188,7 @@ Plain `key=value` lines. Unknown keys are ignored; invalid values fall back to d
 | `use_tls` | `true` | `true`/`false` - HTTPS on/off (run `./keygen.sh` first) |
 | `use_http2` | `true` | HTTP/2 over TLS |
 | `use_http3` | `true` | HTTP/3 (QUIC) over UDP |
+| `h3_advertise_port` | `0` | UDP port advertised in `Alt-Svc` (0 = the listening port); set the public port on a node behind NAT |
 | `use_tasfa` | `true` | TASFA resumable chunked upload/download pipeline (see [docs/tasfa.md](docs/tasfa.md)) |
 | `use_rss` | `false` | Expose `/rss.xml` |
 | `roundness` | `0.0` | UI corner roundness, `0.0`–`1.0` |

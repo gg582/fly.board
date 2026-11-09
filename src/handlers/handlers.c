@@ -614,6 +614,15 @@ void global_middleware_finish(cwist_http_request *req, cwist_http_response *res)
 
     strip_html_binary_prefix(res);
 
+    /* CWIST advertises HTTP/3 on the listening port and leaves an Alt-Svc
+     * the app already set alone; a NAT'd node advertises its public port. */
+    if (g_config.use_http3 && g_config.h3_advertise_port > 0 &&
+        !cwist_http_header_get(res->headers, "Alt-Svc")) {
+        char alt_svc[48];
+        snprintf(alt_svc, sizeof(alt_svc), "h3=\":%d\"; ma=86400", g_config.h3_advertise_port);
+        cwist_http_header_add(&res->headers, "Alt-Svc", alt_svc);
+    }
+
     /* Post-processing: ensure HEAD responses never carry a body. Keep the
        Content-Length header so the client knows the GET representation size. */
     if (req->method == CWIST_HTTP_HEAD) {
