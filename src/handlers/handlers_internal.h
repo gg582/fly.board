@@ -45,6 +45,16 @@ void send_delete_confirm_page(cwist_http_request *req, cwist_http_response *res,
 int json_int(cJSON *obj, const char *key, int def);
 const char *json_string_or_empty(cJSON *obj, const char *key);
 bool is_author_or_admin(cJSON *post, int uid, const char *role);
+/* True unless the post is password-locked and this viewer is neither its
+ * author, an admin, a moderator of its board, nor holds a valid grant. */
+bool post_lock_viewer_ok(cwist_http_request *req, cJSON *post, int uid, const char *role);
+/* Files attached to a password-locked post follow its lock. GRANTED also
+ * makes the next file response on this thread "private, no-store". */
+typedef enum { FILE_LOCK_OPEN = 0, FILE_LOCK_GRANTED, FILE_LOCK_DENIED } file_lock_t;
+file_lock_t file_lock_for(cwist_http_request *req, cJSON *file);
+file_lock_t file_lock_for_path(cwist_http_request *req, const char *path);
+/* Request arrived over TLS (directly or per proxy headers). */
+bool auth_request_is_tls(cwist_http_request *req);
 cJSON *board_by_route_key(cwist_db *db, const char *key);
 bool is_mobile_request(cwist_http_request *req);
 

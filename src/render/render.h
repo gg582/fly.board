@@ -49,6 +49,10 @@ cwist_sstring *render_post_list(cJSON *posts, cJSON *boards, bool dark, const ch
 cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bool dark, const char *user_role, bool pqc_verified, int vote_up, int vote_down, int user_vote, const char *profile_pic, const char *author_profile_pic, int user_id, const char *ephemeral_delete_pin, bool is_mobile);
 cwist_sstring *render_post_comment_list(cJSON *comments, const char *user_role, int user_id, int post_id);
 cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const char *user_role, const char *profile_pic, int user_id, bool is_mobile);
+/* Password prompt for a locked post: title, author, date and a form that
+ * POSTs to /post/<slug>/unlock. error is shown above the field when set. */
+cwist_sstring *render_post_locked(cJSON *post, const char *error, bool dark, const char *user_role,
+                                  const char *profile_pic, bool is_mobile);
 cwist_sstring *render_post_drafts(cJSON *posts, bool show_author, bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int initial_board_id, bool dark, const char *user_role, const char *error, const char *profile_pic, bool is_mobile, int draft_count, int user_id, cJSON *revisions, bool can_notice);
 cwist_sstring *render_board_list(cJSON *boards, bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
@@ -71,6 +75,8 @@ cwist_sstring *render_admin_boards(cJSON *boards, cJSON *tree, bool dark, const 
 cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, int user_id, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_notifications_page(cJSON *notifs, bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_markdown_to_html(const char *md);
+/* Plain-text excerpt of Markdown (max_cp code points), for notifications. */
+void render_text_excerpt(const char *md, size_t max_cp, char *out, size_t out_size);
 /* Post index pages (tag, month): heading, optional lead line, rows, pager
  * links to base_path?page=N. feed_path adds a subscribe link. */
 cwist_sstring *render_post_index(const char *heading, const char *lead, cJSON *posts, int page, int total_pages,

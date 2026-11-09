@@ -51,6 +51,10 @@ bool engine_bdr_serve(cwist_http_request *req, cwist_http_response *res, const c
  * labelling old content with the new version. */
 uint64_t engine_bdr_version(void);
 uint64_t engine_bdr_version_for_key(const char *key);
+/* Shared version of /post/<slug> (global and slug bucket). Worker page
+ * caches put it in their post keys, so a bump in one process stales the
+ * page in every process. */
+uint64_t engine_bdr_post_version(const char *slug);
 
 /* Store a finished response (status, final headers, encoded body). */
 void engine_bdr_store(cwist_http_request *req, cwist_http_response *res, const char *key,

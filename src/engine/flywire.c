@@ -11,6 +11,7 @@
 #include "db/db_sync_anti_entropy.h"
 #include "config/config.h"
 #include "utils/utils.h"
+#include "utils/post_schedule.h"
 #include <cwist/core/log.h>
 #include <cwist/core/mem/alloc.h>
 #include <cwist/core/mem/gc.h>
@@ -1298,6 +1299,7 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
 
     cJSON *rows = cJSON_GetObjectItem(doc, "rows");
     int applied = 0;
+    bool posts_applied = false;
     cJSON *row = NULL;
     cJSON_ArrayForEach(row, rows) {
         cJSON *seqj = cJSON_GetObjectItem(row, "seq");
@@ -1322,6 +1324,7 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
         if (ok) {
             flywire_checkpoint_write((long long)seqj->valuedouble);
             applied++;
+            if (strcmp(ent->valuestring, "post") == 0) posts_applied = true;
         } else {
             CWIST_LOG_ERROR("flywire: apply failed at seq %lld (%s %d %s); will retry",
                             (long long)seqj->valuedouble, ent->valuestring, (int)idj->valuedouble, op->valuestring);
@@ -1336,6 +1339,10 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
          * self-heals by TTL, but the route BDR is version-gated and nothing
          * on the apply path used to bump it. */
         engine_bdr_bump();
+        /* Worker page caches key post pages on this shared generation. A
+         * replicated post row may have just gained a password lock, so the
+         * pages rendered before it must not outlive the apply. */
+        if (posts_applied) post_schedule_bump();
     }
     /* Replica drift monitoring: the feed carries the primary's newest
      * journal seq; a large gap means this replica is silently serving stale

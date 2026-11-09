@@ -369,9 +369,10 @@ void page_cache_key_home(char *out, size_t out_len, bool dark, bool mobile, cons
 }
 
 void page_cache_key_post(char *out, size_t out_len, const char *slug, bool dark, bool mobile, const char *role, int uid) {
-    snprintf(out, out_len, "post:%s:d=%d:m=%d:r=%s:u=%d:w=%u:pg=%u",
+    snprintf(out, out_len, "post:%s:d=%d:m=%d:r=%s:u=%d:w=%u:pg=%u:v=%llu",
              slug ? slug : "", dark ? 1 : 0, mobile ? 1 : 0,
-             role && role[0] ? role : "guest", uid, write_policy_generation(), post_schedule_generation());
+             role && role[0] ? role : "guest", uid, write_policy_generation(), post_schedule_generation(),
+             (unsigned long long)engine_bdr_post_version(slug));
 }
 
 void page_cache_key_board(char *out, size_t out_len, const char *slug, int page,

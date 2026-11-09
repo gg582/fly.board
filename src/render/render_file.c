@@ -2,6 +2,8 @@
 #include "render.h"
 #include "render_internal.h"
 #include "config/write_policy.h"
+#include "db/db.h"
+#include "utils/spam_guard.h"
 #include "config/config.h"
 #include "utils/utils.h"
 #include "utils/image_inline.h"
@@ -49,18 +51,8 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
     /* Comments */
     int file_id_val = json_int(file, "id", 0);
     cwist_sstring_append(b, "<div style='margin-top:40px'><h2>Comments</h2>");
-    if (comments && cJSON_GetArraySize(comments) > 0) {
-        int n = cJSON_GetArraySize(comments);
-        for (int i = 0; i < n; i++) {
-            cJSON *c = cJSON_GetArrayItem(comments, i);
-            cJSON *parent_id = cJSON_GetObjectItem(c, "parent_id");
-            if (!parent_id || parent_id->valueint == 0) {
-                render_comment_node(b, c, comments, 0, user_id, user_role, file_id_val);
-            }
-        }
-    } else {
+    if (render_comment_tree(b, comments, "file", file_id_val, user_id, user_role) == 0)
         cwist_sstring_append(b, "<p style='color:var(--muted)'>No comments yet.</p>");
-    }
     char fid_buf2[32]; snprintf(fid_buf2, sizeof(fid_buf2), "%d", file_id_val);
     if (write_policy_can_comment(user_role)) {
         cwist_sstring_append(b, "<form action='/comment/new' method='post' style='margin-top:18px'>");
@@ -71,7 +63,9 @@ cwist_sstring *render_file_detail(cJSON *file, cJSON *comments, bool dark, const
         if (!user_role || !user_role[0]) {
             cwist_sstring_append(b, "<input type='text' name='author_name' placeholder='Your name' style='width:100%;font-family:inherit;font-size:14px;margin-bottom:8px' required>");
         }
-        cwist_sstring_append(b, "<textarea name='content' rows='3' placeholder='Write a comment...' required></textarea>");
+        cwist_sstring_append(b, "<textarea name='content' rows='4' placeholder='Write a comment...' required maxlength='" COMMENT_CONTENT_MAX_STR "' class='comment-input'></textarea>");
+        render_comment_format_hint(b);
+        spam_guard_append_fields(b);
         cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div>");
         cwist_sstring_append(b, "</form>");
     } else {

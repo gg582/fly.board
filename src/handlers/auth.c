@@ -88,6 +88,10 @@ static bool req_is_tls(cwist_http_request *req) {
 /* Set both the HttpOnly session cookie and a JS-readable access cookie.
  * The access cookie lets the frontend attach an Authorization header when
  * the framework/transport drops the Cookie header on keep-alive connections. */
+bool auth_request_is_tls(cwist_http_request *req) {
+    return req_is_tls(req);
+}
+
 static void set_auth_cookies(cwist_http_response *res, const char *token, bool use_tls) {
     if (!token) return;
     const char *secure_attr = use_tls ? "; Secure" : "";

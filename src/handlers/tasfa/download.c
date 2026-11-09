@@ -9,7 +9,8 @@ void handler_file_download_handshake(cwist_http_request *req, cwist_http_respons
         return;
     }
     cJSON *file = db_file_get(req->db, atoi(id_str));
-    if (!file) {
+    if (!file || file_lock_for(req, file) == FILE_LOCK_DENIED) {
+        if (file) cJSON_Delete(file);
         send_json_response(res, session_error_json("download not found"), CWIST_HTTP_NOT_FOUND);
         return;
     }

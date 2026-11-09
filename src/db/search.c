@@ -33,6 +33,8 @@
  * ("개발일지" OR (개발 AND 일지)), so it also matches text written as
  * "개발 일지". */
 #define SEARCH_INDEX_VERSION "2"
+/* The body a search may match: empty for password-locked posts. */
+#define SEARCH_BODY_SQL "(CASE WHEN COALESCE(p.access_hash,'')='' THEN p.content ELSE '' END)"
 
 /* Tokenizer chosen at migrate time; read by search_query_build. Workers
  * fork after migration, so the value is stable per process. Empty means
@@ -101,7 +103,9 @@ bool db_search_index_post(cwist_db *db, int post_id) {
 
     bool ok = false;
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(conn, "SELECT title, content FROM posts WHERE id=?", -1, &stmt, NULL) == SQLITE_OK) {
+    /* A locked post's body stays out of the index: a match would tell a
+     * visitor what the body contains. Titles are public. */
+    if (sqlite3_prepare_v2(conn, "SELECT title, CASE WHEN COALESCE(access_hash,'')='' THEN content ELSE '' END FROM posts WHERE id=?", -1, &stmt, NULL) == SQLITE_OK) {
         sqlite3_bind_int(stmt, 1, post_id);
         int rc = sqlite3_step(stmt);
         if (rc == SQLITE_ROW) {
@@ -204,7 +208,7 @@ bool db_search_migrate(cwist_db *db) {
     }
     int indexed = 0;
     sqlite3_stmt *stmt = NULL;
-    if (ok && sqlite3_prepare_v2(conn, "SELECT id, title, content FROM posts", -1, &stmt, NULL) == SQLITE_OK) {
+    if (ok && sqlite3_prepare_v2(conn, "SELECT id, title, CASE WHEN COALESCE(access_hash,'')='' THEN content ELSE '' END FROM posts", -1, &stmt, NULL) == SQLITE_OK) {
         while (ok && sqlite3_step(stmt) == SQLITE_ROW) {
             ok = index_post_text(conn, sqlite3_column_int(stmt, 0),
                                  (const char *)sqlite3_column_text(stmt, 1),
@@ -349,10 +353,10 @@ void search_query_build(search_query *q, const char *query, const char *search_t
             cwist_sstring_append(q->where, " AND p.title LIKE ? ESCAPE '\\'");
             search_query_add_bind(q, pattern->data);
         } else if (body_only) {
-            cwist_sstring_append(q->where, " AND p.content LIKE ? ESCAPE '\\'");
+            cwist_sstring_append(q->where, " AND " SEARCH_BODY_SQL " LIKE ? ESCAPE '\\'");
             search_query_add_bind(q, pattern->data);
         } else {
-            cwist_sstring_append(q->where, " AND (p.title LIKE ? ESCAPE '\\' OR p.content LIKE ? ESCAPE '\\')");
+            cwist_sstring_append(q->where, " AND (p.title LIKE ? ESCAPE '\\' OR " SEARCH_BODY_SQL " LIKE ? ESCAPE '\\')");
             search_query_add_bind(q, pattern->data);
             search_query_add_bind(q, pattern->data);
         }

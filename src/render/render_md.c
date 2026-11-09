@@ -5,6 +5,7 @@
 #include <cwist/core/sstring/sstring.h>
 #include <md4c-html.h>
 #include <md4c.h>
+#include <ctype.h>
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
@@ -1712,6 +1713,74 @@ static void restore_inline_styled_spans(cwist_sstring *html) {
     cwist_sstring_destroy(out);
 }
 
+/* md4c copies link and image destinations verbatim, so [x](javascript:...)
+ * became a live link (the CSP allows inline script). Keep relative URLs and
+ * a scheme allow-list; anything else becomes "#". Runs on md4c's output
+ * only, before the separately sanitized media/TikZ/math placeholders are
+ * restored. */
+static bool url_scheme_allowed(const char *v, size_t len, bool is_src) {
+    size_t i = 0;
+    while (i < len && (unsigned char)v[i] <= ' ') i++;
+    size_t start = i;
+    for (; i < len; i++) {
+        char c = v[i];
+        if (c == ':') break;
+        /* A path, query or fragment before any colon: relative URL. */
+        if (c == '/' || c == '?' || c == '#') return true;
+        /* Entities or escapes inside a would-be scheme hide its name. */
+        if (c == '&' || c == '%' || c == '\\') return false;
+    }
+    if (i >= len) return true; /* no colon at all: relative */
+    size_t n = i - start;
+    char scheme[16];
+    if (n == 0 || n >= sizeof(scheme)) return false;
+    for (size_t k = 0; k < n; k++) scheme[k] = (char)tolower((unsigned char)v[start + k]);
+    scheme[n] = '\0';
+    if (strcmp(scheme, "http") == 0 || strcmp(scheme, "https") == 0) return true;
+    if (!is_src && (strcmp(scheme, "mailto") == 0 || strcmp(scheme, "tel") == 0)) return true;
+    if (is_src && strcmp(scheme, "data") == 0) {
+        const char *rest = v + i + 1;
+        size_t rest_len = len - i - 1;
+        return rest_len >= 6 && strncasecmp(rest, "image/", 6) == 0 &&
+               !(rest_len >= 13 && strncasecmp(rest, "image/svg+xml", 13) == 0);
+    }
+    return false;
+}
+
+static void sanitize_link_urls(cwist_sstring *html) {
+    if (!html || !html->data) return;
+    const char *data = html->data;
+    size_t len = html->size;
+    cwist_sstring *out = NULL;
+    size_t copied = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (data[i] != '=' || i + 1 >= len || data[i + 1] != '"') continue;
+        bool is_src;
+        if (i >= 5 && strncmp(data + i - 5, " href", 5) == 0) is_src = false;
+        else if (i >= 4 && strncmp(data + i - 4, " src", 4) == 0) is_src = true;
+        else continue;
+        const char *val = data + i + 2;
+        const char *close = memchr(val, '"', len - (i + 2));
+        if (!close) break;
+        size_t vlen = (size_t)(close - val);
+        if (!url_scheme_allowed(val, vlen, is_src)) {
+            if (!out) {
+                out = cwist_sstring_create();
+                if (!out) return;
+                cwist_sstring_assign(out, "");
+            }
+            cwist_sstring_append_len(out, data + copied, (size_t)(val - data) - copied);
+            cwist_sstring_append(out, "#");
+            copied = (size_t)(close - data);
+        }
+        i = (size_t)(close - data);
+    }
+    if (!out) return;
+    cwist_sstring_append_len(out, data + copied, len - copied);
+    cwist_sstring_assign(html, out->data);
+    cwist_sstring_destroy(out);
+}
+
 cwist_sstring *render_markdown_to_html(const char *md) {
     math_registry_t blocks = {0}, inlines = {0}, media = {0}, tikz = {0};
     math_registry_init(&blocks);
@@ -1741,6 +1810,7 @@ cwist_sstring *render_markdown_to_html(const char *md) {
         math_registry_free(&tikz);
         return NULL;
     }
+    sanitize_link_urls(html);
     hard_break_blockquotes(html);
     restore_math(html, &blocks, &inlines);
     restore_media(html, &media);

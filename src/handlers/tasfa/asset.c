@@ -16,6 +16,11 @@ void handler_asset_tasfa_handshake(cwist_http_request *req, cwist_http_response 
         send_json_response(res, session_error_json("asset not found"), CWIST_HTTP_NOT_FOUND);
         return;
     }
+    /* Inline images of a password-locked post stay behind its lock. */
+    if (file_lock_for_path(req, path) == FILE_LOCK_DENIED) {
+        send_json_response(res, session_error_json("asset not found"), CWIST_HTTP_NOT_FOUND);
+        return;
+    }
     bool is_image = mime && strncmp(mime, "image/", 6) == 0;
     if (is_image) {
         const char *w_str = cwist_query_map_get(req->query_params, "w");

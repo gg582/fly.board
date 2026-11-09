@@ -1,5 +1,6 @@
 #include "engine/bdr.h"
 #include "auth/auth.h"
+#include "auth/post_unlock.h"
 #include "handlers/handlers_internal.h"
 #include <cwist/core/log.h>
 #include <pthread.h>
@@ -242,6 +243,15 @@ uint64_t engine_bdr_version_for_key(const char *key) {
     return (g << 32) ^ l;
 }
 
+uint64_t engine_bdr_post_version(const char *slug) {
+    if (!g_versions) return 0;
+    uint64_t g = atomic_load_explicit(&g_versions->global_ver, memory_order_acquire);
+    size_t len = slug ? strlen(slug) : 0;
+    uint64_t p = atomic_load_explicit(&g_versions->post_ver[post_bucket_of_len(slug ? slug : "", len)],
+                                      memory_order_acquire);
+    return (g << 32) ^ p;
+}
+
 uint64_t engine_bdr_version(void) {
     return engine_bdr_version_for_key(NULL);
 }
@@ -332,6 +342,9 @@ bool engine_bdr_key(cwist_http_request *req, char *out, size_t out_len) {
         cwist_http_header_get(req->headers, "Range") || auth_has_session_cookie(req)) {
         return false;
     }
+    /* A visitor holding a locked-post grant sees bodies others must not;
+     * their pages are neither served from nor stored into the shared BDR. */
+    if (post_unlock_has_any_cookie(req)) return false;
     /* Everything below changes the rendered bytes or headers: query, the
      * negotiated encoding, the theme cookie (the only cookie a page reads
      * besides the session ones excluded above), the mobile layout, the CORS

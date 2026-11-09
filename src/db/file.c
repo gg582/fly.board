@@ -13,6 +13,19 @@
 #include <sys/stat.h>
 #include <dirent.h>
 
+int db_file_locked_post_for_path(cwist_db *db, const char *path) {
+    if (!db || !path || !path[0]) return 0;
+    const char *sql =
+        "SELECT p.id FROM posts p INDEXED BY idx_posts_locked JOIN files f ON f.post_id=p.id"
+        " WHERE p.access_hash<>'' AND (f.file_path=?1 OR f.thumb_path=?1 OR f.preview_path=?1) LIMIT 1";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, path, -1, SQLITE_STATIC);
+    int id = sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int(stmt, 0) : 0;
+    sqlite3_finalize(stmt);
+    return id;
+}
+
 static void bind_post_id(sqlite3_stmt *stmt, int idx, int post_id) {
     if (post_id > 0) {
         sqlite3_bind_int(stmt, idx, post_id);

@@ -45,6 +45,17 @@ void spam_guard_append_fields(cwist_sstring *b);
 spam_verdict_t spam_guard_check(cwist_http_request *req, int uid, const char *role,
                                 const char *trap, const char *token);
 
+/* Password-locked posts: always on, independent of the write policy, since
+ * every attempt costs an Argon2id verification. Counts one attempt for this
+ * client on this post and returns false once the client went over
+ * SPAM_UNLOCK_PER_POST on the post or SPAM_UNLOCK_PER_CLIENT in total, or the
+ * post itself went over SPAM_UNLOCK_PER_TARGET from every client, within the
+ * 10-minute window. */
+#define SPAM_UNLOCK_PER_POST 10
+#define SPAM_UNLOCK_PER_CLIENT 40
+#define SPAM_UNLOCK_PER_TARGET 300
+bool spam_guard_unlock_allow(cwist_http_request *req, int uid, int post_id);
+
 /* Fill res with the matching 400/429 page for a failed verdict. */
 void spam_guard_reject(cwist_http_response *res, spam_verdict_t verdict);
 

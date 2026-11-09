@@ -114,6 +114,29 @@ cJSON *db_post_list_for_signing(cwist_db *db);
 /* Store a signature without touching updated_at (the content did not change). */
 bool db_post_set_signature(cwist_db *db, int id, const char *pqc_signature);
 bool db_post_set_delete_pin_hash(cwist_db *db, int id, const char *delete_pin_hash);
+
+/* Password-locked posts. The lock is server-side access control, not
+ * encryption: the body stays in the database as plain text.
+ *
+ * Post JSON never carries access_hash. Single-post reads (get_by_slug,
+ * get_by_id) keep the body and add "locked": 0/1 and "access_ver"; list
+ * reads go through db_post_redact_locked, which also blanks content and
+ * summary of locked rows so no listing, feed or announcement can show
+ * them. */
+#define POST_UNLOCKED_SQL "COALESCE(p.access_hash,'')=''"
+#define POST_ACCESS_PASSWORD_MAX 128
+/* Comments are Markdown and rendered on every page view; cap their size. */
+#define COMMENT_CONTENT_MAX 20000
+#define COMMENT_CONTENT_MAX_STR "20000"
+bool post_is_locked(cJSON *post);
+/* Strip access_hash from a post object or every object in an array; blank
+ * content/summary where the post is locked. */
+void db_post_redact_locked(cJSON *posts);
+/* access_hash "" removes the lock. Either way access_ver is bumped. */
+bool db_post_set_access(cwist_db *db, int id, const char *access_hash);
+/* Copies the stored hash (empty when unlocked) and version. */
+bool db_post_access_get(cwist_db *db, int id, char *hash, size_t hash_len, int *ver);
+
 cJSON *db_post_get_by_slug(cwist_db *db, const char *slug);
 cJSON *db_post_get_by_id(cwist_db *db, int id);
 cJSON *db_post_list(cwist_db *db, int board_id, int limit, int offset);
@@ -177,6 +200,9 @@ bool db_file_create_volume(cwist_db *db, int post_id, int user_id, const char *f
 int db_file_create_volume_get_id(cwist_db *db, int post_id, int user_id, const char *filename, const char *mime_type, const char *file_path, size_t len);
 char *db_file_unique_filename(cwist_db *db, int post_id, const char *filename);
 cJSON *db_file_get(cwist_db *db, int id);
+/* Id of the password-locked post owning a file whose stored, thumb or
+ * preview path equals path; 0 when there is none. */
+int db_file_locked_post_for_path(cwist_db *db, const char *path);
 cJSON *db_file_list_all(cwist_db *db);
 cJSON *db_file_list_by_post(cwist_db *db, int post_id);
 cJSON *db_file_list_by_user(cwist_db *db, int user_id, int limit);

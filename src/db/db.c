@@ -443,6 +443,14 @@ bool db_migrate(cwist_db *db) {
      * announced when they were created. */
     db_exec_sql(db, "ALTER TABLE posts ADD COLUMN announced INTEGER NOT NULL DEFAULT 1");
     db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_posts_unannounced ON posts(created_at) WHERE announced=0");
+    /* Password-locked posts: a non-empty access_hash gates the body. The
+     * version moves on every change so unlock cookies for the old password
+     * stop working. */
+    db_exec_sql(db, "ALTER TABLE posts ADD COLUMN access_hash TEXT NOT NULL DEFAULT ''");
+    db_exec_sql(db, "ALTER TABLE posts ADD COLUMN access_ver INTEGER NOT NULL DEFAULT 0");
+    /* Asset requests ask "is this path under a locked post?"; the partial
+     * index keeps that O(locked posts) and free when there are none. */
+    db_exec_sql(db, "CREATE INDEX IF NOT EXISTS idx_posts_locked ON posts(id) WHERE access_hash<>''");
 
     /* Enforce one filename per post so auto-rename cannot race and create
      * hidden duplicate records. Clean up any legacy duplicates first. */

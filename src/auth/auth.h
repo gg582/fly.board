@@ -23,6 +23,7 @@ bool auth_jwt_verify_from_request(cwist_http_request *req, int *out_user_id, cha
 bool auth_is_logged_in(cwist_http_request *req, int *out_user_id, char *out_role, size_t role_len);
 bool auth_has_session_cookie(cwist_http_request *req);
 bool auth_get_cookie(cwist_http_request *req, const char *name, char *out, size_t out_len);
+bool auth_has_cookie_prefix(cwist_http_request *req, const char *prefix);
 bool auth_require_login(cwist_http_request *req, cwist_http_response *res, int *out_user_id, char *out_role, size_t role_len);
 bool auth_require_admin(cwist_http_request *req, cwist_http_response *res);
 /* Admins, plus global moderators only when community roles are enabled. */

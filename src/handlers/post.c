@@ -10,6 +10,8 @@
 #include "engine/pool.h"
 #include "engine/forkgate.h"
 #include "engine/refresh.h"
+#include "auth/post_unlock.h"
+#include <openssl/mem.h>
 #include <openssl/rand.h>
 
 #define MAX_POST_TITLE_LEN   200
@@ -763,6 +765,68 @@ static cwist_sstring *post_detail_render(cwist_db *db, cJSON *post, bool dark, b
     return page;
 }
 
+bool post_lock_viewer_ok(cwist_http_request *req, cJSON *post, int uid, const char *role) {
+    if (!post_is_locked(post)) return true;
+    if (is_author_or_admin(post, uid, role)) return true;
+    if (db_board_user_can_moderate(req->db, json_int(post, "board_id", 0), uid, role)) return true;
+    return post_unlock_request_ok(req, json_int(post, "id", 0), json_int(post, "access_ver", 0));
+}
+
+/* The password prompt in place of a locked post's body. Takes ownership of
+ * post. The prompt is the same for every visitor, but it is never put in the
+ * page cache: that key is shared with the unlocked render. */
+static void send_post_locked_page(cwist_http_request *req, cwist_http_response *res, cJSON *post,
+                                  const char *role, int uid, const char *error, int status) {
+    char *pp = get_profile_pic(req->db, uid, role);
+    cwist_sstring *page = render_post_locked(post, error, is_dark(req), role, pp, is_mobile_request(req));
+    free(pp);
+    cJSON_Delete(post);
+    if (status > 0) res->status_code = (cwist_http_status_t)status;
+    send_html_res(res, page);
+}
+
+/* Copy the editor's access fields. An over-long password is kept one byte
+ * longer than the limit so post_access_from_form rejects it. */
+static void post_access_read_multipart(form_field_t *files, char *pw, size_t pw_len, bool *clear) {
+    form_field_t *f = form_find(files, "access_password");
+    if (f && f->data && pw_len > 0) {
+        size_t n = f->len < pw_len - 1 ? f->len : pw_len - 1;
+        memcpy(pw, f->data, n);
+        pw[n] = '\0';
+        OPENSSL_cleanse(f->data, f->len);
+    }
+    *clear = form_find(files, "access_clear") != NULL;
+}
+
+static void post_access_read_query(cwist_query_map *kv, char *pw, size_t pw_len, bool *clear) {
+    const char *v = cwist_query_map_get(kv, "access_password");
+    if (v) snprintf(pw, pw_len, "%s", v);
+    *clear = cwist_query_map_get(kv, "access_clear") != NULL;
+}
+
+/* Read the access password fields of the editor. Returns false (and sets
+ * *error) when the input is unusable; *out_hash is then untouched. On
+ * success *action is 0 keep, 1 set (*out_hash filled), 2 clear. */
+static bool post_access_from_form(const char *password, bool clear, int *action,
+                                  char *out_hash, size_t out_hash_len, const char **error) {
+    *action = 0;
+    if (clear) {
+        *action = 2;
+        return true;
+    }
+    if (!password || !password[0]) return true;
+    if (strlen(password) > POST_ACCESS_PASSWORD_MAX) {
+        *error = "Post password is too long";
+        return false;
+    }
+    if (!auth_hash_password(password, out_hash, out_hash_len)) {
+        *error = "Could not store the post password";
+        return false;
+    }
+    *action = 1;
+    return true;
+}
+
 typedef struct {
     char key[512];
     char slug[256];
@@ -782,7 +846,7 @@ static void post_detail_refresh(void *arg) {
     if (opened) {
         cJSON *post = db_post_get_by_slug(&db, job->slug);
         bool pending = post && strcmp(json_string_or_empty(post, "status"), "pending") == 0;
-        if (post && post_is_public(post) && !pending) {
+        if (post && post_is_public(post) && !pending && !post_is_locked(post)) {
             cwist_sstring *page = post_detail_render(&db, post, job->dark, job->mobile,
                                                      job->role, job->uid, false, NULL);
             post = NULL;
@@ -857,6 +921,27 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     bool post_public = post_is_public(post) && !pending;
+    if (post_is_locked(post)) {
+        if (!post_lock_viewer_ok(req, post, uid, role)) {
+            send_post_locked_page(req, res, post, role, uid, NULL, 0);
+            return;
+        }
+        /* Unlocked for this viewer only: no page cache, no reqshare (both
+         * are keyed without the grant), no shared BDR, no browser cache. */
+        if (uid <= 0 || uid != json_int(post, "user_id", 0)) {
+            /* Admins, board moderators and password holders; authors
+             * reading their own post are not an access event. */
+            char target[64];
+            snprintf(target, sizeof(target), "post:%d", json_int(post, "id", 0));
+            audit_record(uid, "content.locked.read", target, "success", "direct post view");
+        }
+        const char *pin = cwist_query_map_get(req->query_params, "delete_pin");
+        bool inc_view = !cwist_http_header_get(req->headers, "X-Fly-Head-Rewrite");
+        cwist_sstring *page = post_detail_render(req->db, post, dark, mobile, role, uid, inc_view, pin);
+        cwist_http_header_add(&res->headers, "X-Fly-Cache-Status", "private");
+        send_html_res(res, page);
+        return;
+    }
     if (json_int(post, "is_secret", 0)) {
         char target[64];
         snprintf(target, sizeof(target), "post:%d", json_int(post, "id", 0));
@@ -882,6 +967,84 @@ void handler_post_get(cwist_http_request *req, cwist_http_response *res) {
         reqshare_finish(key, NULL);
     }
     send_html_res(res, page);
+}
+
+/* POST /post/:slug/unlock - check a locked post's password and hand out a
+ * grant cookie. Attempts are rate limited per client and per post. */
+void handler_post_unlock_post(cwist_http_request *req, cwist_http_response *res) {
+    const char *slug = cwist_query_map_get(req->path_params, "slug");
+    if (!slug || !slug[0]) { redirect(res, "/"); return; }
+    int uid = 0;
+    char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    cwist_http_header_add(&res->headers, "Cache-Control", "no-store, private");
+
+    cJSON *post = db_post_get_by_slug(req->db, slug);
+    bool pending = post && strcmp(json_string_or_empty(post, "status"), "pending") == 0;
+    if (post && (!post_is_public(post) || pending)) {
+        /* Unpublished posts are not unlockable by password; their author
+         * and admins already see them. */
+        cJSON_Delete(post);
+        post = NULL;
+    }
+    if (!post) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        cwist_sstring_assign(res->body, "Not found");
+        return;
+    }
+    int post_id = json_int(post, "id", 0);
+    char location[320];
+    snprintf(location, sizeof(location), "/post/%s", json_string_or_empty(post, "slug"));
+    if (!post_is_locked(post) || post_lock_viewer_ok(req, post, uid, role)) {
+        cJSON_Delete(post);
+        redirect(res, location);
+        return;
+    }
+
+    char password[POST_ACCESS_PASSWORD_MAX + 2] = {0};
+    cwist_query_map *form = cwist_query_map_create();
+    if (form && req->body && req->body->data) {
+        cwist_query_map_parse(form, req->body->data);
+        const char *pw = cwist_query_map_get(form, "password");
+        if (pw) snprintf(password, sizeof(password), "%s", pw);
+    }
+    if (form) cwist_query_map_destroy(form);
+    if (req->body && req->body->data) OPENSSL_cleanse(req->body->data, req->body->size);
+
+    char target[64];
+    snprintf(target, sizeof(target), "post:%d", post_id);
+    if (!spam_guard_unlock_allow(req, uid, post_id)) {
+        OPENSSL_cleanse(password, sizeof(password));
+        audit_record(uid, "content.locked.unlock", target, "rate_limited", "");
+        cwist_http_header_add(&res->headers, "Retry-After", "600");
+        send_post_locked_page(req, res, post, role, uid,
+                              "Too many attempts. Wait a few minutes and try again.", 429);
+        return;
+    }
+    char hash[512];
+    int ver = 0;
+    bool ok = password[0] && strlen(password) <= POST_ACCESS_PASSWORD_MAX &&
+              db_post_access_get(req->db, post_id, hash, sizeof(hash), &ver) && hash[0] &&
+              auth_verify_password(password, hash);
+    OPENSSL_cleanse(password, sizeof(password));
+    OPENSSL_cleanse(hash, sizeof(hash));
+    audit_record(uid, "content.locked.unlock", target, ok ? "success" : "failure", "");
+    if (!ok) {
+        send_post_locked_page(req, res, post, role, uid, "Wrong password.", 403);
+        return;
+    }
+    cJSON_Delete(post);
+    char cookie[256];
+    if (!post_unlock_cookie_header(post_id, ver, auth_request_is_tls(req), cookie, sizeof(cookie))) {
+        res->status_code = CWIST_HTTP_INTERNAL_ERROR;
+        cwist_sstring_assign(res->body, "Could not unlock the post");
+        return;
+    }
+    cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+    OPENSSL_cleanse(cookie, sizeof(cookie));
+    /* 303: the follow-up GET must not replay the password POST. */
+    redirect(res, location);
+    res->status_code = (cwist_http_status_t)303;
 }
 
 void handler_post_drafts(cwist_http_request *req, cwist_http_response *res) {
@@ -999,6 +1162,8 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
     char *spam_trap = NULL, *spam_token = NULL;
     form_field_t *files = NULL;
     bool notice_requested = false;
+    char access_pw[POST_ACCESS_PASSWORD_MAX + 2] = {0};
+    bool access_clear = false;
 
     FLY_LOG_DEBUG("ctype=%s body_len=%zu", ctype ? ctype : "NULL", req->body->size);
     FLY_LOG_DEBUG("body first 80 bytes: %.80s", req->body->data);
@@ -1015,7 +1180,9 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             files = multipart_parse(req->body->data, req->body->size, boundary);
             cwist_free(boundary);
             for (form_field_t *ff = files; ff; ff = ff->next) {
-                FLY_LOG_DEBUG("field name=%s len=%zu data=%.20s", ff->name, ff->len, ff->data ? ff->data : "NULL");
+                bool secret_field = ff->name && strcmp(ff->name, "access_password") == 0;
+                FLY_LOG_DEBUG("field name=%s len=%zu data=%.20s", ff->name, ff->len,
+                              secret_field ? "(redacted)" : (ff->data ? ff->data : "NULL"));
             }
             form_field_t *f;
             if ((f = form_find(files, "title"))) title = (char *)cwist_alloc(f->len+1), memcpy(title, f->data, f->len), title[f->len]=0;
@@ -1036,6 +1203,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
             spam_trap = dup_form_field(files, SPAM_FIELD_TRAP);
             spam_token = dup_form_field(files, SPAM_FIELD_TOKEN);
             notice_requested = form_find(files, "is_notice") != NULL;
+            post_access_read_multipart(files, access_pw, sizeof(access_pw), &access_clear);
             FLY_LOG_DEBUG("multipart parsed: title=%s content_len=%zu board_id=%s", title ? title : "NULL", content ? strlen(content) : 0, board_id_str ? board_id_str : "NULL");
         } else {
             FLY_LOG_DEBUG("boundary not found in ctype");
@@ -1065,6 +1233,7 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         spam_trap = dup_query_field(kv, SPAM_FIELD_TRAP);
         spam_token = dup_query_field(kv, SPAM_FIELD_TOKEN);
         notice_requested = cwist_query_map_get(kv, "is_notice") != NULL;
+        post_access_read_query(kv, access_pw, sizeof(access_pw), &access_clear);
         cwist_query_map_destroy(kv);
     }
     int autosave_draft_id = autosave_draft_id_str ? atoi(autosave_draft_id_str) : 0;
@@ -1093,6 +1262,20 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         strlen(content) > MAX_POST_CONTENT_LEN) {
         CWIST_LOG_WARN("Post creation failed: input too long uid=%d", uid);
         send_post_editor_error(req, res, uid, role, board_id_str ? atoi(board_id_str) : 0, "Title, summary, or content is too long");
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
+        multipart_free(files);
+        return;
+    }
+
+    int access_action = 0;
+    char access_hash[512] = {0};
+    const char *access_error = NULL;
+    bool access_ok = post_access_from_form(access_pw, false, &access_action, access_hash,
+                                           sizeof(access_hash), &access_error);
+    OPENSSL_cleanse(access_pw, sizeof(access_pw));
+    (void)access_clear;
+    if (!access_ok) {
+        send_post_editor_error(req, res, uid, role, board_id_str ? atoi(board_id_str) : 0, access_error);
         cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
         multipart_free(files);
         return;
@@ -1183,6 +1366,34 @@ void handler_post_new_post(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     if (awaiting_review) fly_nats_publish_moderation(req->db, MODERATION_POST, created_id);
+    if (access_action == 1) {
+        bool locked_ok = db_post_set_access(req->db, created_id, access_hash);
+        OPENSSL_cleanse(access_hash, sizeof(access_hash));
+        if (!locked_ok) {
+            /* Never leave a post public that its author asked to lock. */
+            CWIST_LOG_ERROR("Post password could not be set; post removed: id=%d", created_id);
+            db_post_delete(req->db, created_id);
+            res->status_code = CWIST_HTTP_INTERNAL_ERROR;
+            cwist_sstring_assign(res->body, "Post creation failed");
+            if (sig_b64) cwist_free(sig_b64);
+            cwist_free(sl);
+            cwist_free(created_slug);
+            cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
+            multipart_free(files);
+            return;
+        }
+        /* The row was briefly unlocked between INSERT and here. */
+        post_schedule_bump();
+        page_cache_invalidate_post(created_slug);
+        /* A guest author has no account to be recognised by: grant them
+         * their own post right away. */
+        int ver = 0;
+        char cookie[256];
+        if (uid <= 0 && db_post_access_get(req->db, created_id, NULL, 0, &ver) &&
+            post_unlock_cookie_header(created_id, ver, auth_request_is_tls(req), cookie, sizeof(cookie))) {
+            cwist_http_header_add(&res->headers, "Set-Cookie", cookie);
+        }
+    }
     /* Group tags, series/i18n, and media attachments into a single transaction
      * so they commit in one WAL write-lock hold instead of 10-20 autocommit
      * cycles that stall concurrent readers and writers. */
@@ -1293,6 +1504,8 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     form_field_t *files = NULL;
     bool notice_requested = false;
     bool notice_field_present = false;
+    char access_pw[POST_ACCESS_PASSWORD_MAX + 2] = {0};
+    bool access_clear = false;
 
     const char *path_id = cwist_query_map_get(req->path_params, "id");
     if (path_id) {
@@ -1343,6 +1556,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
             translation_in = dup_form_field(files, "translation_of");
             notice_requested = form_find(files, "is_notice") != NULL;
             notice_field_present = notice_requested || form_find(files, "notice_editable") != NULL;
+            post_access_read_multipart(files, access_pw, sizeof(access_pw), &access_clear);
         }
     } else {
         cwist_query_map *kv = cwist_query_map_create(); cwist_query_map_parse(kv, req->body->data);
@@ -1368,6 +1582,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         translation_in = dup_query_field(kv, "translation_of");
         notice_requested = cwist_query_map_get(kv, "is_notice") != NULL;
         notice_field_present = notice_requested || cwist_query_map_get(kv, "notice_editable") != NULL;
+        post_access_read_query(kv, access_pw, sizeof(access_pw), &access_clear);
         cwist_query_map_destroy(kv);
     }
 
@@ -1448,6 +1663,22 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         multipart_free(files);
         return;
     }
+    bool was_locked = post_is_locked(post);
+    int access_action = 0;
+    char access_hash[512] = {0};
+    const char *access_error = NULL;
+    bool access_ok = post_access_from_form(access_pw, access_clear && was_locked, &access_action,
+                                           access_hash, sizeof(access_hash), &access_error);
+    OPENSSL_cleanse(access_pw, sizeof(access_pw));
+    if (!access_ok) {
+        res->status_code = CWIST_HTTP_BAD_REQUEST;
+        cwist_sstring_assign(res->body, access_error ? access_error : "Invalid post password");
+        cJSON_Delete(post);
+        reqshare_write_lock_release(wl_key);
+        cwist_free(title); cwist_free(content); cwist_free(summary); cwist_free(id_str); cwist_free(board_id_str); cwist_free(media_meta); cwist_free(post_action); cwist_free(publish_at_in); cwist_free(tags_in); cwist_free(series_in); cwist_free(series_pos_in); cwist_free(lang_in); cwist_free(translation_in);
+        multipart_free(files);
+        return;
+    }
     publish_choice_t pub;
     choose_publish(&pub, uid, post_action, publish_at_in, was_public);
     if (was_pending) {
@@ -1501,6 +1732,18 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
     }
     if (sig_b642) cwist_free(sig_b642);
     free(rev_category);
+    bool access_changed = false;
+    if (access_action != 0) {
+        access_changed = db_post_set_access(req->db, edit_id, access_action == 1 ? access_hash : "");
+        if (!access_changed) CWIST_LOG_ERROR("Post password update failed: id=%d", edit_id);
+        else {
+            char target[64];
+            snprintf(target, sizeof(target), "post:%d", edit_id);
+            audit_record(uid, access_action == 1 ? "content.locked.set" : "content.locked.clear",
+                         target, "success", "");
+        }
+    }
+    OPENSSL_cleanse(access_hash, sizeof(access_hash));
 
     attach_media_meta_to_post(req->db, media_meta, edit_id, uid, role);
     attach_content_files_to_post(req->db, content, edit_id, uid, role);
@@ -1510,8 +1753,11 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
 
     cJSON *saved = db_post_get_by_id(req->db, edit_id);
     bool public_now = post_is_public(saved);
+    bool locked_now = post_is_locked(saved);
     if (saved) cJSON_Delete(saved);
-    if (public_now != was_public) post_schedule_bump();
+    /* The generation is shared by every worker's page cache; a lock change
+     * must not leave other workers serving the old render. */
+    if (public_now != was_public || access_changed) post_schedule_bump();
     if (post_slug) {
         /* invalidate_post covers the post page plus home/board/boards
            listings; no full-cache clear needed. */
@@ -1519,7 +1765,7 @@ void handler_post_edit_post(cwist_http_request *req, cwist_http_response *res) {
         /* A live post's edit is re-broadcast; a newly public one is
          * announced once through its claim flag (off the request path). */
         if (public_now && was_public) {
-            schedule_post_announce(req->db, title, post_slug, summary ? summary : "", false);
+            schedule_post_announce(req->db, title, post_slug, (summary && !locked_now) ? summary : "", false);
         } else if (public_now) {
             schedule_post_announce(req->db, NULL, NULL, NULL, true);
         }

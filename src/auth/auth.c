@@ -682,6 +682,21 @@ bool auth_has_session_cookie(cwist_http_request *req) {
     return false;
 }
 
+bool auth_has_cookie_prefix(cwist_http_request *req, const char *prefix) {
+    if (!req || !prefix) return false;
+    size_t plen = strlen(prefix);
+    for (cwist_http_header_node *h = req->headers; h; h = h->next) {
+        if (!h->key || !h->key->data || !h->value || !h->value->data) continue;
+        if (strcasecmp(h->key->data, "Cookie") != 0) continue;
+        auth_cookie_iter_t cookie;
+        const char *cursor = h->value->data;
+        while (auth_cookie_iter_next(&cursor, &cookie)) {
+            if (cookie.name_len >= plen && strncmp(cookie.name, prefix, plen) == 0) return true;
+        }
+    }
+    return false;
+}
+
 bool auth_get_cookie(cwist_http_request *req, const char *name, char *out, size_t out_len) {
     if (!req || !name || !out || out_len == 0) return false;
     size_t target_len = strlen(name);

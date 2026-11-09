@@ -167,7 +167,7 @@ cJSON *db_post_list_by_tag(cwist_db *db, const char *tag, int limit, int offset)
     sqlite3_bind_text(stmt, 1, tag ? tag : "", -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, limit);
     sqlite3_bind_int(stmt, 3, offset);
-    return db_sqlite3_rows_to_json(stmt);
+    return db_post_rows_to_json(stmt);
 }
 
 int db_post_count_by_tag(cwist_db *db, const char *tag) {

@@ -2,6 +2,7 @@
 #include "db.h"
 #include "db_internal.h"
 #include <cwist/core/mem/alloc.h>
+#include <cwist/core/log.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,7 +75,17 @@ bool db_comment_init(const char *path) {
         ");";
     char *err = NULL;
     sqlite3_exec(g_comments_db, schema, NULL, NULL, &err);
-    if (err) { sqlite3_free(err); }
+    if (err) { sqlite3_free(err); err = NULL; }
+    /* Every post view lists its thread by target; without this the lookup
+     * scanned the whole comments table. (The index of the same name in
+     * blog.db covers a different, unused table.) */
+    sqlite3_exec(g_comments_db,
+                 "CREATE INDEX IF NOT EXISTS idx_comments_target ON comments(target_type, target_id, id)",
+                 NULL, NULL, &err);
+    if (err) {
+        CWIST_LOG_WARN("comments: index creation failed: %s", err);
+        sqlite3_free(err);
+    }
     return true;
 }
 

@@ -366,5 +366,5 @@ cJSON *db_series_feed(cwist_db *db, int series_id, int limit) {
             " ORDER BY p.created_at DESC LIMIT ?", -1, &st, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_int(st, 1, series_id);
     sqlite3_bind_int(st, 2, limit);
-    return db_sqlite3_rows_to_json(st);
+    return db_post_rows_to_json(st);
 }

@@ -346,141 +346,235 @@ static void append_report_form(cwist_sstring *b, const char *target_type, int ta
     cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn' style='font-size:13px'>Send report</button></div></form></details>");
 }
 
-void render_comment_node(cwist_sstring *b, cJSON *comment, cJSON *all_comments, int depth, int current_user_id, const char *user_role, int target_id) {
-    int cid = json_int(comment, "id", 0);
+/* Comments render through the same Markdown pipeline as post bodies
+ * (render_markdown_to_html: raw HTML escaped, media/iframes allow-listed),
+ * so a comment can carry lists, code, links, images and math. */
+
+/* Indentation stops growing past this depth so long threads stay readable
+ * on phones; the nesting itself is unbounded. */
+#define COMMENT_INDENT_MAX_DEPTH 6
+
+typedef struct {
+    cJSON *comment;
+    int id;
+    int parent;
+    int first_child;
+    int last_child;
+    int next_sibling;
+    bool rendered;
+} comment_slot_t;
+
+typedef struct {
+    const char *target_type;
+    int target_id;
+    int user_id;
+    const char *user_role;
+} comment_ctx_t;
+
+/* qsort has no context argument; renders run on many threads. */
+static __thread const comment_slot_t *g_sort_slots;
+
+static int comment_index_cmp(const void *a, const void *b) {
+    int ia = g_sort_slots[*(const int *)a].id;
+    int ib = g_sort_slots[*(const int *)b].id;
+    return (ia > ib) - (ia < ib);
+}
+
+static int comment_find(const comment_slot_t *slots, const int *by_id, int n, int id) {
+    int lo = 0, hi = n - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        int v = slots[by_id[mid]].id;
+        if (v == id) return by_id[mid];
+        if (v < id) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return -1;
+}
+
+/* First UTF-8 code point of name, so Hangul initials are not cut mid-byte. */
+static void append_initial(cwist_sstring *b, const char *name) {
+    if (!name || !name[0]) return;
+    unsigned char c = (unsigned char)name[0];
+    size_t len = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : (c >> 3) == 0x1E ? 4 : 1;
+    char initial[8] = {0};
+    for (size_t i = 0; i < len && name[i]; i++) initial[i] = name[i];
+    cwist_sstring_append_escaped(b, initial);
+}
+
+static void append_comment_markdown(cwist_sstring *b, const char *content) {
+    cwist_sstring *html = (content && content[0]) ? render_markdown_to_html(content) : NULL;
+    if (html) {
+        cwist_sstring_append(b, "<div class='markdown-body comment-markdown'>");
+        cwist_sstring_append_sstring(b, html);
+        cwist_sstring_append(b, "</div>");
+        cwist_sstring_destroy(html);
+        return;
+    }
+    cwist_sstring_append(b, "<p style='margin:0 0 8px;white-space:pre-wrap'>");
+    cwist_sstring_append_escaped(b, content ? content : "");
+    cwist_sstring_append(b, "</p>");
+}
+
+static void append_comment_hidden_target(cwist_sstring *b, const comment_ctx_t *ctx) {
+    char id_buf[32];
+    snprintf(id_buf, sizeof(id_buf), "%d", ctx->target_id);
+    cwist_sstring_append(b, "<input type='hidden' name='target_type' value='");
+    cwist_sstring_append_escaped(b, ctx->target_type);
+    cwist_sstring_append(b, "'><input type='hidden' name='target_id' value='");
+    cwist_sstring_append(b, id_buf);
+    cwist_sstring_append(b, "'>");
+}
+
+void render_comment_format_hint(cwist_sstring *b) {
+    cwist_sstring_append(b, "<div class='comment-format-hint'>Markdown supported: **bold**, *italic*, `code`, lists, links, images, $math$.</div>");
+}
+
+static void render_comment_slot(cwist_sstring *b, comment_slot_t *slots, int idx, int depth,
+                                const comment_ctx_t *ctx) {
+    comment_slot_t *slot = &slots[idx];
+    if (slot->rendered) return; /* parent cycles in bad data */
+    slot->rendered = true;
+    cJSON *comment = slot->comment;
+    int cid = slot->id;
     int comment_user_id = json_int(comment, "user_id", 0);
     cJSON *content = cJSON_GetObjectItem(comment, "content");
-    cJSON *username = cJSON_GetObjectItem(comment, "username");
-    cJSON *author_name = cJSON_GetObjectItem(comment, "author_name");
-    cJSON *date = cJSON_GetObjectItem(comment, "created_at");
-    cJSON *deleted = cJSON_GetObjectItem(comment, "deleted");
-    int margin = depth * 20;
+    const char *text = cJSON_IsString(content) && content->valuestring ? content->valuestring : "";
+    const char *author = json_string_or_empty(comment, "author_name");
+    if (!author[0]) author = json_string_or_empty(comment, "username");
+    if (!author[0]) author = "unknown";
+    bool deleted = json_int(comment, "deleted", 0) != 0;
+    int indent = (depth < COMMENT_INDENT_MAX_DEPTH ? depth : COMMENT_INDENT_MAX_DEPTH) * 20;
 
-    const char *uname;
-    if (author_name && author_name->valuestring && author_name->valuestring[0]) {
-        uname = author_name->valuestring;
-    } else if (username && username->valuestring && username->valuestring[0]) {
-        uname = username->valuestring;
-    } else {
-        uname = "unknown";
-    }
+    char cid_buf[32];
+    snprintf(cid_buf, sizeof(cid_buf), "%d", cid);
+    char head[160];
+    snprintf(head, sizeof(head), "<div class='comment-node' id='comment-%d' style='margin-left:%dpx;margin-top:12px%s'>",
+             cid, indent, deleted ? ";display:none" : "");
+    cwist_sstring_append(b, head);
 
-    cwist_sstring_append(b, "<div class='comment-node' style='margin-left:");
-    char mbuf[32]; snprintf(mbuf, sizeof(mbuf), "%d", margin);
-    cwist_sstring_append(b, mbuf);
-    cwist_sstring_append(b, "px;margin-top:12px");
-    if (deleted && deleted->valueint) cwist_sstring_append(b, ";display:none");
-    cwist_sstring_append(b, "'>");
-
-    /* Header: avatar + meta */
-    cwist_sstring_append(b, "<div class='comment-header'>");
-    cwist_sstring_append(b, "<div class='comment-avatar'>");
-    if (uname[0]) {
-        char initial[8] = {0};
-        initial[0] = uname[0];
-        cwist_sstring_append_escaped(b, initial);
-    }
-    cwist_sstring_append(b, "</div>");
-    cwist_sstring_append(b, "<div class='comment-meta'>");
-    cwist_sstring_append_escaped(b, uname);
+    cwist_sstring_append(b, "<div class='comment-header'><div class='comment-avatar'>");
+    append_initial(b, author);
+    cwist_sstring_append(b, "</div><div class='comment-meta'>");
+    cwist_sstring_append_escaped(b, author);
     cwist_sstring_append(b, " <span class='comment-date'>&middot; ");
-    cwist_sstring_append_escaped(b, date && date->valuestring ? date->valuestring : "");
+    cwist_sstring_append_escaped(b, json_string_or_empty(comment, "created_at"));
     cwist_sstring_append(b, "</span></div></div>");
 
-    /* Body */
     cwist_sstring_append(b, "<div class='comment-body'>");
-    if (deleted && deleted->valueint) {
+    if (deleted) {
         cwist_sstring_append(b, "<p style='color:var(--muted);font-style:italic;margin:0'>Deleted comment</p>");
     } else {
-        cwist_sstring_append(b, "<p style='margin:0 0 8px'>");
-        cwist_sstring_append_escaped(b, content && content->valuestring ? content->valuestring : "");
-        cwist_sstring_append(b, "</p>");
+        append_comment_markdown(b, text);
     }
     cwist_sstring_append(b, "</div>");
 
-    bool can_edit_comment = (current_user_id > 0 && comment_user_id == current_user_id) || (user_role && strcmp(user_role, "admin") == 0);
-    char cid_buf[32]; snprintf(cid_buf, sizeof(cid_buf), "%d", cid);
-    char post_id_buf[32]; snprintf(post_id_buf, sizeof(post_id_buf), "%d", target_id);
-
-    if (can_edit_comment && !(deleted && deleted->valueint)) {
+    bool can_edit = (ctx->user_id > 0 && comment_user_id == ctx->user_id) ||
+                    (ctx->user_role && strcmp(ctx->user_role, "admin") == 0);
+    if (can_edit && !deleted) {
         cwist_sstring_append(b, "<div style='margin-top:6px;display:flex;gap:8px;flex-wrap:wrap'>");
         cwist_sstring_append(b, "<button type='button' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-toggle-target='edit-");
         cwist_sstring_append(b, cid_buf);
-        cwist_sstring_append(b, "'>Edit</button>");
-        cwist_sstring_append(b, "<form action='/comment/");
+        cwist_sstring_append(b, "'>Edit</button><form action='/comment/");
         cwist_sstring_append(b, cid_buf);
         cwist_sstring_append(b, "/delete' method='post' style='display:inline' data-confirm='Delete?'><button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>Delete</button></form>");
         cwist_sstring_append(b, "<div id='edit-");
         cwist_sstring_append(b, cid_buf);
-        cwist_sstring_append(b, "' style='display:none;margin-top:8px;width:100%'>");
-        cwist_sstring_append(b, "<form action='/comment/edit' method='post' style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>");
-        cwist_sstring_append(b, "<input type='hidden' name='id' value='");
+        cwist_sstring_append(b, "' style='display:none;margin-top:8px;width:100%'>"
+                                "<form action='/comment/edit' method='post' style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>"
+                                "<input type='hidden' name='id' value='");
         cwist_sstring_append(b, cid_buf);
-        cwist_sstring_append(b, "'>");
-        cwist_sstring_append(b, "<textarea name='content' rows='2' required style='width:100%;font-family:inherit;font-size:14px'>");
-        cwist_sstring_append_escaped(b, content && content->valuestring ? content->valuestring : "");
+        cwist_sstring_append(b, "'><textarea name='content' rows='4' required maxlength='" COMMENT_CONTENT_MAX_STR "' class='comment-input'>");
+        cwist_sstring_append_escaped(b, text);
         cwist_sstring_append(b, "</textarea>");
-        cwist_sstring_append(b, "<button type='submit' class='btn' style='font-size:12px;padding:4px 10px'>Update</button>");
-        cwist_sstring_append(b, "</form></div>");
-        cwist_sstring_append(b, "</div>");
+        render_comment_format_hint(b);
+        cwist_sstring_append(b, "<button type='submit' class='btn' style='font-size:12px;padding:4px 10px'>Update</button></form></div></div>");
     }
 
-    if (!(deleted && deleted->valueint) && write_policy_can_comment(user_role)) {
-        cwist_sstring_append(b, "<div style='margin-top:8px'>");
-        cwist_sstring_append(b, "<button type='button' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-toggle-target='reply-");
+    if (!deleted && write_policy_can_comment(ctx->user_role)) {
+        cwist_sstring_append(b, "<div style='margin-top:8px'><button type='button' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-toggle-target='reply-");
         cwist_sstring_append(b, cid_buf);
-        cwist_sstring_append(b, "'>Reply</button>");
-        cwist_sstring_append(b, "<div id='reply-");
+        cwist_sstring_append(b, "'>Reply</button><div id='reply-");
         cwist_sstring_append(b, cid_buf);
-        cwist_sstring_append(b, "' style='display:none;margin-top:8px'>");
-        cwist_sstring_append(b, "<form action='/comment/new' method='post'>");
-        cwist_sstring_append(b, "<input type='hidden' name='target_type' value='post'>");
-        cwist_sstring_append(b, "<input type='hidden' name='target_id' value='");
-        cwist_sstring_append(b, post_id_buf);
-        cwist_sstring_append(b, "'>");
+        cwist_sstring_append(b, "' style='display:none;margin-top:8px'><form action='/comment/new' method='post'>");
+        append_comment_hidden_target(b, ctx);
         cwist_sstring_append(b, "<input type='hidden' name='parent_id' value='");
         cwist_sstring_append(b, cid_buf);
         cwist_sstring_append(b, "'>");
-        if (!user_role || !user_role[0]) {
+        if (!ctx->user_role || !ctx->user_role[0]) {
             cwist_sstring_append(b, "<input type='text' name='author_name' placeholder='Your name' style='width:100%;font-family:inherit;font-size:14px;margin-bottom:8px' required>");
         }
-        cwist_sstring_append(b, "<textarea name='content' rows='2' placeholder='Write a reply...' required style='width:100%;font-family:inherit;font-size:14px'></textarea>");
+        cwist_sstring_append(b, "<textarea name='content' rows='3' placeholder='Write a reply...' required maxlength='" COMMENT_CONTENT_MAX_STR "' class='comment-input'></textarea>");
+        render_comment_format_hint(b);
         spam_guard_append_fields(b);
-        cwist_sstring_append(b, "<div style='margin-top:6px'><button type='submit' class='btn' style='font-size:12px;padding:4px 10px'>Reply</button></div>");
-        cwist_sstring_append(b, "</form></div></div>");
+        cwist_sstring_append(b, "<div style='margin-top:6px'><button type='submit' class='btn' style='font-size:12px;padding:4px 10px'>Reply</button></div></form></div></div>");
     }
 
-    if (!(deleted && deleted->valueint)) {
+    if (!deleted) {
         cwist_sstring_append(b, "<div style='margin-top:6px'>");
         append_report_form(b, "comment", cid);
         cwist_sstring_append(b, "</div>");
     }
     cwist_sstring_append(b, "</div>");
 
-    /* Find children */
-    if (all_comments && cid > 0) {
-        int n = cJSON_GetArraySize(all_comments);
-        for (int i = 0; i < n; i++) {
-            cJSON *c = cJSON_GetArrayItem(all_comments, i);
-            cJSON *parent = cJSON_GetObjectItem(c, "parent_id");
-            if (parent && parent->valueint == cid) {
-                render_comment_node(b, c, all_comments, depth + 1, current_user_id, user_role, target_id);
-            }
+    for (int c = slot->first_child; c >= 0; c = slots[c].next_sibling)
+        render_comment_slot(b, slots, c, depth + 1, ctx);
+}
+
+/* Threads are linked once (O(n log n)) instead of rescanning every comment
+ * for every node's children. A reply whose parent is missing from the list
+ * is shown at the top level rather than dropped. */
+int render_comment_tree(cwist_sstring *b, cJSON *comments, const char *target_type, int target_id,
+                        int user_id, const char *user_role) {
+    int n = cJSON_IsArray(comments) ? cJSON_GetArraySize(comments) : 0;
+    if (n <= 0) return 0;
+    comment_slot_t *slots = calloc((size_t)n, sizeof(*slots));
+    int *by_id = calloc((size_t)n, sizeof(*by_id));
+    if (!slots || !by_id) {
+        free(slots);
+        free(by_id);
+        return 0;
+    }
+    int i = 0;
+    cJSON *c = NULL;
+    cJSON_ArrayForEach(c, comments) {
+        slots[i].comment = c;
+        slots[i].id = json_int(c, "id", 0);
+        slots[i].parent = json_int(c, "parent_id", 0);
+        slots[i].first_child = slots[i].last_child = slots[i].next_sibling = -1;
+        by_id[i] = i;
+        i++;
+    }
+    g_sort_slots = slots;
+    qsort(by_id, (size_t)n, sizeof(*by_id), comment_index_cmp);
+    g_sort_slots = NULL;
+
+    int root_first = -1, root_last = -1;
+    for (i = 0; i < n; i++) {
+        int p = slots[i].parent > 0 && slots[i].parent != slots[i].id
+                    ? comment_find(slots, by_id, n, slots[i].parent) : -1;
+        if (p >= 0) {
+            if (slots[p].last_child >= 0) slots[slots[p].last_child].next_sibling = i;
+            else slots[p].first_child = i;
+            slots[p].last_child = i;
+        } else {
+            if (root_last >= 0) slots[root_last].next_sibling = i;
+            else root_first = i;
+            root_last = i;
         }
     }
+    comment_ctx_t ctx = {target_type ? target_type : "post", target_id, user_id, user_role};
+    for (int r = root_first; r >= 0; r = slots[r].next_sibling)
+        render_comment_slot(b, slots, r, 0, &ctx);
+    free(slots);
+    free(by_id);
+    return n;
 }
 
 cwist_sstring *render_post_comment_list(cJSON *comments, const char *user_role, int user_id, int post_id) {
     cwist_sstring *out = cwist_sstring_create();
-    if (comments && cJSON_GetArraySize(comments) > 0) {
-        cJSON *comment = NULL;
-        cJSON_ArrayForEach(comment, comments) {
-            if (json_int(comment, "parent_id", 0) == 0)
-                render_comment_node(out, comment, comments, 0, user_id, user_role, post_id);
-        }
-    } else {
+    if (render_comment_tree(out, comments, "post", post_id, user_id, user_role) == 0)
         cwist_sstring_append(out, "<p style='color:var(--muted)'>No comments yet.</p>");
-    }
     return out;
 }
 
@@ -588,6 +682,9 @@ static void append_post_rows(cwist_sstring *b, cJSON *posts, const char *board_s
             cwist_sstring_append(b, "<div class='post-row-head'>");
             if (is_notice && is_notice->valueint) {
                 cwist_sstring_append(b, "<span class='tag' style='background:var(--accent);color:var(--panel)'>Notice</span>");
+            }
+            if (post_is_locked(p)) {
+                cwist_sstring_append(b, "<span class='tag post-locked-tag' title='Password-protected'>&#128274; Locked</span>");
             }
             if (!board_slug || board_slug[0] == '\0') {
                 cJSON *board_name = cJSON_GetObjectItem(p, "board_name");
@@ -1701,6 +1798,10 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         cwist_sstring_append(b, pid_buf);
         cwist_sstring_append(b, "/edit'>Edit</a> &middot; <a href='/account/drafts'>All drafts</a></div></div>");
     }
+    if (post_is_locked(post)) {
+        cwist_sstring_append(b, "<div class='card post-locked-note' style='margin-bottom:16px;border-color:var(--accent)'><strong>Password-protected</strong>"
+                                "<div style='margin-top:6px;color:var(--muted)'>Visitors see the title and a password prompt. The body, comments and attachments open only with the password.</div></div>");
+    }
     if (ephemeral_delete_pin && ephemeral_delete_pin[0]) {
         cwist_sstring_append(b, "<div class='card' style='margin-bottom:16px;border-color:var(--accent)'>");
         cwist_sstring_append(b, "<strong>Delete PIN</strong><div style='margin-top:6px;color:var(--muted)'>Save this now. It is only shown once for this anonymous post.</div><div style='margin-top:8px'><code>");
@@ -1982,7 +2083,8 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         if (!user_role || !user_role[0]) {
             cwist_sstring_append(b, "<input type='text' name='author_name' placeholder='Your name' style='width:100%;font-family:inherit;font-size:14px;margin-bottom:8px' required>");
         }
-        cwist_sstring_append(b, "<textarea name='content' rows='3' placeholder='Write a comment...' required></textarea>");
+        cwist_sstring_append(b, "<textarea name='content' rows='4' placeholder='Write a comment...' required maxlength='" COMMENT_CONTENT_MAX_STR "' class='comment-input'></textarea>");
+        render_comment_format_hint(b);
         spam_guard_append_fields(b);
         cwist_sstring_append(b, "<div style='margin-top:8px'><button type='submit' class='btn'>Comment</button></div>");
         cwist_sstring_append(b, "</form>");
@@ -1990,7 +2092,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         render_comment_closed_note(b, user_role);
     }
     cwist_sstring_append(b, "</div>");
-    if (realtime) cwist_sstring_append(b, "<script src='/assets/js/realtime.js?v=1' defer></script>");
+    if (realtime) cwist_sstring_append(b, "<script src='/assets/js/realtime.js?v=2' defer></script>");
     cwist_sstring_append(b, "<script src='/assets/js/lightbox.js?v=1' defer></script>");
 
     /* <head> metadata: summary (or an excerpt of the body) as the
@@ -2025,9 +2127,14 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         .modified = json_string_or_empty(post, "updated_at"),
         .author = author && author->valuestring ? author->valuestring : NULL,
         .tags = cJSON_IsArray(post_tags) ? post_tags : NULL,
-        .noindex = !post_is_public(post),
+        .noindex = !post_is_public(post) || post_is_locked(post),
         .lang = post_lang[0] ? post_lang : NULL,
     };
+    if (post_is_locked(post)) {
+        /* Unfurlers must not lift the body or an attachment out of it. */
+        meta.description = "Password-protected post.";
+        meta.image = NULL;
+    }
     if (alternates && post_lang[0]) {
         cJSON *self = cJSON_CreateObject();
         cJSON_AddStringToObject(self, "lang", post_lang);
@@ -2040,6 +2147,63 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring *page = render_page(title_text[0] ? title_text : "Post", b->data, dark, user_role, profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     if (alternates) cJSON_Delete(alternates);
+    return page;
+}
+
+cwist_sstring *render_post_locked(cJSON *post, const char *error, bool dark, const char *user_role,
+                                  const char *profile_pic, bool is_mobile) {
+    cwist_sstring *b = cwist_sstring_create();
+    const char *title_text = json_string_or_empty(post, "title");
+    const char *slug = json_string_or_empty(post, "slug");
+    const char *date_text = json_string_or_empty(post, "created_at");
+    const char *author = json_string_or_empty(post, "author_name");
+    cwist_sstring_append(b, "<article class='post-locked'><h1 style='margin-bottom:6px;font-size:2.25rem;line-height:1.2'>");
+    cwist_sstring_append_escaped(b, title_text[0] ? title_text : "(untitled)");
+    cwist_sstring_append(b, "</h1><div style='color:var(--muted);font-size:14px;margin-bottom:20px'>");
+    cwist_sstring_append_escaped(b, author[0] ? author : "Anonymous");
+    if (date_text[0]) {
+        cwist_sstring_append(b, " &middot; ");
+        if (strlen(date_text) >= 16) cwist_sstring_append_len(b, date_text, 16);
+        else cwist_sstring_append_escaped(b, date_text);
+    }
+    cwist_sstring_append(b, "</div><div class='card' style='max-width:420px'>"
+                            "<strong>This post is password-protected.</strong>"
+                            "<p style='margin:6px 0 12px;color:var(--muted);font-size:14px'>Enter the password to read it.</p>");
+    if (error && error[0]) {
+        cwist_sstring_append(b, "<p class='form-error' role='alert' style='color:var(--danger, #c0392b);margin:0 0 10px'>");
+        cwist_sstring_append_escaped(b, error);
+        cwist_sstring_append(b, "</p>");
+    }
+    cwist_sstring *action = cwist_sstring_create();
+    cwist_sstring_assign(action, "/post/");
+    render_append_url_segment(action, slug);
+    cwist_sstring_append(action, "/unlock");
+    cwist_sstring_append(b, "<form method='post' action='");
+    cwist_sstring_append_escaped(b, action->data);
+    cwist_sstring_destroy(action);
+    char max_attr[16];
+    snprintf(max_attr, sizeof(max_attr), "%d", POST_ACCESS_PASSWORD_MAX);
+    cwist_sstring_append(b, "' style='display:flex;gap:8px;flex-wrap:wrap'>"
+                            "<label for='post-unlock-password' class='sr-only' style='position:absolute;left:-10000px'>Password</label>"
+                            "<input type='password' id='post-unlock-password' name='password' required autocomplete='current-password' maxlength='");
+    cwist_sstring_append(b, max_attr);
+    cwist_sstring_append(b, "' style='flex:1;min-width:180px'><button type='submit' class='btn'>Unlock</button></form></div></article>");
+
+    char canonical_buf[320];
+    cwist_sstring *canon = cwist_sstring_create();
+    cwist_sstring_assign(canon, "/post/");
+    render_append_url_segment(canon, slug);
+    snprintf(canonical_buf, sizeof(canonical_buf), "%s", canon->data);
+    cwist_sstring_destroy(canon);
+    render_page_meta meta = {
+        .description = "Password-protected post.",
+        .canonical_path = canonical_buf,
+        .og_type = "article",
+        .noindex = true,
+    };
+    render_set_page_meta(&meta);
+    cwist_sstring *page = render_page(title_text[0] ? title_text : "Post", b->data, dark, user_role, profile_pic, is_mobile);
+    cwist_sstring_destroy(b);
     return page;
 }
 
@@ -2430,6 +2594,29 @@ cwist_sstring *render_post_editor(cJSON *boards, cJSON *post, cJSON *files, int 
     cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>Files upload immediately, resume automatically, and are attached explicitly on save.</small>");
     cwist_sstring_append(b, "<input id='file-input' type='file' multiple style='display:none'><label for='file-input' class='btn' style='margin-top:12px;display:inline-block;cursor:pointer'>Select Files...</label>");
     cwist_sstring_append(b, "</div>");
+
+    /* Optional access password. Empty keeps the current state; the stored
+     * hash never reaches the form. */
+    {
+        bool locked_now = post && post_is_locked(post);
+        cwist_sstring_append(b, "<fieldset class='post-access' style='margin-top:18px;border:1px solid var(--border);padding:10px 12px'>"
+                                "<legend style='padding:0 6px'>Password protection (optional)</legend>");
+        if (locked_now) {
+            cwist_sstring_append(b, "<div style='font-size:13px;margin-bottom:8px'>&#128274; This post is locked. Enter a new password to change it.</div>");
+        }
+        char max_attr[16];
+        snprintf(max_attr, sizeof(max_attr), "%d", POST_ACCESS_PASSWORD_MAX);
+        cwist_sstring_append(b, "<input type='password' name='access_password' id='access-password' autocomplete='new-password' maxlength='");
+        cwist_sstring_append(b, max_attr);
+        cwist_sstring_append(b, "' placeholder='");
+        cwist_sstring_append(b, locked_now ? "New password (leave empty to keep)" : "Password readers must enter");
+        cwist_sstring_append(b, "' style='max-width:320px'>");
+        if (locked_now) {
+            cwist_sstring_append(b, "<label style='display:block;margin-top:8px'><input type='checkbox' name='access_clear' value='1'> Remove the password</label>");
+        }
+        cwist_sstring_append(b, "<small style='color:var(--muted);display:block;margin-top:6px'>Readers without it see only the title. "
+                                "This is access control on this server, not encryption: site admins can still read the post.</small></fieldset>");
+    }
 
     /* Guests cannot come back to a draft, so they only get Save. */
     bool can_draft = user_role && user_role[0];

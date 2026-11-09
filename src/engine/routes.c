@@ -111,6 +111,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_post(app, "/post/delete/:id", handler_post_delete);
     engine_async_get(app, "/post/:id/edit", handler_post_edit_get);
     engine_async_post(app, "/post/:id/edit", handler_post_edit_post);
+    engine_async_post(app, "/post/:slug/unlock", handler_post_unlock_post);
     engine_async_get_cached(app, "/post/:slug", handler_post_get);
     engine_async_get_cached(app, "/board/:slug/rss.xml", handler_board_rss_xml);
     engine_async_get_cached(app, "/board/:slug", handler_post_list);

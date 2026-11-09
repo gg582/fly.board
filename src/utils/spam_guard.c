@@ -203,6 +203,40 @@ spam_verdict_t spam_guard_check(cwist_http_request *req, int uid, const char *ro
     return SPAM_OK;
 }
 
+bool spam_guard_unlock_allow(cwist_http_request *req, int uid, int post_id) {
+    if (!g_rate) return true;
+    char target[32];
+    int tn = snprintf(target, sizeof(target), "pu:t:%d", post_id);
+    if (!rate_allow(target, (size_t)tn, SPAM_UNLOCK_PER_TARGET)) {
+        CWIST_LOG_WARN("Spam guard: unlock attempts on post %d capped", post_id);
+        return false;
+    }
+    char who[32];
+    size_t who_len = 0;
+    /* Clients without a known address only meet the per-post cap above. */
+    if (!writer_id(req, uid, who, sizeof(who), &who_len)) return true;
+    char id[64];
+    bool allow = false;
+    int n = snprintf(id, sizeof(id), "pu:c:");
+    if (n > 0 && (size_t)n + who_len <= sizeof(id)) {
+        memcpy(id + n, who, who_len);
+        allow = rate_allow(id, (size_t)n + who_len, SPAM_UNLOCK_PER_CLIENT);
+        if (allow) {
+            n = snprintf(id, sizeof(id), "pu:p:%d:", post_id);
+            if (n > 0 && (size_t)n + who_len <= sizeof(id)) {
+                memcpy(id + n, who, who_len);
+                allow = rate_allow(id, (size_t)n + who_len, SPAM_UNLOCK_PER_POST);
+            } else {
+                allow = false;
+            }
+        }
+    }
+    OPENSSL_cleanse(id, sizeof(id));
+    OPENSSL_cleanse(who, sizeof(who));
+    if (!allow) CWIST_LOG_WARN("Spam guard: unlock rate limit reached on post %d", post_id);
+    return allow;
+}
+
 void spam_guard_reject(cwist_http_response *res, spam_verdict_t verdict) {
     if (verdict == SPAM_RATE_LIMITED) {
         res->status_code = (cwist_http_status_t)429;

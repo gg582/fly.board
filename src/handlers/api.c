@@ -881,7 +881,7 @@ void handler_post_vote(cwist_http_request *req, cwist_http_response *res) {
     int post_id = atoi(post_id_str);
     int vote_type = atoi(vote_type_str);
     cJSON *target = db_post_get_by_id(req->db, post_id);
-    bool votable = post_is_public(target);
+    bool votable = post_is_public(target) && post_lock_viewer_ok(req, target, uid, role);
     char target_slug[256] = {0};
     if (target) {
         cJSON *s = cJSON_GetObjectItem(target, "slug");

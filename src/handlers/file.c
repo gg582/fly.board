@@ -201,9 +201,46 @@ static bool ensure_compressed_cache(const char *src_path, const char *encoding, 
     return true;
 }
 
+/* Set by file_lock_for*() when the file belongs to a locked post the viewer
+ * was let into; the next file response on this thread then refuses shared
+ * and browser caching. Consumed by send_cached_file_response. */
+static __thread bool t_file_private = false;
+
+static file_lock_t lock_for_post(cwist_http_request *req, int post_id) {
+    t_file_private = false;
+    if (!req || post_id <= 0) return FILE_LOCK_OPEN;
+    /* Only the emptiness of the hash matters here. */
+    char hash[8];
+    int ver = 0;
+    if (!db_post_access_get(req->db, post_id, hash, sizeof(hash), &ver) || !hash[0]) return FILE_LOCK_OPEN;
+    int uid = 0;
+    char role[32] = {0};
+    auth_is_logged_in(req, &uid, role, sizeof(role));
+    cJSON *post = db_post_get_by_id(req->db, post_id);
+    bool ok = post && post_lock_viewer_ok(req, post, uid, role);
+    if (post) cJSON_Delete(post);
+    if (!ok) return FILE_LOCK_DENIED;
+    t_file_private = true;
+    return FILE_LOCK_GRANTED;
+}
+
+file_lock_t file_lock_for(cwist_http_request *req, cJSON *file) {
+    return lock_for_post(req, json_int(file, "post_id", 0));
+}
+
+file_lock_t file_lock_for_path(cwist_http_request *req, const char *path) {
+    t_file_private = false;
+    if (!req || !path || !path[0]) return FILE_LOCK_OPEN;
+    return lock_for_post(req, db_file_locked_post_for_path(req->db, path));
+}
+
 bool send_cached_file_response(cwist_http_request *req, cwist_http_response *res,
                                const char *path, const char *mime,
                                const char *cache_control, bool *not_modified) {
+    if (t_file_private) {
+        cache_control = "private, no-store";
+        t_file_private = false;
+    }
     /* Serve static text assets with compression in efficiency order: br -> zstd -> gzip */
     const char *accept_encoding = req ? cwist_http_header_get(req->headers, "Accept-Encoding") : NULL;
     const char *encoding = NULL;
@@ -752,7 +789,8 @@ void handler_asset_upload(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    if (!send_cached_file_response(req, res, path, response_mime, IMAGE_CACHE_CONTROL, NULL)) {
+    if (file_lock_for_path(req, path) == FILE_LOCK_DENIED ||
+        !send_cached_file_response(req, res, path, response_mime, IMAGE_CACHE_CONTROL, NULL)) {
         cwist_free(decoded);
         send_upload_not_found(res);
         return;
@@ -845,7 +883,8 @@ void handler_file_preview(cwist_http_request *req, cwist_http_response *res) {
     }
 
     cJSON *file = db_file_get(req->db, id);
-    if (!file) {
+    if (!file || file_lock_for(req, file) == FILE_LOCK_DENIED) {
+        if (file) cJSON_Delete(file);
         send_upload_not_found(res);
         return;
     }
@@ -871,7 +910,8 @@ void handler_file_preview_handshake(cwist_http_request *req, cwist_http_response
     }
 
     cJSON *file = db_file_get(req->db, atoi(id_str));
-    if (!file) {
+    if (!file || file_lock_for(req, file) == FILE_LOCK_DENIED) {
+        if (file) cJSON_Delete(file);
         send_json_response(res, session_error_json("preview not found"), CWIST_HTTP_NOT_FOUND);
         return;
     }
@@ -948,6 +988,7 @@ void handler_file_detail_get(cwist_http_request *req, cwist_http_response *res) 
     const char *id_str = cwist_query_map_get(req->path_params, "id");
     if (!id_str) { res->status_code = CWIST_HTTP_NOT_FOUND; cwist_sstring_assign(res->body, "Not found"); return; }
     cJSON *file = db_file_get(req->db, atoi(id_str));
+    if (file && file_lock_for(req, file) == FILE_LOCK_DENIED) { cJSON_Delete(file); file = NULL; }
     if (!file) { res->status_code = CWIST_HTTP_NOT_FOUND; cwist_sstring_assign(res->body, "Not found"); return; }
     cJSON *comments = db_comment_list_by_target(req->db, "file", atoi(id_str));
     char *pp = get_profile_pic(req->db, uid, role);
@@ -963,6 +1004,7 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     if (!id_str) { send_upload_not_found(res); return; }
 
     cJSON *file = db_file_get(req->db, atoi(id_str));
+    if (file && file_lock_for(req, file) == FILE_LOCK_DENIED) { cJSON_Delete(file); file = NULL; }
     if (!file) { send_upload_not_found(res); return; }
 
     cJSON *jpath = cJSON_GetObjectItem(file, "file_path");

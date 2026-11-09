@@ -3,23 +3,43 @@
 #include "config/write_policy.h"
 #include "db/moderation.h"
 
+/* Comment target, looked up once per request: visibility, cache
+ * invalidation, notification and the redirect all need the same post. */
+typedef struct {
+    bool is_post;
+    int id;
+    int board_id;
+    int author_id;
+    char slug[256];
+} comment_target_t;
+
+static void comment_target_fill(comment_target_t *t, cJSON *post) {
+    t->board_id = json_int(post, "board_id", 0);
+    t->author_id = json_int(post, "user_id", 0);
+    snprintf(t->slug, sizeof(t->slug), "%s", json_string_or_empty(post, "slug"));
+}
+
+static void invalidate_comment_slug(const char *target_type, const char *slug) {
+    if (target_type && strcmp(target_type, "post") == 0) {
+        /* Also bumps the shared per-post version that every worker's page
+         * cache key carries, so no worker keeps the old thread. */
+        page_cache_invalidate_post(slug && slug[0] ? slug : NULL);
+    } else if (target_type && strcmp(target_type, "file") == 0) {
+        /* File detail pages are cached by id; comment events are rare enough
+         * that clearing everything is acceptable. */
+        page_cache_invalidate_all();
+    }
+}
+
 static void invalidate_comment_target(cwist_db *db, const char *target_type, int target_id) {
     if (!target_type || !target_type[0] || target_id <= 0) return;
     if (strcmp(target_type, "post") == 0) {
         cJSON *post = db_post_get_by_id(db, target_id);
-        if (post) {
-            cJSON *slug = cJSON_GetObjectItem(post, "slug");
-            if (slug && cJSON_IsString(slug) && slug->valuestring) {
-                page_cache_invalidate_post(slug->valuestring);
-            } else {
-                page_cache_invalidate_all();
-            }
-            cJSON_Delete(post);
-        }
-    } else if (strcmp(target_type, "file") == 0) {
-        /* File detail pages are cached by id; comment events are rare enough
-         * that clearing everything is acceptable. */
-        page_cache_invalidate_all();
+        if (!post) return;
+        invalidate_comment_slug(target_type, json_string_or_empty(post, "slug"));
+        cJSON_Delete(post);
+    } else {
+        invalidate_comment_slug(target_type, NULL);
     }
 }
 
@@ -28,50 +48,37 @@ static void invalidate_comment_target(cwist_db *db, const char *target_type, int
  * when there is no resolvable recipient, the recipient is the actor, or any
  * lookup fails. */
 static void notify_comment_recipient(cwist_db *db, int actor_uid, const char *actor_name,
-                                     const char *target_type, int target_id, int parent_id,
+                                     const comment_target_t *target, int parent_id,
                                      const char *content, int comment_id) {
     int recipient = 0;
     const char *kind = NULL;
-    int post_id = 0;
-    char post_slug[256] = {0};
-
-    cJSON *post = NULL;
-    if (target_type && strcmp(target_type, "post") == 0) {
-        post = db_post_get_by_id(db, target_id);
-    }
-
     if (parent_id > 0) {
         cJSON *parent = db_comment_get_by_id(db, parent_id);
-        if (!parent) {
-            if (post) cJSON_Delete(post);
-            return;
-        }
-        cJSON *pu = cJSON_GetObjectItem(parent, "user_id");
-        if (pu && cJSON_IsNumber(pu)) recipient = pu->valueint;
+        if (!parent) return;
+        recipient = json_int(parent, "user_id", 0);
         cJSON_Delete(parent);
         kind = "reply";
-    } else if (post) {
-        cJSON *pu = cJSON_GetObjectItem(post, "user_id");
-        if (pu && cJSON_IsNumber(pu)) recipient = pu->valueint;
+    } else if (target->is_post) {
+        recipient = target->author_id;
         kind = "comment";
     }
-
-    if (post) {
-        cJSON *ps = cJSON_GetObjectItem(post, "slug");
-        if (ps && cJSON_IsString(ps) && ps->valuestring) {
-            snprintf(post_slug, sizeof(post_slug), "%s", ps->valuestring);
-            post_id = target_id;
-        }
-        cJSON_Delete(post);
-    }
-
     if (!kind || recipient <= 0 || recipient == actor_uid) return;
 
+    const char *slug = target->is_post ? target->slug : "";
+    int post_id = target->is_post && slug[0] ? target->id : 0;
+    /* Comments are Markdown: notify with plain text cut on a code point. */
     char excerpt[121];
-    snprintf(excerpt, sizeof(excerpt), "%s", content ? content : "");
+    render_text_excerpt(content, 60, excerpt, sizeof(excerpt));
+    if (!excerpt[0]) snprintf(excerpt, sizeof(excerpt), "%s", "(attachment)");
 
-    db_notification_create(db, recipient, actor_name, kind, post_id, post_slug, comment_id, excerpt);
-    fly_nats_publish_comment(g_config.root_url, actor_name, kind, post_slug, recipient, excerpt, comment_id);
+    db_notification_create(db, recipient, actor_name, kind, post_id, slug, comment_id, excerpt);
+    fly_nats_publish_comment(g_config.root_url, actor_name, kind, slug, recipient, excerpt, comment_id);
+}
+
+static void comment_reject(cwist_http_response *res, cwist_http_status_t status, const char *msg) {
+    res->status_code = status;
+    cwist_http_header_add(&res->headers, "Content-Type", "text/plain; charset=utf-8");
+    cwist_sstring_assign(res->body, msg);
 }
 
 void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res) {
@@ -104,93 +111,110 @@ void handler_comment_new_post(cwist_http_request *req, cwist_http_response *res)
         spam_guard_reject(res, verdict);
         return;
     }
-    int target_board_id = 0;
-    if (target_type && target_id_str && content && content[0] && strcmp(target_type, "post") == 0) {
+
+    comment_target_t target = {0};
+    target.id = target_id_str ? atoi(target_id_str) : 0;
+    target.is_post = target_type && strcmp(target_type, "post") == 0;
+    bool known_type = target.is_post || (target_type && strcmp(target_type, "file") == 0);
+    if (!known_type || target.id <= 0 || !content || !content[0]) {
+        CWIST_LOG_WARN("Comment creation failed: missing fields");
+        cwist_query_map_destroy(kv);
+        comment_reject(res, CWIST_HTTP_BAD_REQUEST, "The comment is empty or incomplete. Go back and try again.");
+        return;
+    }
+    if (strlen(content) > COMMENT_CONTENT_MAX) {
+        cwist_query_map_destroy(kv);
+        comment_reject(res, (cwist_http_status_t)413, "Comments are limited to " COMMENT_CONTENT_MAX_STR " characters.");
+        return;
+    }
+    if (target.is_post) {
         /* Unpublished posts take comments only from those who can see them. */
-        cJSON *target = db_post_get_by_id(req->db, atoi(target_id_str));
-        target_board_id = json_int(target, "board_id", 0);
-        bool visible = target && (post_is_public(target) || is_author_or_admin(target, uid, role));
-        if (target) cJSON_Delete(target);
+        cJSON *post = db_post_get_by_id(req->db, target.id);
+        bool visible = post && (post_is_public(post) || is_author_or_admin(post, uid, role)) &&
+                       post_lock_viewer_ok(req, post, uid, role);
+        if (post) comment_target_fill(&target, post);
+        if (post) cJSON_Delete(post);
         if (!visible) {
             cwist_query_map_destroy(kv);
-            res->status_code = CWIST_HTTP_NOT_FOUND;
-            cwist_sstring_assign(res->body, "Not found");
+            comment_reject(res, CWIST_HTTP_NOT_FOUND, "Not found");
             return;
         }
     }
-    if (target_type && target_id_str && content && content[0]) {
-        int target_id = atoi(target_id_str);
-        int parent_id = parent_id_str ? atoi(parent_id_str) : 0;
-        const char *author_name = NULL;
-        char author_name_buf[128] = {0};
-        if (uid > 0) {
-            cJSON *u = db_user_get_by_id(req->db, uid);
-            if (u) {
-                cJSON *uname = cJSON_GetObjectItem(u, "username");
-                if (uname && uname->valuestring) {
-                    snprintf(author_name_buf, sizeof(author_name_buf), "%s", uname->valuestring);
-                    author_name = author_name_buf;
-                }
-                cJSON_Delete(u);
+
+    int parent_id = parent_id_str ? atoi(parent_id_str) : 0;
+    if (parent_id > 0) {
+        /* A reply must stay in its parent's thread. */
+        cJSON *parent = db_comment_get_by_id(req->db, parent_id);
+        bool same = parent && json_int(parent, "target_id", 0) == target.id &&
+                    strcmp(json_string_or_empty(parent, "target_type"), target_type) == 0;
+        if (parent) cJSON_Delete(parent);
+        if (!same) parent_id = 0;
+    }
+
+    const char *author_name = NULL;
+    char author_name_buf[128] = {0};
+    if (uid > 0) {
+        cJSON *u = db_user_get_by_id(req->db, uid);
+        if (u) {
+            const char *uname = json_string_or_empty(u, "username");
+            if (uname[0]) {
+                snprintf(author_name_buf, sizeof(author_name_buf), "%s", uname);
+                author_name = author_name_buf;
             }
-            if (!author_name) {
-                if (strcmp(role, "admin") == 0) author_name = "Admin";
-                else author_name = "User";
-            }
-        } else {
-            author_name = (author_name_input && author_name_input[0]) ? author_name_input : "Anonymous";
+            cJSON_Delete(u);
         }
-        moderation_decision_t moderation = {MODERATION_ALLOW, ""};
-        if (!db_board_user_can_moderate(req->db, target_board_id, uid, role))
-            moderation = moderation_check_submission(req->db, uid, role, MODERATION_COMMENT, content);
-        if (moderation.action == MODERATION_REJECT) {
-            cwist_query_map_destroy(kv);
-            res->status_code = CWIST_HTTP_FORBIDDEN;
-            cwist_sstring_assign(res->body, "New accounts may post three comments in their first 24 hours");
-            return;
-        }
-        bool awaiting_review = moderation.action == MODERATION_PENDING;
-        int new_comment_id = awaiting_review
-            ? db_moderation_create_pending_comment(req->db, target_type, target_id, uid, author_name, parent_id, content, moderation.reason)
-            : db_comment_create(req->db, target_type, target_id, uid, author_name, parent_id, content);
-        if (new_comment_id > 0) {
-            CWIST_LOG_INFO("Comment created: target_type=%s target_id=%d uid=%d pending=%d", target_type, target_id, uid, awaiting_review);
-            if (!awaiting_review) {
-                invalidate_comment_target(req->db, target_type, target_id);
-                if (g_config.realtime_enabled && strcmp(target_type, "post") == 0)
-                    (void)fly_nats_publish_realtime_comment(target_id, new_comment_id);
-                notify_comment_recipient(req->db, uid, author_name, target_type, target_id, parent_id, content, new_comment_id);
-            } else {
-                fly_nats_publish_moderation(req->db, MODERATION_COMMENT, new_comment_id);
-            }
-        } else {
-            CWIST_LOG_ERROR("Comment creation failed: target_type=%s target_id=%d uid=%d", target_type, target_id, uid);
-        }
+        if (!author_name) author_name = strcmp(role, "admin") == 0 ? "Admin" : "User";
     } else {
-        CWIST_LOG_WARN("Comment creation failed: missing fields");
+        author_name = (author_name_input && author_name_input[0]) ? author_name_input : "Anonymous";
     }
 
-    char target_fallback[256] = "/";
-    if (target_type && target_id_str && target_id_str[0]) {
-        if (strcmp(target_type, "post") == 0) {
-            int tid = atoi(target_id_str);
-            if (tid > 0) {
-                cJSON *p = db_post_get_by_id(req->db, tid);
-                if (p) {
-                    cJSON *slug = cJSON_GetObjectItem(p, "slug");
-                    if (slug && slug->valuestring && slug->valuestring[0]) {
-                        snprintf(target_fallback, sizeof(target_fallback), "/post/%s", slug->valuestring);
-                    }
-                    cJSON_Delete(p);
-                }
-            }
-        } else if (strcmp(target_type, "file") == 0) {
-            snprintf(target_fallback, sizeof(target_fallback), "/file/%s", target_id_str);
-        }
+    moderation_decision_t moderation = {MODERATION_ALLOW, ""};
+    if (!db_board_user_can_moderate(req->db, target.board_id, uid, role))
+        moderation = moderation_check_submission(req->db, uid, role, MODERATION_COMMENT, content);
+    if (moderation.action == MODERATION_REJECT) {
+        cwist_query_map_destroy(kv);
+        comment_reject(res, CWIST_HTTP_FORBIDDEN, "New accounts may post three comments in their first 24 hours");
+        return;
+    }
+    bool awaiting_review = moderation.action == MODERATION_PENDING;
+    int new_comment_id = awaiting_review
+        ? db_moderation_create_pending_comment(req->db, target_type, target.id, uid, author_name, parent_id, content, moderation.reason)
+        : db_comment_create(req->db, target_type, target.id, uid, author_name, parent_id, content);
+    if (new_comment_id <= 0) {
+        CWIST_LOG_ERROR("Comment creation failed: target_type=%s target_id=%d uid=%d", target_type, target.id, uid);
+        cwist_query_map_destroy(kv);
+        comment_reject(res, CWIST_HTTP_INTERNAL_ERROR, "The comment could not be saved. Please try again.");
+        return;
+    }
+    CWIST_LOG_INFO("Comment created: target_type=%s target_id=%d uid=%d pending=%d", target_type, target.id, uid, awaiting_review);
+    if (!awaiting_review) {
+        invalidate_comment_slug(target_type, target.slug);
+        if (g_config.realtime_enabled && target.is_post)
+            (void)fly_nats_publish_realtime_comment(target.id, new_comment_id);
+        notify_comment_recipient(req->db, uid, author_name, &target, parent_id, content, new_comment_id);
+    } else {
+        fly_nats_publish_moderation(req->db, MODERATION_COMMENT, new_comment_id);
     }
 
+    /* Land on the new comment. A pending one is not shown yet. */
+    char location[384];
+    if (target.is_post && target.slug[0]) {
+        if (awaiting_review) snprintf(location, sizeof(location), "/post/%s#comments", target.slug);
+        else snprintf(location, sizeof(location), "/post/%s#comment-%d", target.slug, new_comment_id);
+    } else if (!target.is_post) {
+        if (awaiting_review) snprintf(location, sizeof(location), "/file/%d", target.id);
+        else snprintf(location, sizeof(location), "/file/%d#comment-%d", target.id, new_comment_id);
+    } else {
+        location[0] = '\0';
+    }
     cwist_query_map_destroy(kv);
-    redirect_referer_safe(res, referer, target_fallback);
+    if (location[0]) {
+        redirect(res, location);
+        /* 303: reloading the landing page must not resubmit the comment. */
+        res->status_code = (cwist_http_status_t)303;
+    } else {
+        redirect_referer_safe(res, referer, "/");
+    }
 }
 
 void handler_comment_edit_post(cwist_http_request *req, cwist_http_response *res) {
@@ -202,6 +226,11 @@ void handler_comment_edit_post(cwist_http_request *req, cwist_http_response *res
     const char *id_str = cwist_query_map_get(kv, "id");
     const char *content = cwist_query_map_get(kv, "content");
     const char *referer = cwist_http_header_get(req->headers, "Referer");
+    if (content && strlen(content) > COMMENT_CONTENT_MAX) {
+        cwist_query_map_destroy(kv);
+        comment_reject(res, (cwist_http_status_t)413, "Comments are limited to " COMMENT_CONTENT_MAX_STR " characters.");
+        return;
+    }
     if (id_str && content && content[0]) {
         cJSON *comment = db_comment_get_by_id(req->db, atoi(id_str));
         if (db_comment_update(req->db, atoi(id_str), uid, content)) {

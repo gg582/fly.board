@@ -15,7 +15,8 @@ static bool realtime_post_visible(cwist_http_request *req, int post_id) {
     char role[32] = {0};
     auth_is_logged_in(req, &uid, role, sizeof(role));
     cJSON *post = db_post_get_by_id(req->db, post_id);
-    bool visible = post && (post_is_public(post) || is_author_or_admin(post, uid, role));
+    bool visible = post && (post_is_public(post) || is_author_or_admin(post, uid, role)) &&
+                   post_lock_viewer_ok(req, post, uid, role);
     if (post) cJSON_Delete(post);
     return visible;
 }

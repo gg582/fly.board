@@ -52,7 +52,7 @@ cJSON *db_post_list_unpublished(cwist_db *db, int user_id) {
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     if (user_id > 0) sqlite3_bind_int(stmt, 1, user_id);
-    return db_sqlite3_rows_to_json(stmt);
+    return db_post_rows_to_json(stmt);
 }
 
 long long db_post_next_scheduled(cwist_db *db) {
@@ -104,10 +104,10 @@ bool db_post_update(cwist_db *db, int id, int board_id, const char *title, const
 }
 
 cJSON *db_post_claim_unannounced(cwist_db *db) {
-    const char *sql = "SELECT p.id, p.title, p.slug, p.summary FROM posts p WHERE p.announced=0 AND " POST_PUBLIC_SQL " ORDER BY p.created_at";
+    const char *sql = "SELECT p.id, p.title, p.slug, p.summary, p.access_hash FROM posts p WHERE p.announced=0 AND " POST_PUBLIC_SQL " ORDER BY p.created_at";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
-    cJSON *due = db_sqlite3_rows_to_json(stmt);
+    cJSON *due = db_post_rows_to_json(stmt);
     cJSON *claimed = cJSON_CreateArray();
     if (!due || !claimed) {
         if (due) cJSON_Delete(due);
@@ -177,6 +177,79 @@ static int extract_post_id_from_slug(const char *slug) {
     return 0;
 }
 
+bool post_is_locked(cJSON *post) {
+    cJSON *v = post ? cJSON_GetObjectItem(post, "locked") : NULL;
+    return v && cJSON_IsNumber(v) && v->valueint != 0;
+}
+
+static void post_redact_one(cJSON *post, bool blank_body) {
+    if (!post || !cJSON_IsObject(post)) return;
+    cJSON *hash = cJSON_GetObjectItem(post, "access_hash");
+    bool locked = hash && cJSON_IsString(hash) && hash->valuestring && hash->valuestring[0];
+    if (!hash) {
+        /* Narrow SELECTs without the column keep whatever flag they carry. */
+        locked = post_is_locked(post);
+    }
+    cJSON_DeleteItemFromObject(post, "access_hash");
+    cJSON_DeleteItemFromObject(post, "locked");
+    cJSON_AddNumberToObject(post, "locked", locked ? 1 : 0);
+    if (locked && blank_body) {
+        if (cJSON_GetObjectItem(post, "content"))
+            cJSON_ReplaceItemInObject(post, "content", cJSON_CreateString(""));
+        if (cJSON_GetObjectItem(post, "summary"))
+            cJSON_ReplaceItemInObject(post, "summary", cJSON_CreateString(""));
+    }
+}
+
+void db_post_redact_locked(cJSON *posts) {
+    if (!posts) return;
+    if (cJSON_IsArray(posts)) {
+        cJSON *p = NULL;
+        cJSON_ArrayForEach(p, posts) post_redact_one(p, true);
+    } else {
+        post_redact_one(posts, true);
+    }
+}
+
+/* rows_to_json for any list of posts that may reach a page, feed or event. */
+cJSON *db_post_rows_to_json(sqlite3_stmt *stmt) {
+    cJSON *rows = db_sqlite3_rows_to_json(stmt);
+    db_post_redact_locked(rows);
+    return rows;
+}
+
+bool db_post_set_access(cwist_db *db, int id, const char *access_hash) {
+    const char *sql = "UPDATE posts SET access_hash=?, access_ver=access_ver+1 WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, access_hash ? access_hash : "", -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE || sqlite3_changes(fly_db_conn(db)) == 0) return false;
+    /* Locked bodies are not searchable: reindex with or without the body. */
+    db_search_index_post(db, id);
+    db_sync_journal_row(db, "posts", "post", id);
+    return true;
+}
+
+bool db_post_access_get(cwist_db *db, int id, char *hash, size_t hash_len, int *ver) {
+    if (hash && hash_len) hash[0] = '\0';
+    if (ver) *ver = 0;
+    const char *sql = "SELECT COALESCE(access_hash,''), COALESCE(access_ver,0) FROM posts WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, id);
+    bool found = sqlite3_step(stmt) == SQLITE_ROW;
+    if (found) {
+        const char *h = (const char *)sqlite3_column_text(stmt, 0);
+        if (hash && hash_len) snprintf(hash, hash_len, "%s", h ? h : "");
+        if (ver) *ver = sqlite3_column_int(stmt, 1);
+    }
+    sqlite3_finalize(stmt);
+    return found;
+}
+
 cJSON *db_post_get_by_slug(cwist_db *db, const char *slug) {
     if (!slug || !slug[0]) return NULL;
     const char *sql = "SELECT p.*, u.username as author_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.slug=? OR p.id=? LIMIT 1";
@@ -184,7 +257,9 @@ cJSON *db_post_get_by_slug(cwist_db *db, const char *slug) {
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_text(stmt, 1, slug, -1, SQLITE_STATIC);
     sqlite3_bind_int(stmt, 2, extract_post_id_from_slug(slug));
-    return db_sqlite3_row_to_json(stmt);
+    cJSON *post = db_sqlite3_row_to_json(stmt);
+    post_redact_one(post, false);
+    return post;
 }
 
 cJSON *db_post_get_by_id(cwist_db *db, int id) {
@@ -192,7 +267,9 @@ cJSON *db_post_get_by_id(cwist_db *db, int id) {
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_int(stmt, 1, id);
-    return db_sqlite3_row_to_json(stmt);
+    cJSON *post = db_sqlite3_row_to_json(stmt);
+    post_redact_one(post, false);
+    return post;
 }
 
 cJSON *db_post_list(cwist_db *db, int board_id, int limit, int offset) {
@@ -205,7 +282,7 @@ cJSON *db_post_list(cwist_db *db, int board_id, int limit, int offset) {
     if (board_id > 0) sqlite3_bind_int(stmt, idx++, board_id);
     sqlite3_bind_int(stmt, idx++, limit);
     sqlite3_bind_int(stmt, idx++, offset);
-    return db_sqlite3_rows_to_json(stmt);
+    return db_post_rows_to_json(stmt);
 }
 
 cJSON *db_post_recent(cwist_db *db, int limit) {
@@ -218,7 +295,7 @@ cJSON *db_post_recent_by_board(cwist_db *db, int board_id, int limit) {
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_int(stmt, 1, board_id);
     sqlite3_bind_int(stmt, 2, limit);
-    return db_sqlite3_rows_to_json(stmt);
+    return db_post_rows_to_json(stmt);
 }
 
 cJSON *db_post_recent_by_boards_batch(cwist_db *db, int limit_per_board) {
@@ -235,7 +312,7 @@ cJSON *db_post_recent_by_boards_batch(cwist_db *db, int limit_per_board) {
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     sqlite3_bind_int(stmt, 1, limit_per_board);
-    return db_sqlite3_rows_to_json(stmt);
+    return db_post_rows_to_json(stmt);
 }
 
 int db_post_count(cwist_db *db, int board_id) {
@@ -449,7 +526,7 @@ cJSON *db_post_list_search(cwist_db *db, int board_id, const char *search, const
     sqlite3_bind_int(stmt, idx++, limit);
     sqlite3_bind_int(stmt, idx++, offset);
     search_query_free(&q);
-    return db_sqlite3_rows_to_json(stmt);
+    return db_post_rows_to_json(stmt);
 }
 
 int db_post_count_search(cwist_db *db, int board_id, const char *search, const char *search_type, const search_filters *filters) {
@@ -520,7 +597,7 @@ cJSON *db_post_list_by_month(cwist_db *db, const char *ym, int limit, int offset
     sqlite3_bind_text(stmt, 2, end, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 3, limit);
     sqlite3_bind_int(stmt, 4, offset);
-    return db_sqlite3_rows_to_json(stmt);
+    return db_post_rows_to_json(stmt);
 }
 
 int db_post_count_by_month(cwist_db *db, const char *ym) {
@@ -570,7 +647,7 @@ cJSON *db_post_feed(cwist_db *db, int board_id, int limit) {
     int idx = 1;
     if (board_id > 0) sqlite3_bind_int(stmt, idx++, board_id);
     sqlite3_bind_int(stmt, idx++, limit);
-    return db_sqlite3_rows_to_json(stmt);
+    return db_post_rows_to_json(stmt);
 }
 
 cJSON *db_post_list_for_signing(cwist_db *db) {

@@ -71,6 +71,8 @@ sqlite3 *db_board_tree_conn(void);
 bool pqc_keys_sync_conn(sqlite3 *conn, bool register_current);
 
 cJSON *db_sqlite3_rows_to_json(sqlite3_stmt *stmt);
+/* rows_to_json plus db_post_redact_locked, for post lists that reach users. */
+cJSON *db_post_rows_to_json(sqlite3_stmt *stmt);
 cJSON *db_sqlite3_row_to_json(sqlite3_stmt *stmt);
 
 /* Raw-connection cores of the webmail store, shared with the standalone

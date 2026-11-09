@@ -45,7 +45,18 @@
                 if (!response.ok) throw new Error('comment refresh failed');
                 return response.text();
             }).then(function (html) {
-                if (!stopped) doc.getElementById('comments-list').innerHTML = html;
+                if (stopped) return;
+                var list = doc.getElementById('comments-list');
+                list.innerHTML = html;
+                /* Comments are Markdown: typeset math and code like the body. */
+                if (typeof win.__renderBlogMath === 'function') {
+                    try { win.__renderBlogMath(list); } catch (_) {}
+                }
+                if (win.hljs && list.querySelectorAll) {
+                    Array.prototype.forEach.call(list.querySelectorAll('pre code[class*="language-"]'), function (el) {
+                        try { win.hljs.highlightElement(el); } catch (_) {}
+                    });
+                }
             }).catch(function () {
                 /* The server-rendered comments remain usable; the next event retries. */
             }).then(function () {

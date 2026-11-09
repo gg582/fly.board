@@ -80,6 +80,7 @@ void handler_board_perms_revoke_post(cwist_http_request *req, cwist_http_respons
 
 void handler_post_list(cwist_http_request *req, cwist_http_response *res);
 void handler_post_get(cwist_http_request *req, cwist_http_response *res);
+void handler_post_unlock_post(cwist_http_request *req, cwist_http_response *res);
 void post_bdr_hit(cwist_db *db, const char *path);
 void handler_post_new_get(cwist_http_request *req, cwist_http_response *res);
 void handler_post_new_post(cwist_http_request *req, cwist_http_response *res);
