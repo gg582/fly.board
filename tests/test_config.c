@@ -133,8 +133,10 @@ int main(void) {
     snprintf(g_layout_settings.panel_style, sizeof(g_layout_settings.panel_style), "bubble");
     snprintf(g_layout_settings.panel_color, sizeof(g_layout_settings.panel_color), "#12345680");
     g_layout_settings.panel_width = 460;
-    g_layout_settings.panel_x = -120;
-    g_layout_settings.panel_y = 80;
+    snprintf(g_layout_settings.panel_side, sizeof(g_layout_settings.panel_side), "right");
+    snprintf(g_layout_settings.panel_radius, sizeof(g_layout_settings.panel_radius), "24");
+    snprintf(g_layout_settings.code_theme_light, sizeof(g_layout_settings.code_theme_light), "monodraw-light");
+    snprintf(g_layout_settings.code_theme_dark, sizeof(g_layout_settings.code_theme_dark), "tokyo-night-dark");
     g_layout_settings.invert_transparent_images = false;
     snprintf(g_layout_settings.transparent_image_formats, sizeof(g_layout_settings.transparent_image_formats), "png,webp");
     CHECK(layout_settings_save(PATH), "save layout settings from appearance editor");
@@ -147,8 +149,49 @@ int main(void) {
     CHECK(strcmp(g_layout_settings.content_width, "wide") == 0, "content width round trip");
     CHECK(strcmp(g_layout_settings.panel_style, "bubble") == 0, "panel style round trip");
     CHECK(strcmp(g_layout_settings.panel_color, "#12345680") == 0, "RGBA panel color round trip");
-    CHECK(g_layout_settings.panel_width == 460 && g_layout_settings.panel_x == -120 && g_layout_settings.panel_y == 80,
-          "panel geometry round trip");
+    CHECK(strcmp(g_layout_settings.code_theme_light, "monodraw-light") == 0 &&
+          strcmp(g_layout_settings.code_theme_dark, "tokyo-night-dark") == 0, "code themes round trip");
+    {
+        char href[192];
+        code_theme_href("monodraw-dark", href, sizeof(href));
+        CHECK(strcmp(href, "/assets/css/hljs-monodraw-dark.css?v=1") == 0, "Monodraw is served locally");
+        code_theme_href("atom-one-light", href, sizeof(href));
+        CHECK(strcmp(href, "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/atom-one-light.min.css") == 0,
+              "highlight.js themes come from the CDN");
+        CHECK(code_theme_local_path("monodraw-light") && access(code_theme_local_path("monodraw-light"), R_OK) == 0 &&
+              access(code_theme_local_path("monodraw-dark"), R_OK) == 0, "Monodraw stylesheets exist");
+        CHECK(layout_value_valid("code_theme_dark", "github-dark") && !layout_value_valid("code_theme_dark", "../x") &&
+              !layout_value_valid("code_theme_light", ""), "code theme ids are whitelisted");
+    }
+    CHECK(g_layout_settings.panel_width == 460 && strcmp(g_layout_settings.panel_side, "right") == 0,
+          "panel width and side round trip");
+    CHECK(strcmp(g_layout_settings.panel_radius, "24") == 0, "custom panel radius round trip");
+    char *panel_css = layout_build_css();
+    CHECK(panel_css && strstr(panel_css, "width:min(460px,100vw);right:0;left:auto;border-radius:24px;"),
+          "right panel anchors to the right edge with the custom radius");
+    CHECK(panel_css && strstr(panel_css, "body.panel-side-right .burger-btn{order:99;}"),
+          "right side moves the hamburger to the right");
+    CHECK(panel_css && !strstr(panel_css, "translate("), "free-form panel offset is gone");
+    free(panel_css);
+    char radius[16];
+    snprintf(g_layout_settings.panel_radius, sizeof(g_layout_settings.panel_radius), "auto");
+    layout_panel_radius_css(radius, sizeof(radius));
+    CHECK(strcmp(radius, "32px") == 0, "auto radius follows the bubble style");
+    snprintf(g_layout_settings.panel_radius, sizeof(g_layout_settings.panel_radius), "site");
+    float saved_roundness = g_config.roundness;
+    g_config.roundness = 0.5f;
+    layout_panel_radius_css(radius, sizeof(radius));
+    CHECK(strcmp(radius, "16.0px") == 0, "site radius follows the site roundness");
+    g_config.roundness = 0.0f;
+    layout_panel_radius_css(radius, sizeof(radius));
+    CHECK(strcmp(radius, "0") == 0, "zero site roundness gives square corners");
+    g_config.roundness = saved_roundness;
+    snprintf(g_layout_settings.panel_radius, sizeof(g_layout_settings.panel_radius), "auto");
+    CHECK(layout_value_valid("panel_side", "left") && layout_value_valid("panel_side", "right") &&
+          !layout_value_valid("panel_side", "center"), "panel side is left or right only");
+    CHECK(layout_value_valid("panel_radius", "auto") && layout_value_valid("panel_radius", "site") &&
+          layout_value_valid("panel_radius", "48") && !layout_value_valid("panel_radius", "49") &&
+          !layout_value_valid("panel_radius", "-1"), "panel radius accepts auto, site, 0..48");
     CHECK(!g_layout_settings.invert_transparent_images, "disabled image inversion round trip");
     CHECK(strcmp(g_layout_settings.transparent_image_formats, "png,webp") == 0, "selected image formats round trip");
     CHECK(!layout_value_valid("density", "invalid"), "invalid layout value rejected");
@@ -161,12 +204,30 @@ int main(void) {
     CHECK(!layout_value_valid("transparent_image_formats", "svg,all"), "all cannot be mixed with extensions");
     CHECK(!layout_value_valid("transparent_image_formats", "svg,,png"), "empty format rejected");
     CHECK(!layout_value_valid("transparent_image_formats", "exe"), "unknown format rejected");
+    {
+        /* A layout.settings written before panel_side still loads: the old
+         * free-form offsets are ignored and the side defaults to left. */
+        const char *legacy = "/tmp/flytest_layout_legacy.settings";
+        FILE *lf = fopen(legacy, "w");
+        if (lf) {
+            fputs("navigation=hamburger\npanel_style=round\npanel_width=400\npanel_x=-120\npanel_y=80\n", lf);
+            fclose(lf);
+        }
+        layout_settings_t keep = g_layout_settings;
+        CHECK(layout_settings_load(legacy), "legacy layout settings load");
+        CHECK(g_layout_settings.panel_width == 400 && strcmp(g_layout_settings.panel_side, "left") == 0 &&
+              strcmp(g_layout_settings.panel_radius, "auto") == 0, "legacy offsets ignored, new fields default");
+        CHECK(strcmp(g_layout_settings.code_theme_light, "github") == 0 &&
+              strcmp(g_layout_settings.code_theme_dark, "github-dark") == 0, "code themes default to GitHub");
+        remove(legacy);
+        g_layout_settings = keep;
+    }
     char *layout_css = layout_build_css();
     CHECK(layout_css && strstr(layout_css, "nav-hamburger") && strstr(layout_css, "density-compact"),
           "layout CSS reflects saved navigation and density");
     CHECK(layout_css && strstr(layout_css, "width:min(460px,100vw)") &&
-          strstr(layout_css, "translate(-120px,80px)") && strstr(layout_css, "#12345680") &&
-          strstr(layout_css, "border-radius:32px"), "panel geometry, RGBA color, and bubble style rendered");
+          strstr(layout_css, "right:0;left:auto;") && strstr(layout_css, "#12345680") &&
+          strstr(layout_css, "border-radius:32px"), "panel side, RGBA color, and bubble style rendered");
     CHECK(layout_css && !strstr(layout_css, "data-svg-transparent"), "disabled image inversion emits no filter");
     free(layout_css);
     g_layout_settings.invert_transparent_images = true;

@@ -43,6 +43,8 @@ typedef struct {
     /* Optional CDN libraries that can be inlined when FLYBOARD_INLINE_CDN is set */
     char *highlight_light_css;
     char *highlight_dark_css;
+    char *highlight_monodraw_light_css;
+    char *highlight_monodraw_dark_css;
     char *highlight_js;
     char *highlight_fortran_js;
     char *highlight_prolog_js;
@@ -90,6 +92,8 @@ static void load_inline_assets(void) {
                                                            "public/css/d2coding.css");
     g_inline_assets.highlight_light_css = read_file_to_string("public/inline_assets/highlight-light.css");
     g_inline_assets.highlight_dark_css  = read_file_to_string("public/inline_assets/highlight-dark.css");
+    g_inline_assets.highlight_monodraw_light_css = read_file_to_string("public/css/hljs-monodraw-light.css");
+    g_inline_assets.highlight_monodraw_dark_css  = read_file_to_string("public/css/hljs-monodraw-dark.css");
     g_inline_assets.highlight_js        = read_js_asset("public/inline_assets/highlight.js");
     g_inline_assets.highlight_fortran_js  = read_js_asset("public/inline_assets/highlight-fortran.js");
     g_inline_assets.highlight_prolog_js   = read_js_asset("public/inline_assets/highlight-prolog.js");
@@ -449,6 +453,13 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     snprintf(appearance_version, sizeof(appearance_version), "%llu",
              (unsigned long long)engine_bdr_appearance_version());
     cwist_html_element_add_attr(html, "data-theme-version", appearance_version);
+    /* Code highlight stylesheets for both modes; the client theme toggle swaps
+     * between them. */
+    char hl_href[192];
+    code_theme_href(g_layout_settings.code_theme_light, hl_href, sizeof(hl_href));
+    cwist_html_element_add_attr(html, "data-hl-light", hl_href);
+    code_theme_href(g_layout_settings.code_theme_dark, hl_href, sizeof(hl_href));
+    cwist_html_element_add_attr(html, "data-hl-dark", hl_href);
     if (is_mobile) cwist_html_element_add_class(html, "mobile");
 
     cwist_html_element_t *head = cwist_html_element_create("head");
@@ -572,10 +583,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     if (dark) cwist_html_element_add_class(body, "dark");
     if (is_mobile) cwist_html_element_add_class(body, "mobile");
     if (g_layout_settings.invert_transparent_images) cwist_html_element_add_class(body, "transparent-image-invert-enabled");
-    char body_class[160];
-    snprintf(body_class, sizeof(body_class), "nav-%s layout-%s density-%s list-%s width-%s panel-%s",
+    char body_class[192];
+    snprintf(body_class, sizeof(body_class), "nav-%s layout-%s density-%s list-%s width-%s panel-%s panel-side-%s",
              g_layout_settings.navigation, g_layout_settings.content_style, g_layout_settings.density,
-             g_layout_settings.list_style, g_layout_settings.content_width, g_layout_settings.panel_style);
+             g_layout_settings.list_style, g_layout_settings.content_width, g_layout_settings.panel_style,
+             g_layout_settings.panel_side);
     cwist_html_element_add_class(body, body_class);
 
 
@@ -1014,8 +1026,13 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                 /* Load the current highlight theme. The client-side toggle
                  * switches the link href when the user changes theme.
                  * Even with inlining enabled, oversized CSS is kept external. */
-                const char *hl_css = dark ? a->highlight_dark_css : a->highlight_light_css;
-                if (inline_cdn_enabled() && inline_asset_fits(hl_css)) {
+                const char *hl_id = dark ? g_layout_settings.code_theme_dark : g_layout_settings.code_theme_light;
+                const char *hl_css = NULL;
+                if (strcmp(hl_id, "github") == 0) hl_css = a->highlight_light_css;
+                else if (strcmp(hl_id, "github-dark") == 0) hl_css = a->highlight_dark_css;
+                else if (strcmp(hl_id, "monodraw-light") == 0) hl_css = a->highlight_monodraw_light_css;
+                else if (strcmp(hl_id, "monodraw-dark") == 0) hl_css = a->highlight_monodraw_dark_css;
+                if (hl_css && inline_cdn_enabled() && inline_asset_fits(hl_css)) {
                     cwist_sstring_append(head_cdn, "<style id=\"hl-theme\" data-active=\"");
                     cwist_sstring_append(head_cdn, dark ? "dark" : "light");
                     cwist_sstring_append(head_cdn, "\">");
@@ -1024,9 +1041,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                 } else {
                     /* Code-highlight theme is only needed once a code block
                      * scrolls into view; keep it off the critical path. */
-                    cwist_sstring_append(head_cdn, "<link rel=\"preload\" as=\"style\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github");
-                    cwist_sstring_append(head_cdn, dark ? "-dark" : "");
-                    cwist_sstring_append(head_cdn, ".min.css\" id=\"hl-theme\" data-active=\"");
+                    char hl_href[192];
+                    code_theme_href(hl_id, hl_href, sizeof(hl_href));
+                    cwist_sstring_append(head_cdn, "<link rel=\"preload\" as=\"style\" href=\"");
+                    cwist_sstring_append(head_cdn, hl_href);
+                    cwist_sstring_append(head_cdn, "\" id=\"hl-theme\" data-active=\"");
                     cwist_sstring_append(head_cdn, dark ? "dark" : "light");
                     cwist_sstring_append(head_cdn, "\" onload=\"this.onload=null;this.rel='stylesheet'\">");
                 }

@@ -69,6 +69,23 @@
         else if(field('font_face_src'))css+='@font-face{font-family:"'+field('font_face_family').replace(/["']/g,'')+'";font-display:swap;src:'+field('font_face_src')+';}';
         return css;
     }
+    /* Mirrors layout_panel_radius_css() in src/config/config.c. */
+    function panelRadius(){
+        var mode=field('panel_radius');
+        if(mode==='site'){
+            var px=32*(parseFloat(form.getAttribute('data-site-roundness'))||0);
+            return px>0?px.toFixed(1)+'px':'0';
+        }
+        if(mode==='custom')return (parseInt(field('panel_radius_px'),10)||0)+'px';
+        return field('panel_style')==='square'?'0':field('panel_style')==='round'?'18px':'32px';
+    }
+    function panelSide(){
+        return field('panel_side')==='right'?'right':'left';
+    }
+    function panelWidth(){
+        var w=parseInt(field('panel_width'),10);
+        return isNaN(w)?380:Math.max(240,Math.min(520,w));
+    }
     function layoutCss(){
         var density=field('density');
         var rowPadding=density==='compact'?'10px 0':density==='spacious'?'42px 0':'28px 0';
@@ -84,9 +101,9 @@
         if(field('list_style')==='cards')css+='.post-list{gap:16px;}.post-row,.post-row.featured{padding:24px;border:1px solid var(--glass-border);border-radius:12px;background:var(--glass-bg);}';
         if(field('list_style')==='table')css+='.post-row,.post-row.featured{padding-top:10px;padding-bottom:10px;}.post-row-title,.post-row.featured .post-row-title{display:inline;font-size:1rem;font-weight:650;line-height:1.4;border-bottom:0;padding-bottom:0;}.post-row-summary{display:none;}.post-row-head{display:inline-flex;padding:0 8px 0 0;}.post-row-meta{display:inline-flex;padding:0 0 0 10px;font-size:12px;}';
         if(field('navigation')==='hamburger'){
-            var panelRadius=field('panel_style')==='square'?'0':field('panel_style')==='round'?'18px':'32px';
             var panelColor=field('panel_color')||'var(--panel)';
-            css+='.burger-btn{display:inline-flex;}.nav-links{display:none;position:absolute;top:58px;right:0;width:min('+field('panel_width')+'px,100%);padding:14px;box-sizing:border-box;flex-direction:column;align-items:stretch;background:'+panelColor+';border:1px solid var(--glass-border);border-radius:'+panelRadius+';transform:translate('+field('panel_x')+'px,'+field('panel_y')+'px);z-index:20;}.nav-links.open{display:flex;}';
+            var right=panelSide()==='right';
+            css+='.burger-btn{display:inline-flex;'+(right?'order:99;':'')+'}.nav-links{display:none;position:absolute;top:58px;'+(right?'right:0;left:auto;':'left:0;right:auto;')+'width:min('+panelWidth()+'px,100%);padding:14px;box-sizing:border-box;flex-direction:column;align-items:stretch;background:'+panelColor+';border:1px solid var(--glass-border);border-radius:'+panelRadius()+';z-index:20;}.nav-links.open{display:flex;}';
             if(field('panel_style')==='bubble')css+='.nav-links{border-width:2px;box-shadow:0 24px 70px var(--shadow);}';
         }else css+='.burger-btn{display:none;}';
         return css;
@@ -106,9 +123,9 @@
         return 'html[data-theme-base=dark] body.transparent-image-invert-enabled img[data-svg-transparent=true]:not(.hero-bg){filter:invert(1) hue-rotate(180deg);}';
     }
     function navigationMarkup(){
-        return '<header class="topbar"><button type="button" class="burger-btn" aria-label="Menu" aria-expanded="false"><span class="burger-icon">☰</span></button>'+
+        return '<header class="topbar"><button type="button" class="burger-btn" aria-label="Menu" aria-expanded="true"><span class="burger-icon">☰</span></button>'+
             '<a class="topbar-brand" href="#"><span class="topbar-title">Fly Board</span></a>'+
-            '<nav class="nav-links"><div class="appearance-panel-grip" role="button" tabindex="0" aria-label="Drag menu panel">Drag menu</div><a class="nav-item">Home</a><a class="nav-item">Boards</a><a class="nav-item">Archive</a><a class="nav-item">Files</a></nav>'+
+            '<nav class="nav-links open"><div class="appearance-panel-resize" role="separator" aria-orientation="vertical" aria-label="Resize menu panel" aria-valuemin="240" aria-valuemax="520" aria-valuenow="'+panelWidth()+'" tabindex="0"><span class="appearance-panel-size">'+panelWidth()+' px</span></div><a class="nav-item">Home</a><a class="nav-item">Boards</a><a class="nav-item">Archive</a><a class="nav-item">Files</a></nav>'+
             '<button class="btn btn-outline" type="button">○</button></header>';
     }
     function listMarkup(){
@@ -129,7 +146,20 @@
             '<p>Adjust the controls and this text changes immediately. 가독성과 개성을 함께 확인할 수 있습니다.</p>'+
             '<figure><img data-svg-transparent="true" alt="Transparent SVG preview" width="180" height="72" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22180%22 height=%2272%22 viewBox=%220 0 180 72%22%3E%3Ccircle cx=%2236%22 cy=%2236%22 r=%2224%22 fill=%22black%22/%3E%3Cpath d=%22M76 24h80M76 40h64M76 56h48%22 stroke=%22black%22 stroke-width=%226%22 stroke-linecap=%22round%22/%3E%3C/svg%3E"><figcaption>Transparent background SVG</figcaption></figure>'+
             '<blockquote>A quote can use a contrasting serif stack without changing body copy.</blockquote>'+
-            '<pre><code>const preview = "live";\nconsole.log(preview);</code></pre></div></article>';
+            '<pre><code class="hljs language-c">'+
+            '<span class="hljs-meta">#<span class="hljs-keyword">include</span> <span class="hljs-string">&lt;stdio.h&gt;</span></span>\n\n'+
+            '<span class="hljs-comment">/* Preview of the code highlight theme */</span>\n'+
+            '<span class="hljs-type">int</span> <span class="hljs-title function_">main</span><span class="hljs-params">(<span class="hljs-type">void</span>)</span> {\n'+
+            '    <span class="hljs-type">const</span> <span class="hljs-type">char</span> *mode = <span class="hljs-string">&quot;live&quot;</span>;\n'+
+            '    <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">3</span>; i++)\n'+
+            '        <span class="hljs-built_in">printf</span>(<span class="hljs-string">&quot;%s %d\\n&quot;</span>, mode, i);\n'+
+            '    <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span> == mode;\n}</code></pre></div></article>';
+    }
+    function codeThemeLink(){
+        var select=form.elements[modeSelect.value==='dark'?'code_theme_dark':'code_theme_light'];
+        var option=select&&select.options[select.selectedIndex];
+        var href=option&&option.getAttribute('data-href');
+        return href?'<link rel="stylesheet" href="'+href.replace(/["<>]/g,'')+'">':'';
     }
     function previewMarkup(){
         return navigationMarkup()+'<main class="shell">'+(pageSelect.value==='article'?articleMarkup():listMarkup())+'</main>';
@@ -141,15 +171,28 @@
         var script=externalScript?'<script src="'+externalScript.replace(/["<>]/g,'')+'"><\/script>':'';
         var bodyClass='nav-'+field('navigation')+' layout-'+field('content_style')+' density-'+field('density')+' list-'+field('list_style')+' width-'+field('content_width')+' panel-'+field('panel_style');
         if(form.elements.invert_transparent_images&&form.elements.invert_transparent_images.checked)bodyClass+=' transparent-image-invert-enabled';
-        var panelX=parseInt(field('panel_x'),10)||0,panelY=parseInt(field('panel_y'),10)||0;
-        var panelScript='<script>var b=document.querySelector(".burger-btn"),n=document.querySelector(".nav-links"),g=document.querySelector(".appearance-panel-grip"),drag=null,x='+panelX+',y='+panelY+';'+
+        /* KDE Plasma 6 style edit handle: drag the panel's inner edge (or use
+         * the arrow keys) to resize; the width snaps to 10 px and is sent
+         * back to the form. */
+        var panelScript='<script>(function(){var b=document.querySelector(".burger-btn"),n=document.querySelector(".nav-links"),h=document.querySelector(".appearance-panel-resize"),label=h&&h.querySelector(".appearance-panel-size"),side="'+panelSide()+'",w='+panelWidth()+',drag=null;'+
             'if(b)b.addEventListener("click",function(){var o=n.classList.toggle("open");b.setAttribute("aria-expanded",o?"true":"false");});'+
-            'if(g)g.addEventListener("pointerdown",function(e){e.preventDefault();drag={px:e.clientX,py:e.clientY,x:x,y:y};g.setPointerCapture(e.pointerId);g.style.cursor="grabbing";});'+
-            'if(g)g.addEventListener("pointermove",function(e){if(!drag)return;x=Math.max(-600,Math.min(600,drag.x+e.clientX-drag.px));y=Math.max(-600,Math.min(600,drag.y+e.clientY-drag.py));n.style.transform="translate("+x+"px,"+y+"px)";});'+
-            'if(g)g.addEventListener("pointerup",function(e){if(!drag)return;drag=null;g.releasePointerCapture(e.pointerId);g.style.cursor="grab";parent.postMessage({type:"fly-panel-position",x:x,y:y},"*");});<\/script>';
-        frame.srcdoc='<!doctype html><html data-theme-base="'+modeSelect.value+'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>'+
+            'if(!h)return;'+
+            'function set(nw,commit){nw=Math.max(240,Math.min(520,Math.round(nw/10)*10));w=nw;n.style.width=nw+"px";label.textContent=nw+" px";h.setAttribute("aria-valuenow",nw);if(commit)parent.postMessage({type:"fly-panel-width",width:nw},"*");}'+
+            'h.addEventListener("pointerdown",function(e){e.preventDefault();drag={x:e.clientX,w:n.getBoundingClientRect().width};try{h.setPointerCapture(e.pointerId);}catch(_){}n.classList.add("resizing");});'+
+            'h.addEventListener("pointermove",function(e){if(!drag)return;var dx=e.clientX-drag.x;set(side==="right"?drag.w-dx:drag.w+dx,false);});'+
+            'function end(e){if(!drag)return;drag=null;try{h.releasePointerCapture(e.pointerId);}catch(_){}n.classList.remove("resizing");set(w,true);}'+
+            'h.addEventListener("pointerup",end);h.addEventListener("pointercancel",end);'+
+            'h.addEventListener("keydown",function(e){var grow=side==="right"?"ArrowLeft":"ArrowRight",shrink=side==="right"?"ArrowRight":"ArrowLeft";if(e.key===grow){e.preventDefault();set(w+10,true);}else if(e.key===shrink){e.preventDefault();set(w-10,true);}});'+
+            '})();<\/script>';
+        var resizeCss='.appearance-panel-resize{display:none;position:absolute;top:0;bottom:0;'+(panelSide()==='right'?'left:-6px;':'right:-6px;')+'width:12px;cursor:ew-resize;touch-action:none;user-select:none;z-index:2}'+
+            '.appearance-panel-resize::before{content:"";position:absolute;top:50%;left:4px;width:4px;height:44px;margin-top:-22px;border-radius:2px;background:var(--accent,#3daee9);opacity:.55;transition:opacity .15s}'+
+            '.appearance-panel-resize:hover::before,.appearance-panel-resize:focus-visible::before,.resizing .appearance-panel-resize::before{opacity:1}'+
+            '.appearance-panel-size{position:absolute;top:50%;'+(panelSide()==='right'?'left:16px;':'right:16px;')+'transform:translateY(-50%);padding:3px 8px;border-radius:6px;background:var(--accent,#3daee9);color:#fff;font:600 11px/1.4 system-ui,sans-serif;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .15s}'+
+            '.appearance-panel-resize:hover .appearance-panel-size,.appearance-panel-resize:focus-visible .appearance-panel-size,.resizing .appearance-panel-size{opacity:1}'+
+            '.nav-hamburger .appearance-panel-resize{display:block}.nav-links.resizing{outline:2px dashed var(--accent,#3daee9);outline-offset:2px}';
+        frame.srcdoc='<!doctype html><html data-theme-base="'+modeSelect.value+'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+codeThemeLink()+'<style>'+
             fontSourceCss()+buildThemeCss(theme)+typographyCss()+layoutCss()+transparentImageCss()+
-            '.topbar{display:flex;justify-content:space-between;align-items:center;position:relative}.nav-links{display:flex;gap:12px;align-items:center}.topbar-brand{text-decoration:none}.post-content{margin-top:24px}.markdown-body{line-height:1.75}pre{overflow:auto;padding:14px}blockquote{margin-left:0;padding-left:16px}.hero{margin-bottom:24px}.board-line{margin-bottom:24px}.tag{display:inline-block;padding:3px 8px}.post-row-title{cursor:pointer}.post-list{padding:0}.shell{width:100%;box-sizing:border-box}.appearance-panel-grip{display:none;cursor:grab;touch-action:none;user-select:none;text-align:center;padding:8px;margin:-6px 0 8px;border-bottom:1px dashed var(--border);font-size:11px;color:var(--muted)}.nav-hamburger .appearance-panel-grip{display:block}@media(max-width:600px){.shell{padding:18px}.post-row-meta{display:flex;padding:6px 0 0}}</style>'+
+            '.topbar{display:flex;justify-content:space-between;align-items:center;position:relative}.nav-links{display:flex;gap:12px;align-items:center}.topbar-brand{text-decoration:none}.post-content{margin-top:24px}.markdown-body{line-height:1.75}pre{overflow:auto;padding:14px}blockquote{margin-left:0;padding-left:16px}.hero{margin-bottom:24px}.board-line{margin-bottom:24px}.tag{display:inline-block;padding:3px 8px}.post-row-title{cursor:pointer}.post-list{padding:0}.shell{width:100%;box-sizing:border-box}'+resizeCss+'@media(max-width:600px){.shell{padding:18px}.post-row-meta{display:flex;padding:6px 0 0}}</style>'+
             '</head><body class="'+bodyClass+'" data-invert-transparent-formats="'+transparentFormats()+'">'+previewMarkup()+script+panelScript+'</body></html>';
     }
     function scheduleRender(){
@@ -176,16 +219,27 @@
     [colorPicker,colorAlpha].forEach(function(control){control.addEventListener('input',syncPanelColor);});
     colorEnabled.addEventListener('change',syncPanelColor);
     window.addEventListener('message',function(event){
-        if(event.source!==frame.contentWindow||!event.data||event.data.type!=='fly-panel-position')return;
-        form.elements.panel_x.value=String(event.data.x);
-        form.elements.panel_y.value=String(event.data.y);
+        if(event.source!==frame.contentWindow||!event.data||event.data.type!=='fly-panel-width')return;
+        var width=Math.max(240,Math.min(520,parseInt(event.data.width,10)||380));
+        form.elements.panel_width.value=String(width);
+        document.getElementById('appearance-panel-width-value').value=String(width);
     });
+    var radiusSlider=form.elements.panel_radius_px;
+    function syncRadiusControls(){
+        if(radiusSlider)radiusSlider.disabled=field('panel_radius')!=='custom';
+    }
     form.addEventListener('input',function(event){
-        if(event.target.matches('[data-panel-width]'))document.getElementById('appearance-panel-width-value').value=event.target.value;
+        if(event.target.matches('[data-panel-radius]'))document.getElementById('appearance-panel-radius-value').value=event.target.value;
         if(event.target.matches('[data-appearance-setting]'))scheduleRender();
     });
     form.addEventListener('change',function(event){
         var target=event.target;
+        if(target.name==='panel_radius')syncRadiusControls();
+        if(target.matches('[data-code-theme]')){
+            // Show the changed mode on an article so the code block is visible.
+            modeSelect.value=target.name==='code_theme_dark'?'dark':'light';
+            pageSelect.value='article';
+        }
         if(target.matches('[data-transparent-format]'))form.elements.transparent_format_all.checked=false;
         if(target.matches('[data-transparent-format-all]')){
             form.querySelectorAll('[data-transparent-format]').forEach(function(input){input.checked=target.checked;});
@@ -220,7 +274,12 @@
         if(fontUrl)URL.revokeObjectURL(fontUrl);
         if(scriptUrl)URL.revokeObjectURL(scriptUrl);
         fontUrl=null;scriptUrl=null;
-        setTimeout(scheduleRender,0);
+        setTimeout(function(){
+            syncRadiusControls();
+            document.getElementById('appearance-panel-width-value').value=field('panel_width');
+            document.getElementById('appearance-panel-radius-value').value=field('panel_radius_px');
+            scheduleRender();
+        },0);
     });
     modeSelect.addEventListener('change',scheduleRender);
     pageSelect.addEventListener('change',scheduleRender);

@@ -2,6 +2,7 @@
 #include "render/render.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 static int failures;
 #define CHECK(cond, name) do { \
@@ -17,6 +18,10 @@ int main(void) {
 
     cwist_sstring *page = render_admin_appearance(true, NULL, false, NULL);
     CHECK(page != NULL, "appearance page renders");
+    if (page && getenv("DUMP_APPEARANCE")) {
+        FILE *dump = fopen(getenv("DUMP_APPEARANCE"), "w");
+        if (dump) { fputs(page->data, dump); fclose(dump); }
+    }
     if (page) {
         CHECK(strstr(page->data, checked) != NULL, "image inversion checkbox is checked by default");
         CHECK(strstr(page->data, "class=\"dark transparent-image-invert-enabled nav-") != NULL,
@@ -31,6 +36,27 @@ int main(void) {
               "page exposes its initial theme family");
         CHECK(strstr(page->data, "html[data-theme-base=dark] body.transparent-image-invert-enabled") != NULL,
               "enabled page contains the dark image filter");
+        CHECK(strstr(page->data, "name='panel_side' value='left' data-appearance-setting checked") != NULL &&
+              strstr(page->data, "name='panel_side' value='right' data-appearance-setting>") != NULL,
+              "panel side offers left (default) and right");
+        CHECK(strstr(page->data, "name='panel_x'") == NULL && strstr(page->data, "name='panel_y'") == NULL,
+              "free-form panel offsets are gone");
+        CHECK(strstr(page->data, "type='hidden' name='panel_width' value='380'") != NULL,
+              "panel width is set from the preview, not a number field");
+        CHECK(strstr(page->data, "name='panel_radius' value='auto' data-appearance-setting checked") != NULL &&
+              strstr(page->data, "name='panel_radius_px' min='0' max='48'") != NULL &&
+              strstr(page->data, "data-panel-radius disabled") != NULL,
+              "panel roundness defaults to the style and keeps the slider disabled");
+        CHECK(strstr(page->data, "data-site-roundness='") != NULL, "site roundness is exposed to the preview");
+        CHECK(strstr(page->data, "panel-side-left") != NULL, "page body carries the panel side");
+        CHECK(strstr(page->data, "<select name='code_theme_light'") != NULL &&
+              strstr(page->data, "<select name='code_theme_dark'") != NULL, "code theme selects render");
+        CHECK(strstr(page->data, "<option value='github' data-href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github.min.css' selected>GitHub</option>") != NULL,
+              "light code theme defaults to GitHub");
+        CHECK(strstr(page->data, ">Monodraw Light</option>") != NULL && strstr(page->data, ">Monodraw Dark</option>") != NULL,
+              "Monodraw themes are offered");
+        CHECK(strstr(page->data, "data-hl-dark=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github-dark.min.css\"") != NULL,
+              "page exposes both code theme URLs");
         cwist_sstring_destroy(page);
     }
 

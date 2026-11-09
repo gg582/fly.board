@@ -208,17 +208,27 @@ void handler_admin_appearance_post(cwist_http_request *req, cwist_http_response 
         snprintf(layout_values[i], 16, "%s", value);
     }
     const char *panel_width = field_value(fields, "panel_width");
-    const char *panel_x = field_value(fields, "panel_x");
-    const char *panel_y = field_value(fields, "panel_y");
+    const char *panel_side = field_value(fields, "panel_side");
+    const char *panel_radius = field_value(fields, "panel_radius");
     const char *panel_color = field_value(fields, "panel_color");
-    if (!layout_value_valid("panel_width", panel_width) || !layout_value_valid("panel_x", panel_x) ||
-        !layout_value_valid("panel_y", panel_y) || !layout_value_valid("panel_color", panel_color)) {
+    /* "custom" carries its pixel value in panel_radius_px. */
+    if (strcmp(panel_radius, "custom") == 0) panel_radius = field_value(fields, "panel_radius_px");
+    if (!layout_value_valid("panel_width", panel_width) || !layout_value_valid("panel_side", panel_side) ||
+        !layout_value_valid("panel_radius", panel_radius) || !layout_value_valid("panel_color", panel_color)) {
         valid = false;
     } else {
         g_layout_settings.panel_width = atoi(panel_width);
-        g_layout_settings.panel_x = atoi(panel_x);
-        g_layout_settings.panel_y = atoi(panel_y);
+        snprintf(g_layout_settings.panel_side, sizeof(g_layout_settings.panel_side), "%s", panel_side);
+        snprintf(g_layout_settings.panel_radius, sizeof(g_layout_settings.panel_radius), "%s", panel_radius);
         snprintf(g_layout_settings.panel_color, sizeof(g_layout_settings.panel_color), "%s", panel_color);
+    }
+    const char *code_light = field_value(fields, "code_theme_light");
+    const char *code_dark = field_value(fields, "code_theme_dark");
+    if (!code_theme_valid(code_light) || !code_theme_valid(code_dark)) {
+        valid = false;
+    } else {
+        snprintf(g_layout_settings.code_theme_light, sizeof(g_layout_settings.code_theme_light), "%s", code_light);
+        snprintf(g_layout_settings.code_theme_dark, sizeof(g_layout_settings.code_theme_dark), "%s", code_dark);
     }
     g_layout_settings.invert_transparent_images = form_find(fields, "invert_transparent_images") != NULL ||
                                                   form_find(fields, "invert_transparent_svg") != NULL;

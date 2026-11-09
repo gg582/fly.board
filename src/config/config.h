@@ -170,8 +170,14 @@ typedef struct {
     char panel_style[16];
     char panel_color[16];
     int panel_width;
-    int panel_x;
-    int panel_y;
+    /* Hamburger button and its panel share a side: "left" or "right". */
+    char panel_side[8];
+    /* Panel corner radius: "auto" (from panel_style), "site" (the site-wide
+     * roundness) or a pixel value 0..48. */
+    char panel_radius[8];
+    /* Code highlight theme per site mode (ids from g_code_themes). */
+    char code_theme_light[32];
+    char code_theme_dark[32];
     bool invert_transparent_images;
     char transparent_image_formats[64];
 } layout_settings_t;
@@ -182,6 +188,23 @@ bool layout_settings_load(const char *path);
 bool layout_settings_save(const char *path);
 bool layout_value_valid(const char *key, const char *value);
 char *layout_build_css(void);
+/* CSS border-radius of the hamburger panel (see panel_radius). */
+void layout_panel_radius_css(char *out, size_t out_size);
+
+typedef struct {
+    const char *id;
+    const char *label;
+    bool dark;
+} code_theme_t;
+
+extern const code_theme_t g_code_themes[];
+extern const size_t g_code_theme_count;
+bool code_theme_valid(const char *id);
+/* Stylesheet URL for a code theme: highlight.js CDN, or /assets/css for
+ * themes shipped with fly.board. */
+void code_theme_href(const char *id, char *out, size_t out_size);
+/* Local file for a theme shipped with fly.board, or NULL. */
+const char *code_theme_local_path(const char *id);
 
 typedef struct s3_config_s {
     /* All fields empty means S3 is disabled (the default).  S3 is used only

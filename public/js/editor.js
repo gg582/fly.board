@@ -1663,8 +1663,9 @@
     function ensureHighlightCss() {
         var link = document.getElementById('hl-theme');
         var mode = getCurrentThemeMode();
-        var href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github' +
-                   (mode === 'dark' ? '-dark' : '') + '.min.css';
+        var href = document.documentElement.getAttribute(mode === 'dark' ? 'data-hl-dark' : 'data-hl-light') ||
+                   ('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github' +
+                    (mode === 'dark' ? '-dark' : '') + '.min.css');
         if (!link) {
             link = document.createElement('link');
             link.rel = 'stylesheet';
@@ -1673,6 +1674,13 @@
             link.href = href;
             document.head.appendChild(link);
         } else if (link.dataset.active !== mode) {
+            if (link.tagName === 'STYLE') {
+                var replacement = document.createElement('link');
+                replacement.rel = 'stylesheet';
+                replacement.id = 'hl-theme';
+                link.parentNode.replaceChild(replacement, link);
+                link = replacement;
+            }
             link.href = href;
             link.dataset.active = mode;
         }

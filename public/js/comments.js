@@ -54,7 +54,8 @@
     function ensureHighlight(win, doc) {
         if (win.hljs) return Promise.resolve();
         var dark = doc.documentElement.getAttribute('data-theme-base') === 'dark';
-        var link = loadCss(doc, HL + 'styles/github' + (dark ? '-dark' : '') + '.min.css', 'hl-theme');
+        var link = loadCss(doc, doc.documentElement.getAttribute(dark ? 'data-hl-dark' : 'data-hl-light') ||
+            (HL + 'styles/github' + (dark ? '-dark' : '') + '.min.css'), 'hl-theme');
         if (link) link.setAttribute('data-active', dark ? 'dark' : 'light');
         return loadScript(doc, HL + 'highlight.min.js').then(function () {
             return Promise.all(HL_LANGS.map(function (lang) {

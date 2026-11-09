@@ -111,7 +111,15 @@
         if(!link)return;
         // Skip if the requested highlight theme is already active.
         if(link.dataset.active===name)return;
-        link.href=(name==='light')?'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github.min.css':'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github-dark.min.css';
+        var mode=(name==='light')?'light':'dark';
+        var href=document.documentElement.getAttribute('data-hl-'+mode)||('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/'+(mode==='light'?'github':'github-dark')+'.min.css');
+        if(link.tagName==='STYLE'){
+            // The first paint may inline the stylesheet; swap it for a link.
+            var l=document.createElement('link');
+            l.rel='stylesheet';l.id='hl-theme';
+            link.parentNode.replaceChild(l,link);link=l;
+        }
+        link.href=href;
         link.dataset.active=name;
     }
     function syncHlTheme(){

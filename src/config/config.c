@@ -960,8 +960,10 @@ static void layout_set_default(void) {
     snprintf(g_layout_settings.panel_style, sizeof(g_layout_settings.panel_style), "square");
     g_layout_settings.panel_color[0] = '\0';
     g_layout_settings.panel_width = 380;
-    g_layout_settings.panel_x = 0;
-    g_layout_settings.panel_y = 0;
+    snprintf(g_layout_settings.panel_side, sizeof(g_layout_settings.panel_side), "left");
+    snprintf(g_layout_settings.panel_radius, sizeof(g_layout_settings.panel_radius), "auto");
+    snprintf(g_layout_settings.code_theme_light, sizeof(g_layout_settings.code_theme_light), "github");
+    snprintf(g_layout_settings.code_theme_dark, sizeof(g_layout_settings.code_theme_dark), "github-dark");
     g_layout_settings.invert_transparent_images = true;
     snprintf(g_layout_settings.transparent_image_formats, sizeof(g_layout_settings.transparent_image_formats), "svg");
 }
@@ -993,14 +995,125 @@ static bool transparent_formats_valid(const char *value) {
     return true;
 }
 
+const code_theme_t g_code_themes[] = {
+    {"a11y-dark", "A11y Dark", true},
+    {"a11y-light", "A11y Light", false},
+    {"agate", "Agate", true},
+    {"an-old-hope", "An Old Hope", true},
+    {"androidstudio", "Androidstudio", true},
+    {"arduino-light", "Arduino Light", false},
+    {"arta", "Arta", true},
+    {"ascetic", "Ascetic", false},
+    {"atom-one-dark", "Atom One Dark", true},
+    {"atom-one-dark-reasonable", "Atom One Dark Reasonable", true},
+    {"atom-one-light", "Atom One Light", false},
+    {"codepen-embed", "CodePen Embed", true},
+    {"color-brewer", "Color Brewer", false},
+    {"cybertopia-cherry", "Cybertopia Cherry", true},
+    {"cybertopia-dimmer", "Cybertopia Dimmer", true},
+    {"cybertopia-icecap", "Cybertopia Icecap", true},
+    {"cybertopia-saturated", "Cybertopia Saturated", true},
+    {"dark", "Dark", true},
+    {"default", "Default", false},
+    {"devibeans", "Devibeans", true},
+    {"docco", "Docco", false},
+    {"far", "Far", true},
+    {"felipec", "Felipec", true},
+    {"foundation", "Foundation", false},
+    {"github", "GitHub", false},
+    {"github-dark", "GitHub Dark", true},
+    {"github-dark-dimmed", "GitHub Dark Dimmed", true},
+    {"gml", "GML", true},
+    {"googlecode", "Google Code", false},
+    {"gradient-dark", "Gradient Dark", true},
+    {"gradient-light", "Gradient Light", false},
+    {"grayscale", "Grayscale", false},
+    {"hybrid", "Hybrid", true},
+    {"idea", "IDEA", false},
+    {"intellij-light", "IntelliJ Light", false},
+    {"ir-black", "IR Black", true},
+    {"isbl-editor-dark", "ISBL Editor Dark", true},
+    {"isbl-editor-light", "ISBL Editor Light", false},
+    {"kimbie-dark", "Kimbie Dark", true},
+    {"kimbie-light", "Kimbie Light", false},
+    {"lightfair", "Lightfair", false},
+    {"lioshi", "Lioshi", true},
+    {"magula", "Magula", false},
+    {"mono-blue", "Mono Blue", false},
+    {"monokai", "Monokai", true},
+    {"monokai-sublime", "Monokai Sublime", true},
+    {"night-owl", "Night Owl", true},
+    {"nnfx-dark", "NNFX Dark", true},
+    {"nnfx-light", "NNFX Light", false},
+    {"nord", "Nord", true},
+    {"obsidian", "Obsidian", true},
+    {"panda-syntax-dark", "Panda Syntax Dark", true},
+    {"panda-syntax-light", "Panda Syntax Light", false},
+    {"paraiso-dark", "Paraiso Dark", true},
+    {"paraiso-light", "Paraiso Light", false},
+    {"pojoaque", "Pojoaque", true},
+    {"purebasic", "PureBasic", false},
+    {"qtcreator-dark", "Qt Creator Dark", true},
+    {"qtcreator-light", "Qt Creator Light", false},
+    {"rainbow", "Rainbow", true},
+    {"rose-pine", "Rosé Pine", true},
+    {"rose-pine-dawn", "Rosé Pine Dawn", false},
+    {"rose-pine-moon", "Rosé Pine Moon", true},
+    {"routeros", "RouterOS", false},
+    {"school-book", "School Book", false},
+    {"shades-of-purple", "Shades Of Purple", true},
+    {"srcery", "Srcery", true},
+    {"stackoverflow-dark", "Stack Overflow Dark", true},
+    {"stackoverflow-light", "Stack Overflow Light", false},
+    {"sunburst", "Sunburst", true},
+    {"tokyo-night-dark", "Tokyo Night Dark", true},
+    {"tokyo-night-light", "Tokyo Night Light", false},
+    {"tomorrow-night-blue", "Tomorrow Night Blue", true},
+    {"tomorrow-night-bright", "Tomorrow Night Bright", true},
+    {"vs", "Visual Studio", false},
+    {"vs2015", "Visual Studio 2015", true},
+    {"xcode", "Xcode", false},
+    {"xt256", "XT256", true},
+    {"monodraw-light", "Monodraw Light", false},
+    {"monodraw-dark", "Monodraw Dark", true},
+};
+const size_t g_code_theme_count = sizeof(g_code_themes) / sizeof(g_code_themes[0]);
+
+bool code_theme_valid(const char *id) {
+    if (!id) return false;
+    for (size_t i = 0; i < g_code_theme_count; i++)
+        if (strcmp(g_code_themes[i].id, id) == 0) return true;
+    return false;
+}
+
+const char *code_theme_local_path(const char *id) {
+    if (id && strcmp(id, "monodraw-light") == 0) return "public/css/hljs-monodraw-light.css";
+    if (id && strcmp(id, "monodraw-dark") == 0) return "public/css/hljs-monodraw-dark.css";
+    return NULL;
+}
+
+void code_theme_href(const char *id, char *out, size_t out_size) {
+    if (code_theme_local_path(id))
+        snprintf(out, out_size, "/assets/css/hljs-%s.css?v=1", id);
+    else
+        snprintf(out, out_size, "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/%s.min.css",
+                 code_theme_valid(id) ? id : "github");
+}
+
 bool layout_value_valid(const char *key, const char *value) {
+    if (strcmp(key, "code_theme_light") == 0 || strcmp(key, "code_theme_dark") == 0) return code_theme_valid(value);
     if (strcmp(key, "invert_transparent_images") == 0 || strcmp(key, "invert_transparent_svg") == 0)
         return strcmp(value, "true") == 0 || strcmp(value, "false") == 0 ||
                strcmp(value, "1") == 0 || strcmp(value, "0") == 0;
     if (strcmp(key, "transparent_image_formats") == 0) return transparent_formats_valid(value);
     if (strcmp(key, "panel_width") == 0) return layout_number_valid(value, 240, 520);
+    /* Free-form offsets from before panel_side; still accepted when an old
+     * layout.settings is read, then ignored. */
     if (strcmp(key, "panel_x") == 0 || strcmp(key, "panel_y") == 0)
         return layout_number_valid(value, -600, 600);
+    if (strcmp(key, "panel_side") == 0) return strcmp(value, "left") == 0 || strcmp(value, "right") == 0;
+    if (strcmp(key, "panel_radius") == 0)
+        return strcmp(value, "auto") == 0 || strcmp(value, "site") == 0 || layout_number_valid(value, 0, 48);
     if (strcmp(key, "panel_color") == 0) {
         if (!value[0]) return true;
         if (strlen(value) != 9 || value[0] != '#') return false;
@@ -1033,12 +1146,14 @@ bool layout_settings_save(const char *path) {
     if (!f) return false;
     bool ok = fprintf(f,
         "navigation=%s\ncontent_style=%s\ndensity=%s\nlist_style=%s\ncontent_width=%s\n"
-        "panel_style=%s\npanel_color=%s\npanel_width=%d\npanel_x=%d\npanel_y=%d\n"
+        "panel_style=%s\npanel_color=%s\npanel_width=%d\npanel_side=%s\npanel_radius=%s\n"
+        "code_theme_light=%s\ncode_theme_dark=%s\n"
         "invert_transparent_images=%s\ntransparent_image_formats=%s\n",
         g_layout_settings.navigation, g_layout_settings.content_style, g_layout_settings.density,
         g_layout_settings.list_style, g_layout_settings.content_width, g_layout_settings.panel_style,
         g_layout_settings.panel_color, g_layout_settings.panel_width,
-        g_layout_settings.panel_x, g_layout_settings.panel_y,
+        g_layout_settings.panel_side, g_layout_settings.panel_radius,
+        g_layout_settings.code_theme_light, g_layout_settings.code_theme_dark,
         g_layout_settings.invert_transparent_images ? "true" : "false",
         g_layout_settings.transparent_image_formats) >= 0 &&
         fflush(f) == 0 && fsync(fileno(f)) == 0 && fclose(f) == 0 && rename(temporary, path) == 0;
@@ -1075,10 +1190,14 @@ bool layout_settings_load(const char *path) {
             snprintf(g_layout_settings.panel_color, sizeof(g_layout_settings.panel_color), "%s", value);
         else if (strcmp(line, "panel_width") == 0)
             g_layout_settings.panel_width = atoi(value);
-        else if (strcmp(line, "panel_x") == 0)
-            g_layout_settings.panel_x = atoi(value);
-        else if (strcmp(line, "panel_y") == 0)
-            g_layout_settings.panel_y = atoi(value);
+        else if (strcmp(line, "panel_side") == 0)
+            snprintf(g_layout_settings.panel_side, sizeof(g_layout_settings.panel_side), "%s", value);
+        else if (strcmp(line, "panel_radius") == 0)
+            snprintf(g_layout_settings.panel_radius, sizeof(g_layout_settings.panel_radius), "%s", value);
+        else if (strcmp(line, "code_theme_light") == 0)
+            snprintf(g_layout_settings.code_theme_light, sizeof(g_layout_settings.code_theme_light), "%s", value);
+        else if (strcmp(line, "code_theme_dark") == 0)
+            snprintf(g_layout_settings.code_theme_dark, sizeof(g_layout_settings.code_theme_dark), "%s", value);
         else if (strcmp(line, "invert_transparent_images") == 0) {
             enable_seen = true;
             g_layout_settings.invert_transparent_images = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
@@ -1091,6 +1210,23 @@ bool layout_settings_load(const char *path) {
     if (!enable_seen && legacy_seen) g_layout_settings.invert_transparent_images = legacy_enabled;
     fclose(f);
     return true;
+}
+
+/* Corner radius of the hamburger panel: the style preset, the site-wide
+ * roundness (the same 32px base the theme uses for large surfaces), or an
+ * explicit pixel value. */
+void layout_panel_radius_css(char *out, size_t out_size) {
+    const char *r = g_layout_settings.panel_radius;
+    if (strcmp(r, "site") == 0) {
+        float px = 32.0f * g_config.roundness;
+        if (px <= 0.0f) snprintf(out, out_size, "0");
+        else snprintf(out, out_size, "%.1fpx", px);
+    } else if (r[0] && strcmp(r, "auto") != 0) {
+        snprintf(out, out_size, "%dpx", atoi(r));
+    } else {
+        snprintf(out, out_size, "%s", strcmp(g_layout_settings.panel_style, "square") == 0 ? "0" :
+                                      strcmp(g_layout_settings.panel_style, "round") == 0 ? "18px" : "32px");
+    }
 }
 
 char *layout_build_css(void) {
@@ -1129,13 +1265,16 @@ char *layout_build_css(void) {
         "body.nav-hamburger:not(.mobile) .mobile-account-header{display:flex;padding:16px 24px;gap:12px;align-items:center;border-bottom:1px solid var(--border);order:-1;}"
         "body.nav-hamburger:not(.mobile) .nav-board-dropdown,body.nav-hamburger:not(.mobile) .nav-admin-dropdown{display:block;width:100%;padding:0;margin:0;}"
         "body.nav-hamburger:not(.mobile) .nav-board-menu,body.nav-hamburger:not(.mobile) .nav-admin-menu{position:static;min-width:0;box-shadow:none;}"
-        "body.nav-hamburger:not(.mobile) .nav-links{width:min(%dpx,100vw);transform:translate(%dpx,%dpx);border-radius:%s;background:%s;%s}"
+        "body.nav-hamburger:not(.mobile) .nav-links{width:min(%dpx,100vw);%sborder-radius:%s;background:%s;%s}"
         "body.list-table .post-row-meta{float:right;padding-left:16px;}}"
+        "body.panel-side-right .burger-btn{order:99;}"
         "@media(max-width:600px){body.list-cards .post-row,body.list-cards .post-row.featured{padding:18px;}body.list-table .post-row-meta{display:flex;float:none;padding:4px 0 0;}body.density-spacious .board-line{padding:26px;}}";
+    char panel_radius_css[16];
+    layout_panel_radius_css(panel_radius_css, sizeof(panel_radius_css));
+    const char *panel_side_css = strcmp(g_layout_settings.panel_side, "right") == 0 ?
+                                 "right:0;left:auto;" : "left:0;right:auto;";
     int needed = snprintf(NULL, 0, format, width, row_padding, item_padding, board_gap,
-                          g_layout_settings.panel_width, g_layout_settings.panel_x, g_layout_settings.panel_y,
-                          strcmp(g_layout_settings.panel_style, "square") == 0 ? "0" :
-                          strcmp(g_layout_settings.panel_style, "round") == 0 ? "18px" : "32px",
+                          g_layout_settings.panel_width, panel_side_css, panel_radius_css,
                           g_layout_settings.panel_color[0] ? g_layout_settings.panel_color :
                           "color-mix(in srgb,var(--glass-bg) 96%,transparent)",
                           strcmp(g_layout_settings.panel_style, "bubble") == 0 ?
@@ -1143,9 +1282,7 @@ char *layout_build_css(void) {
     if (needed < 0) return NULL;
     char *css = malloc((size_t)needed + 1);
     if (css) snprintf(css, (size_t)needed + 1, format, width, row_padding, item_padding, board_gap,
-                      g_layout_settings.panel_width, g_layout_settings.panel_x, g_layout_settings.panel_y,
-                      strcmp(g_layout_settings.panel_style, "square") == 0 ? "0" :
-                      strcmp(g_layout_settings.panel_style, "round") == 0 ? "18px" : "32px",
+                      g_layout_settings.panel_width, panel_side_css, panel_radius_css,
                       g_layout_settings.panel_color[0] ? g_layout_settings.panel_color :
                       "color-mix(in srgb,var(--glass-bg) 96%,transparent)",
                       strcmp(g_layout_settings.panel_style, "bubble") == 0 ?

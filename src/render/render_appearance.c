@@ -100,33 +100,81 @@ static void append_theme_group(cwist_sstring *b, const char *group, const char *
     append_theme_choice(b, group, "custom", current, "Custom");
 }
 
+static void append_code_theme_select(cwist_sstring *b, const char *name, const char *label, const char *current) {
+    cwist_sstring_append(b, "<label class='appearance-field'><span>");
+    cwist_sstring_append(b, label);
+    cwist_sstring_append(b, "</span><select name='");
+    cwist_sstring_append(b, name);
+    cwist_sstring_append(b, "' data-appearance-setting data-code-theme>");
+    for (int dark = 0; dark < 2; dark++) {
+        cwist_sstring_append(b, dark ? "<optgroup label='Dark backgrounds'>" : "<optgroup label='Light backgrounds'>");
+        for (size_t i = 0; i < g_code_theme_count; i++) {
+            const code_theme_t *t = &g_code_themes[i];
+            if ((int)t->dark != dark) continue;
+            char href[160];
+            code_theme_href(t->id, href, sizeof(href));
+            cwist_sstring_append(b, "<option value='");
+            cwist_sstring_append(b, t->id);
+            cwist_sstring_append(b, "' data-href='");
+            cwist_sstring_append_escaped(b, href);
+            cwist_sstring_append(b, "'");
+            if (strcmp(t->id, current) == 0) cwist_sstring_append(b, " selected");
+            cwist_sstring_append(b, ">");
+            cwist_sstring_append_escaped(b, t->label);
+            cwist_sstring_append(b, "</option>");
+        }
+        cwist_sstring_append(b, "</optgroup>");
+    }
+    cwist_sstring_append(b, "</select></label>");
+}
+
 cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool is_mobile, const char *msg) {
     cwist_sstring *b = cwist_sstring_create();
     cwist_sstring_assign(b, "<div class='hero'><h1>Appearance</h1><p>Choose the site structure, navigation, list presentation, theme, and typography in a live preview.</p></div>");
     if (msg && strcmp(msg, "saved") == 0) cwist_sstring_append(b, "<div class='alert'>Appearance settings saved.</div>");
     else if (msg && msg[0]) cwist_sstring_append(b, "<div class='alert'>Settings were not saved. Check the uploaded files and field values.</div>");
-    cwist_sstring_append(b, "<style>.appearance-layout{display:grid;grid-template-columns:minmax(300px,440px) minmax(0,1fr);gap:20px;align-items:start}.appearance-controls{max-height:calc(100vh - 110px);overflow:auto;padding-right:8px}.appearance-preview{position:sticky;top:16px}.appearance-frame-wrap{display:flex;justify-content:center}.appearance-preview iframe{display:block;width:100%;height:calc(100vh - 170px);min-height:560px;border:1px solid var(--border);border-radius:18px;background:var(--panel);transition:width .2s}.appearance-preview iframe.appearance-preview-mobile{width:390px;max-width:100%}.appearance-theme-grid,.appearance-option-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.appearance-option-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.appearance-theme-choice{display:flex;gap:6px;align-items:center;justify-content:space-between;padding:8px;border:1px solid var(--border);border-radius:10px}.appearance-theme-swatches{display:flex;gap:3px}.appearance-theme-swatches i{display:block;width:11px;height:11px;border:1px solid var(--border);border-radius:50%}.appearance-layout-choice{align-items:flex-start}.appearance-layout-choice span{display:grid;gap:3px}.appearance-layout-choice small{color:var(--muted);font-size:11px;line-height:1.35}.appearance-field{display:grid;gap:5px;margin:10px 0}.appearance-field input{width:100%;padding:8px;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:8px}.appearance-tune{display:grid;grid-template-columns:1fr 110px 90px;gap:8px;align-items:end}.appearance-actions{display:flex;gap:10px;align-items:center;margin:16px 0}.appearance-preview-tools{flex-wrap:wrap}.appearance-preview-tools select{width:auto;min-width:0;padding:6px}.appearance-note{font-size:13px;color:var(--muted)}@media(max-width:1000px){.appearance-layout{grid-template-columns:1fr}.appearance-controls{max-height:none}.appearance-preview{position:static}.appearance-preview iframe{height:640px;min-height:0}}</style>");
-    cwist_sstring_append(b, "<form action='/admin/appearance' method='post' enctype='multipart/form-data' id='appearance-form'><div class='appearance-layout'><div class='appearance-controls'>");
+    cwist_sstring_append(b, "<style>.appearance-layout{display:grid;grid-template-columns:minmax(300px,440px) minmax(0,1fr);gap:20px;align-items:start}.appearance-controls{max-height:calc(100vh - 110px);overflow:auto;padding-right:8px}.appearance-preview{position:sticky;top:16px}.appearance-frame-wrap{display:flex;justify-content:center}.appearance-preview iframe{display:block;width:100%;height:calc(100vh - 170px);min-height:560px;border:1px solid var(--border);border-radius:18px;background:var(--panel);transition:width .2s}.appearance-preview iframe.appearance-preview-mobile{width:390px;max-width:100%}.appearance-theme-grid,.appearance-option-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.appearance-option-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.appearance-theme-choice{display:flex;gap:6px;align-items:center;justify-content:space-between;padding:8px;border:1px solid var(--border);border-radius:10px}.appearance-theme-swatches{display:flex;gap:3px}.appearance-theme-swatches i{display:block;width:11px;height:11px;border:1px solid var(--border);border-radius:50%}.appearance-layout-choice{align-items:flex-start}.appearance-layout-choice span{display:grid;gap:3px}.appearance-layout-choice small{color:var(--muted);font-size:11px;line-height:1.35}.appearance-field{display:grid;gap:5px;margin:10px 0}.appearance-field input,.appearance-field select{width:100%;padding:8px;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:8px}.appearance-tune{display:grid;grid-template-columns:1fr 110px 90px;gap:8px;align-items:end}.appearance-actions{display:flex;gap:10px;align-items:center;margin:16px 0}.appearance-preview-tools{flex-wrap:wrap}.appearance-preview-tools select{width:auto;min-width:0;padding:6px}.appearance-note{font-size:13px;color:var(--muted)}@media(max-width:1000px){.appearance-layout{grid-template-columns:1fr}.appearance-controls{max-height:none}.appearance-preview{position:static}.appearance-preview iframe{height:640px;min-height:0}}</style>");
+    char site_roundness[16];
+    snprintf(site_roundness, sizeof(site_roundness), "%.2f", g_config.roundness);
+    cwist_sstring_append(b, "<form action='/admin/appearance' method='post' enctype='multipart/form-data' id='appearance-form' data-site-roundness='");
+    cwist_sstring_append(b, site_roundness);
+    cwist_sstring_append(b, "'><div class='appearance-layout'><div class='appearance-controls'>");
     cwist_sstring_append(b, "<section class='card'><h2>Layout and navigation</h2><p class='appearance-note'>These controls change the actual page structure and reading rhythm, not just its colors. Mobile always keeps the drawer menu.</p><h3>Desktop navigation</h3><div class='appearance-option-grid'>");
     append_layout_choice(b, "navigation", "topbar", g_layout_settings.navigation, "Top menu", "Visible links across the header");
     append_layout_choice(b, "navigation", "hamburger", g_layout_settings.navigation, "Hamburger", "A drawer on desktop and mobile");
-    cwist_sstring_append(b, "</div><h3>Menu panel</h3><p class='appearance-note'>Open the hamburger in the preview and drag its grip to move the desktop panel.</p><div class='appearance-option-grid'>");
+    cwist_sstring_append(b, "</div><h3>Menu panel</h3><p class='appearance-note'>The hamburger and its panel share a side. In the preview, drag the panel's inner edge to change its width.</p><div class='appearance-option-grid'>");
+    append_layout_choice(b, "panel_side", "left", g_layout_settings.panel_side, "Left", "Hamburger and panel on the left");
+    append_layout_choice(b, "panel_side", "right", g_layout_settings.panel_side, "Right", "Hamburger and panel on the right");
+    cwist_sstring_append(b, "</div><div class='appearance-option-grid'>");
     append_layout_choice(b, "panel_style", "square", g_layout_settings.panel_style, "Square panel", "Current square corners");
     append_layout_choice(b, "panel_style", "round", g_layout_settings.panel_style, "Round panel", "Soft rounded corners");
     append_layout_choice(b, "panel_style", "bubble", g_layout_settings.panel_style, "Bubble panel", "Floating pill-like glass and shadow");
     cwist_sstring_append(b, "</div>");
-    char panel_width[16], panel_x[16], panel_y[16];
+    char panel_width[16];
     snprintf(panel_width, sizeof(panel_width), "%d", g_layout_settings.panel_width);
-    snprintf(panel_x, sizeof(panel_x), "%d", g_layout_settings.panel_x);
-    snprintf(panel_y, sizeof(panel_y), "%d", g_layout_settings.panel_y);
-    cwist_sstring_append(b, "<label class='appearance-field'><span>Panel width: <output id='appearance-panel-width-value'>");
+    cwist_sstring_append(b, "<input type='hidden' name='panel_width' value='");
     cwist_sstring_append(b, panel_width);
-    cwist_sstring_append(b, "</output> px</span><input type='range' name='panel_width' min='240' max='520' step='10' value='");
+    cwist_sstring_append(b, "' data-appearance-setting data-panel-width><p class='appearance-note'>Panel width: <output id='appearance-panel-width-value'>");
     cwist_sstring_append(b, panel_width);
-    cwist_sstring_append(b, "' data-appearance-setting data-panel-width></label><div class='appearance-tune'><span>Panel offset</span>");
-    append_input(b, "panel_x", panel_x, "X (-600 to 600)");
-    append_input(b, "panel_y", panel_y, "Y (-600 to 600)");
-    cwist_sstring_append(b, "</div><input type='hidden' name='panel_color' id='appearance-panel-color' value='");
+    cwist_sstring_append(b, "</output> px (240&ndash;520)</p>");
+
+    /* Corner radius: follow the style preset, the site roundness, or a value. */
+    const char *radius = g_layout_settings.panel_radius;
+    bool custom_radius = strcmp(radius, "auto") != 0 && strcmp(radius, "site") != 0;
+    char radius_px[8];
+    snprintf(radius_px, sizeof(radius_px), "%d", custom_radius ? atoi(radius) : 18);
+    cwist_sstring_append(b, "<h3>Panel roundness</h3><div class='appearance-option-grid'>");
+    append_layout_choice(b, "panel_radius", "auto", custom_radius ? "custom" : radius, "Match style", "Square, round, or bubble corners");
+    append_layout_choice(b, "panel_radius", "site", custom_radius ? "custom" : radius, "Site roundness", "Same roundness as the rest of the site");
+    append_layout_choice(b, "panel_radius", "custom", custom_radius ? "custom" : radius, "Custom", "Pick the corner radius below");
+    cwist_sstring_append(b, "</div><label class='appearance-field'><span>Corner radius: <output id='appearance-panel-radius-value'>");
+    cwist_sstring_append(b, radius_px);
+    cwist_sstring_append(b, "</output> px</span><input type='range' name='panel_radius_px' min='0' max='48' step='1' value='");
+    cwist_sstring_append(b, radius_px);
+    cwist_sstring_append(b, "' data-appearance-setting data-panel-radius");
+    if (!custom_radius) cwist_sstring_append(b, " disabled");
+    cwist_sstring_append(b, "></label>");
+    cwist_sstring_append(b, "<input type='hidden' name='panel_color' id='appearance-panel-color' value='");
     cwist_sstring_append_escaped(b, g_layout_settings.panel_color);
     cwist_sstring_append(b, "' data-appearance-setting><label class='check-row'><input type='checkbox' id='appearance-panel-color-enabled'");
     if (g_layout_settings.panel_color[0]) cwist_sstring_append(b, " checked");
@@ -174,6 +222,10 @@ cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool 
     append_transparent_format(b, "ico", "ICO", false);
     cwist_sstring_append(b, "</div></div><p class='appearance-note'>Only selected formats with transparent backgrounds are changed. Opaque images and all light-mode images keep their original colors. The default is SVG only.</p><label class='appearance-field'><span>Custom CWIST theme JSON</span><input type='file' name='theme_file' accept='.json,application/json' data-preview-theme></label>");
     cwist_sstring_append(b, "<p class='appearance-note'>The file uses the same <code>name</code>, <code>vars</code>, and <code>rules</code> structure as <code>/themes.json</code>. Add <code>mode: \"light\"</code> or <code>\"dark\"</code>. Maximum 512 KiB.</p></section>");
+    cwist_sstring_append(b, "<section class='card'><h2>Code highlighting</h2><p class='appearance-note'>Syntax colors for code blocks. Each site mode uses its own choice; open an Article in the preview to compare.</p>");
+    append_code_theme_select(b, "code_theme_light", "Light mode", g_layout_settings.code_theme_light);
+    append_code_theme_select(b, "code_theme_dark", "Dark mode", g_layout_settings.code_theme_dark);
+    cwist_sstring_append(b, "</section>");
 
     cwist_sstring_append(b, "<section class='card'><h2>Font sources</h2><label class='appearance-field'><span>TTF, OTF, WOFF, or WOFF2</span><input type='file' name='font_file' accept='.ttf,.otf,.woff,.woff2' data-preview-font></label>");
     append_input(b, "font_face_family", g_font_settings.face_family, "Uploaded font family name");
@@ -217,7 +269,7 @@ cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool 
     }
     append_input(b, "letter_spacing_hero_p", g_font_settings.letter_spacing_hero_p, "Hero subtitle spacing");
     cwist_sstring_append(b, "</section><div class='appearance-actions'><button type='submit' class='btn'>Save appearance</button><button type='reset' class='btn btn-outline' id='appearance-reset'>Reset preview</button><a href='/admin/dashboard' class='btn btn-outline'>Dashboard</a></div>");
-    cwist_sstring_append(b, "</div><aside class='appearance-preview'><div class='appearance-actions appearance-preview-tools'><strong>Live preview</strong><select id='appearance-preview-page' aria-label='Preview page'><option value='list'>Post list</option><option value='article'>Article</option></select><select id='appearance-preview-mode' aria-label='Preview mode'><option value='light'>Light</option><option value='dark'>Dark</option></select><select id='appearance-preview-size' aria-label='Preview viewport'><option value='desktop'>Desktop</option><option value='mobile'>Mobile</option></select></div><div class='appearance-frame-wrap'><iframe id='appearance-preview' title='Live blog appearance preview' sandbox='allow-scripts allow-same-origin'></iframe></div><p class='appearance-note'>Nothing is applied to visitors until Save appearance is pressed.</p></aside></div></form><script src='/assets/js/appearance-editor.js'></script>");
+    cwist_sstring_append(b, "</div><aside class='appearance-preview'><div class='appearance-actions appearance-preview-tools'><strong>Live preview</strong><select id='appearance-preview-page' aria-label='Preview page'><option value='list'>Post list</option><option value='article'>Article</option></select><select id='appearance-preview-mode' aria-label='Preview mode'><option value='light'>Light</option><option value='dark'>Dark</option></select><select id='appearance-preview-size' aria-label='Preview viewport'><option value='desktop'>Desktop</option><option value='mobile'>Mobile</option></select></div><div class='appearance-frame-wrap'><iframe id='appearance-preview' title='Live blog appearance preview' sandbox='allow-scripts allow-same-origin'></iframe></div><p class='appearance-note'>Nothing is applied to visitors until Save appearance is pressed.</p></aside></div></form><script src='/assets/js/appearance-editor.js?v=3'></script>");
     cwist_sstring *page = render_page("Appearance", b->data, dark, "admin", profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;
