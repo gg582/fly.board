@@ -169,6 +169,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/admin/dashboard", handler_admin_dashboard);
     engine_async_get(app, "/admin/appearance", handler_admin_appearance_get);
     engine_async_post_bulk(app, "/admin/appearance", handler_admin_appearance_post);
+    engine_async_post_bulk(app, "/admin/appearance/upload", handler_admin_appearance_upload_post);
     engine_async_get(app, "/admin/users", handler_admin_users);
     engine_async_get(app, "/admin/user/role", handler_admin_users);
     engine_async_post(app, "/admin/user/role", handler_admin_user_role);

@@ -287,6 +287,80 @@
         frame.classList.toggle('appearance-preview-mobile',sizeSelect.value==='mobile');
         scheduleRender();
     });
+    /* Files go up in chunks before the form is submitted, so the final POST
+     * stays small whatever the font size. */
+    var STAGE_SLOTS=['font_file','font_script_file','theme_file'],STAGE_CHUNK=2*1024*1024,staging=false;
+    function stageToken(){
+        var bytes=new Uint8Array(16),hex='';
+        (window.crypto||window.msCrypto).getRandomValues(bytes);
+        for(var i=0;i<bytes.length;i++)hex+=(bytes[i]<16?'0':'')+bytes[i].toString(16);
+        return hex;
+    }
+    function stageFile(slot,file,token,progress){
+        var offset=0;
+        function next(attempt){
+            if(offset>=file.size)return Promise.resolve();
+            var end=Math.min(file.size,offset+STAGE_CHUNK);
+            var url='/admin/appearance/upload?slot='+slot+'&token='+token+'&offset='+offset+'&total='+file.size;
+            return fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/octet-stream'},body:file.slice(offset,end)})
+                .then(function(response){
+                    if(!response.ok){var e=new Error(response.status===413?'File is too large':'Upload failed ('+response.status+')');e.fatal=response.status===413||response.status===400;throw e;}
+                    offset=end;progress(offset);return next(0);
+                },function(error){throw error;})
+                .catch(function(error){
+                    if(error.fatal||attempt>=2)throw error;
+                    return new Promise(function(r){setTimeout(r,500*(attempt+1));}).then(function(){return next(attempt+1);});
+                });
+        }
+        return next(0);
+    }
+    form.addEventListener('submit',function(event){
+        if(form.getAttribute('data-staged')==='1')return;
+        var inputs=STAGE_SLOTS.map(function(name){return form.elements[name];}).filter(function(input){return input&&input.files&&input.files[0];});
+        if(!inputs.length)return;
+        event.preventDefault();
+        if(staging)return;
+        staging=true;
+        var button=form.querySelector('button[type=submit]');
+        var status=document.getElementById('appearance-upload-status');
+        if(!status){status=document.createElement('span');status.id='appearance-upload-status';status.className='appearance-note';status.setAttribute('role','status');button.parentNode.appendChild(status);}
+        var total=0,done=0;
+        inputs.forEach(function(input){total+=input.files[0].size;});
+        button.disabled=true;
+        var chain=Promise.resolve(),staged=[];
+        inputs.forEach(function(input){
+            chain=chain.then(function(){
+                var file=input.files[0],token=stageToken(),base=done;
+                return stageFile(input.name,file,token,function(sent){
+                    status.textContent='Uploading '+Math.round((base+sent)*100/Math.max(1,total))+'%';
+                }).then(function(){done+=file.size;staged.push({input:input,token:token,name:file.name});});
+            });
+        });
+        chain.then(function(){
+            staged.forEach(function(item){
+                [['staged_'+item.input.name,item.token],['staged_'+item.input.name+'_name',item.name]].forEach(function(pair){
+                    var hidden=document.createElement('input');
+                    hidden.type='hidden';hidden.name=pair[0];hidden.value=pair[1];hidden.setAttribute('data-staged-field','');
+                    form.appendChild(hidden);
+                });
+                item.input.disabled=true;
+            });
+            status.textContent='Saving…';
+            form.setAttribute('data-staged','1');
+            form.submit();
+        }).catch(function(error){
+            staging=false;button.disabled=false;
+            status.textContent=error.message||'Upload failed';
+        });
+    });
+    window.addEventListener('pageshow',function(event){
+        if(!event.persisted)return;
+        // Back/forward cache: undo the staged submit so the form works again.
+        form.removeAttribute('data-staged');staging=false;
+        form.querySelectorAll('[data-staged-field]').forEach(function(el){el.remove();});
+        STAGE_SLOTS.forEach(function(name){if(form.elements[name])form.elements[name].disabled=false;});
+        var button=form.querySelector('button[type=submit]');if(button)button.disabled=false;
+    });
     var themeVersion=document.documentElement.getAttribute('data-theme-version')||'0';
     fetch('/themes.json?v='+encodeURIComponent(themeVersion),{credentials:'same-origin'}).then(function(response){
         if(!response.ok)throw new Error('Theme list unavailable');

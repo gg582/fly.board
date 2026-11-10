@@ -5,12 +5,26 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include <limits.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
 #define FONT_UPLOAD_MAX (12 * 1024 * 1024)
 #define FONT_SCRIPT_MAX (256 * 1024)
+#define THEME_FILE_MAX (512 * 1024)
+/* Appearance files are uploaded in chunks before the form is submitted, so
+ * no single request comes near the transport's body limit. */
+#define STAGE_DIR "data/appearance-staging"
+#define STAGE_CHUNK_MAX (4 * 1024 * 1024)
+#define STAGE_MAX_AGE (60 * 60)
+
+static const struct { const char *slot; size_t max; } g_stage_slots[] = {
+    {"font_file", FONT_UPLOAD_MAX},
+    {"font_script_file", FONT_SCRIPT_MAX},
+    {"theme_file", THEME_FILE_MAX},
+};
 
 static const char *field_value(form_field_t *fields, const char *name) {
     form_field_t *field = form_find(fields, name);
@@ -111,6 +125,139 @@ static bool update_theme_modes(const char *light, const char *dark) {
     return ok;
 }
 
+static size_t stage_slot_max(const char *slot) {
+    for (size_t i = 0; i < sizeof(g_stage_slots) / sizeof(g_stage_slots[0]); i++)
+        if (slot && strcmp(slot, g_stage_slots[i].slot) == 0) return g_stage_slots[i].max;
+    return 0;
+}
+
+static bool stage_token_valid(const char *token) {
+    if (!token || strlen(token) != 32) return false;
+    for (const char *p = token; *p; p++)
+        if (!isxdigit((unsigned char)*p) || isupper((unsigned char)*p)) return false;
+    return true;
+}
+
+static bool stage_path(char *out, size_t out_size, const char *token, const char *slot) {
+    if (!stage_token_valid(token) || !stage_slot_max(slot)) return false;
+    int needed = snprintf(out, out_size, STAGE_DIR "/%s-%s", token, slot);
+    return needed > 0 && (size_t)needed < out_size;
+}
+
+static void stage_sweep(void) {
+    DIR *dir = opendir(STAGE_DIR);
+    if (!dir) return;
+    time_t now = time(NULL);
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.') continue;
+        char path[PATH_MAX];
+        struct stat st;
+        snprintf(path, sizeof(path), STAGE_DIR "/%s", entry->d_name);
+        if (stat(path, &st) == 0 && now - st.st_mtime > STAGE_MAX_AGE) unlink(path);
+    }
+    closedir(dir);
+}
+
+static void stage_reply(cwist_http_response *res, int status, const char *json) {
+    res->status_code = (cwist_http_status_t)status;
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+    cwist_http_header_add(&res->headers, "Cache-Control", "private, no-store");
+    cwist_sstring_assign(res->body, json);
+}
+
+/* POST /admin/appearance/upload?slot=&token=&offset=&total= with a raw chunk
+ * body. Chunks must arrive in order; offset 0 starts the file over. */
+void handler_admin_appearance_upload_post(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    const char *slot = cwist_query_map_get(req->query_params, "slot");
+    const char *token = cwist_query_map_get(req->query_params, "token");
+    const char *offset_text = cwist_query_map_get(req->query_params, "offset");
+    const char *total_text = cwist_query_map_get(req->query_params, "total");
+    char path[PATH_MAX];
+    size_t max = stage_slot_max(slot);
+    long long offset = offset_text ? atoll(offset_text) : -1;
+    long long total = total_text ? atoll(total_text) : -1;
+    size_t length = req->body && req->body->data ? req->body->size : 0;
+    if (!stage_path(path, sizeof(path), token, slot) || offset < 0 || total <= 0 ||
+        (size_t)total > max || length == 0 || length > STAGE_CHUNK_MAX ||
+        (unsigned long long)offset + length > (unsigned long long)total) {
+        stage_reply(res, (size_t)total > max && max ? 413 : 400, "{\"ok\":false,\"error\":\"invalid chunk\"}");
+        return;
+    }
+    if (offset == 0) {
+        mkdir("data", 0755);
+        mkdir(STAGE_DIR, 0700);
+        stage_sweep();
+    }
+    int fd = open(path, O_WRONLY | O_CREAT | (offset == 0 ? O_TRUNC : 0), 0600);
+    struct stat st;
+    if (fd < 0 || fstat(fd, &st) != 0 || st.st_size != offset) {
+        if (fd >= 0) close(fd);
+        stage_reply(res, 409, "{\"ok\":false,\"error\":\"chunk out of order\"}");
+        return;
+    }
+    bool ok = pwrite(fd, req->body->data, length, (off_t)offset) == (ssize_t)length;
+    ok = close(fd) == 0 && ok;
+    if (!ok) {
+        unlink(path);
+        stage_reply(res, 500, "{\"ok\":false,\"error\":\"write failed\"}");
+        return;
+    }
+    char reply[64];
+    snprintf(reply, sizeof(reply), "{\"ok\":true,\"received\":%lld}", offset + (long long)length);
+    stage_reply(res, 200, reply);
+}
+
+/* Swap staged uploads into the parsed form as if they had been sent inline.
+ * Returns false when a referenced staged file is missing or oversized. */
+static bool stage_attach(form_field_t **fields) {
+    bool ok = true;
+    for (size_t i = 0; i < sizeof(g_stage_slots) / sizeof(g_stage_slots[0]); i++) {
+        const char *slot = g_stage_slots[i].slot;
+        char key[64], name_key[64], path[PATH_MAX];
+        snprintf(key, sizeof(key), "staged_%s", slot);
+        snprintf(name_key, sizeof(name_key), "staged_%s_name", slot);
+        const char *token = field_value(*fields, key);
+        if (!token[0]) continue;
+        const char *filename = field_value(*fields, name_key);
+        if (!stage_path(path, sizeof(path), token, slot) || !filename[0]) { ok = false; continue; }
+        FILE *f = fopen(path, "rb");
+        struct stat st;
+        if (!f || fstat(fileno(f), &st) != 0 || st.st_size <= 0 || (size_t)st.st_size > g_stage_slots[i].max) {
+            if (f) fclose(f);
+            unlink(path);
+            ok = false;
+            continue;
+        }
+        size_t size = (size_t)st.st_size;
+        char *data = cwist_alloc(size + 1);
+        bool read_ok = data && fread(data, 1, size, f) == size;
+        fclose(f);
+        unlink(path);
+        if (!read_ok) { if (data) cwist_free(data); ok = false; continue; }
+        data[size] = '\0';
+        form_field_t *field = form_find(*fields, slot);
+        if (!field) {
+            field = cwist_alloc(sizeof(*field));
+            if (!field) { cwist_free(data); ok = false; continue; }
+            memset(field, 0, sizeof(*field));
+            field->name = cwist_alloc(strlen(slot) + 1);
+            if (field->name) strcpy(field->name, slot);
+            field->next = *fields;
+            *fields = field;
+        }
+        if (field->data) cwist_free(field->data);
+        if (field->filename) cwist_free(field->filename);
+        field->data = data;
+        field->len = size;
+        field->file_size = size;
+        field->filename = cwist_alloc(strlen(filename) + 1);
+        if (field->filename) strcpy(field->filename, filename);
+    }
+    return ok;
+}
+
 void handler_admin_appearance_get(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;
     int uid = 0;
@@ -139,6 +286,11 @@ void handler_admin_appearance_post(cwist_http_request *req, cwist_http_response 
     boundary[boundary_length] = '\0';
     form_field_t *fields = multipart_parse(req->body->data, req->body->size, boundary);
     cwist_free(boundary);
+    if (!stage_attach(&fields)) {
+        multipart_free(fields);
+        redirect(res, "/admin/appearance?msg=upload-expired");
+        return;
+    }
 
     form_field_t *theme_file = form_find(fields, "theme_file");
     char theme_error[160] = {0};
