@@ -133,6 +133,7 @@ int main(void) {
     snprintf(g_layout_settings.panel_style, sizeof(g_layout_settings.panel_style), "bubble");
     snprintf(g_layout_settings.panel_color, sizeof(g_layout_settings.panel_color), "#12345680");
     g_layout_settings.panel_width = 460;
+    g_layout_settings.upload_chunk_kib = 512;
     snprintf(g_layout_settings.panel_side, sizeof(g_layout_settings.panel_side), "right");
     snprintf(g_layout_settings.panel_radius, sizeof(g_layout_settings.panel_radius), "24");
     snprintf(g_layout_settings.code_theme_light, sizeof(g_layout_settings.code_theme_light), "monodraw-light");
@@ -195,6 +196,9 @@ int main(void) {
     CHECK(g_layout_settings.panel_width == 460 && strcmp(g_layout_settings.panel_side, "right") == 0,
           "panel width and side round trip");
     CHECK(strcmp(g_layout_settings.panel_radius, "24") == 0, "custom panel radius round trip");
+    CHECK(g_layout_settings.upload_chunk_kib == 512, "upload chunk size round trip");
+    CHECK(layout_value_valid("upload_chunk_kib", "8192") && !layout_value_valid("upload_chunk_kib", "8193") &&
+          !layout_value_valid("upload_chunk_kib", "128"), "upload chunk size is bounded");
     char *panel_css = layout_build_css();
     CHECK(panel_css && strstr(panel_css, "width:min(460px,100vw);right:0;left:auto;border-radius:24px;"),
           "right panel anchors to the right edge with the custom radius");

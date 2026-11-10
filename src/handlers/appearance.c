@@ -17,7 +17,9 @@
 /* Appearance files are uploaded in chunks before the form is submitted, so
  * no single request comes near the transport's body limit. */
 #define STAGE_DIR "data/appearance-staging"
-#define STAGE_CHUNK_MAX (4 * 1024 * 1024)
+/* Upper bound for one chunk whatever upload_chunk_kib says; stays below
+ * the transport's 10 MiB request body cap. */
+#define STAGE_CHUNK_MAX (LAYOUT_UPLOAD_CHUNK_MAX_KIB * 1024)
 #define STAGE_MAX_AGE (60 * 60)
 
 static const struct { const char *slot; size_t max; } g_stage_slots[] = {

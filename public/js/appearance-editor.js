@@ -308,7 +308,7 @@
     });
     /* Files go up in chunks before the form is submitted, so the final POST
      * stays small whatever the font size. */
-    var STAGE_CHUNK=2*1024*1024,staging=false;
+    var STAGE_CHUNK=Math.max(262144,Math.min(8388608,parseInt(form.getAttribute('data-chunk-bytes'),10)||2097152)),staging=false;
     function stageInputs(){return Array.prototype.slice.call(form.querySelectorAll('input[type=file][data-stage]'));}
     function stageToken(){
         var bytes=new Uint8Array(16),hex='';

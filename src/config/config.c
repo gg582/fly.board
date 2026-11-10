@@ -1001,6 +1001,7 @@ static void layout_set_default(layout_settings_t *L) {
     snprintf(L->default_mode, sizeof(L->default_mode), "light");
     L->invert_transparent_images = true;
     snprintf(L->transparent_image_formats, sizeof(L->transparent_image_formats), "svg");
+    L->upload_chunk_kib = LAYOUT_UPLOAD_CHUNK_DEFAULT_KIB;
 }
 
 static bool layout_number_valid(const char *value, int min_value, int max_value) {
@@ -1208,6 +1209,8 @@ bool layout_value_valid(const char *key, const char *value) {
                strcmp(value, "1") == 0 || strcmp(value, "0") == 0;
     if (strcmp(key, "transparent_image_formats") == 0) return transparent_formats_valid(value);
     if (strcmp(key, "panel_width") == 0) return layout_number_valid(value, 240, 520);
+    if (strcmp(key, "upload_chunk_kib") == 0)
+        return layout_number_valid(value, LAYOUT_UPLOAD_CHUNK_MIN_KIB, LAYOUT_UPLOAD_CHUNK_MAX_KIB);
     /* Free-form offsets from before panel_side; still accepted when an old
      * layout.settings is read, then ignored. */
     if (strcmp(key, "panel_x") == 0 || strcmp(key, "panel_y") == 0)
@@ -1249,7 +1252,7 @@ bool layout_settings_save(const char *path) {
         "navigation=%s\ncontent_style=%s\ndensity=%s\nlist_style=%s\ncontent_width=%s\n"
         "panel_style=%s\npanel_color=%s\npanel_width=%d\npanel_side=%s\npanel_radius=%s\n"
         "code_theme_light=%s\ncode_theme_dark=%s\ndefault_mode=%s\ndisabled_sections=%s\n"
-        "invert_transparent_images=%s\ntransparent_image_formats=%s\n",
+        "invert_transparent_images=%s\ntransparent_image_formats=%s\nupload_chunk_kib=%d\n",
         g_layout_settings.navigation, g_layout_settings.content_style, g_layout_settings.density,
         g_layout_settings.list_style, g_layout_settings.content_width, g_layout_settings.panel_style,
         g_layout_settings.panel_color, g_layout_settings.panel_width,
@@ -1257,7 +1260,7 @@ bool layout_settings_save(const char *path) {
         g_layout_settings.code_theme_light, g_layout_settings.code_theme_dark,
         g_layout_settings.default_mode, g_layout_settings.disabled_sections,
         g_layout_settings.invert_transparent_images ? "true" : "false",
-        g_layout_settings.transparent_image_formats) >= 0 &&
+        g_layout_settings.transparent_image_formats, g_layout_settings.upload_chunk_kib) >= 0 &&
         fflush(f) == 0 && fsync(fileno(f)) == 0 && fclose(f) == 0 && rename(temporary, path) == 0;
     if (!ok) { fclose(f); unlink(temporary); }
     return ok;
@@ -1293,6 +1296,8 @@ static bool layout_settings_parse(const char *path, layout_settings_t *L, bool *
             snprintf(L->panel_color, sizeof(L->panel_color), "%s", value);
         else if (strcmp(line, "panel_width") == 0)
             L->panel_width = atoi(value);
+        else if (strcmp(line, "upload_chunk_kib") == 0)
+            L->upload_chunk_kib = atoi(value);
         else if (strcmp(line, "panel_side") == 0)
             snprintf(L->panel_side, sizeof(L->panel_side), "%s", value);
         else if (strcmp(line, "panel_radius") == 0)

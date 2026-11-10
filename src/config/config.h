@@ -191,7 +191,14 @@ typedef struct {
      * (ids from g_site_sections). Their routes answer 404 and their links
      * are left out of the navigation and pages. */
     char disabled_sections[128];
+    /* Size of each chunk the admin file uploads (fonts, theme JSON, webfont
+     * script) are sent in, KiB. Bounded by LAYOUT_UPLOAD_CHUNK_*_KIB. */
+    int upload_chunk_kib;
 } layout_settings_t;
+
+#define LAYOUT_UPLOAD_CHUNK_MIN_KIB 256
+#define LAYOUT_UPLOAD_CHUNK_MAX_KIB 8192
+#define LAYOUT_UPLOAD_CHUNK_DEFAULT_KIB 2048
 
 typedef struct {
     const char *id;

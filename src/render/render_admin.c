@@ -347,6 +347,28 @@ static void append_subscribers_section(cwist_sstring *b, const char *msg, cJSON 
     cwist_sstring_append(b, "</section>");
 }
 
+static void append_upload_chunk_section(cwist_sstring *b, const char *msg) {
+    static const int sizes[] = {256, 512, 1024, 2048, 4096, 6144, 8192};
+    cwist_sstring_append(b, "<section id='upload-chunk' class='board-line fade-in' style='animation-delay:0.18s'><div class='board-line-head'><h2 class='board-line-title'>Upload Chunk Size</h2></div>");
+    if (msg && !strcmp(msg, "chunk_saved"))
+        cwist_sstring_append(b, "<div class='alert'>Chunk size saved. It applies on every worker and replica right away.</div>");
+    else if (msg && !strcmp(msg, "chunk_error"))
+        cwist_sstring_append(b, "<div class='alert'>Could not save the chunk size. Check the server log.</div>");
+    cwist_sstring_append(b, "<p class='board-card-desc'>Files uploaded on the appearance page (fonts, theme JSON, webfont scripts) are sent in pieces of this size. Smaller chunks are retried more cheaply on a flaky link; larger chunks need fewer requests.</p>");
+    cwist_sstring_append(b, "<form action='/admin/upload-chunk' method='post' style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'><select name='upload_chunk_kib' aria-label='Upload chunk size'>");
+    for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
+        char option[96];
+        if (sizes[i] < 1024)
+            snprintf(option, sizeof(option), "<option value='%d'%s>%d KiB</option>", sizes[i],
+                     sizes[i] == g_layout_settings.upload_chunk_kib ? " selected" : "", sizes[i]);
+        else
+            snprintf(option, sizeof(option), "<option value='%d'%s>%d MiB</option>", sizes[i],
+                     sizes[i] == g_layout_settings.upload_chunk_kib ? " selected" : "", sizes[i] / 1024);
+        cwist_sstring_append(b, option);
+    }
+    cwist_sstring_append(b, "</select><button type='submit' class='btn'>Save Chunk Size</button></form></section>");
+}
+
 static void append_upload_policy_section(cwist_sstring *b, const char *msg) {
     bool allow_mode = strcmp(upload_policy_mode(), UPLOAD_POLICY_MODE_ALLOW) == 0;
     cwist_sstring_append(b, "<section id='upload-policy' class='board-line fade-in' style='animation-delay:0.18s'><div class='board-line-head'><h2 class='board-line-title'>Upload Policy</h2></div>");
@@ -475,6 +497,7 @@ cwist_sstring *render_admin_dashboard(bool dark, const char *profile_pic, bool i
     cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='color:#c00;border-color:#c00'>Drop All Files</button></form></section>");
     append_write_policy_section(b, msg);
     append_upload_policy_section(b, msg);
+    append_upload_chunk_section(b, msg);
     append_backup_section(b, backup, msg);
     append_flywire_section(b, flywire);
     append_test_email_section(b, msg);

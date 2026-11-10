@@ -8,6 +8,7 @@
 #include "utils/moderation_filter.h"
 #include "engine/flywire.h"
 #include "engine/community.h"
+#include "engine/bdr.h"
 #include "../db/subscriber.h"
 #include <openssl/mem.h>
 
@@ -276,6 +277,36 @@ void handler_admin_upload_policy_post(cwist_http_request *req, cwist_http_respon
         CWIST_LOG_ERROR("Upload policy update failed");
     redirect(res, ok ? "/admin/dashboard?msg=upload_saved#upload-policy"
                      : "/admin/dashboard?msg=upload_error#upload-policy");
+}
+
+/* Save the appearance upload chunk size. It lives in layout.settings so the
+ * appearance version bump reloads it in every worker and replicas pull it. */
+void handler_admin_upload_chunk_post(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    cwist_query_map *kv = cwist_query_map_create();
+    if (req->body && req->body->data) cwist_query_map_parse(kv, req->body->data);
+    const char *value = cwist_query_map_get(kv, "upload_chunk_kib");
+    bool ok = value && layout_value_valid("upload_chunk_kib", value);
+    if (ok) {
+        int previous = g_layout_settings.upload_chunk_kib;
+        g_layout_settings.upload_chunk_kib = atoi(value);
+        ok = layout_settings_save("layout.settings");
+        if (ok) {
+            int uid = 0;
+            char role[32] = {0};
+            auth_is_logged_in(req, &uid, role, sizeof(role));
+            audit_record(uid, "admin.upload.chunk_size", "site", "success", value);
+            page_cache_invalidate_all();
+            engine_bdr_bump_appearance();
+            CWIST_LOG_INFO("Upload chunk size set to %d KiB", g_layout_settings.upload_chunk_kib);
+        } else {
+            g_layout_settings.upload_chunk_kib = previous;
+            CWIST_LOG_ERROR("Upload chunk size update failed");
+        }
+    }
+    cwist_query_map_destroy(kv);
+    redirect(res, ok ? "/admin/dashboard?msg=chunk_saved#upload-chunk"
+                     : "/admin/dashboard?msg=chunk_error#upload-chunk");
 }
 
 void handler_admin_users(cwist_http_request *req, cwist_http_response *res) {
