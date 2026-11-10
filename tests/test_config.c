@@ -160,6 +160,9 @@ int main(void) {
               "highlight.js themes come from the CDN");
         CHECK(code_theme_local_path("monodraw-light") && access(code_theme_local_path("monodraw-light"), R_OK) == 0 &&
               access(code_theme_local_path("monodraw-dark"), R_OK) == 0, "Monodraw stylesheets exist");
+        CHECK(code_theme_valid("seoulism") && code_theme_valid("seoulism-intense") &&
+              access(code_theme_local_path("seoulism"), R_OK) == 0 &&
+              access(code_theme_local_path("seoulism-intense"), R_OK) == 0, "Seoulism stylesheets exist");
         CHECK(layout_value_valid("code_theme_dark", "github-dark") && !layout_value_valid("code_theme_dark", "../x") &&
               !layout_value_valid("code_theme_light", ""), "code theme ids are whitelisted");
     }

@@ -1110,6 +1110,8 @@ const code_theme_t g_code_themes[] = {
     {"xt256", "XT256", true},
     {"monodraw-light", "Monodraw Light", false},
     {"monodraw-dark", "Monodraw Dark", true},
+    {"seoulism-intense", "Seoulism Intense", false},
+    {"seoulism", "Seoulism", true},
 };
 const size_t g_code_theme_count = sizeof(g_code_themes) / sizeof(g_code_themes[0]);
 
@@ -1123,6 +1125,8 @@ bool code_theme_valid(const char *id) {
 const char *code_theme_local_path(const char *id) {
     if (id && strcmp(id, "monodraw-light") == 0) return "public/css/hljs-monodraw-light.css";
     if (id && strcmp(id, "monodraw-dark") == 0) return "public/css/hljs-monodraw-dark.css";
+    if (id && strcmp(id, "seoulism-intense") == 0) return "public/css/hljs-seoulism-intense.css";
+    if (id && strcmp(id, "seoulism") == 0) return "public/css/hljs-seoulism.css";
     return NULL;
 }
 
