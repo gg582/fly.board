@@ -74,6 +74,11 @@ cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pi
                 cwist_sstring_append(b, "'>");
                 cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Reset two-factor for this user? They can sign in with their password alone.'>Reset 2FA</button></form>");
             }
+            if (!auth_is_site_admin(uid->valueint) && json_int(u, "ghosted", 0) == 0) {
+                cwist_sstring_append(b, " <form action='/admin/user/reset-link' method='post' style='display:inline'><input type='hidden' name='id' value='");
+                cwist_sstring_append(b, uid_buf);
+                cwist_sstring_append(b, "'><button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Create a one-time password reset link for this user? Their current password keeps working until the link is used.'>Reset password</button></form>");
+            }
             cwist_sstring_append(b, " <form class='admin-delete-form' action='/unregister' method='post' style='display:inline'>");
             cwist_sstring_append(b, "<input type='hidden' name='id' value='");
             cwist_sstring_append(b, uid_buf);

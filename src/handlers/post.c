@@ -420,6 +420,7 @@ static cwist_sstring *post_list_render(cwist_db *db, const char *slug, int page,
         if (total_pages < 1) total_pages = 1;
         if (page > total_pages) page = total_pages;
         posts = db_post_list_search(db, bid, search, search_type, filters, 20, (page - 1) * 20);
+        social_apply_blocks(db, uid, posts, "user_id", true);
     }
     cJSON *children = NULL;
     if (bid > 0) {
@@ -718,6 +719,12 @@ static cwist_sstring *post_detail_render(cwist_db *db, cJSON *post, bool dark, b
     cJSON *files = pl.files;
     cJSON *comments = pl.comments;
     db_moderation_filter_comments(db, comments);
+    social_apply_blocks(db, uid, comments, "user_id", false);
+    if (uid > 0) {
+        cJSON_AddBoolToObject(post, "bookmarked", db_bookmark_has(db, uid, post_id));
+        if (author_id > 0 && author_id != uid && db_user_blocks(db, uid, author_id))
+            cJSON_AddBoolToObject(post, "author_blocked", true);
+    }
     int vote_up = 0, vote_down = 0;
     if (pl.vote_counts) {
         cJSON *up = cJSON_GetObjectItem(pl.vote_counts, "up");
@@ -749,6 +756,7 @@ static cwist_sstring *post_detail_render(cwist_db *db, cJSON *post, bool dark, b
     }
     if (post_public) {
         if (pl.adjacent) cJSON_AddItemToObject(post, "adjacent", pl.adjacent);
+        social_apply_blocks(db, uid, pl.related, "user_id", true);
         if (pl.related) cJSON_AddItemToObject(post, "related", pl.related);
     } else {
         if (pl.adjacent) cJSON_Delete(pl.adjacent);

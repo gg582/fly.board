@@ -476,6 +476,12 @@ static void render_comment_slot(cwist_sstring *out, cwist_sstring *scratch, comm
     cwist_sstring_append(b, "<div class='comment-body'>");
     if (deleted) {
         cwist_sstring_append(b, "<p style='color:var(--muted);font-style:italic;margin:0'>Deleted comment</p>");
+    } else if (cJSON_IsTrue(cJSON_GetObjectItem(comment, "blocked"))) {
+        /* Replies under it stay in place; only this body is folded. */
+        cwist_sstring_append(b, "<details class='blocked-content'><summary style='cursor:pointer;color:var(--muted);font-style:italic'>"
+                                "Comment from a user you blocked</summary>");
+        append_comment_markdown(b, text, ctx->files);
+        cwist_sstring_append(b, "</details>");
     } else {
         append_comment_markdown(b, text, ctx->files);
     }
@@ -1204,7 +1210,7 @@ cwist_sstring *render_post_index(const char *heading, const char *lead, cJSON *p
         cwist_sstring_append(b, "</p>");
     }
     cwist_sstring_append(b, "<p style='font-size:14px'>");
-    bool archive_on = site_section_enabled("archive");
+    bool archive_on = site_section_enabled("archive") && !(base_path && strcmp(base_path, "/bookmarks") == 0);
     if (archive_on) cwist_sstring_append(b, "<a href='/archive'>Archive</a>");
     if (feed_path && site_section_enabled("rss")) {
         if (archive_on) cwist_sstring_append(b, " &middot; ");
@@ -1244,7 +1250,7 @@ cwist_sstring *render_post_index(const char *heading, const char *lead, cJSON *p
         .canonical_path = base_path,
         .feed_path = feed_path,
         .feed_title = heading,
-        .noindex = base_path && strncmp(base_path, "/tag/", 5) == 0,
+        .noindex = base_path && (strncmp(base_path, "/tag/", 5) == 0 || strcmp(base_path, "/bookmarks") == 0),
     };
     render_set_page_meta(&meta);
     cwist_sstring *page_html = render_page(heading, b->data, dark, user_role, profile_pic, is_mobile);
@@ -1924,6 +1930,30 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     char vdown[32]; snprintf(vdown, sizeof(vdown), "%d", vote_down);
     cwist_sstring_append(b, vdown);
     cwist_sstring_append(b, "</button>");
+    if (user_id > 0) {
+        bool saved = cJSON_IsTrue(cJSON_GetObjectItem(post, "bookmarked"));
+        cwist_sstring_append(b, "<form action='/bookmark' method='post' style='margin:0;display:inline' class='bookmark-form'>"
+                                "<input type='hidden' name='post_id' value='");
+        cwist_sstring_append(b, pid_buf);
+        cwist_sstring_append(b, "'><input type='hidden' name='action' value='");
+        cwist_sstring_append(b, saved ? "remove" : "add");
+        cwist_sstring_append(b, "'><input type='hidden' name='return' value='/post/");
+        cwist_sstring_append_escaped(b, json_string_or_empty(post, "slug"));
+        cwist_sstring_append(b, "'><button id='bookmark-btn' type='submit' class='btn btn-outline' style='padding:6px 12px;font-size:13px");
+        if (saved) cwist_sstring_append(b, ";border-color:var(--accent);color:var(--accent)");
+        cwist_sstring_append(b, "' aria-pressed='");
+        cwist_sstring_append(b, saved ? "true" : "false");
+        cwist_sstring_append(b, "'>");
+        cwist_sstring_append(b, saved ? "&#9733; Bookmarked" : "&#9734; Bookmark");
+        cwist_sstring_append(b, "</button></form>"
+            "<script>(function(){var f=document.querySelector('.bookmark-form');if(!f||!window.fetch)return;"
+            "f.addEventListener('submit',function(e){e.preventDefault();var btn=f.querySelector('button'),a=f.elements.action;btn.disabled=true;"
+            "fetch('/bookmark',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded','X-Requested-With':'fetch'},"
+            "body:'post_id='+encodeURIComponent(f.elements.post_id.value)+'&action='+a.value}).then(function(r){return r.json();}).then(function(d){"
+            "if(!d.ok)return;var on=!!d.bookmarked;a.value=on?'remove':'add';btn.setAttribute('aria-pressed',on?'true':'false');"
+            "btn.innerHTML=on?'&#9733; Bookmarked':'&#9734; Bookmark';btn.style.borderColor=on?'var(--accent)':'';btn.style.color=on?'var(--accent)':'';"
+            "}).catch(function(){}).then(function(){btn.disabled=false;});});})();</script>");
+    }
     cwist_sstring_append(b, "<button id='post-translate' type='button' class='btn btn-outline' style='padding:6px 10px;font-size:13px;display:inline-flex;align-items:center' aria-controls='post-translation' aria-pressed='false' aria-label='Translate' title='Translate'><svg aria-hidden='true' width='18' height='18' viewBox='0 0 24 24' fill='currentColor'><path d='M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.96-4.17 3.71-6.53H17V4h-7V2H8v2H1v2h11.17c-.69 1.93-1.75 3.75-3.16 5.35-.91-1.01-1.66-2.12-2.27-3.35H4.74c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4.04 19l5.09-5.09 3.17 3.17.57-2.01zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.63 7 1.62-4.33L19.12 17h-3.25z'/></svg></button>");
     cwist_sstring_append(b, "<select id='post-translate-target' class='btn btn-outline post-translate-target' style='padding:6px 8px;font-size:13px' aria-label='Translation target language' title='Translation target language'><option value='en'>English</option><option value='ko'>Korean</option><option value='ja'>Japanese</option><option value='zh'>Chinese (Simplified)</option><option value='zh-TW'>Chinese (Traditional)</option><option value='es'>Spanish</option><option value='fr'>French</option><option value='de'>German</option><option value='pt'>Portuguese</option><option value='ru'>Russian</option><option value='ar'>Arabic</option><option value='hi'>Hindi</option><option value='id'>Indonesian</option><option value='vi'>Vietnamese</option></select>");
     cwist_sstring_append(b, "<span id='vote-msg' style='color:var(--muted);font-size:13px'></span>");
@@ -1959,6 +1989,12 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     cwist_sstring_append(b, "})();");
     cwist_sstring_append(b, "</script>");
 
+    /* The author is someone this viewer blocked: the body stays one click
+     * away instead of being shown outright. */
+    bool author_blocked = cJSON_IsTrue(cJSON_GetObjectItem(post, "author_blocked"));
+    if (author_blocked)
+        cwist_sstring_append(b, "<details class='blocked-content card' style='margin:16px 0;padding:12px 16px'>"
+                                "<summary style='cursor:pointer;color:var(--muted)'>This post is by a user you blocked. Show it anyway</summary>");
     cwist_sstring *md_html = render_markdown_to_html(content_text);
     if (md_html) {
         upgrade_markdown_file_links_to_media(md_html, files);
@@ -1974,6 +2010,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         cwist_sstring_append(b, "<div class='markdown-body'>");
     }
     cwist_sstring_append(b, "</div>");
+    if (author_blocked) cwist_sstring_append(b, "</details>");
     cJSON *post_tags = cJSON_GetObjectItem(post, "tags");
     if (site_section_enabled("tags") && cJSON_IsArray(post_tags) && cJSON_GetArraySize(post_tags) > 0) {
         cwist_sstring_append(b, "<div class='post-tags' style='display:flex;flex-wrap:wrap;gap:6px;margin-top:24px'>");

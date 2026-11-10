@@ -63,6 +63,8 @@ static void notify_comment_recipient(cwist_db *db, int actor_uid, const char *ac
         kind = "comment";
     }
     if (!kind || recipient <= 0 || recipient == actor_uid) return;
+    /* No notification from someone the recipient blocked. */
+    if (actor_uid > 0 && db_user_blocks(db, recipient, actor_uid)) return;
 
     const char *slug = target->is_post ? target->slug : "";
     int post_id = target->is_post && slug[0] ? target->id : 0;
@@ -89,6 +91,7 @@ static void comment_send_fragment(cwist_http_request *req, cwist_http_response *
                                   int comment_id, bool pending) {
     cJSON *list = db_comment_list_by_target(req->db, target_type, target_id);
     db_moderation_filter_comments(req->db, list);
+    social_apply_blocks(req->db, uid, list, "user_id", false);
     cwist_sstring *html = cwist_sstring_create();
     cJSON *files = strcmp(target_type, "post") == 0 ? db_file_list_by_post(req->db, target_id) : NULL;
     if (html && render_comment_tree(html, list, target_type, target_id, uid, role, files) == 0)

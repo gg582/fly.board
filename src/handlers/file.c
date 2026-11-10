@@ -991,6 +991,7 @@ void handler_file_detail_get(cwist_http_request *req, cwist_http_response *res) 
     if (file && file_lock_for(req, file) == FILE_LOCK_DENIED) { cJSON_Delete(file); file = NULL; }
     if (!file) { res->status_code = CWIST_HTTP_NOT_FOUND; cwist_sstring_assign(res->body, "Not found"); return; }
     cJSON *comments = db_comment_list_by_target(req->db, "file", atoi(id_str));
+    social_apply_blocks(req->db, uid, comments, "user_id", false);
     char *pp = get_profile_pic(req->db, uid, role);
     cwist_sstring *page = render_file_detail(file, comments, is_dark(req), role, pp, uid, is_mobile_request(req));
     cJSON_Delete(file);

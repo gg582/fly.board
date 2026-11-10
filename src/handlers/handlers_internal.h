@@ -44,6 +44,8 @@ void send_delete_confirm_page(cwist_http_request *req, cwist_http_response *res,
                               const char *pin_placeholder);
 int json_int(cJSON *obj, const char *key, int def);
 const char *json_string_or_empty(cJSON *obj, const char *key);
+/* Hide (remove) or mark ("blocked":true) items by authors the viewer blocked. */
+void social_apply_blocks(cwist_db *db, int viewer_uid, cJSON *arr, const char *author_key, bool remove);
 bool is_author_or_admin(cJSON *post, int uid, const char *role);
 /* True unless the post is password-locked and this viewer is neither its
  * author, an admin, a moderator of its board, nor holds a valid grant. */

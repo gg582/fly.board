@@ -24,6 +24,7 @@ static void home_refresh(void *arg) {
     if (opened) {
         char *pp = get_profile_pic(&db, job->uid, job->role);
         cJSON *posts = db_post_recent(&db, 12);
+        social_apply_blocks(&db, job->uid, posts, "user_id", true);
         cwist_sstring *page = render_post_list(posts, NULL, job->dark, job->role, 1, 1, "",
                                                NULL, NULL, NULL, pp, job->uid, job->mobile, NULL);
         if (page) {
@@ -86,6 +87,7 @@ void handler_home(cwist_http_request *req, cwist_http_response *res) {
 
     char *pp = get_profile_pic(req->db, uid, role);
     cJSON *posts = db_post_recent(req->db, 12);
+    social_apply_blocks(req->db, uid, posts, "user_id", true);
     cwist_sstring *page = render_post_list(posts, NULL, dark, role, 1, 1, "", NULL, NULL, NULL, pp, uid, mobile, NULL);
     if (posts) cJSON_Delete(posts);
     if (page) {

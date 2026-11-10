@@ -268,13 +268,16 @@ bool db_user_ghost(cwist_db *db, int id) {
         "DELETE FROM board_permissions WHERE user_id=?",
         "DELETE FROM notifications WHERE user_id=?",
         "DELETE FROM guestbook WHERE owner_uid=? OR author_uid=?",
+        "DELETE FROM bookmarks WHERE user_id=?",
+        "DELETE FROM user_blocks WHERE user_id=? OR blocked_id=?",
+        "DELETE FROM password_resets WHERE user_id=?",
         "UPDATE post_revisions SET editor_id=0 WHERE editor_id=?",
         "UPDATE posts SET delete_pin_hash='' WHERE user_id=?",
     };
     bool ok = true;
     for (size_t i = 0; i < sizeof(purge_sql) / sizeof(purge_sql[0]); i++) {
-        /* The guestbook statement has two placeholders for the same owner. */
-        if (i == 6) {
+        /* The guestbook and block statements bind the same id twice. */
+        if (i == 6 || i == 8) {
             sqlite3_stmt *stmt = NULL;
             ok = sqlite3_prepare_v2(conn, purge_sql[i], -1, &stmt, NULL) == SQLITE_OK;
             if (ok) {
@@ -353,6 +356,10 @@ bool db_user_delete_with_cascade(cwist_db *db, int id, bool delete_replies) {
         "DELETE FROM emails WHERE owner_id=?",
         "DELETE FROM board_permissions WHERE user_id=?",
         "DELETE FROM board_delegations WHERE user_id=?",
+        "DELETE FROM bookmarks WHERE user_id=?",
+        "DELETE FROM user_blocks WHERE user_id=?",
+        "DELETE FROM user_blocks WHERE blocked_id=?",
+        "DELETE FROM password_resets WHERE user_id=?",
     };
     for (size_t i = 0; i < sizeof(purge_sql) / sizeof(purge_sql[0]); i++) {
         sqlite3_stmt *stmt = NULL;

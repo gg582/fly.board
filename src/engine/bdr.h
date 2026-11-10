@@ -29,6 +29,8 @@ void engine_bdr_bump(void);
 
 /* Appearance saves also tell every serving process to reload its theme. */
 void engine_bdr_bump_appearance(void);
+void engine_bdr_bump_blocks(void);
+uint64_t engine_bdr_blocks_version(void);
 uint64_t engine_bdr_appearance_version(void);
 
 /* Narrower invalidations: only bump the BDR domain(s) affected by a post,

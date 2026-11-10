@@ -19,6 +19,7 @@ cwist_sstring *render_login(bool dark, const char *error, bool is_mobile, const 
         "    <label>Password</label><input name='password' type='password' placeholder='password' required>"
         "    <button type='submit' class='btn' style='margin-top:8px;width:100%'>Login</button>"
         "  </form>"
+        "  <p style='margin:12px 0 0;text-align:center;font-size:13px'><a href='/forgot-password'>Forgot your password?</a></p>"
         "  {% if email_cert %}"
         "  <hr style='border:0;border-top:1px solid var(--border);margin:16px 0'>"
         "  <form action='/resend-verification' method='post'>"

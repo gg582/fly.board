@@ -36,6 +36,7 @@ typedef struct {
     _Atomic uint64_t global_ver;
     _Atomic uint64_t listings_ver;
     _Atomic uint64_t appearance_ver;
+    _Atomic uint64_t blocks_ver;      /* personal blocks: signed-in list caches */
     _Atomic uint64_t post_ver[BDR_POST_BUCKETS];
 } bdr_shared_versions_t;
 
@@ -103,6 +104,7 @@ void engine_bdr_init(cwist_app *app) {
     atomic_init(&g_versions->global_ver, 1);
     atomic_init(&g_versions->listings_ver, 1);
     atomic_init(&g_versions->appearance_ver, 1);
+    atomic_init(&g_versions->blocks_ver, 1);
     for (size_t i = 0; i < BDR_POST_BUCKETS; i++) {
         atomic_init(&g_versions->post_ver[i], 1);
     }
@@ -263,6 +265,18 @@ uint64_t engine_bdr_appearance_version(void) {
 void engine_bdr_bump_appearance(void) {
     if (!g_versions) return;
     atomic_fetch_add_explicit(&g_versions->appearance_ver, 1, memory_order_acq_rel);
+    engine_bdr_bump();
+}
+
+uint64_t engine_bdr_blocks_version(void) {
+    return g_versions ? atomic_load_explicit(&g_versions->blocks_ver, memory_order_acquire) : 0;
+}
+
+/* A member blocked or unblocked someone: their cached lists (keyed with
+ * blocks_ver) and post pages (keyed with global_ver) are rebuilt. */
+void engine_bdr_bump_blocks(void) {
+    if (!g_versions) return;
+    atomic_fetch_add_explicit(&g_versions->blocks_ver, 1, memory_order_acq_rel);
     engine_bdr_bump();
 }
 

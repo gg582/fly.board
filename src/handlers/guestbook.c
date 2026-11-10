@@ -114,6 +114,14 @@ void handler_guestbook_post(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
+    /* The owner blocked this member: the entry is dropped and the author
+     * sees the usual redirect, so the block stays private. */
+    if (author_uid > 0 && db_user_blocks(req->db, owner_uid, author_uid)) {
+        cwist_query_map_destroy(kv);
+        CWIST_LOG_INFO("Guestbook post dropped: owner=%d blocked author_uid=%d", owner_uid, author_uid);
+        guestbook_redirect(res, owner_uid, 1);
+        return;
+    }
     db_guestbook_create(req->db, owner_uid, author_uid, author_name, start);
     cwist_query_map_destroy(kv);
     CWIST_LOG_INFO("Guestbook post: owner=%d author_uid=%d name='%s'", owner_uid, author_uid, author_name);

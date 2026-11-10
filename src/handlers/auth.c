@@ -829,7 +829,7 @@ void handler_profile_get(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     char *pp = get_profile_pic(req->db, uid, role);
-    send_html_res(res, render_profile(user, is_dark(req), role, pp, true, is_mobile_request(req)));
+    send_html_res(res, render_profile(user, is_dark(req), role, pp, true, is_mobile_request(req), uid, false));
     cJSON_Delete(user);
     free(pp);
 }
@@ -1160,7 +1160,8 @@ void handler_user_profile_get(cwist_http_request *req, cwist_http_response *res)
 
     char *pp = get_profile_pic(req->db, viewer_uid, viewer_role);
     bool is_own = (viewer_uid == target_uid);
-    send_html_res(res, render_profile(user, dark, viewer_role, pp, is_own, is_mobile_request(req)));
+    send_html_res(res, render_profile(user, dark, viewer_role, pp, is_own, is_mobile_request(req), viewer_uid,
+                                       !is_own && db_user_blocks(req->db, viewer_uid, target_uid)));
     cJSON_Delete(user);
     free(pp);
 }

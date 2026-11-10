@@ -363,9 +363,10 @@ void page_cache_clear_prefix(const char *prefix) {
 }
 
 void page_cache_key_home(char *out, size_t out_len, bool dark, bool mobile, const char *role, int uid) {
-    snprintf(out, out_len, "home:d=%d:m=%d:r=%s:u=%d:w=%u:pg=%u",
+    snprintf(out, out_len, "home:d=%d:m=%d:r=%s:u=%d:w=%u:pg=%u:b=%llu",
              dark ? 1 : 0, mobile ? 1 : 0,
-             role && role[0] ? role : "guest", uid, write_policy_generation(), post_schedule_generation());
+             role && role[0] ? role : "guest", uid, write_policy_generation(), post_schedule_generation(),
+             (unsigned long long)(uid > 0 ? engine_bdr_blocks_version() : 0));
 }
 
 void page_cache_key_post(char *out, size_t out_len, const char *slug, bool dark, bool mobile, const char *role, int uid) {
@@ -379,7 +380,7 @@ void page_cache_key_board(char *out, size_t out_len, const char *slug, int page,
                           bool dark, bool mobile, const char *role, int uid,
                           const char *search, const char *search_type,
                           const search_filters *filters) {
-    snprintf(out, out_len, "board:%s:p=%d:d=%d:m=%d:r=%s:u=%d:s=%s:st=%s:t=%s:se=%s:f=%s:to=%s:w=%u:pg=%u",
+    snprintf(out, out_len, "board:%s:p=%d:d=%d:m=%d:r=%s:u=%d:s=%s:st=%s:t=%s:se=%s:f=%s:to=%s:w=%u:pg=%u:b=%llu",
              slug ? slug : "", page, dark ? 1 : 0, mobile ? 1 : 0,
              role && role[0] ? role : "guest", uid,
              search ? search : "", search_type ? search_type : "",
@@ -387,7 +388,8 @@ void page_cache_key_board(char *out, size_t out_len, const char *slug, int page,
              filters && filters->series ? filters->series : "",
              filters && filters->from ? filters->from : "",
              filters && filters->to ? filters->to : "",
-             write_policy_generation(), post_schedule_generation());
+             write_policy_generation(), post_schedule_generation(),
+             (unsigned long long)(uid > 0 ? engine_bdr_blocks_version() : 0));
 }
 
 void page_cache_key_board_list(char *out, size_t out_len, bool dark, bool mobile,

@@ -497,6 +497,13 @@ bool db_migrate(cwist_db *db) {
     /* Privacy ghosting keeps this row as a non-login author placeholder so
      * posts and comment parent links retain their original numeric ids. */
     db_exec_sql(db, "ALTER TABLE users ADD COLUMN ghosted INTEGER NOT NULL DEFAULT 0");
+    /* Sessions issued before this unix time are refused (password reset). */
+    db_exec_sql(db, "ALTER TABLE users ADD COLUMN sessions_valid_after INTEGER NOT NULL DEFAULT 0");
+    /* Bookmarks and personal blocks replicate as FlyWire entities
+     * "bookmark" / "user_block"; reset tokens stay on the primary. */
+    db_exec_sql(db, "CREATE TABLE IF NOT EXISTS bookmarks (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, post_id INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, post_id), FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE)");
+    db_exec_sql(db, "CREATE TABLE IF NOT EXISTS user_blocks (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, blocked_id INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, blocked_id), FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY(blocked_id) REFERENCES users(id) ON DELETE CASCADE)");
+    db_exec_sql(db, "CREATE TABLE IF NOT EXISTS password_resets (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, token_hash TEXT UNIQUE NOT NULL, expires_at INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
     db_exec_sql(db,
         "CREATE TABLE IF NOT EXISTS guestbook ("
         "  id INTEGER PRIMARY KEY AUTOINCREMENT,"

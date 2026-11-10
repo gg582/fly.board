@@ -71,6 +71,14 @@ void engine_routes_register(cwist_app *app) {
     engine_async_post(app, "/register", handler_register_post);
     engine_async_get(app, "/verify-email", handler_verify_email_get);
     engine_async_post(app, "/resend-verification", handler_resend_verification_post);
+    engine_async_get(app, "/forgot-password", handler_forgot_password_get);
+    engine_async_post(app, "/forgot-password", handler_forgot_password_post);
+    engine_async_get(app, "/reset-password", handler_reset_password_get);
+    engine_async_post(app, "/reset-password", handler_reset_password_post);
+    engine_async_post(app, "/bookmark", handler_bookmark_post);
+    engine_async_get(app, "/bookmarks", handler_bookmarks_get);
+    engine_async_get(app, "/account/blocks", handler_account_blocks_get);
+    engine_async_post(app, "/user/:id/block", handler_user_block_post);
     engine_async_post(app, "/unregister", handler_unregister_post);
     engine_async_post(app, "/account/delete", handler_account_delete_post);
     engine_async_post(app, "/account/export", handler_account_export_post);
@@ -174,6 +182,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/admin/user/role", handler_admin_users);
     engine_async_post(app, "/admin/user/role", handler_admin_user_role);
     engine_async_post(app, "/admin/user/totp-reset", handler_admin_user_totp_reset_post);
+    engine_async_post(app, "/admin/user/reset-link", handler_admin_user_reset_link_post);
     engine_async_get(app, "/admin/files/drop", handler_file_repo);
     engine_async_post(app, "/admin/files/drop", handler_admin_files_drop);
     engine_async_get(app, "/admin/boards", handler_admin_boards_get);

@@ -232,7 +232,11 @@ void handler_mail_send_post(cwist_http_request *req, cwist_http_response *res) {
         cJSON *rcpt = is_local_domain ? db_user_get_by_username(req->db, local) : NULL;
         if (rcpt) {
             int owner = json_int(rcpt, "id", 0);
-            if (owner > 0)
+            /* A recipient who blocked the sender never sees the mail; the
+             * sender gets the normal "sent" result so the block stays private. */
+            if (owner > 0 && db_user_blocks(req->db, owner, uid))
+                local_delivered++;
+            else if (owner > 0)
                 local_delivered += db_email_create(req->db, owner, MAIL_FOLDER_INBOX,
                                                    from_addr, addr, subject, body,
                                                    message_id,

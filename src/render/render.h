@@ -39,9 +39,17 @@ void render_set_board_translations(const char *lang, cJSON *siblings);
 void render_set_nav_profile(const char *display_name, const char *account_name);
 void render_set_nav_notifications(int unread_count);
 cwist_sstring *render_page(const char *title, const char *body_html, bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
-cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, const char *profile_pic, bool is_own_profile, bool is_mobile);
+cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, const char *profile_pic, bool is_own_profile, bool is_mobile,
+                              int viewer_uid, bool viewer_blocked);
 cwist_sstring *render_account_settings(cJSON *user, bool dark, const char *viewer_role, const char *profile_pic, const char *error, bool is_mobile, int draft_count, bool totp_enabled, bool totp_pending, const char *totp_secret_b32, const char *totp_notice, const char *export_id);
 cwist_sstring *render_password_change(bool dark, const char *user_role, const char *profile_pic, const char *error, bool is_mobile);
+/* render_social.c */
+cwist_sstring *render_forgot_password(bool dark, const char *message, bool ok, bool is_mobile);
+cwist_sstring *render_reset_password(bool dark, const char *token, const char *error, bool is_mobile);
+cwist_sstring *render_admin_reset_link(bool dark, const char *role, const char *profile_pic, const char *username,
+                                       const char *link, bool mailed, bool is_mobile);
+cwist_sstring *render_blocked_users(cJSON *blocks, bool dark, const char *role, const char *profile_pic,
+                                    const char *message, bool is_mobile);
 cwist_sstring *render_login(bool dark, const char *error, bool is_mobile, const char *redirect_target);
 cwist_sstring *render_login_2fa(bool dark, const char *pending_token, const char *redirect_target, bool is_mobile, const char *error);
 cwist_sstring *render_register(bool dark, const char *error, bool is_mobile, cJSON *legal_docs);

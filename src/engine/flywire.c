@@ -438,6 +438,8 @@ static const flywire_entity_t k_entities[] = {
     { "user",       "users",           FLYWIRE_DB_MAIN,     false },
     { "email",      "emails",          FLYWIRE_DB_MAIN,     false },
     { "guestbook",  "guestbook",       FLYWIRE_DB_MAIN,     false },
+    { "bookmark",   "bookmarks",       FLYWIRE_DB_MAIN,     false },
+    { "user_block", "user_blocks",     FLYWIRE_DB_MAIN,     false },
 };
 
 static const flywire_entity_t *flywire_entity(const char *name) {
@@ -475,6 +477,7 @@ static flywire_cols_t *flywire_cols_slot(const char *table) {
         { "tags", 4 }, { "post_votes", 5 }, { "post_votes_anon", 6 },
         { "comments", 7 }, { "board_tree", 8 }, { "users", 9 },
         { "emails", 10 }, { "guestbook", 11 }, { "board_delegations", 12 },
+        { "bookmarks", 13 }, { "user_blocks", 14 },
     };
     for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
         if (strcmp(map[i].t, table) == 0) return &g_cols[map[i].slot];
@@ -1118,6 +1121,7 @@ static bool flywire_apply_row(sqlite3 *main_conn, long long seq, const char *ent
         }
         if (payload) cJSON_Delete(payload);
     }
+    if (ok && strcmp(e->entity, "user_block") == 0) engine_bdr_bump_blocks();
     if (!ok) {
         CWIST_LOG_WARN("flywire: apply %s %d (%s) at seq %lld failed: %s",
                        entity, entity_id, op, seq, sqlite3_errmsg(conn));

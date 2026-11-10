@@ -441,13 +441,23 @@ char *auth_jwt_issue(int user_id, const char *username, const char *role) {
     cwist_sstring_append(payload, nbf_str);
     cwist_sstring_append(payload, ",\"exp\":");
     cwist_sstring_append(payload, exp_str);
-    /* v2: the admin.settings account signs in with its own users.id. */
-    cwist_sstring_append(payload, ",\"v\":\"2\"}");
+    /* v2: the admin.settings account signs in with its own users.id.
+     * ist: real issue time as a string (cwist_jwt_claims_get only returns
+     * string claims), checked against users.sessions_valid_after. */
+    char ist[32];
+    snprintf(ist, sizeof(ist), "%ld", (long)now);
+    cwist_sstring_append(payload, ",\"v\":\"2\",\"ist\":\"");
+    cwist_sstring_append(payload, ist);
+    cwist_sstring_append(payload, "\"}");
 
     char *token = cwist_jwt_sign(payload->data, secret, 0);
     cwist_sstring_destroy(payload);
     return token;
 }
+
+/* Issue time of the token auth_verify_token accepted last on this thread,
+ * checked against users.sessions_valid_after by auth_current_account. */
+static __thread long t_token_issued;
 
 static bool auth_verify_token(const char *token, const char *secret,
                               int *out_user_id, char *out_role, size_t role_len) {
@@ -469,6 +479,10 @@ static bool auth_verify_token(const char *token, const char *secret,
                                  g_site_admin_uid != 1 && strcmp(role, "admin") == 0 &&
                                  username && strcmp(username, auth_admin_username()) == 0;
         if (uid > 0 && !legacy_site_admin) {
+            /* Tokens from before "ist" existed count as issued at 0, so a
+             * reset revokes them too. */
+            const char *ist = cwist_jwt_claims_get(claims, "ist");
+            t_token_issued = ist ? atol(ist) : 0;
             *out_user_id = uid;
             snprintf(out_role, role_len, "%s", role);
             ok = true;
@@ -597,7 +611,11 @@ static bool auth_current_account(cwist_http_request *req, int uid, char *role, s
     cJSON *active = cJSON_GetObjectItem(user, "active");
     cJSON *ghosted = cJSON_GetObjectItem(user, "ghosted");
     cJSON *current_role = cJSON_GetObjectItem(user, "role");
-    bool ok = (!cJSON_IsNumber(active) || active->valueint != 0) &&
+    cJSON *valid_after = cJSON_GetObjectItem(user, "sessions_valid_after");
+    /* A password reset signs out every session issued before it. */
+    bool revoked = cJSON_IsNumber(valid_after) && valid_after->valuedouble > 0 &&
+                   t_token_issued < (long)valid_after->valuedouble;
+    bool ok = !revoked && (!cJSON_IsNumber(active) || active->valueint != 0) &&
               (!cJSON_IsNumber(ghosted) || ghosted->valueint == 0) &&
               cJSON_IsString(current_role) && current_role->valuestring;
     if (ok && auth_is_site_admin(uid)) {

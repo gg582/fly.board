@@ -141,6 +141,16 @@ void handler_admin_appearance_upload_post(cwist_http_request *req, cwist_http_re
 void handler_admin_users(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_user_role(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_user_totp_reset_post(cwist_http_request *req, cwist_http_response *res);
+/* social.c: password recovery, bookmarks, personal blocks */
+void handler_forgot_password_get(cwist_http_request *req, cwist_http_response *res);
+void handler_forgot_password_post(cwist_http_request *req, cwist_http_response *res);
+void handler_reset_password_get(cwist_http_request *req, cwist_http_response *res);
+void handler_reset_password_post(cwist_http_request *req, cwist_http_response *res);
+void handler_admin_user_reset_link_post(cwist_http_request *req, cwist_http_response *res);
+void handler_bookmark_post(cwist_http_request *req, cwist_http_response *res);
+void handler_bookmarks_get(cwist_http_request *req, cwist_http_response *res);
+void handler_user_block_post(cwist_http_request *req, cwist_http_response *res);
+void handler_account_blocks_get(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_files_drop(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_boards_get(cwist_http_request *req, cwist_http_response *res);
 void handler_admin_attachments_get(cwist_http_request *req, cwist_http_response *res);

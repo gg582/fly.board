@@ -10,7 +10,8 @@
 #include <stdio.h>
 #include <string.h>
 
-cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, const char *profile_pic, bool is_own_profile, bool is_mobile) {
+cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, const char *profile_pic, bool is_own_profile, bool is_mobile,
+                              int viewer_uid, bool viewer_blocked) {
     cwist_sstring *b = cwist_sstring_create();
     const char *username = cJSON_GetObjectItem(user, "username")->valuestring;
     const char *email = cJSON_GetObjectItem(user, "email")->valuestring;
@@ -81,7 +82,9 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
     if (is_own_profile || (user_role && strcmp(user_role, "admin") == 0)) {
         cwist_sstring_append(b, "<hr style='margin:20px 0;border:0;border-top:1px solid var(--border)'>");
         if (is_own_profile) {
-            cwist_sstring_append(b, "<a href='/account/settings' class='btn btn-outline'>Account Settings</a>");
+            cwist_sstring_append(b, "<a href='/account/settings' class='btn btn-outline'>Account Settings</a> "
+                                    "<a href='/bookmarks' class='btn btn-outline'>Bookmarks</a> "
+                                    "<a href='/account/blocks' class='btn btn-outline'>Blocked users</a>");
         } else {
             char uid_buf[32];
             snprintf(uid_buf, sizeof(uid_buf), "%d", user_id);
@@ -96,6 +99,23 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
         cwist_sstring_append(b, "<a href='/user/");
         cwist_sstring_append(b, uid_buf);
         cwist_sstring_append(b, "' class='btn btn-outline'>View Public Profile</a>");
+    }
+
+    /* Personal block: any signed-in member can block another account. */
+    if (!is_own_profile && viewer_uid > 0 && user_id > 0 && viewer_uid != user_id) {
+        char form[400];
+        snprintf(form, sizeof(form),
+                 "<form class='block-form' action='/user/%d/block' method='post' style='margin-top:12px'>"
+                 "<input type='hidden' name='action' value='%s'><input type='hidden' name='return' value='/user/%d'>",
+                 user_id, viewer_blocked ? "unblock" : "block", user_id);
+        cwist_sstring_append(b, form);
+        cwist_sstring_append(b, viewer_blocked
+            ? "<p class='block-note' style='color:var(--muted);font-size:13px;margin:0 0 6px'>You blocked this user.</p>"
+            : "<p class='block-note' style='color:var(--muted);font-size:13px;margin:0 0 6px;display:none'>You blocked this user.</p>");
+        cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' data-block-confirm='Block this user? You stop seeing their posts and comments, and they can no longer mail you, write in your guestbook or notify you. They are not told.'>");
+        cwist_sstring_append(b, viewer_blocked ? "Unblock" : "Block user");
+        cwist_sstring_append(b, "</button></form>");
+        cwist_sstring_append(b, "<script>(function(){if(!window.fetch)return;document.querySelectorAll('form.block-form').forEach(function(f){f.addEventListener('submit',function(e){e.preventDefault();var btn=f.querySelector('button'),a=f.elements.action;if(btn.dataset.blockConfirm&&a.value==='block'&&!window.confirm(btn.dataset.blockConfirm))return;btn.disabled=true;fetch(f.getAttribute(\'action\'),{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded','X-Requested-With':'fetch'},body:'action='+a.value}).then(function(r){return r.json();}).then(function(d){if(!d.ok)return;var li=f.closest('li');if(li&&!d.blocked){li.parentNode.removeChild(li);return;}a.value=d.blocked?'unblock':'block';btn.textContent=d.blocked?'Unblock':'Block user';var note=f.querySelector('.block-note');if(note)note.style.display=d.blocked?'':'none';}).catch(function(){}).then(function(){btn.disabled=false;});},true);});})();</script>");
     }
 
     cwist_sstring_append(b, "</div>");

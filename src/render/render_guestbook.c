@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "render_guestbook.h"
 #include "../db/guestbook.h"
+#include "../db/db.h"
 #include "../utils/spam_guard.h"
 #include <cwist/core/sstring/sstring.h>
 #include <cwist/core/template/template.h>
@@ -131,6 +132,10 @@ cwist_sstring *render_guestbook_section(cwist_db *db, int owner_uid, int viewer_
             const char *content = json_str_or(e, "content", "");
             const char *created_at = json_str_or(e, "created_at", "");
             bool can_delete = is_owner || is_admin || (author_uid > 0 && author_uid == viewer_uid);
+            /* Entries by someone the viewer blocked are left out for them. */
+            if (viewer_uid > 0 && author_uid > 0 && author_uid != viewer_uid &&
+                db_user_blocks(db, viewer_uid, author_uid))
+                continue;
 
             cwist_sstring *content_html = cwist_sstring_create();
             append_multiline(content_html, content);

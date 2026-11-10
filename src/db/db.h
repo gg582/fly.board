@@ -53,6 +53,23 @@ bool db_user_update_totp_recovery(cwist_db *db, int id, const char *recovery_csv
 bool db_email_token_create(cwist_db *db, int user_id, const char *token, long expires_at);
 bool db_email_token_delete_for_user(cwist_db *db, int user_id);
 int db_email_token_consume(cwist_db *db, const char *token);
+
+/* social.c: bookmarks, personal blocks, password reset */
+bool db_bookmark_set(cwist_db *db, int user_id, int post_id, bool on);
+bool db_bookmark_has(cwist_db *db, int user_id, int post_id);
+cJSON *db_bookmark_list(cwist_db *db, int user_id, int limit, int offset);
+int db_bookmark_count(cwist_db *db, int user_id);
+bool db_user_block_set(cwist_db *db, int user_id, int blocked_id, bool on);
+bool db_user_blocks(cwist_db *db, int user_id, int other_id);
+int db_user_block_ids(cwist_db *db, int user_id, int **out);
+cJSON *db_user_block_list(cwist_db *db, int user_id);
+bool db_password_reset_create(cwist_db *db, int user_id, const char *token, long expires_at);
+long db_password_reset_age(cwist_db *db, int user_id);
+int db_password_reset_peek(cwist_db *db, const char *token);
+int db_password_reset_consume(cwist_db *db, const char *token);
+void db_password_reset_sweep(cwist_db *db);
+bool db_user_revoke_sessions(cwist_db *db, int user_id);
+cJSON *db_user_get_by_email(cwist_db *db, const char *email);
 /* Delete unverified accounts whose verification token was created more than
  * 24 hours ago (their tokens go with them). Returns the deleted count. */
 int db_user_delete_unverified_expired(cwist_db *db);
