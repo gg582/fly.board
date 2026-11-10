@@ -93,6 +93,8 @@
         if (hl && hl.dataset && hl.dataset.active) {
             return hl.dataset.active !== 'light';
         }
+        var base = document.documentElement.getAttribute('data-theme-base');
+        if (base) return base !== 'light';
         return document.cookie.indexOf('theme=dark') !== -1 ||
                document.cookie.indexOf('theme=ocean') !== -1 ||
                document.cookie.indexOf('theme=forest') !== -1;

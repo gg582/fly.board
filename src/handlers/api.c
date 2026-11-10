@@ -679,6 +679,7 @@ void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res) {
 
     static const char *const static_paths[] = {"/", "/boards", "/files", "/archive", "/series"};
     for (size_t i = 0; i < sizeof(static_paths) / sizeof(static_paths[0]); i++) {
+        if (site_section_path_disabled(static_paths[i])) continue;
         append_sitemap_url(sm, static_paths[i], NULL);
     }
 
@@ -717,7 +718,7 @@ void handler_sitemap_xml(cwist_http_request *req, cwist_http_response *res) {
         cwist_sstring_destroy(path);
     }
     if (boards) cJSON_Delete(boards);
-    cJSON *series = db_series_list(req->db, 0, true);
+    cJSON *series = site_section_enabled("series") ? db_series_list(req->db, 0, true) : NULL;
     cJSON *sr = NULL;
     cJSON_ArrayForEach(sr, series) {
         char spath[48];

@@ -430,6 +430,24 @@ void handler_admin_appearance_post(cwist_http_request *req, cwist_http_response 
         snprintf(g_layout_settings.code_theme_light, sizeof(g_layout_settings.code_theme_light), "%s", code_light);
         snprintf(g_layout_settings.code_theme_dark, sizeof(g_layout_settings.code_theme_dark), "%s", code_dark);
     }
+    if (form_find(fields, "sections_form")) {
+        char disabled[sizeof(g_layout_settings.disabled_sections)] = "";
+        size_t used = 0;
+        for (size_t i = 0; i < g_site_section_count; i++) {
+            char key[48];
+            snprintf(key, sizeof(key), "section_%s", g_site_sections[i].id);
+            if (form_find(fields, key)) continue;
+            int w = snprintf(disabled + used, sizeof(disabled) - used, "%s%s", used ? "," : "",
+                             g_site_sections[i].id);
+            if (w > 0 && (size_t)w < sizeof(disabled) - used) used += (size_t)w;
+        }
+        snprintf(g_layout_settings.disabled_sections, sizeof(g_layout_settings.disabled_sections), "%s", disabled);
+    }
+    const char *default_mode = field_value(fields, "default_mode");
+    if (default_mode && default_mode[0]) {
+        if (!layout_value_valid("default_mode", default_mode)) valid = false;
+        else snprintf(g_layout_settings.default_mode, sizeof(g_layout_settings.default_mode), "%s", default_mode);
+    }
     g_layout_settings.invert_transparent_images = form_find(fields, "invert_transparent_images") != NULL ||
                                                   form_find(fields, "invert_transparent_svg") != NULL;
     g_layout_settings.transparent_image_formats[0] = '\0';

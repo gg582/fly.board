@@ -54,6 +54,12 @@ int main(void) {
               "fonts upload per role, not one file for everything");
         CHECK(strstr(page->data, "<select name='code_theme_light'") != NULL &&
               strstr(page->data, "<select name='code_theme_dark'") != NULL, "code theme selects render");
+        CHECK(strstr(page->data, "name='default_mode' value='light' data-appearance-setting checked") != NULL &&
+              strstr(page->data, "name='default_mode' value='dark' data-appearance-setting>") != NULL,
+              "default mode choice renders with light first by default");
+        CHECK(strstr(page->data, "name='section_archive' value='on' checked") != NULL &&
+              strstr(page->data, "name='sections_form' value='1'") != NULL,
+              "section toggles render, enabled by default");
         CHECK(strstr(page->data, "<option value='github' data-href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github.min.css' selected>GitHub</option>") != NULL,
               "light code theme defaults to GitHub");
         CHECK(strstr(page->data, ">Monodraw Light</option>") != NULL && strstr(page->data, ">Monodraw Dark</option>") != NULL,

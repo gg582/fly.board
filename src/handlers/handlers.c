@@ -31,7 +31,9 @@
 
 bool is_dark(cwist_http_request *req) {
     char theme_name[64] = "light";
-    auth_get_cookie(req, "theme", theme_name, sizeof(theme_name));
+    /* Visitors who never toggled get the site's default mode. */
+    if (!auth_get_cookie(req, "theme", theme_name, sizeof(theme_name)) || !theme_name[0])
+        return strcmp(g_layout_settings.default_mode, "dark") == 0;
     return theme_by_name(theme_name)->dark_family;
 }
 

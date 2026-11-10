@@ -137,6 +137,7 @@ int main(void) {
     snprintf(g_layout_settings.panel_radius, sizeof(g_layout_settings.panel_radius), "24");
     snprintf(g_layout_settings.code_theme_light, sizeof(g_layout_settings.code_theme_light), "monodraw-light");
     snprintf(g_layout_settings.code_theme_dark, sizeof(g_layout_settings.code_theme_dark), "tokyo-night-dark");
+    snprintf(g_layout_settings.default_mode, sizeof(g_layout_settings.default_mode), "dark");
     g_layout_settings.invert_transparent_images = false;
     snprintf(g_layout_settings.transparent_image_formats, sizeof(g_layout_settings.transparent_image_formats), "png,webp");
     CHECK(layout_settings_save(PATH), "save layout settings from appearance editor");
@@ -151,6 +152,31 @@ int main(void) {
     CHECK(strcmp(g_layout_settings.panel_color, "#12345680") == 0, "RGBA panel color round trip");
     CHECK(strcmp(g_layout_settings.code_theme_light, "monodraw-light") == 0 &&
           strcmp(g_layout_settings.code_theme_dark, "tokyo-night-dark") == 0, "code themes round trip");
+    CHECK(strcmp(g_layout_settings.default_mode, "dark") == 0, "default mode round trip");
+    CHECK(!layout_value_valid("default_mode", "ocean"), "default mode rejects other values");
+    {
+        char saved[128];
+        snprintf(saved, sizeof(saved), "%s", g_layout_settings.disabled_sections);
+        snprintf(g_layout_settings.disabled_sections, sizeof(g_layout_settings.disabled_sections), "archive,rss,tags");
+        CHECK(!site_section_enabled("archive") && site_section_enabled("files") && site_section_enabled("series"),
+              "section list parses");
+        CHECK(site_section_path_disabled("/archive") && site_section_path_disabled("/archive/2026-01") &&
+              site_section_path_disabled("/rss.xml") && site_section_path_disabled("/board/dev/rss.xml") &&
+              site_section_path_disabled("/tag/c") && site_section_path_disabled("/tags") &&
+              site_section_path_disabled("/api/tag-graph?board=1"),
+              "disabled sections block their paths");
+        CHECK(!site_section_path_disabled("/archives") && !site_section_path_disabled("/files") &&
+              !site_section_path_disabled("/post/hello") && !site_section_path_disabled("/api/tags") &&
+              !site_section_path_disabled("/series/3"),
+              "enabled sections and look-alike paths stay reachable");
+        CHECK(layout_value_valid("disabled_sections", "mail,guestbook") &&
+              !layout_value_valid("disabled_sections", "mail,boards"), "only known sections are accepted");
+        CHECK(layout_settings_save(PATH), "save with disabled sections");
+        memset(&g_layout_settings, 0, sizeof(g_layout_settings));
+        CHECK(layout_settings_load(PATH) && strcmp(g_layout_settings.disabled_sections, "archive,rss,tags") == 0,
+              "disabled sections round trip");
+        snprintf(g_layout_settings.disabled_sections, sizeof(g_layout_settings.disabled_sections), "%s", saved);
+    }
     {
         char href[192];
         code_theme_href("monodraw-dark", href, sizeof(href));

@@ -255,6 +255,7 @@
             modeSelect.value=target.name==='code_theme_dark'?'dark':'light';
             pageSelect.value='article';
         }
+        if(target.name==='default_mode')modeSelect.value=target.value==='dark'?'dark':'light';
         if(target.matches('[data-transparent-format]'))form.elements.transparent_format_all.checked=false;
         if(target.matches('[data-transparent-format-all]')){
             form.querySelectorAll('[data-transparent-format]').forEach(function(input){input.checked=target.checked;});

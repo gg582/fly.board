@@ -184,9 +184,27 @@ typedef struct {
     /* Code highlight theme per site mode (ids from g_code_themes). */
     char code_theme_light[32];
     char code_theme_dark[32];
+    char default_mode[8];       /* light | dark: mode for visitors without a theme cookie */
     bool invert_transparent_images;
     char transparent_image_formats[64];
+    /* Comma list of optional site sections the admin switched off
+     * (ids from g_site_sections). Their routes answer 404 and their links
+     * are left out of the navigation and pages. */
+    char disabled_sections[128];
 } layout_settings_t;
+
+typedef struct {
+    const char *id;
+    const char *label;
+    const char *detail;
+} site_section_t;
+
+extern const site_section_t g_site_sections[];
+extern const size_t g_site_section_count;
+bool site_section_known(const char *id);
+bool site_section_enabled(const char *id);
+/* True when path belongs to a section that is switched off. */
+bool site_section_path_disabled(const char *path);
 
 extern layout_settings_t g_layout_settings;
 

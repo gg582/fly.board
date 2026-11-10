@@ -1,6 +1,8 @@
 #include "engine/async_route.h"
 #include "engine/bdr.h"
 #include "engine/settings.h"
+#include "config/config.h"
+#include "handlers/handlers.h"
 #include "utils/traffic_guard.h"
 #include <cwist/core/log.h>
 #include <cwist/core/mem/gc.h>
@@ -399,6 +401,12 @@ static void async_gate(cwist_http_request *req, cwist_http_response *res, cwist_
         return;
     }
     engine_settings_appearance_refresh();
+    /* Sections the admin switched off answer 404 for everyone, before the
+     * BDR so no page stored while the section was on can leak out. */
+    if (req->path && req->path->data && site_section_path_disabled(req->path->data)) {
+        handler_not_found(req, res, CWIST_HTTP_NOT_FOUND);
+        return;
+    }
     char key[ENGINE_BDR_KEY_MAX];
     bool keyed = engine_bdr_key(req, key, sizeof(key));
     unsigned retry_after = 1;

@@ -998,6 +998,7 @@ static void layout_set_default(layout_settings_t *L) {
     snprintf(L->panel_radius, sizeof(L->panel_radius), "auto");
     snprintf(L->code_theme_light, sizeof(L->code_theme_light), "github");
     snprintf(L->code_theme_dark, sizeof(L->code_theme_dark), "github-dark");
+    snprintf(L->default_mode, sizeof(L->default_mode), "light");
     L->invert_transparent_images = true;
     snprintf(L->transparent_image_formats, sizeof(L->transparent_image_formats), "svg");
 }
@@ -1138,8 +1139,70 @@ void code_theme_href(const char *id, char *out, size_t out_size) {
                  code_theme_valid(id) ? id : "github");
 }
 
+const site_section_t g_site_sections[] = {
+    {"archive", "Archive", "/archive and its monthly pages"},
+    {"tags", "Tags", "/tags, /tag/... pages, tag links on posts and the tag map"},
+    {"series", "Series", "/series pages and the series box on posts"},
+    {"files", "Files", "/files repository and file downloads"},
+    {"mail", "Mail", "Webmail for signed-in users"},
+    {"rss", "RSS feeds", "Every .../rss.xml feed and its feed links"},
+    {"guestbook", "Guestbook", "Guestbooks on user profiles"},
+};
+const size_t g_site_section_count = sizeof(g_site_sections) / sizeof(g_site_sections[0]);
+
+bool site_section_known(const char *id) {
+    if (!id) return false;
+    for (size_t i = 0; i < g_site_section_count; i++)
+        if (strcmp(g_site_sections[i].id, id) == 0) return true;
+    return false;
+}
+
+bool site_section_enabled(const char *id) {
+    const char *list = g_layout_settings.disabled_sections;
+    size_t n = strlen(id);
+    for (const char *p = list; p && *p;) {
+        const char *end = strchr(p, ',');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        if (len == n && strncmp(p, id, n) == 0) return false;
+        p = end ? end + 1 : NULL;
+    }
+    return true;
+}
+
+static bool path_is(const char *path, const char *base) {
+    size_t n = strlen(base);
+    return strncmp(path, base, n) == 0 && (path[n] == '\0' || path[n] == '/' || path[n] == '?');
+}
+
+bool site_section_path_disabled(const char *path) {
+    if (!path || !g_layout_settings.disabled_sections[0]) return false;
+    if (!site_section_enabled("archive") && path_is(path, "/archive")) return true;
+    if (!site_section_enabled("tags") &&
+        (path_is(path, "/tags") || path_is(path, "/tag") || path_is(path, "/api/tag-graph"))) return true;
+    if (!site_section_enabled("series") && path_is(path, "/series")) return true;
+    if (!site_section_enabled("files") && (path_is(path, "/files") || path_is(path, "/file"))) return true;
+    if (!site_section_enabled("mail") && path_is(path, "/mail")) return true;
+    if (!site_section_enabled("guestbook") && path_is(path, "/guestbook")) return true;
+    if (!site_section_enabled("rss")) {
+        const char *q = strchr(path, '?');
+        size_t len = q ? (size_t)(q - path) : strlen(path);
+        if (len >= 8 && strncmp(path + len - 8, "/rss.xml", 8) == 0) return true;
+    }
+    return false;
+}
+
 bool layout_value_valid(const char *key, const char *value) {
     if (strcmp(key, "code_theme_light") == 0 || strcmp(key, "code_theme_dark") == 0) return code_theme_valid(value);
+    if (strcmp(key, "default_mode") == 0) return strcmp(value, "light") == 0 || strcmp(value, "dark") == 0;
+    if (strcmp(key, "disabled_sections") == 0) {
+        if (strlen(value) >= sizeof(g_layout_settings.disabled_sections)) return false;
+        char copy[128];
+        snprintf(copy, sizeof(copy), "%s", value);
+        char *save = NULL;
+        for (char *tok = strtok_r(copy, ",", &save); tok; tok = strtok_r(NULL, ",", &save))
+            if (!site_section_known(tok)) return false;
+        return true;
+    }
     if (strcmp(key, "invert_transparent_images") == 0 || strcmp(key, "invert_transparent_svg") == 0)
         return strcmp(value, "true") == 0 || strcmp(value, "false") == 0 ||
                strcmp(value, "1") == 0 || strcmp(value, "0") == 0;
@@ -1185,13 +1248,14 @@ bool layout_settings_save(const char *path) {
     bool ok = fprintf(f,
         "navigation=%s\ncontent_style=%s\ndensity=%s\nlist_style=%s\ncontent_width=%s\n"
         "panel_style=%s\npanel_color=%s\npanel_width=%d\npanel_side=%s\npanel_radius=%s\n"
-        "code_theme_light=%s\ncode_theme_dark=%s\n"
+        "code_theme_light=%s\ncode_theme_dark=%s\ndefault_mode=%s\ndisabled_sections=%s\n"
         "invert_transparent_images=%s\ntransparent_image_formats=%s\n",
         g_layout_settings.navigation, g_layout_settings.content_style, g_layout_settings.density,
         g_layout_settings.list_style, g_layout_settings.content_width, g_layout_settings.panel_style,
         g_layout_settings.panel_color, g_layout_settings.panel_width,
         g_layout_settings.panel_side, g_layout_settings.panel_radius,
         g_layout_settings.code_theme_light, g_layout_settings.code_theme_dark,
+        g_layout_settings.default_mode, g_layout_settings.disabled_sections,
         g_layout_settings.invert_transparent_images ? "true" : "false",
         g_layout_settings.transparent_image_formats) >= 0 &&
         fflush(f) == 0 && fsync(fileno(f)) == 0 && fclose(f) == 0 && rename(temporary, path) == 0;
@@ -1237,6 +1301,10 @@ static bool layout_settings_parse(const char *path, layout_settings_t *L, bool *
             snprintf(L->code_theme_light, sizeof(L->code_theme_light), "%s", value);
         else if (strcmp(line, "code_theme_dark") == 0)
             snprintf(L->code_theme_dark, sizeof(L->code_theme_dark), "%s", value);
+        else if (strcmp(line, "disabled_sections") == 0 && layout_value_valid("disabled_sections", value))
+            snprintf(L->disabled_sections, sizeof(L->disabled_sections), "%s", value);
+        else if (strcmp(line, "default_mode") == 0 && layout_value_valid("default_mode", value))
+            snprintf(L->default_mode, sizeof(L->default_mode), "%s", value);
         else if (strcmp(line, "invert_transparent_images") == 0) {
             enable_seen = true;
             L->invert_transparent_images = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;

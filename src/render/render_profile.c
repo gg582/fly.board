@@ -105,7 +105,7 @@ cwist_sstring *render_profile(cJSON *user, bool dark, const char *user_role, con
      * profile route is page-cached and has no request context, so fetching
      * keeps viewer permissions (delete buttons, anon toggle) and ?page=
      * pagination correct; the fetch sends the session cookie same-origin. */
-    if (user_id > 0) {
+    if (user_id > 0 && site_section_enabled("guestbook")) {
         char gb[900];
         snprintf(gb, sizeof(gb),
             "<div class='card' style='max-width:600px;margin:20px auto' id='guestbook' data-owner='%d'>"

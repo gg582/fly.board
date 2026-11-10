@@ -203,7 +203,24 @@ cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool 
     append_layout_choice(b, "content_width", "standard", g_layout_settings.content_width, "Standard", "Current responsive width");
     append_layout_choice(b, "content_width", "wide", g_layout_settings.content_width, "Wide", "More room for large displays");
     cwist_sstring_append(b, "</div></section>");
-    cwist_sstring_append(b, "<section class='card'><h2>Theme</h2><p class='appearance-note'>Selecting a radio updates the preview immediately. Light and dark choices are saved independently.</p><h3>Light mode</h3><div class='appearance-theme-grid'>");
+    cwist_sstring_append(b, "<section class='card'><h2>Sections</h2><p class='appearance-note'>Unchecked sections are switched off for everyone: their pages answer 404 and their links disappear from the menu and pages. Posts and data are kept; checking a section again brings it back.</p><input type='hidden' name='sections_form' value='1'><div class='appearance-option-grid'>");
+    for (size_t i = 0; i < g_site_section_count; i++) {
+        const site_section_t *sec = &g_site_sections[i];
+        cwist_sstring_append(b, "<label class='check-row appearance-section-toggle'><input type='checkbox' name='section_");
+        cwist_sstring_append(b, sec->id);
+        cwist_sstring_append(b, "' value='on'");
+        if (site_section_enabled(sec->id)) cwist_sstring_append(b, " checked");
+        cwist_sstring_append(b, "><span><strong>");
+        cwist_sstring_append(b, sec->label);
+        cwist_sstring_append(b, "</strong> <small>");
+        cwist_sstring_append(b, sec->detail);
+        cwist_sstring_append(b, "</small></span></label>");
+    }
+    cwist_sstring_append(b, "</div></section>");
+    cwist_sstring_append(b, "<section class='card'><h2>Theme</h2><p class='appearance-note'>Selecting a radio updates the preview immediately. Light and dark choices are saved independently.</p><h3>Default mode</h3><div class='appearance-option-grid'>");
+    append_layout_choice(b, "default_mode", "light", g_layout_settings.default_mode, "Light first", "New visitors start in the light-mode theme; the toggle switches to dark");
+    append_layout_choice(b, "default_mode", "dark", g_layout_settings.default_mode, "Dark first", "New visitors start in the dark-mode theme; the toggle switches to light");
+    cwist_sstring_append(b, "</div><p class='appearance-note'>Applies to visitors who have not used the theme toggle yet. A visitor's own choice is kept.</p><h3>Light mode</h3><div class='appearance-theme-grid'>");
     char light[64], dark_theme[64];
     get_special_themes(light, dark_theme);
     append_theme_group(b, "light_theme", light);
@@ -304,7 +321,7 @@ cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool 
     }
     append_input(b, "letter_spacing_hero_p", g_font_settings.letter_spacing_hero_p, "Hero subtitle spacing");
     cwist_sstring_append(b, "</section><div class='appearance-actions'><button type='submit' class='btn'>Save appearance</button><button type='reset' class='btn btn-outline' id='appearance-reset'>Reset preview</button><a href='/admin/dashboard' class='btn btn-outline'>Dashboard</a></div>");
-    cwist_sstring_append(b, "</div><aside class='appearance-preview'><div class='appearance-actions appearance-preview-tools'><strong>Live preview</strong><select id='appearance-preview-page' aria-label='Preview page'><option value='list'>Post list</option><option value='article'>Article</option></select><select id='appearance-preview-mode' aria-label='Preview mode'><option value='light'>Light</option><option value='dark'>Dark</option></select><select id='appearance-preview-size' aria-label='Preview viewport'><option value='desktop'>Desktop</option><option value='mobile'>Mobile</option></select></div><div class='appearance-frame-wrap'><iframe id='appearance-preview' title='Live blog appearance preview' sandbox='allow-scripts allow-same-origin'></iframe></div><p class='appearance-note'>Nothing is applied to visitors until Save appearance is pressed.</p></aside></div></form><script src='/assets/js/appearance-editor.js?v=5'></script>");
+    cwist_sstring_append(b, "</div><aside class='appearance-preview'><div class='appearance-actions appearance-preview-tools'><strong>Live preview</strong><select id='appearance-preview-page' aria-label='Preview page'><option value='list'>Post list</option><option value='article'>Article</option></select><select id='appearance-preview-mode' aria-label='Preview mode'><option value='light'>Light</option><option value='dark'>Dark</option></select><select id='appearance-preview-size' aria-label='Preview viewport'><option value='desktop'>Desktop</option><option value='mobile'>Mobile</option></select></div><div class='appearance-frame-wrap'><iframe id='appearance-preview' title='Live blog appearance preview' sandbox='allow-scripts allow-same-origin'></iframe></div><p class='appearance-note'>Nothing is applied to visitors until Save appearance is pressed.</p></aside></div></form><script src='/assets/js/appearance-editor.js?v=6'></script>");
     cwist_sstring *page = render_page("Appearance", b->data, dark, "admin", profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;

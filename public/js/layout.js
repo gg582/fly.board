@@ -176,7 +176,7 @@
     var d=document.documentElement;
     var themes=loadThemes();
     var c=document.cookie.match(/theme=(\w+)/);
-    var mode=c?c[1]:(d.classList.contains('dark')?'dark':'light');
+    var mode=c?c[1]:((d.getAttribute('data-server-theme')||(d.classList.contains('dark')?'dark':'light'))==='dark'?'dark':'light');
     if(!THEME_NAMES.test(mode))mode='light';
     var serverBase=d.getAttribute('data-server-theme');
     function applyCached(){

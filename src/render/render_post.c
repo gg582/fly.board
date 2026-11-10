@@ -1203,9 +1203,12 @@ cwist_sstring *render_post_index(const char *heading, const char *lead, cJSON *p
         cwist_sstring_append_escaped(b, lead);
         cwist_sstring_append(b, "</p>");
     }
-    cwist_sstring_append(b, "<p style='font-size:14px'><a href='/archive'>Archive</a>");
-    if (feed_path) {
-        cwist_sstring_append(b, " &middot; <a href='");
+    cwist_sstring_append(b, "<p style='font-size:14px'>");
+    bool archive_on = site_section_enabled("archive");
+    if (archive_on) cwist_sstring_append(b, "<a href='/archive'>Archive</a>");
+    if (feed_path && site_section_enabled("rss")) {
+        if (archive_on) cwist_sstring_append(b, " &middot; ");
+        cwist_sstring_append(b, "<a href='");
         cwist_sstring_append_escaped(b, feed_path);
         cwist_sstring_append(b, "'>RSS</a>");
     }
@@ -1273,7 +1276,7 @@ cwist_sstring *render_archive(cJSON *months, cJSON *tags, cJSON *series, bool da
     hero_bg_page_open(b, g_config.archive_img, g_config.archive_img_dark, "archive", dark, "<h1>Archive</h1>");
 
     (void)append_tag_cloud;
-    if (cJSON_IsArray(tags) && cJSON_GetArraySize(tags) > 0) {
+    if (site_section_enabled("tags") && cJSON_IsArray(tags) && cJSON_GetArraySize(tags) > 0) {
         cwist_sstring_append(b,
             "<section id='tags' style='margin-bottom:36px'>"
             "<div style='display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:12px'>"
@@ -1308,11 +1311,11 @@ cwist_sstring *render_archive(cJSON *months, cJSON *tags, cJSON *series, bool da
         append_tag_cloud(b, tags);
         cwist_sstring_append(b,
             "</div></noscript>"
-            "<script src='/assets/js/tagmap.js?v=2' defer></script>"
+            "<script src='/assets/js/tagmap.js?v=3' defer></script>"
             "</section>");
     }
 
-    if (cJSON_IsArray(series) && cJSON_GetArraySize(series) > 0) {
+    if (site_section_enabled("series") && cJSON_IsArray(series) && cJSON_GetArraySize(series) > 0) {
         cwist_sstring_append(b, "<section id='series' style='margin-bottom:32px'><h2><a href='/series'>Series</a></h2><ul style='margin:0;padding-left:20px'>");
         cJSON *sr = NULL;
         cJSON_ArrayForEach(sr, series) {
@@ -1415,9 +1418,12 @@ cwist_sstring *render_series_detail(cJSON *series, cJSON *posts, cJSON *siblings
         cwist_sstring_append_escaped(b, desc);
         cwist_sstring_append(b, "</p>");
     }
-    cwist_sstring_append(b, "<p style='font-size:14px'><a href='/series'>All series</a> &middot; <a href='");
-    cwist_sstring_append(b, path);
-    cwist_sstring_append(b, "/rss.xml'>RSS</a>");
+    cwist_sstring_append(b, "<p style='font-size:14px'><a href='/series'>All series</a>");
+    if (site_section_enabled("rss")) {
+        cwist_sstring_append(b, " &middot; <a href='");
+        cwist_sstring_append(b, path);
+        cwist_sstring_append(b, "/rss.xml'>RSS</a>");
+    }
     if (can_edit) {
         cwist_sstring_append(b, " &middot; <a href='");
         cwist_sstring_append(b, path);
@@ -1897,7 +1903,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
         render_append_translation_links(b, "Also in:", links);
         cJSON_Delete(links);
     }
-    append_series_box(b, cJSON_GetObjectItem(post, "series"), post_id_val);
+    if (site_section_enabled("series")) append_series_box(b, cJSON_GetObjectItem(post, "series"), post_id_val);
 
     /* Vote buttons */
     bool can_vote = config_vote_allowed(user_id > 0, user_role);
@@ -1969,7 +1975,7 @@ cwist_sstring *render_post_detail(cJSON *post, cJSON *files, cJSON *comments, bo
     }
     cwist_sstring_append(b, "</div>");
     cJSON *post_tags = cJSON_GetObjectItem(post, "tags");
-    if (cJSON_IsArray(post_tags) && cJSON_GetArraySize(post_tags) > 0) {
+    if (site_section_enabled("tags") && cJSON_IsArray(post_tags) && cJSON_GetArraySize(post_tags) > 0) {
         cwist_sstring_append(b, "<div class='post-tags' style='display:flex;flex-wrap:wrap;gap:6px;margin-top:24px'>");
         cJSON *t = NULL;
         cJSON_ArrayForEach(t, post_tags) {

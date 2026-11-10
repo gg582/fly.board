@@ -523,9 +523,11 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     }
     if (pm.lang && pm.lang[0]) head_meta(head, "property", "og:locale", pm.lang);
 
-    page_abs_url(url_buf, sizeof(url_buf), "/rss.xml");
-    head_link(head, "alternate", "application/rss+xml", site_name, url_buf);
-    if (pm.feed_path) {
+    if (site_section_enabled("rss")) {
+        page_abs_url(url_buf, sizeof(url_buf), "/rss.xml");
+        head_link(head, "alternate", "application/rss+xml", site_name, url_buf);
+    }
+    if (pm.feed_path && site_section_enabled("rss")) {
         page_abs_url(url_buf, sizeof(url_buf), pm.feed_path);
         head_link(head, "alternate", "application/rss+xml", pm.feed_title ? pm.feed_title : site_name, url_buf);
     }
@@ -639,10 +641,12 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
     cwist_html_element_add_child(boards_menu, boards_list);
     cwist_html_element_add_child(boards_wrap, boards_menu);
     cwist_html_element_add_child(navlinks, boards_wrap);
-    cwist_html_element_add_child(navlinks, nav_link("/archive", "Archive"));
-    cwist_html_element_add_child(navlinks, nav_link("/files", "Files"));
+    if (site_section_enabled("archive"))
+        cwist_html_element_add_child(navlinks, nav_link("/archive", "Archive"));
+    if (site_section_enabled("files"))
+        cwist_html_element_add_child(navlinks, nav_link("/files", "Files"));
     /* Webmail is only meaningful for signed-in accounts. */
-    if (user_role && user_role[0]) {
+    if (user_role && user_role[0] && site_section_enabled("mail")) {
         cwist_html_element_add_child(navlinks, nav_link("/mail", "Mail"));
     }
     if (user_role && strcmp(user_role, "admin") == 0) {
@@ -997,12 +1001,12 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                         cwist_sstring_append(head_shell, "<script src=\"/assets/js/svg-invert.js?v=3\" defer></script>");
                     }
                     if (!a->layout_js) {
-                        cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js?v=4\" defer></script>");
+                        cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js?v=5\" defer></script>");
                     }
                 } else {
                     cwist_sstring_append(head_shell, "<script src=\"/assets/js/jwt.js?v=3\" defer></script>");
                     cwist_sstring_append(head_shell, "<script src=\"/assets/js/svg-invert.js?v=3\" defer></script>");
-                    cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js?v=4\" defer></script>");
+                    cwist_sstring_append(head_shell, "<script src=\"/assets/js/layout.js?v=5\" defer></script>");
                 }
                 /* Progressive enhancement only: WebGPU Lanczos-3 upscaling
                  * for high-DPI displays.  Deferred and fully fail-safe, so it
