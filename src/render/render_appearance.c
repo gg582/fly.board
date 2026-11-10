@@ -134,7 +134,7 @@ cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool 
     if (msg && strcmp(msg, "saved") == 0) cwist_sstring_append(b, "<div class='alert'>Appearance settings saved.</div>");
     else if (msg && strcmp(msg, "upload-expired") == 0) cwist_sstring_append(b, "<div class='alert'>Settings were not saved. An uploaded file expired or did not finish uploading; choose it again and save.</div>");
     else if (msg && msg[0]) cwist_sstring_append(b, "<div class='alert'>Settings were not saved. Check the uploaded files and field values.</div>");
-    cwist_sstring_append(b, "<style>.appearance-layout{display:grid;grid-template-columns:minmax(300px,440px) minmax(0,1fr);gap:20px;align-items:start}.appearance-controls{max-height:calc(100vh - 110px);overflow:auto;padding-right:8px}.appearance-preview{position:sticky;top:16px}.appearance-frame-wrap{display:flex;justify-content:center}.appearance-preview iframe{display:block;width:100%;height:calc(100vh - 170px);min-height:560px;border:1px solid var(--border);border-radius:18px;background:var(--panel);transition:width .2s}.appearance-preview iframe.appearance-preview-mobile{width:390px;max-width:100%}.appearance-theme-grid,.appearance-option-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.appearance-option-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.appearance-theme-choice{display:flex;gap:6px;align-items:center;justify-content:space-between;padding:8px;border:1px solid var(--border);border-radius:10px}.appearance-theme-swatches{display:flex;gap:3px}.appearance-theme-swatches i{display:block;width:11px;height:11px;border:1px solid var(--border);border-radius:50%}.appearance-layout-choice{align-items:flex-start}.appearance-layout-choice span{display:grid;gap:3px}.appearance-layout-choice small{color:var(--muted);font-size:11px;line-height:1.35}.appearance-field{display:grid;gap:5px;margin:10px 0}.appearance-field input,.appearance-field select{width:100%;padding:8px;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:8px}.appearance-tune{display:grid;grid-template-columns:1fr 110px 90px;gap:8px;align-items:end}.appearance-actions{display:flex;gap:10px;align-items:center;margin:16px 0}.appearance-preview-tools{flex-wrap:wrap}.appearance-preview-tools select{width:auto;min-width:0;padding:6px}.appearance-note{font-size:13px;color:var(--muted)}@media(max-width:1000px){.appearance-layout{grid-template-columns:1fr}.appearance-controls{max-height:none}.appearance-preview{position:static}.appearance-preview iframe{height:640px;min-height:0}}</style>");
+    cwist_sstring_append(b, "<style>.appearance-layout{display:grid;grid-template-columns:minmax(300px,440px) minmax(0,1fr);gap:20px;align-items:start}.appearance-controls{max-height:calc(100vh - 110px);overflow:auto;padding-right:8px}.appearance-preview{position:sticky;top:16px}.appearance-frame-wrap{display:flex;justify-content:center}.appearance-preview iframe{display:block;width:100%;height:calc(100vh - 170px);min-height:560px;border:1px solid var(--border);border-radius:18px;background:var(--panel);transition:width .2s}.appearance-preview iframe.appearance-preview-mobile{width:390px;max-width:100%}.appearance-theme-grid,.appearance-option-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.appearance-option-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.appearance-theme-choice{display:flex;gap:6px;align-items:center;justify-content:space-between;padding:8px;border:1px solid var(--border);border-radius:10px}.appearance-theme-swatches{display:flex;gap:3px}.appearance-theme-swatches i{display:block;width:11px;height:11px;border:1px solid var(--border);border-radius:50%}.appearance-layout-choice{align-items:flex-start}.appearance-layout-choice span{display:grid;gap:3px}.appearance-layout-choice small{color:var(--muted);font-size:11px;line-height:1.35}.appearance-field{display:grid;gap:5px;margin:10px 0}.appearance-field input,.appearance-field select{width:100%;padding:8px;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:8px}.appearance-tune{display:grid;grid-template-columns:1fr 110px 90px;gap:8px;align-items:end}.appearance-actions{display:flex;gap:10px;align-items:center;margin:16px 0}.appearance-preview-tools{flex-wrap:wrap}.appearance-preview-tools select{width:auto;min-width:0;padding:6px}.appearance-note{font-size:13px;color:var(--muted)}.appearance-font-role{border:1px solid var(--border);border-radius:10px;margin:10px 0;padding:6px 12px}.appearance-font-role legend{font-weight:600;padding:0 4px}@media(max-width:1000px){.appearance-layout{grid-template-columns:1fr}.appearance-controls{max-height:none}.appearance-preview{position:static}.appearance-preview iframe{height:640px;min-height:0}}</style>");
     char site_roundness[16];
     snprintf(site_roundness, sizeof(site_roundness), "%.2f", g_config.roundness);
     cwist_sstring_append(b, "<form action='/admin/appearance' method='post' enctype='multipart/form-data' id='appearance-form' data-site-roundness='");
@@ -221,18 +221,52 @@ cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool 
     append_transparent_format(b, "jpg", "JPEG", false);
     append_transparent_format(b, "bmp", "BMP", false);
     append_transparent_format(b, "ico", "ICO", false);
-    cwist_sstring_append(b, "</div></div><p class='appearance-note'>Only selected formats with transparent backgrounds are changed. Opaque images and all light-mode images keep their original colors. The default is SVG only.</p><label class='appearance-field'><span>Custom CWIST theme JSON</span><input type='file' name='theme_file' accept='.json,application/json' data-preview-theme></label>");
+    cwist_sstring_append(b, "</div></div><p class='appearance-note'>Only selected formats with transparent backgrounds are changed. Opaque images and all light-mode images keep their original colors. The default is SVG only.</p><label class='appearance-field'><span>Custom CWIST theme JSON</span><input type='file' name='theme_file' accept='.json,application/json' data-preview-theme data-stage></label>");
     cwist_sstring_append(b, "<p class='appearance-note'>The file uses the same <code>name</code>, <code>vars</code>, and <code>rules</code> structure as <code>/themes.json</code>. Add <code>mode: \"light\"</code> or <code>\"dark\"</code>. Maximum 512 KiB.</p></section>");
     cwist_sstring_append(b, "<section class='card'><h2>Code highlighting</h2><p class='appearance-note'>Syntax colors for code blocks. Each site mode uses its own choice; open an Article in the preview to compare.</p>");
     append_code_theme_select(b, "code_theme_light", "Light mode", g_layout_settings.code_theme_light);
     append_code_theme_select(b, "code_theme_dark", "Dark mode", g_layout_settings.code_theme_dark);
     cwist_sstring_append(b, "</section>");
 
-    cwist_sstring_append(b, "<section class='card'><h2>Font sources</h2><label class='appearance-field'><span>TTF, OTF, WOFF, or WOFF2</span><input type='file' name='font_file' accept='.ttf,.otf,.woff,.woff2' data-preview-font></label>");
-    append_input(b, "font_face_family", g_font_settings.face_family, "Uploaded font family name");
+    static const char *role_labels[FONT_ROLE_COUNT] = {"Body", "Headings", "UI, navigation, buttons", "Code", "Blockquotes", "Display titles"};
+    cwist_sstring_append(b, "<section class='card'><h2>Font sources</h2><p class='appearance-note'>Upload a font for each role separately (TTF, OTF, WOFF, or WOFF2, up to 12 MiB). An uploaded font is used only by its own role and goes to the front of that role's stack below.</p>");
+    for (int r = 0; r < FONT_ROLE_COUNT; r++) {
+        const char *role = g_font_roles[r];
+        bool has = g_font_settings.role_src[r][0] != '\0';
+        cwist_sstring_append(b, "<fieldset class='appearance-font-role' data-font-role='");
+        cwist_sstring_append(b, role);
+        cwist_sstring_append(b, "'");
+        if (has) {
+            cwist_sstring_append(b, " data-font-src=\"");
+            cwist_sstring_append_escaped(b, g_font_settings.role_src[r]);
+            cwist_sstring_append(b, "\"");
+        }
+        cwist_sstring_append(b, "><legend>");
+        cwist_sstring_append(b, role_labels[r]);
+        cwist_sstring_append(b, "</legend><label class='appearance-field'><span>Font file</span><input type='file' name='font_file_");
+        cwist_sstring_append(b, role);
+        cwist_sstring_append(b, "' accept='.ttf,.otf,.woff,.woff2' data-preview-font data-stage></label><label class='appearance-field'><span>Family name</span><input name='font_face_family_");
+        cwist_sstring_append(b, role);
+        cwist_sstring_append(b, "' value='");
+        cwist_sstring_append_escaped(b, g_font_settings.role_family[r]);
+        cwist_sstring_append(b, "' placeholder='Custom ");
+        cwist_sstring_append(b, role);
+        cwist_sstring_append(b, "' data-appearance-setting></label>");
+        if (has) {
+            cwist_sstring_append(b, "<label class='check-row'><input type='checkbox' name='font_clear_");
+            cwist_sstring_append(b, role);
+            cwist_sstring_append(b, "' data-appearance-setting> Remove the uploaded font</label>");
+        }
+        cwist_sstring_append(b, "</fieldset>");
+    }
+    if (g_font_settings.face_src[0]) {
+        cwist_sstring_append(b, "<label class='check-row'><input type='checkbox' name='font_clear_legacy'> Remove the earlier font upload applied to every role (");
+        cwist_sstring_append_escaped(b, g_font_settings.face_family);
+        cwist_sstring_append(b, ")</label>");
+    }
     append_input(b, "font_import_url", g_font_settings.import_url, "Webfont CSS URL (optional)");
     append_input(b, "font_script_url", g_font_settings.script_url, "Webfont JS URL (optional)");
-    cwist_sstring_append(b, "<label class='appearance-field'><span>Webfont JavaScript file (optional)</span><input type='file' name='font_script_file' accept='.js,text/javascript' data-preview-script></label><p class='appearance-note'>Uploading a file replaces its corresponding URL. JavaScript runs with page privileges; upload only code you trust.</p></section>");
+    cwist_sstring_append(b, "<label class='appearance-field'><span>Webfont JavaScript file (optional)</span><input type='file' name='font_script_file' accept='.js,text/javascript' data-preview-script data-stage></label><p class='appearance-note'>Uploading a file replaces its corresponding URL. JavaScript runs with page privileges; upload only code you trust.</p></section>");
 
     cwist_sstring_append(b, "<section class='card'><h2>Font stacks</h2>");
     append_input(b, "font_body", g_font_settings.body, "Body and Korean/Latin/Cyrillic fallback");
@@ -270,7 +304,7 @@ cwist_sstring *render_admin_appearance(bool dark, const char *profile_pic, bool 
     }
     append_input(b, "letter_spacing_hero_p", g_font_settings.letter_spacing_hero_p, "Hero subtitle spacing");
     cwist_sstring_append(b, "</section><div class='appearance-actions'><button type='submit' class='btn'>Save appearance</button><button type='reset' class='btn btn-outline' id='appearance-reset'>Reset preview</button><a href='/admin/dashboard' class='btn btn-outline'>Dashboard</a></div>");
-    cwist_sstring_append(b, "</div><aside class='appearance-preview'><div class='appearance-actions appearance-preview-tools'><strong>Live preview</strong><select id='appearance-preview-page' aria-label='Preview page'><option value='list'>Post list</option><option value='article'>Article</option></select><select id='appearance-preview-mode' aria-label='Preview mode'><option value='light'>Light</option><option value='dark'>Dark</option></select><select id='appearance-preview-size' aria-label='Preview viewport'><option value='desktop'>Desktop</option><option value='mobile'>Mobile</option></select></div><div class='appearance-frame-wrap'><iframe id='appearance-preview' title='Live blog appearance preview' sandbox='allow-scripts allow-same-origin'></iframe></div><p class='appearance-note'>Nothing is applied to visitors until Save appearance is pressed.</p></aside></div></form><script src='/assets/js/appearance-editor.js?v=4'></script>");
+    cwist_sstring_append(b, "</div><aside class='appearance-preview'><div class='appearance-actions appearance-preview-tools'><strong>Live preview</strong><select id='appearance-preview-page' aria-label='Preview page'><option value='list'>Post list</option><option value='article'>Article</option></select><select id='appearance-preview-mode' aria-label='Preview mode'><option value='light'>Light</option><option value='dark'>Dark</option></select><select id='appearance-preview-size' aria-label='Preview viewport'><option value='desktop'>Desktop</option><option value='mobile'>Mobile</option></select></div><div class='appearance-frame-wrap'><iframe id='appearance-preview' title='Live blog appearance preview' sandbox='allow-scripts allow-same-origin'></iframe></div><p class='appearance-note'>Nothing is applied to visitors until Save appearance is pressed.</p></aside></div></form><script src='/assets/js/appearance-editor.js?v=5'></script>");
     cwist_sstring *page = render_page("Appearance", b->data, dark, "admin", profile_pic, is_mobile);
     cwist_sstring_destroy(b);
     return page;

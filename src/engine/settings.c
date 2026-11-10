@@ -6,6 +6,7 @@
 #include "config/config.h"
 #include "render/theme.h"
 #include "utils/font_fetch.h"
+#include "utils/cache.h"
 #include <cwist/core/log.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -18,8 +19,14 @@ void engine_settings_appearance_refresh(void) {
     if (!version || version == loaded_version) return;
     pthread_mutex_lock(&reload_mtx);
     if (version != loaded_version) {
+        /* Every worker process keeps its own copy of these; the admin save
+         * (or a replica pulling the primary's appearance) only bumps the
+         * shared version, so each worker re-reads the files here. */
         theme_modes_load("blog.settings");
         theme_custom_load("data/custom-theme.json");
+        layout_settings_load("layout.settings");
+        font_settings_load("fonts.settings");
+        page_cache_clear();
         loaded_version = version;
     }
     pthread_mutex_unlock(&reload_mtx);

@@ -952,6 +952,14 @@ cwist_sstring *render_page(const char *title, const char *body_html, bool dark, 
                     cwist_sstring_append(head_shell, g_font_settings.face_src);
                     cwist_sstring_append(head_shell, ";}</style>");
                 }
+                for (int role = 0; role < FONT_ROLE_COUNT; role++) {
+                    if (!g_font_settings.role_src[role][0]) continue;
+                    cwist_sstring_append(head_shell, "<style>@font-face{font-family:'");
+                    cwist_sstring_append(head_shell, g_font_settings.role_family[role]);
+                    cwist_sstring_append(head_shell, "';font-display:swap;src:");
+                    cwist_sstring_append(head_shell, g_font_settings.role_src[role]);
+                    cwist_sstring_append(head_shell, ";}</style>");
+                }
                 if (g_font_settings.script_url[0]) {
                     cwist_sstring_append(head_shell, "<script src=\"");
                     cwist_sstring_append(head_shell, g_font_settings.script_url);

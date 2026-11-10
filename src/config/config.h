@@ -106,6 +106,9 @@ void config_resolve_bg(const char *light_img, const char *dark_img, const char *
 bool config_vote_allowed(bool logged_in, const char *role);
 
 #define FONT_FILE_MAX 16
+/* Font roles that can each carry their own uploaded font. */
+#define FONT_ROLE_COUNT 6
+extern const char *const g_font_roles[FONT_ROLE_COUNT];
 #define FONT_FILE_NAME_LEN 64
 #define FONT_FILE_URL_LEN 512
 
@@ -154,6 +157,9 @@ typedef struct {
     char download_name[FONT_FILE_MAX][FONT_FILE_NAME_LEN];
     char download_url[FONT_FILE_MAX][FONT_FILE_URL_LEN];
     size_t download_count;
+    /* Uploaded font per role (index into g_font_roles); empty src = none. */
+    char role_family[FONT_ROLE_COUNT][64];
+    char role_src[FONT_ROLE_COUNT][512];
 } font_settings_t;
 
 extern font_settings_t g_font_settings;

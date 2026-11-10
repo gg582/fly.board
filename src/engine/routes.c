@@ -214,6 +214,7 @@ void engine_routes_register(cwist_app *app) {
 
     /* FlyWire delta feed (primary mode only; 404 otherwise) */
     engine_async_get(app, "/flywire/feed", handler_flywire_feed);
+    engine_async_get(app, "/flywire/appearance", handler_flywire_appearance);
     engine_async_get(app, "/flywire/status", handler_flywire_status);
     engine_async_get(app, "/flywire/anti-entropy", handler_flywire_anti_entropy);
     /* Admin promotion request flow: replica forwards, primary accepts. */

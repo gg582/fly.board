@@ -8,7 +8,7 @@
     if(!form||!frame||!modeSelect||!pageSelect||!sizeSelect)return;
     var themes=[];
     var uploadedTheme=null;
-    var fontUrl=null;
+    var fontUrls={};
     var scriptUrl=null;
     var renderQueued=false;
 
@@ -35,16 +35,28 @@
         });
         return css;
     }
-    function withUploadedFont(stack){
-        return fontUrl?'"'+field('font_face_family').replace(/["']/g,'')+'",'+stack:stack;
+    function roleFamily(role){
+        return (field('font_face_family_'+role)||('Custom '+role)).replace(/["'<>]/g,'');
+    }
+    function roleCleared(role){
+        var box=form.elements['font_clear_'+role];
+        return !!(box&&box.checked&&!fontUrls[role]);
+    }
+    /* Each role's uploaded font only joins its own stack (see
+     * handler_admin_appearance_post). */
+    function withUploadedFont(stack,role){
+        var family="'"+roleFamily(role)+"'";
+        if(roleCleared(role))return stack.split(family+', ').join('').split(family).join('');
+        if(!fontUrls[role]||stack.indexOf(family)>=0)return stack;
+        return family+(stack?', '+stack:'');
     }
     function typographyCss(){
-        var body=withUploadedFont(field('font_body'));
-        var heading=withUploadedFont(field('font_heading'));
-        var ui=withUploadedFont(field('font_ui'));
-        var code=withUploadedFont(field('font_code'));
-        var quote=withUploadedFont(field('font_blockquote'));
-        var display=withUploadedFont(field('font_display'));
+        var body=withUploadedFont(field('font_body'),'body');
+        var heading=withUploadedFont(field('font_heading'),'heading');
+        var ui=withUploadedFont(field('font_ui'),'ui');
+        var code=withUploadedFont(field('font_code'),'code');
+        var quote=withUploadedFont(field('font_blockquote'),'blockquote');
+        var display=withUploadedFont(field('font_display'),'display');
         var css='body{font-family:'+body+';font-weight:'+field('font_weight_body')+';letter-spacing:'+field('letter_spacing_body')+';}';
         css+='h1,h2,h3,h4,h5,h6,.topbar-title,.brand-title{font-family:'+heading+';}';
         css+='.nav-item,.btn,.post-meta,.comment-meta,.tag,.post-row-meta{font-family:'+ui+';}';
@@ -65,8 +77,11 @@
     function fontSourceCss(){
         var css='';
         if(field('font_import_url'))css+='@import url("'+field('font_import_url').replace(/"/g,'')+'");';
-        if(fontUrl)css+='@font-face{font-family:"'+field('font_face_family').replace(/["']/g,'')+'";font-display:swap;src:url("'+fontUrl+'");}';
-        else if(field('font_face_src'))css+='@font-face{font-family:"'+field('font_face_family').replace(/["']/g,'')+'";font-display:swap;src:'+field('font_face_src')+';}';
+        form.querySelectorAll('[data-font-role]').forEach(function(set){
+            var role=set.getAttribute('data-font-role');
+            var src=fontUrls[role]?'url("'+fontUrls[role]+'")':(roleCleared(role)?'':set.getAttribute('data-font-src'));
+            if(src)css+='@font-face{font-family:"'+roleFamily(role)+'";font-display:swap;src:'+src.replace(/[<>]/g,'')+';}';
+        });
         return css;
     }
     /* Mirrors layout_panel_radius_css() in src/config/config.c. */
@@ -258,9 +273,12 @@
                 }catch(error){target.setCustomValidity(error.message);target.reportValidity();}
             });
         }else if(target.matches('[data-preview-font]')){
-            if(fontUrl)URL.revokeObjectURL(fontUrl);
-            fontUrl=null;
-            readFile(target,false,function(url){fontUrl=url;});
+            var fontRole=target.name.replace(/^font_file_/,'');
+            if(fontUrls[fontRole])URL.revokeObjectURL(fontUrls[fontRole]);
+            delete fontUrls[fontRole];
+            var fontFile=target.files&&target.files[0];
+            if(fontFile)fontUrls[fontRole]=URL.createObjectURL(fontFile);
+            scheduleRender();
         }else if(target.matches('[data-preview-script]')){
             if(scriptUrl)URL.revokeObjectURL(scriptUrl);
             scriptUrl=null;
@@ -271,9 +289,9 @@
     });
     document.getElementById('appearance-reset').addEventListener('click',function(){
         uploadedTheme=null;
-        if(fontUrl)URL.revokeObjectURL(fontUrl);
+        Object.keys(fontUrls).forEach(function(role){URL.revokeObjectURL(fontUrls[role]);});
         if(scriptUrl)URL.revokeObjectURL(scriptUrl);
-        fontUrl=null;scriptUrl=null;
+        fontUrls={};scriptUrl=null;
         setTimeout(function(){
             syncRadiusControls();
             document.getElementById('appearance-panel-width-value').value=field('panel_width');
@@ -289,7 +307,8 @@
     });
     /* Files go up in chunks before the form is submitted, so the final POST
      * stays small whatever the font size. */
-    var STAGE_SLOTS=['font_file','font_script_file','theme_file'],STAGE_CHUNK=2*1024*1024,staging=false;
+    var STAGE_CHUNK=2*1024*1024,staging=false;
+    function stageInputs(){return Array.prototype.slice.call(form.querySelectorAll('input[type=file][data-stage]'));}
     function stageToken(){
         var bytes=new Uint8Array(16),hex='';
         (window.crypto||window.msCrypto).getRandomValues(bytes);
@@ -316,7 +335,7 @@
     }
     form.addEventListener('submit',function(event){
         if(form.getAttribute('data-staged')==='1')return;
-        var inputs=STAGE_SLOTS.map(function(name){return form.elements[name];}).filter(function(input){return input&&input.files&&input.files[0];});
+        var inputs=stageInputs().filter(function(input){return input.files&&input.files[0];});
         if(!inputs.length)return;
         event.preventDefault();
         if(staging)return;
@@ -358,7 +377,7 @@
         // Back/forward cache: undo the staged submit so the form works again.
         form.removeAttribute('data-staged');staging=false;
         form.querySelectorAll('[data-staged-field]').forEach(function(el){el.remove();});
-        STAGE_SLOTS.forEach(function(name){if(form.elements[name])form.elements[name].disabled=false;});
+        stageInputs().forEach(function(input){input.disabled=false;});
         var button=form.querySelector('button[type=submit]');if(button)button.disabled=false;
     });
     var themeVersion=document.documentElement.getAttribute('data-theme-version')||'0';

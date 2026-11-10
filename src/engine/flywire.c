@@ -33,6 +33,8 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <dirent.h>
+#include <stdint.h>
 
 /* FlyWire: primary/replica site synchronization.
  *
@@ -225,6 +227,10 @@ static void flywire_send_json(cwist_http_response *res, cJSON *obj, int status) 
 /* GET /flywire/feed?since=<seq>&limit=<n> (token via X-FlyWire-Token header
  * or ?token= for curl debugging). Primary mode only; anything else 404s.
  * Immediate response, no long-poll: replicas poll every couple of seconds. */
+void flywire_appearance_digest(char *out, size_t out_size);
+void flywire_appearance_note_primary(const char *digest);
+void flywire_appearance_sync(void);
+
 void handler_flywire_feed(cwist_http_request *req, cwist_http_response *res) {
     (void)req;
     if (!flywire_is_primary()) {
@@ -315,6 +321,11 @@ void handler_flywire_feed(cwist_http_request *req, cwist_http_response *res) {
     }
     cJSON_AddNumberToObject(doc, "latest_seq", (double)latest_seq);
     cJSON_AddStringToObject(doc, "version", flywire_site_version());
+    {
+        char digest[32];
+        flywire_appearance_digest(digest, sizeof(digest));
+        cJSON_AddStringToObject(doc, "appearance", digest);
+    }
     if (flywire_cluster_active()) cJSON_AddNumberToObject(doc, "epoch", (double)flywire_cluster_epoch());
     flywire_send_json(res, doc, CWIST_HTTP_OK);
     cJSON_Delete(doc);
@@ -1296,6 +1307,8 @@ static int flywire_poll_once(sqlite3 *main_conn, long long since) {
 
     cJSON *ver = cJSON_GetObjectItem(doc, "version");
     if (cJSON_IsString(ver) && ver->valuestring) flywire_maybe_auto_upgrade(ver->valuestring);
+    cJSON *appearance = cJSON_GetObjectItem(doc, "appearance");
+    if (cJSON_IsString(appearance)) flywire_appearance_note_primary(appearance->valuestring);
 
     cJSON *rows = cJSON_GetObjectItem(doc, "rows");
     int applied = 0;
@@ -1408,6 +1421,7 @@ int flywire_replica_iteration(void) {
         flywire_download_file_bytes(file_id, file_path, expected);
     if (profile.user_id > 0)
         flywire_download_bytes(profile.user_id, profile.source_path, profile.file_path, 0);
+    if (rc == 0) flywire_appearance_sync();
     return rc;
 }
 
@@ -1768,4 +1782,294 @@ bool flywire_proxy_write(cwist_http_request *req, cwist_http_response *res) {
     curl_slist_free_all(headers);
     curl_slist_free_all(route);
     return true;
+}
+
+/* ---- Appearance sync ----
+ *
+ * Appearance lives in files, not the journal: layout.settings,
+ * fonts.settings, data/custom-theme.json, blog.settings use_special_modes
+ * and the uploaded font/webfont files. The primary advertises a digest of
+ * them in every feed response; a replica that sees a new digest pulls
+ * GET /flywire/appearance, writes the files and bumps the shared appearance
+ * version so its workers reload them. */
+
+static const char *const FLYWIRE_APPEARANCE_TEXT[] = {"layout.settings", "fonts.settings", "data/custom-theme.json"};
+#define FLYWIRE_APPEARANCE_TEXT_COUNT (sizeof(FLYWIRE_APPEARANCE_TEXT) / sizeof(FLYWIRE_APPEARANCE_TEXT[0]))
+#define FLYWIRE_APPEARANCE_TEXT_MAX (1024 * 1024)
+
+static char *flywire_read_text(const char *path, size_t max) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    char *data = malloc(max + 1);
+    size_t n = data ? fread(data, 1, max + 1, f) : 0;
+    fclose(f);
+    if (!data || n > max) { free(data); return NULL; }
+    data[n] = '\0';
+    return data;
+}
+
+static void flywire_special_modes(char *out, size_t out_size) {
+    out[0] = '\0';
+    FILE *f = fopen("blog.settings", "r");
+    if (!f) return;
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "use_special_modes=", 18) != 0) continue;
+        line[strcspn(line, "\r\n")] = '\0';
+        snprintf(out, out_size, "%s", line + 18);
+        break;
+    }
+    fclose(f);
+}
+
+static bool flywire_appearance_asset(const char *dir, const char *name) {
+    if (name[0] == '.' || strstr(name, ".tmp.") || strstr(name, ".part")) return false;
+    if (strcmp(dir, "public/js") == 0) return strcmp(name, "appearance-webfont.js") == 0;
+    return strncmp(name, "appearance-", 11) == 0;
+}
+
+/* Calls @p fn for each uploaded appearance asset on this node. */
+static void flywire_appearance_assets(void (*fn)(const char *path, long long size, void *ctx), void *ctx) {
+    static const char *const dirs[] = {"public/fonts", "public/js"};
+    for (size_t d = 0; d < sizeof(dirs) / sizeof(dirs[0]); d++) {
+        DIR *dir = opendir(dirs[d]);
+        if (!dir) continue;
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            if (!flywire_appearance_asset(dirs[d], entry->d_name)) continue;
+            char path[PATH_MAX];
+            struct stat st;
+            snprintf(path, sizeof(path), "%s/%s", dirs[d], entry->d_name);
+            if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) fn(path, (long long)st.st_size, ctx);
+        }
+        closedir(dir);
+    }
+}
+
+static void flywire_fnv(uint64_t *h, const void *data, size_t len) {
+    const unsigned char *p = data;
+    for (size_t i = 0; i < len; i++) { *h ^= p[i]; *h *= 1099511628211ULL; }
+}
+
+static void flywire_digest_asset(const char *path, long long size, void *ctx) {
+    uint64_t *h = ctx;
+    flywire_fnv(h, path, strlen(path) + 1);
+    flywire_fnv(h, &size, sizeof(size));
+}
+
+void flywire_appearance_digest(char *out, size_t out_size) {
+    uint64_t h = 1469598103934665603ULL;
+    for (size_t i = 0; i < FLYWIRE_APPEARANCE_TEXT_COUNT; i++) {
+        char *text = flywire_read_text(FLYWIRE_APPEARANCE_TEXT[i], FLYWIRE_APPEARANCE_TEXT_MAX);
+        flywire_fnv(&h, FLYWIRE_APPEARANCE_TEXT[i], strlen(FLYWIRE_APPEARANCE_TEXT[i]) + 1);
+        if (text) flywire_fnv(&h, text, strlen(text));
+        free(text);
+    }
+    char modes[256];
+    flywire_special_modes(modes, sizeof(modes));
+    flywire_fnv(&h, modes, strlen(modes) + 1);
+    /* Uploaded files are named per upload, so path + size identify them. */
+    flywire_appearance_assets(flywire_digest_asset, &h);
+    snprintf(out, out_size, "%016llx", (unsigned long long)h);
+}
+
+static void flywire_list_asset(const char *path, long long size, void *ctx) {
+    cJSON *item = cJSON_CreateObject();
+    cJSON_AddStringToObject(item, "path", path);
+    cJSON_AddNumberToObject(item, "size", (double)size);
+    cJSON_AddItemToArray((cJSON *)ctx, item);
+}
+
+/* GET /flywire/appearance (primary only, X-FlyWire-Token). */
+void handler_flywire_appearance(cwist_http_request *req, cwist_http_response *res) {
+    if (!flywire_is_primary()) {
+        res->status_code = CWIST_HTTP_NOT_FOUND;
+        cwist_sstring_assign(res->body, "Not found");
+        return;
+    }
+    if (!flywire_request_authorized(req)) {
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddBoolToObject(err, "ok", false);
+        cJSON_AddStringToObject(err, "error", "unauthorized");
+        flywire_send_json(res, err, CWIST_HTTP_UNAUTHORIZED);
+        cJSON_Delete(err);
+        return;
+    }
+    cJSON *doc = cJSON_CreateObject();
+    cJSON_AddBoolToObject(doc, "ok", true);
+    char digest[32];
+    flywire_appearance_digest(digest, sizeof(digest));
+    cJSON_AddStringToObject(doc, "digest", digest);
+    cJSON *texts = cJSON_AddObjectToObject(doc, "files");
+    for (size_t i = 0; i < FLYWIRE_APPEARANCE_TEXT_COUNT; i++) {
+        char *text = flywire_read_text(FLYWIRE_APPEARANCE_TEXT[i], FLYWIRE_APPEARANCE_TEXT_MAX);
+        if (text) cJSON_AddStringToObject(texts, FLYWIRE_APPEARANCE_TEXT[i], text);
+        else cJSON_AddNullToObject(texts, FLYWIRE_APPEARANCE_TEXT[i]);
+        free(text);
+    }
+    char modes[256];
+    flywire_special_modes(modes, sizeof(modes));
+    cJSON_AddStringToObject(doc, "special_modes", modes);
+    cJSON *assets = cJSON_AddArrayToObject(doc, "assets");
+    flywire_appearance_assets(flywire_list_asset, assets);
+    flywire_send_json(res, doc, CWIST_HTTP_OK);
+    cJSON_Delete(doc);
+}
+
+static bool flywire_write_atomic(const char *path, const char *data, size_t len) {
+    char temporary[PATH_MAX];
+    if (snprintf(temporary, sizeof(temporary), "%s.tmp.%ld", path, (long)getpid()) >= (int)sizeof(temporary)) return false;
+    FILE *f = fopen(temporary, "wb");
+    if (!f) return false;
+    bool ok = fwrite(data, 1, len, f) == len && fflush(f) == 0 && fsync(fileno(f)) == 0;
+    ok = fclose(f) == 0 && ok;
+    if (!ok || rename(temporary, path) != 0) { unlink(temporary); return false; }
+    return true;
+}
+
+/* Replace only the use_special_modes line: the rest of a replica's
+ * blog.settings is its own (ports, TLS, advertised HTTP/3 port...). */
+static bool flywire_set_special_modes(const char *modes) {
+    if (!modes || !modes[0] || strchr(modes, '\n') || strchr(modes, '\r')) return false;
+    char *text = flywire_read_text("blog.settings", FLYWIRE_APPEARANCE_TEXT_MAX);
+    if (!text) return false;
+    size_t cap = strlen(text) + strlen(modes) + 64;
+    char *out = malloc(cap);
+    if (!out) { free(text); return false; }
+    size_t used = 0;
+    bool replaced = false;
+    for (char *line = text; *line;) {
+        char *nl = strchr(line, '\n');
+        size_t len = nl ? (size_t)(nl - line) + 1 : strlen(line);
+        if (strncmp(line, "use_special_modes=", 18) == 0) {
+            used += (size_t)snprintf(out + used, cap - used, "use_special_modes=%s\n", modes);
+            replaced = true;
+        } else {
+            memcpy(out + used, line, len);
+            used += len;
+        }
+        line += len;
+    }
+    if (!replaced) {
+        if (used && out[used - 1] != '\n') out[used++] = '\n';
+        used += (size_t)snprintf(out + used, cap - used, "use_special_modes=%s\n", modes);
+    }
+    bool ok = flywire_write_atomic("blog.settings", out, used);
+    free(out);
+    free(text);
+    return ok;
+}
+
+static bool flywire_appearance_safe_asset(const char *path) {
+    if (!path || strstr(path, "..")) return false;
+    const char *slash = strrchr(path, '/');
+    if (!slash) return false;
+    char dir[64];
+    size_t dl = (size_t)(slash - path);
+    if (dl >= sizeof(dir)) return false;
+    memcpy(dir, path, dl);
+    dir[dl] = '\0';
+    return (strcmp(dir, "public/fonts") == 0 || strcmp(dir, "public/js") == 0) &&
+           flywire_appearance_asset(dir, slash + 1);
+}
+
+typedef struct { cJSON *assets; } flywire_prune_ctx;
+
+/* Drop local uploads the primary no longer has (replaced or removed fonts). */
+static void flywire_prune_asset(const char *path, long long size, void *ctx) {
+    (void)size;
+    cJSON *assets = ((flywire_prune_ctx *)ctx)->assets;
+    cJSON *item;
+    cJSON_ArrayForEach(item, assets) {
+        cJSON *p = cJSON_GetObjectItem(item, "path");
+        if (cJSON_IsString(p) && strcmp(p->valuestring, path) == 0) return;
+    }
+    unlink(path);
+}
+
+static char g_flywire_primary_appearance[32];
+static char g_flywire_applied_appearance[32];
+
+/* Pull and apply the primary's appearance. Returns true when applied. */
+static bool flywire_appearance_pull(void) {
+    flywire_buf buf = {0};
+    CURL *curl = curl_easy_init();
+    if (!curl) return false;
+    char token_hdr[192];
+    snprintf(token_hdr, sizeof(token_hdr), "X-FlyWire-Token: %s", flywire_token());
+    struct curl_slist *headers = curl_slist_append(NULL, token_hdr);
+    struct curl_slist *route = flywire_route_primary(curl, "/flywire/appearance");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, flywire_feed_write);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+    CURLcode rc = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    curl_slist_free_all(headers);
+    curl_slist_free_all(route);
+    curl_easy_cleanup(curl);
+    cJSON *doc = (rc == CURLE_OK && status == 200 && buf.data) ? cJSON_Parse(buf.data) : NULL;
+    free(buf.data);
+    if (!doc || !cJSON_IsTrue(cJSON_GetObjectItem(doc, "ok"))) {
+        CWIST_LOG_WARN("flywire: appearance fetch failed (curl=%d http=%ld)", (int)rc, status);
+        cJSON_Delete(doc);
+        return false;
+    }
+    bool ok = true;
+    /* Font and script files first, so the new settings never point at a
+     * file this node does not have yet. */
+    cJSON *assets = cJSON_GetObjectItem(doc, "assets");
+    cJSON *item;
+    cJSON_ArrayForEach(item, assets) {
+        cJSON *p = cJSON_GetObjectItem(item, "path");
+        cJSON *s = cJSON_GetObjectItem(item, "size");
+        if (!cJSON_IsString(p) || !cJSON_IsNumber(s) || !flywire_appearance_safe_asset(p->valuestring)) continue;
+        long long size = (long long)s->valuedouble;
+        /* Fixed-name script: content can change at the same size. */
+        if (strcmp(p->valuestring, "public/js/appearance-webfont.js") == 0) unlink(p->valuestring);
+        char source[PATH_MAX];
+        snprintf(source, sizeof(source), "/assets/%s", p->valuestring + 7); /* public/x -> /assets/x */
+        flywire_download_bytes(0, source, p->valuestring, size);
+        if (!flywire_file_bytes_ok(p->valuestring, size)) ok = false;
+    }
+    if (!ok) {
+        CWIST_LOG_WARN("flywire: appearance assets incomplete; will retry");
+        cJSON_Delete(doc);
+        return false;
+    }
+    cJSON *files = cJSON_GetObjectItem(doc, "files");
+    for (size_t i = 0; i < FLYWIRE_APPEARANCE_TEXT_COUNT; i++) {
+        cJSON *t = cJSON_GetObjectItem(files, FLYWIRE_APPEARANCE_TEXT[i]);
+        if (cJSON_IsString(t)) {
+            if (!flywire_write_atomic(FLYWIRE_APPEARANCE_TEXT[i], t->valuestring, strlen(t->valuestring))) ok = false;
+        } else if (cJSON_IsNull(t) && strcmp(FLYWIRE_APPEARANCE_TEXT[i], "data/custom-theme.json") == 0) {
+            unlink(FLYWIRE_APPEARANCE_TEXT[i]);
+        }
+    }
+    cJSON *modes = cJSON_GetObjectItem(doc, "special_modes");
+    if (cJSON_IsString(modes) && modes->valuestring[0] && !flywire_set_special_modes(modes->valuestring)) ok = false;
+    if (ok) {
+        flywire_prune_ctx prune = {assets};
+        flywire_appearance_assets(flywire_prune_asset, &prune);
+        engine_bdr_bump_appearance();
+        CWIST_LOG_INFO("flywire: appearance synced from the primary");
+    }
+    cJSON_Delete(doc);
+    return ok;
+}
+
+void flywire_appearance_note_primary(const char *digest) {
+    if (digest) snprintf(g_flywire_primary_appearance, sizeof(g_flywire_primary_appearance), "%s", digest);
+}
+
+void flywire_appearance_sync(void) {
+    if (!g_flywire_primary_appearance[0] ||
+        strcmp(g_flywire_primary_appearance, g_flywire_applied_appearance) == 0) return;
+    char want[32];
+    snprintf(want, sizeof(want), "%s", g_flywire_primary_appearance);
+    if (flywire_appearance_pull())
+        snprintf(g_flywire_applied_appearance, sizeof(g_flywire_applied_appearance), "%s", want);
 }

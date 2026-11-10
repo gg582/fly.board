@@ -21,7 +21,12 @@
 #define STAGE_MAX_AGE (60 * 60)
 
 static const struct { const char *slot; size_t max; } g_stage_slots[] = {
-    {"font_file", FONT_UPLOAD_MAX},
+    {"font_file_body", FONT_UPLOAD_MAX},
+    {"font_file_heading", FONT_UPLOAD_MAX},
+    {"font_file_ui", FONT_UPLOAD_MAX},
+    {"font_file_code", FONT_UPLOAD_MAX},
+    {"font_file_blockquote", FONT_UPLOAD_MAX},
+    {"font_file_display", FONT_UPLOAD_MAX},
     {"font_script_file", FONT_SCRIPT_MAX},
     {"theme_file", THEME_FILE_MAX},
 };
@@ -86,6 +91,49 @@ static const char *font_extension(form_field_t *field) {
     if (strcasecmp(dot, ".ttf") == 0 || strcasecmp(dot, ".otf") == 0 ||
         strcasecmp(dot, ".woff") == 0 || strcasecmp(dot, ".woff2") == 0) return dot + 1;
     return NULL;
+}
+
+/* Font stacks are stored as CSS text; uploaded families are kept at the
+ * front as "'Family', <rest>". */
+static void stack_remove_family(char *stack, size_t size, const char *family) {
+    if (!family || !family[0]) return;
+    char quoted[80];
+    snprintf(quoted, sizeof(quoted), "'%s'", family);
+    size_t ql = strlen(quoted);
+    for (int pass = 0; pass < 4; pass++) {
+        char *hit = strstr(stack, quoted);
+        if (!hit) return;
+        char *end = hit + ql;
+        while (*end == ' ') end++;
+        if (*end == ',') end++;
+        while (*end == ' ') end++;
+        memmove(hit, end, strlen(end) + 1);
+    }
+    (void)size;
+}
+
+static void stack_add_family(char *stack, size_t size, const char *family) {
+    char quoted[80];
+    snprintf(quoted, sizeof(quoted), "'%s'", family);
+    if (strstr(stack, quoted)) return;
+    char next[512];
+    int needed = snprintf(next, sizeof(next), stack[0] ? "%s, %s" : "%s%s", quoted, stack);
+    if (needed > 0 && (size_t)needed < size) snprintf(stack, size, "%s", next);
+}
+
+static void remove_role_fonts(const char *role) {
+    DIR *dir = opendir("public/fonts");
+    if (!dir) return;
+    char prefix[48];
+    snprintf(prefix, sizeof(prefix), "appearance-%s-", role);
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strncmp(entry->d_name, prefix, strlen(prefix)) != 0) continue;
+        char path[PATH_MAX];
+        snprintf(path, sizeof(path), "public/fonts/%s", entry->d_name);
+        unlink(path);
+    }
+    closedir(dir);
 }
 
 static bool update_theme_modes(const char *light, const char *dark) {
@@ -349,7 +397,7 @@ void handler_admin_appearance_post(cwist_http_request *req, cwist_http_response 
     else snprintf(g_font_settings.letter_spacing_hero_p, sizeof(g_font_settings.letter_spacing_hero_p), "%s", spacing_hero);
     const char *import_url = field_value(fields, "font_import_url");
     const char *script_url = field_value(fields, "font_script_url");
-    if (!safe_url(import_url) || !safe_url(script_url) || !safe_family(field_value(fields, "font_face_family"))) valid = false;
+    if (!safe_url(import_url) || !safe_url(script_url)) valid = false;
     const char *layout_names[] = {"navigation", "content_style", "density", "list_style", "content_width", "panel_style"};
     char *layout_values[] = {g_layout_settings.navigation, g_layout_settings.content_style,
                              g_layout_settings.density, g_layout_settings.list_style, g_layout_settings.content_width,
@@ -408,9 +456,24 @@ void handler_admin_appearance_post(cwist_http_request *req, cwist_http_response 
     if (!g_layout_settings.transparent_image_formats[0])
         snprintf(g_layout_settings.transparent_image_formats, sizeof(g_layout_settings.transparent_image_formats), "svg");
 
-    form_field_t *font_file = form_find(fields, "font_file");
-    const char *extension = font_extension(font_file);
-    if (font_file && font_file->filename && font_file->filename[0] && !extension) valid = false;
+    /* One optional uploaded font per role; each only joins its own stack. */
+    const char *role_ext[FONT_ROLE_COUNT] = {0};
+    form_field_t *role_file[FONT_ROLE_COUNT] = {0};
+    char role_family[FONT_ROLE_COUNT][64];
+    for (int r = 0; r < FONT_ROLE_COUNT; r++) {
+        char name[48];
+        snprintf(name, sizeof(name), "font_file_%s", g_font_roles[r]);
+        role_file[r] = form_find(fields, name);
+        bool chosen = role_file[r] && role_file[r]->filename && role_file[r]->filename[0];
+        role_ext[r] = chosen ? font_extension(role_file[r]) : NULL;
+        if (chosen && !role_ext[r]) valid = false;
+        snprintf(name, sizeof(name), "font_face_family_%s", g_font_roles[r]);
+        const char *family = field_value(fields, name);
+        if (!family[0]) family = g_font_settings.role_family[r][0] ? g_font_settings.role_family[r] : "";
+        snprintf(role_family[r], sizeof(role_family[r]), "%s", family);
+        if (!role_family[r][0]) snprintf(role_family[r], sizeof(role_family[r]), "Custom %s", g_font_roles[r]);
+        if (!safe_family(role_family[r])) valid = false;
+    }
     form_field_t *script_file = form_find(fields, "font_script_file");
     bool has_script = script_file && script_file->filename && script_file->filename[0];
     size_t script_name_length = has_script ? strlen(script_file->filename) : 0;
@@ -425,19 +488,42 @@ void handler_admin_appearance_post(cwist_http_request *req, cwist_http_response 
     snprintf(g_font_settings.import_url, sizeof(g_font_settings.import_url), "%s", import_url);
     snprintf(g_font_settings.script_url, sizeof(g_font_settings.script_url), "%s", script_url);
     bool files_ok = true;
-    if (extension) {
-        char path[128], source[256];
-        snprintf(path, sizeof(path), "public/fonts/appearance-font.%s", extension);
-        snprintf(g_font_settings.face_family, sizeof(g_font_settings.face_family), "%s", field_value(fields, "font_face_family"));
-        snprintf(source, sizeof(source), "url('/assets/fonts/appearance-font.%s?v=%lld')", extension, (long long)time(NULL));
-        snprintf(g_font_settings.face_src, sizeof(g_font_settings.face_src), "%s", source);
-        for (size_t i = 0; i < sizeof(families) / sizeof(families[0]); i++) {
-            if (strstr(families[i].value, g_font_settings.face_family)) continue;
-            char stack[256];
-            int needed = snprintf(stack, sizeof(stack), "'%s', %s", g_font_settings.face_family, families[i].value);
-            if (needed > 0 && needed < (int)sizeof(stack)) snprintf(families[i].value, families[i].size, "%s", stack);
+    char *role_stack[FONT_ROLE_COUNT] = {g_font_settings.body, g_font_settings.heading, g_font_settings.ui,
+                                         g_font_settings.code, g_font_settings.blockquote, g_font_settings.display};
+    /* The legacy single upload applied to every stack; it can be removed. */
+    if (form_find(fields, "font_clear_legacy") && g_font_settings.face_src[0]) {
+        for (int r = 0; r < FONT_ROLE_COUNT; r++) stack_remove_family(role_stack[r], 256, g_font_settings.face_family);
+        g_font_settings.face_src[0] = '\0';
+    }
+    for (int r = 0; files_ok && r < FONT_ROLE_COUNT; r++) {
+        char name[48];
+        snprintf(name, sizeof(name), "font_clear_%s", g_font_roles[r]);
+        bool clear = form_find(fields, name) != NULL && !role_ext[r];
+        if ((clear || role_ext[r]) && g_font_settings.role_src[r][0]) {
+            stack_remove_family(role_stack[r], 256, g_font_settings.role_family[r]);
+            remove_role_fonts(g_font_roles[r]);
+            g_font_settings.role_src[r][0] = '\0';
+            g_font_settings.role_family[r][0] = '\0';
         }
-        files_ok = save_upload(path, font_file, 0644);
+        if (role_ext[r]) {
+            char path[160], source[256];
+            long long stamp = (long long)time(NULL);
+            snprintf(path, sizeof(path), "public/fonts/appearance-%s-%lld.%s", g_font_roles[r], stamp, role_ext[r]);
+            snprintf(source, sizeof(source), "url('/assets/fonts/appearance-%s-%lld.%s')", g_font_roles[r], stamp, role_ext[r]);
+            files_ok = save_upload(path, role_file[r], 0644);
+            if (files_ok) {
+                snprintf(g_font_settings.role_family[r], sizeof(g_font_settings.role_family[r]), "%s", role_family[r]);
+                snprintf(g_font_settings.role_src[r], sizeof(g_font_settings.role_src[r]), "%s", source);
+                stack_add_family(role_stack[r], 256, role_family[r]);
+            }
+        } else if (g_font_settings.role_src[r][0]) {
+            /* Renaming an existing upload's family follows into its stack. */
+            if (strcmp(g_font_settings.role_family[r], role_family[r]) != 0) {
+                stack_remove_family(role_stack[r], 256, g_font_settings.role_family[r]);
+                snprintf(g_font_settings.role_family[r], sizeof(g_font_settings.role_family[r]), "%s", role_family[r]);
+            }
+            stack_add_family(role_stack[r], 256, role_family[r]);
+        }
     }
     if (has_script) {
         files_ok = files_ok && save_upload("public/js/appearance-webfont.js", script_file, 0644);

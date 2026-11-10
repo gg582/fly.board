@@ -257,5 +257,22 @@ int main(void) {
 
     remove(PATH);
     printf("%s\n", failures == 0 ? "ALL PASS" : "SOME FAILED");
+    {
+        const char *fpath = "/tmp/flytest_fonts.settings";
+        remove(fpath);
+        CHECK(font_settings_load(fpath), "font settings created with defaults");
+        snprintf(g_font_settings.role_family[3], sizeof(g_font_settings.role_family[3]), "Iosevka Test");
+        snprintf(g_font_settings.role_src[3], sizeof(g_font_settings.role_src[3]), "url('/assets/fonts/appearance-code-1.woff2')");
+        CHECK(font_settings_save(fpath), "font settings with a code font saved");
+        memset(&g_font_settings, 0, sizeof(g_font_settings));
+        CHECK(font_settings_load(fpath), "font settings reloaded");
+        CHECK(strcmp(g_font_roles[3], "code") == 0 && strcmp(g_font_settings.role_family[3], "Iosevka Test") == 0 &&
+              strstr(g_font_settings.role_src[3], "appearance-code-1.woff2") != NULL, "code role font round trip");
+        CHECK(g_font_settings.role_src[0][0] == '\0' && g_font_settings.role_src[1][0] == '\0',
+              "other roles stay without an uploaded font");
+        CHECK(strstr(g_font_settings.body, "Iosevka") == NULL, "body stack untouched by the code font");
+        remove(fpath);
+    }
+
     return failures == 0 ? 0 : 1;
 }

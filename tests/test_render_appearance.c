@@ -49,6 +49,9 @@ int main(void) {
               "panel roundness defaults to the style and keeps the slider disabled");
         CHECK(strstr(page->data, "data-site-roundness='") != NULL, "site roundness is exposed to the preview");
         CHECK(strstr(page->data, "panel-side-left") != NULL, "page body carries the panel side");
+        CHECK(strstr(page->data, "name='font_file_code' accept='.ttf,.otf,.woff,.woff2' data-preview-font data-stage") != NULL &&
+              strstr(page->data, "name='font_file_heading'") != NULL && strstr(page->data, "name='font_file'") == NULL,
+              "fonts upload per role, not one file for everything");
         CHECK(strstr(page->data, "<select name='code_theme_light'") != NULL &&
               strstr(page->data, "<select name='code_theme_dark'") != NULL, "code theme selects render");
         CHECK(strstr(page->data, "<option value='github' data-href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github.min.css' selected>GitHub</option>") != NULL,
