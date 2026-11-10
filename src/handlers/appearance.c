@@ -11,7 +11,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define FONT_UPLOAD_MAX (12 * 1024 * 1024)
+#define FONT_UPLOAD_MAX (64 * 1024 * 1024)
 #define FONT_SCRIPT_MAX (256 * 1024)
 #define THEME_FILE_MAX (512 * 1024)
 /* Appearance files are uploaded in chunks before the form is submitted, so

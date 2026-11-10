@@ -316,6 +316,8 @@
         for(var i=0;i<bytes.length;i++)hex+=(bytes[i]<16?'0':'')+bytes[i].toString(16);
         return hex;
     }
+    function mib(n){return (n/1048576).toFixed(n<10485760?1:0)+' MiB';}
+    function tooLarge(file,max){return file.name+' is '+mib(file.size)+(max?'; the limit is '+mib(max):' and exceeds the server limit');}
     function stageFile(slot,file,token,progress){
         var offset=0;
         function next(attempt){
@@ -324,7 +326,7 @@
             var url='/admin/appearance/upload?slot='+slot+'&token='+token+'&offset='+offset+'&total='+file.size;
             return fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/octet-stream'},body:file.slice(offset,end)})
                 .then(function(response){
-                    if(!response.ok){var e=new Error(response.status===413?'File is too large':'Upload failed ('+response.status+')');e.fatal=response.status===413||response.status===400;throw e;}
+                    if(!response.ok){var e=new Error(response.status===413?tooLarge(file,null):file.name+': upload failed ('+response.status+')');e.fatal=response.status===413||response.status===400;throw e;}
                     offset=end;progress(offset);return next(0);
                 },function(error){throw error;})
                 .catch(function(error){
@@ -340,6 +342,14 @@
         if(!inputs.length)return;
         event.preventDefault();
         if(staging)return;
+        var oversized=inputs.filter(function(input){var max=parseInt(input.getAttribute('data-max-bytes'),10);return max>0&&input.files[0].size>max;})[0];
+        if(oversized){
+            var max=parseInt(oversized.getAttribute('data-max-bytes'),10);
+            oversized.setCustomValidity(tooLarge(oversized.files[0],max));
+            oversized.reportValidity();
+            oversized.addEventListener('change',function(){oversized.setCustomValidity('');},{once:true});
+            return;
+        }
         staging=true;
         var button=form.querySelector('button[type=submit]');
         var status=document.getElementById('appearance-upload-status');
