@@ -30,7 +30,7 @@ mail server - see [docs/mail.md](docs/mail.md). Plain `make` builds both plus
 the vendored third-party libraries.
 
 Dependencies:
-- [CWIST](https://github.com/c4punks/cwist) v4.2.4 - TLS 1.3 / HTTP/3 (QUIC) is handled by the embedded BoringSSL inside CWIST; no extra setup required. Build it with `CWIST_SQLITE_FTS5=1` to enable post search.
+- [CWIST](https://github.com/c4punks/cwist) v4.2.6 - TLS 1.3 / HTTP/3 (QUIC) is handled by the embedded BoringSSL inside CWIST; no extra setup required. Build it with `CWIST_SQLITE_FTS5=1` to enable post search.
 - OpenSSL 3.x (Argon2id KDF)
 - ngtcp2 / nghttp3 (HTTP/3)
 - cJSON, SQLite3
