@@ -13,3 +13,4 @@ void engine_bdr_bump_listings(void) {}
 void engine_bdr_bump_post(const char *slug) { (void)slug; }
 void engine_bdr_bump_board(const char *slug) { (void)slug; }
 uint64_t engine_bdr_post_version(const char *slug) { (void)slug; return 0; }
+uint64_t engine_bdr_blocks_version(void) { return 0; }
