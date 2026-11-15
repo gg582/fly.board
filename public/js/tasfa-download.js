@@ -1545,6 +1545,7 @@
     async function waitForServiceWorkerController(timeoutMs) {
         if (!navigator.serviceWorker) return false;
         if (navigator.serviceWorker.controller) return true;
+        try { await navigator.serviceWorker.register('/sw.js?v=8'); } catch (e) {}
         try { await navigator.serviceWorker.ready; } catch (e) {}
         if (navigator.serviceWorker.controller) return true;
         await new Promise(function(resolve) {
