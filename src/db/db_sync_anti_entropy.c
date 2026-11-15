@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 static pthread_mutex_t g_init_mtx = PTHREAD_MUTEX_INITIALIZER;
 static bool g_initialized = false;

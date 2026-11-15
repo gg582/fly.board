@@ -17,6 +17,12 @@
 #include <sys/stat.h>
 #include <pthread.h>
 
+/* Process-lifetime asset strings stay outside thread-local GC. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
+
 /* The footer logo renders in a ~24x16 CSS slot; request a 64px variant so
  * high-DPI clients do not download the full-resolution original. The theme
  * toggle swaps src to the data-img-* URLs verbatim, so those get the same

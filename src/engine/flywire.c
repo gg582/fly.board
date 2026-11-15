@@ -35,6 +35,8 @@
 #include <sys/wait.h>
 #include <dirent.h>
 #include <stdint.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 /* FlyWire: primary/replica site synchronization.
  *

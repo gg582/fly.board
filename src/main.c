@@ -68,6 +68,8 @@
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <limits.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 #define BLOG_CERT "server.crt"
 #define BLOG_KEY  "server.key"

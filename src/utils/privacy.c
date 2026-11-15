@@ -18,6 +18,13 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include <cwist/core/mem/alloc.h>
+
+/* Export jobs stay outside thread-local GC; every release uses CWIST. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 #define EXPORT_DEFAULT_DIR "data/exports"
 #define EXPORT_DEFAULT_TTL 900

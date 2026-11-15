@@ -2,6 +2,8 @@
 #include "handlers_internal.h"
 #include "db/moderation.h"
 #include "utils/post_schedule.h"
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 cwist_sstring *render_moderation_queue(cJSON *items, const char *msg, bool dark,
                                        const char *role, const char *profile_pic, bool is_mobile);

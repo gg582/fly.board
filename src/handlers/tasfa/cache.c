@@ -1,6 +1,13 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE
 #include "tasfa_internal.h"
+#include <cwist/core/mem/alloc.h>
+
+/* Shared cache payloads stay outside thread-local GC. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 cache_slot_t g_tasfa_cache[TASFA_CACHE_SLOTS];
 pthread_mutex_t g_tasfa_cache_mtx = PTHREAD_MUTEX_INITIALIZER;

@@ -8,6 +8,13 @@
 #include "engine/community.h"
 #include <pthread.h>
 #include <stdlib.h>
+#include <cwist/core/mem/alloc.h>
+
+/* Background jobs stay outside thread-local GC; every release uses CWIST. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 static int board_depth(int board_id, cJSON *tree) {
     int depth = 0;

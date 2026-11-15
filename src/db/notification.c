@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 /* Notifications live in the main database (see db_migrate). Request handlers
  * pass their cwist_db so queries run on the request connection. The NATS

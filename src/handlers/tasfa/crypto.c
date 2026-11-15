@@ -3,6 +3,8 @@
 #include "tasfa_internal.h"
 
 #include "../../wasm_host/tasfa_crypto_wasm.h"
+#include <pthread.h>
+#include <cwist/core/mem/alloc.h>
 
 static void derive_stream_iv(unsigned char out[12], const unsigned char seed[12], int chunk_index) {
     memcpy(out, seed, 12);
@@ -95,8 +97,8 @@ static __thread size_t g_tasfa_decrypt_buf_size = 0;
 
 unsigned char *ensure_decrypt_buf(size_t need) {
     if (g_tasfa_decrypt_buf_size >= need) return g_tasfa_decrypt_buf;
-    if (g_tasfa_decrypt_buf) free(g_tasfa_decrypt_buf);
-    g_tasfa_decrypt_buf = (unsigned char *)malloc(need);
+    if (g_tasfa_decrypt_buf) cwist_free(g_tasfa_decrypt_buf);
+    g_tasfa_decrypt_buf = (unsigned char *)cwist_malloc(need);
     g_tasfa_decrypt_buf_size = need;
     return g_tasfa_decrypt_buf;
 }
@@ -106,8 +108,8 @@ static __thread size_t g_tasfa_inflate_buf_size = 0;
 
 unsigned char *ensure_inflate_buf(size_t need) {
     if (g_tasfa_inflate_buf_size >= need) return g_tasfa_inflate_buf;
-    if (g_tasfa_inflate_buf) free(g_tasfa_inflate_buf);
-    g_tasfa_inflate_buf = (unsigned char *)malloc(need);
+    if (g_tasfa_inflate_buf) cwist_free(g_tasfa_inflate_buf);
+    g_tasfa_inflate_buf = (unsigned char *)cwist_malloc(need);
     g_tasfa_inflate_buf_size = need;
     return g_tasfa_inflate_buf;
 }
@@ -117,8 +119,8 @@ static __thread size_t g_tasfa_read_buf_size = 0;
 
 char *ensure_read_buf(size_t need) {
     if (g_tasfa_read_buf_size >= need) return g_tasfa_read_buf;
-    if (g_tasfa_read_buf) free(g_tasfa_read_buf);
-    g_tasfa_read_buf = (char *)malloc(need);
+    if (g_tasfa_read_buf) cwist_free(g_tasfa_read_buf);
+    g_tasfa_read_buf = (char *)cwist_malloc(need);
     g_tasfa_read_buf_size = need;
     return g_tasfa_read_buf;
 }

@@ -13,6 +13,13 @@
 #include "auth/post_unlock.h"
 #include <openssl/mem.h>
 #include <openssl/rand.h>
+#include <cwist/core/mem/alloc.h>
+
+/* Background jobs stay outside thread-local GC; every release uses CWIST. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 #define MAX_POST_TITLE_LEN   200
 #define MAX_POST_SUMMARY_LEN 1000

@@ -25,6 +25,8 @@
 #include <time.h>
 #include <unistd.h>
 #include <zstd.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 /* Archive layout: a zstd-compressed ustar stream of
  *

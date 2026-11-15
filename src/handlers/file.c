@@ -14,6 +14,8 @@
 #include <zstd.h>
 #include <brotli/encode.h>
 #include <zlib.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 /* Production-grade cache control:
    - Static user content (images/uploads/profile): public caches allowed, 1-day freshness,

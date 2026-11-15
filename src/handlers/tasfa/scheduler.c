@@ -2,6 +2,8 @@
 #define _DEFAULT_SOURCE
 #include "tasfa_internal.h"
 #include "engine/pool.h"
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 static unsigned int hash_upload_id(const char *id) {
     unsigned int h = 5381;

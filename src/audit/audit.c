@@ -15,6 +15,8 @@
 #include <sys/uio.h>
 #include <time.h>
 #include <unistd.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 #define AUDIT_HASH_HEX_LEN 64
 #define AUDIT_LINE_MAX 65536

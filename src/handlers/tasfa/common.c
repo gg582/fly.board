@@ -1,6 +1,13 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE
 #include "tasfa_internal.h"
+#include <cwist/core/mem/alloc.h>
+
+/* Session buffers stay outside thread-local GC; every release uses CWIST. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 int g_media_concurrency = 0;
 pthread_mutex_t g_media_mtx = PTHREAD_MUTEX_INITIALIZER;

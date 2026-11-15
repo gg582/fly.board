@@ -8,6 +8,8 @@
 #include <time.h>
 #include <ctype.h>
 #include <stdint.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 #define TRANSLATION_MAX_REQUEST (100U * 1024U)
 #define TRANSLATION_MAX_RESPONSE (256U * 1024U)

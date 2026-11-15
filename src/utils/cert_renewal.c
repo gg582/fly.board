@@ -13,6 +13,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 #include "utils/cert_renewal.h"
+#include "utils/acme_challenge.h"
 #include "config/config.h"
 #include <cwist/core/log.h>
 #include <cwist/core/mem/gc.h>
@@ -110,19 +111,36 @@ static bool renewal_host(char *out, size_t out_size) {
 }
 
 static int lego_run(const char *host, const char *email, const char *days,
-                    const char *command) {
+                    const char *command, bool v5) {
     const char *lego = getenv("FLY_CERT_LEGO_BIN");
     if (!lego || !lego[0]) lego = "lego";
+    const char *delay = getenv("FLY_CERT_DELAY");
+    if (!delay || !delay[0]) delay = "5s";
 
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
+        if (v5) {
+            execlp(lego, lego, "run",
+                   "--accept-tos",
+                   "--email", email,
+                   "--domains", host,
+                   "--http",
+                   "--http.webroot", ACME_LEGO_WEBROOT,
+                   "--http.delay", delay,
+                   "--path", LEGO_STATE_DIR,
+                   "--renew-days", days,
+                   "--no-random-sleep",
+                   (char *)NULL);
+        }
         if (strcmp(command, "renew") == 0) {
             execlp(lego, lego,
                    "--accept-tos",
                    "--email", email,
                    "--domains", host,
                    "--http",
+                   "--http.webroot", ACME_LEGO_WEBROOT,
+                   "--http.delay", delay,
                    "--path", LEGO_STATE_DIR,
                    command,
                    "--days", days,
@@ -133,6 +151,8 @@ static int lego_run(const char *host, const char *email, const char *days,
                "--email", email,
                "--domains", host,
                "--http",
+               "--http.webroot", ACME_LEGO_WEBROOT,
+               "--http.delay", delay,
                "--path", LEGO_STATE_DIR,
                command,
                (char *)NULL);
@@ -171,6 +191,12 @@ static bool cert_install(const char *host) {
         if (!out) {
             fclose(in);
             FLY_LOG_ERROR("Cert renewal: cannot write %s", pairs[i][1]);
+            return false;
+        }
+        if (fchmod(fileno(out), i == 1 ? 0600 : 0644) != 0) {
+            fclose(in);
+            fclose(out);
+            FLY_LOG_ERROR("Cert renewal: cannot set permissions on %s", pairs[i][1]);
             return false;
         }
         size_t n;
@@ -269,11 +295,15 @@ static void cert_renewal_check(void) {
         snprintf(email, sizeof(email), "admin@%s", host);
     }
 
-    int rc = lego_run(host, email, days, "renew");
+    int rc = lego_run(host, email, days, "renew", false);
     if (rc != 0) {
         /* First run on this machine: no account/lineage yet, so issue fresh. */
         CWIST_LOG_INFO("Cert renewal: lego renew exited %d; attempting initial issuance", rc);
-        rc = lego_run(host, email, days, "run");
+        rc = lego_run(host, email, days, "run", false);
+    }
+    if (rc != 0) {
+        /* lego v5 has one run command and keeps all flags after it. */
+        rc = lego_run(host, email, days, "renew", true);
     }
     if (rc != 0) {
         FLY_LOG_ERROR("Cert renewal: ACME client failed (exit %d); keeping current certificate", rc);
@@ -367,9 +397,12 @@ void cert_renewal_start(cwist_app *app) {
         FLY_LOG_ERROR("Cert renewal: failed to create wake event");
         return;
     }
+    acme_challenge_start();
     atomic_store_explicit(&g_renew_running, true, memory_order_release);
     if (pthread_create(&g_renew_thread, NULL, cert_renewal_worker, NULL) != 0) {
         atomic_store_explicit(&g_renew_running, false, memory_order_release);
+        acme_challenge_stop();
+        acme_challenge_join();
         close(g_renew_wake_fd);
         g_renew_wake_fd = -1;
         FLY_LOG_ERROR("Cert renewal: failed to start worker");
@@ -381,6 +414,7 @@ void cert_renewal_start(cwist_app *app) {
 }
 
 void cert_renewal_stop(void) {
+    acme_challenge_stop();
     if (g_renew_wake_fd < 0) return;
     atomic_store_explicit(&g_renew_running, false, memory_order_release);
     uint64_t one = 1;
@@ -388,6 +422,7 @@ void cert_renewal_stop(void) {
 }
 
 void cert_renewal_join(void) {
+    acme_challenge_join();
     if (g_renew_thread_started && g_renew_thread_owner == getpid()) {
         pthread_join(g_renew_thread, NULL);
     }

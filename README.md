@@ -249,9 +249,11 @@ S3-compatible object storage for uploaded files (AWS S3, MinIO, R2, B2). Entirel
 | `FLY_CERT_RENEWAL` | *(off)* | `true` enables the daily expiry watchdog. Renews when the certificate has ≤ `FLY_CERT_DAYS` days left and hot-reloads it without a restart |
 | `FLY_CERT_DAYS` | `30` | Renewal threshold in days |
 | `FLY_CERT_EMAIL` | `admin@<host>` | ACME account email |
-| `FLY_CERT_LEGO_BIN` | `lego` | lego binary name/path (point to a wrapper script for DNS challenges etc.) |
+| `FLY_CERT_LEGO_BIN` | `lego` | lego binary name/path (point to a wrapper script for DNS challenges etc.). lego v4 and v5 are supported |
+| `FLY_CERT_HTTP_PORT` | `80` | ACME-only HTTP-01 listener; use a high port behind an existing reverse proxy |
+| `FLY_CERT_DELAY` | `5s` | Time allowed for FlyWire peers to share each HTTP-01 token before validation |
 
-The watchdog derives the domain from `root_url` and runs lego with the HTTP-01 challenge, so port 80 must reach the machine. State lives under `.lego/`; renewed certs are installed over `server.crt`/`server.key`.
+The watchdog derives the domain from `root_url` and runs lego with the HTTP-01 challenge. State lives under `.lego/`; renewed certs are installed over `server.crt`/`server.key`. With FlyWire `nodes`/`self`, tokens are replicated to every peer so DNS round robin cannot send validation to the wrong node. The ACME listener only serves `/.well-known/acme-challenge/`; set `FLY_CERT_HTTP_PORT` and reverse-proxy that path when port 80 is already occupied.
 
 **Email-verified signup** (off by default = open registration)
 

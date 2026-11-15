@@ -1,5 +1,6 @@
 /* Real production code and libraries; only allocator/header and faults are
  * substituted. Public constants below must match tasfa_internal.h. */
+#define _POSIX_C_SOURCE 200809L
 #define TASFA_INTERNAL_H
 #include <stdbool.h>
 #include <stdint.h>
@@ -28,7 +29,10 @@ static void *allocate(size_t n) {
 }
 static void release(void *p) { if (p) { CHECK(live > 0); live--; free(p); } }
 #define cwist_alloc allocate
+#define cwist_malloc allocate
+#define cwist_realloc realloc
 #define cwist_free release
+#include <pthread.h>
 static void record(int i, const void *p, size_t n) { calls[i]++; bytes[i] += n; seen[i] = p; }
 static size_t counted_zstd(void *dst, size_t cap, const void *src, size_t n, int level) {
     record(1, src, n); levels[1] = level;

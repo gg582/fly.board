@@ -299,7 +299,11 @@ Personal data export and account ghosting are documented in
 | `FLY_CERT_RENEWAL` | off | `1`/`true`/`on`: daily watchdog renews `server.crt` via lego when near expiry and hot-reloads it. Self-signed keygen.sh certs are never touched |
 | `FLY_CERT_DAYS` | `30` | Renew when this many days remain |
 | `FLY_CERT_EMAIL` | `admin@<host>` | ACME account email |
-| `FLY_CERT_LEGO_BIN` | `lego` | lego binary or wrapper (use a wrapper for DNS challenges) |
+| `FLY_CERT_LEGO_BIN` | `lego` | lego binary or wrapper (use a wrapper for DNS challenges). Both lego v4 and v5 command lines are supported |
+| `FLY_CERT_HTTP_PORT` | `80` | ACME-only HTTP-01 listener. Set a high port when nginx or another reverse proxy owns port 80 |
+| `FLY_CERT_DELAY` | `5s` | Delay before ACME validation, allowing FlyWire peers to receive the challenge |
+
+With `nodes`/`self` configured, every renewing node replicates HTTP-01 tokens to its FlyWire peers. Any address in DNS round robin therefore returns the same proof. The peer write is authenticated with the existing FlyWire token and stored under `.lego/webroot`.
 
 ### Signup email verification (off = open registration)
 

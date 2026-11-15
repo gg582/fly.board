@@ -1,6 +1,7 @@
 #include "engine/routes.h"
 #include "engine/async_route.h"
 #include "engine/flywire_anti_entropy.h"
+#include "utils/acme_challenge.h"
 #include "handlers/handlers.h"
 
 void handler_admin_moderation_get(cwist_http_request *req, cwist_http_response *res);
@@ -227,6 +228,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/flywire/appearance", handler_flywire_appearance);
     engine_async_get(app, "/flywire/status", handler_flywire_status);
     engine_async_get(app, "/flywire/anti-entropy", handler_flywire_anti_entropy);
+    engine_async_post(app, "/flywire/acme-challenge", handler_flywire_acme_challenge);
     /* Admin promotion request flow: replica forwards, primary accepts. */
     engine_async_post(app, "/flywire/request-admin", handler_flywire_request_admin);
     engine_async_post(app, "/flywire/promote-request", handler_flywire_promote_request);

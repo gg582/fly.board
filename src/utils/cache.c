@@ -4,16 +4,17 @@
 #include "utils/post_schedule.h"
 #include "config/write_policy.h"
 #include <cwist/core/log.h>
+#include <cwist/core/mem/alloc.h>
 #include <pthread.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
-/* Use standard malloc/free for the shared cache so memory allocated by one
- * thread can safely be freed by another. cwist_alloc may be thread-local. */
-#define cache_malloc malloc
-#define cache_free free
+/* Shared cache entries stay outside thread-local GC so one thread can free
+ * memory allocated by another. All releases still go through CWIST. */
+#define cache_malloc cwist_malloc
+#define cache_free cwist_free
 
 #define CACHE_BUCKETS 1024
 

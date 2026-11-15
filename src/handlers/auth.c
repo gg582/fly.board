@@ -9,6 +9,8 @@
 #include <ctype.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 /* Copy of the hex-token idiom used elsewhere; 64 hex chars for 32 bytes. */
 static bool random_hex(char *out, size_t byte_len) {

@@ -20,6 +20,8 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 /* Scheduled backups to an external target.
  *

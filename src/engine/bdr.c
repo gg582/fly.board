@@ -12,6 +12,13 @@
 #include <strings.h>
 #include <sys/mman.h>
 #include <time.h>
+#include <cwist/core/mem/alloc.h>
+
+/* Reply blobs are shared across threads and stay outside thread-local GC. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 #define BDR_MAGIC 0x52444246u /* "FBDR" */
 #define BDR_BODY_MAX ((size_t)8 << 20)

@@ -8,6 +8,13 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <cwist/core/mem/alloc.h>
+
+/* Process-lifetime settings stay outside thread-local GC. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 blog_config_t g_config = {0};
 font_settings_t g_font_settings = {0};

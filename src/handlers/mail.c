@@ -18,6 +18,8 @@
 #include <fcntl.h>
 #include <openssl/rand.h>
 #include <sys/wait.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 #define MAIL_PAGE_SIZE 20
 

@@ -21,6 +21,12 @@
 #include <unistd.h>
 
 #include "../../wasm/tasfa_crypto_protocol.h"
+#ifdef TASFA_CRYPTO_WASM_NO_CWIST
+#define cwist_malloc malloc
+#define cwist_free free
+#else
+#include <cwist/core/mem/alloc.h>
+#endif
 
 #define TASFA_WASM_MAX_IO (64u * 1024u * 1024u) /* generous chunk ceiling */
 
@@ -118,7 +124,7 @@ static bool run_module(const uint8_t *req, size_t req_len, uint8_t **resp, size_
         if (read_full(out_pipe[0], hdr, sizeof(hdr))) {
             size_t out_len = fb_be32_read(hdr + 1);
             if (out_len <= TASFA_WASM_MAX_IO) {
-                buf = (uint8_t *)malloc(5 + out_len);
+                buf = (uint8_t *)cwist_malloc(5 + out_len);
                 if (buf) {
                     memcpy(buf, hdr, 5);
                     if (out_len == 0 || read_full(out_pipe[0], buf + 5, out_len)) {
@@ -126,7 +132,7 @@ static bool run_module(const uint8_t *req, size_t req_len, uint8_t **resp, size_
                         *resp_len = 5 + out_len;
                         ok = true;
                     } else {
-                        free(buf);
+                        cwist_free(buf);
                     }
                 }
             }
@@ -142,7 +148,7 @@ static bool run_module(const uint8_t *req, size_t req_len, uint8_t **resp, size_
     if (!ok)
         return false;
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        free(*resp);
+        cwist_free(*resp);
         *resp = NULL;
         return false;
     }
@@ -168,7 +174,7 @@ static size_t build_request(uint8_t op, const unsigned char *key, const unsigned
         return 0;
     size_t fixed = 1 + TASFA_CRYPTO_KEY_LEN + TASFA_CRYPTO_IV_SEED_LEN + 4 + 2;
     size_t total = fixed + sid_len + 4 + data_len;
-    uint8_t *req = (uint8_t *)malloc(total);
+    uint8_t *req = (uint8_t *)cwist_malloc(total);
     if (!req)
         return 0;
     req[0] = op;
@@ -202,21 +208,21 @@ bool tasfa_wasm_encrypt_block(const unsigned char *key, const unsigned char *iv_
     uint8_t *resp = NULL;
     size_t resp_len = 0;
     bool ok = run_module(req, req_len, &resp, &resp_len);
-    free(req);
+    cwist_free(req);
     if (!ok)
         return false;
     if (resp[0] != 0) {
-        free(resp);
+        cwist_free(resp);
         return false;
     }
     size_t out_len = fb_be32_read(resp + 1);
     if (out_len != plaintext_len + TASFA_CRYPTO_TAG_LEN) {
-        free(resp);
+        cwist_free(resp);
         return false;
     }
     memcpy(ciphertext, resp + 5, out_len);
     *ciphertext_len_out = out_len;
-    free(resp);
+    cwist_free(resp);
     return true;
 }
 
@@ -239,20 +245,20 @@ bool tasfa_wasm_decrypt_block(const unsigned char *key, const unsigned char *iv_
     uint8_t *resp = NULL;
     size_t resp_len = 0;
     bool ok = run_module(req, req_len, &resp, &resp_len);
-    free(req);
+    cwist_free(req);
     if (!ok)
         return false;
     if (resp[0] != 0) {
-        free(resp);
+        cwist_free(resp);
         return false; /* auth failure or module-level error */
     }
     size_t out_len = fb_be32_read(resp + 1);
     if (out_len != plaintext_len) {
-        free(resp);
+        cwist_free(resp);
         return false;
     }
     if (out_len)
         memcpy(plaintext, resp + 5, out_len);
-    free(resp);
+    cwist_free(resp);
     return true;
 }

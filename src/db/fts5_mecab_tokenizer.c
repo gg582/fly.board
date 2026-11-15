@@ -3,6 +3,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <cwist/core/mem/alloc.h>
+
+/* SQLite owns tokenizers after creation, outside thread-local GC. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 #ifdef HAVE_MECAB
 #include <mecab.h>

@@ -2,6 +2,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <cwist/core/mem/alloc.h>
+
+/* The process-wide automaton stays outside thread-local GC. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 typedef struct {
     uint32_t codepoint;

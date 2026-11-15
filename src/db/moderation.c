@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 #define MODERATION_NEW_ACCOUNT_HOURS 24
 #define MODERATION_NEW_POST_LIMIT 1

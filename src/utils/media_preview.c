@@ -21,6 +21,8 @@
 #ifdef HAVE_WEBP
 #include <webp/encode.h>
 #endif
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 static char *escape_shell_arg(const char *src) {
     if (!src) return NULL;

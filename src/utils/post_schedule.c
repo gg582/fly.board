@@ -16,6 +16,13 @@
 #include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
+#include <cwist/core/mem/alloc.h>
+
+/* Scheduled jobs stay outside thread-local GC; every release uses CWIST. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 /* Defined in src/handlers/handlers.c next to json_int(); declared in
  * handlers_internal.h, which utils must not depend on. */

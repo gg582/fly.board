@@ -19,6 +19,8 @@
 #include <strings.h>
 #include <stdio.h>
 #include <ctype.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 static cJSON *find_render_file_by_id(cJSON *files, int id) {
     if (!files || id <= 0) return NULL;

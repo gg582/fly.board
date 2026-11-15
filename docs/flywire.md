@@ -150,6 +150,14 @@ failover_seconds=20
 - `mode`/`primary_url` are ignored once `nodes`/`self` are set; on first
   start the first `nodes` entry is primary.
 
+Every site also accepts `POST /flywire/acme-challenge` (token) for ACME
+HTTP-01 proofs. With `FLY_CERT_RENEWAL=true`, each node runs a restricted
+HTTP listener for `/.well-known/acme-challenge/` and replicates new proofs to
+every peer before validation. This makes certificate renewal work with DNS
+round robin. `FLY_CERT_HTTP_PORT` changes the listener port (default 80), and
+`FLY_CERT_DELAY` controls the synchronization window (default 5s). If a
+reverse proxy owns port 80, forward only that path to the configured port.
+
 Every site serves `GET /flywire/status` (token) and polls its peers every
 `poll_seconds`:
 

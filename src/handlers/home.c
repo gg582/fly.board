@@ -4,6 +4,13 @@
 #include "db/db_portability.h"
 #include "engine/forkgate.h"
 #include "engine/refresh.h"
+#include <cwist/core/mem/alloc.h>
+
+/* Refresh jobs stay outside thread-local GC; every release uses CWIST. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 /* ---- Home ---- */
 typedef struct {

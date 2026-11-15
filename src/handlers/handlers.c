@@ -28,6 +28,9 @@
 #include <ctype.h>
 #include <stdatomic.h>
 #include <sqlite3.h>
+#include <malloc.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 bool is_dark(cwist_http_request *req) {
     char theme_name[64] = "light";

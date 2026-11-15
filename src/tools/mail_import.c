@@ -30,6 +30,8 @@
 #include <time.h>
 #include <pwd.h>
 #include <unistd.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 /* ------------------------------------------------------------------ utils */
 

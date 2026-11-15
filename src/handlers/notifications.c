@@ -1,5 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 void handler_notifications_get(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;

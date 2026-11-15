@@ -17,6 +17,8 @@
 #include <strings.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 /* Mechanical CSS inversion (invert(1)) flips hue as well as lightness, so
  * photographs and gradients come out with strongly distorted colors.  This

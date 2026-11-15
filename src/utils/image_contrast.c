@@ -10,6 +10,8 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846

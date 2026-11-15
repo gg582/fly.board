@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "reqshare.h"
 #include <cwist/core/log.h>
+#include <cwist/core/mem/alloc.h>
 #include <cwist/core/mem/gc.h>
 #include <errno.h>
 #include <pthread.h>
@@ -8,10 +9,10 @@
 #include <string.h>
 #include <time.h>
 
-/* Use malloc/free like the page cache so memory allocated by one thread can
- * be freed by another. cwist_alloc may be thread-local. */
-#define rs_malloc malloc
-#define rs_free free
+/* Shared entries stay outside thread-local GC so one thread can free memory
+ * allocated by another. All releases still go through CWIST. */
+#define rs_malloc cwist_malloc
+#define rs_free cwist_free
 
 #define RS_BUCKETS 1024
 

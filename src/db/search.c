@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 /* FTS5 full-text search over posts, backed by the SQLite FTS5 module enabled
  * in the cwist amalgamation (-DSQLITE_ENABLE_FTS5).

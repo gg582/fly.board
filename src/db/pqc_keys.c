@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 /* Public keys that have signed posts on this site. The current key is
  * added on every start; keys from earlier hosts or rotations stay, so their

@@ -10,6 +10,8 @@
 #include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 typedef struct {
     char **expressions;

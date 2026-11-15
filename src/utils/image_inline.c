@@ -13,6 +13,13 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <strings.h>
+#include <cwist/core/mem/alloc.h>
+
+/* Process-lifetime inline images stay outside thread-local GC. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 static const char *const PREFIX = "data:image/webp;base64,";
 

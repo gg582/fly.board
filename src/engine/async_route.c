@@ -15,6 +15,13 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <cwist/core/mem/alloc.h>
+
+/* Queued jobs stay outside thread-local GC; every release uses CWIST. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 /* Every route handler runs on a request worker instead of the thread that
  * owns the connection. cwist parks a pool thread per TLS connection and one

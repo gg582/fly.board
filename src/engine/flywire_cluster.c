@@ -21,6 +21,8 @@
 #include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 /* FlyWire failover cluster.
  *

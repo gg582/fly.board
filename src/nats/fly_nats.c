@@ -30,6 +30,13 @@ extern int natsConnection_Status(natsConnection *nc);
 #include <stdatomic.h>
 #include <time.h>
 
+/* Queued messages stay outside thread-local GC; every release uses CWIST. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
+#define strdup cwist_strdup
+
 static char g_reviewer_pubkey[8192];
 static int g_moderation_timeout = 300;
 static _Atomic(cwist_db *) g_moderation_db;

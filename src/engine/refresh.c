@@ -8,6 +8,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <cwist/core/mem/alloc.h>
+
+/* Queued jobs stay outside thread-local GC; every release uses CWIST. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 typedef struct refresh_job {
     char *key;

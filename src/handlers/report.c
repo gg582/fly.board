@@ -1,5 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "handlers_internal.h"
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 /* Content reports: anyone who can see a post or comment may report it;
  * admins work the queue at /admin/reports. */

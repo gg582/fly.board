@@ -10,6 +10,8 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 #define FONT_UPLOAD_MAX (64 * 1024 * 1024)
 #define FONT_SCRIPT_MAX (256 * 1024)

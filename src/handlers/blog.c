@@ -2,6 +2,13 @@
 #define _DEFAULT_SOURCE
 #include "handlers_internal.h"
 #include <ctype.h>
+#include <cwist/core/mem/alloc.h>
+
+/* Background work stays outside thread-local GC; every release uses CWIST. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 /* Blog browsing: tag pages, the archive, and RSS feeds (site, board, tag).
  * Every listing here shows public posts only (POST_PUBLIC_SQL). Anonymous

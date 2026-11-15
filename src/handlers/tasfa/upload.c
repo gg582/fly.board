@@ -3,6 +3,13 @@
 #include "tasfa_internal.h"
 #include "engine/pool.h"
 #include "utils/s3_client.h"
+#include <cwist/core/mem/alloc.h>
+
+/* Upload jobs and session buffers stay outside thread-local GC. */
+#define malloc cwist_malloc
+#define calloc cwist_alloc_array
+#define realloc cwist_realloc
+#define free cwist_free
 
 void handler_file_upload_init(cwist_http_request *req, cwist_http_response *res) {
     int uid = 0;

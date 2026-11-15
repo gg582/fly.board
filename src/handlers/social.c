@@ -10,6 +10,8 @@
 #include "../utils/email.h"
 #include <openssl/rand.h>
 #include <ctype.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 #define RESET_TTL_SELF   3600L       /* emailed by the user's own request */
 #define RESET_TTL_ADMIN  (24 * 3600L) /* issued by an administrator */

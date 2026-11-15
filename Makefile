@@ -236,6 +236,7 @@ SRCS := src/main.c \
         src/utils/image_inline.c \
         src/utils/image_invert.c \
         src/utils/media_preview.c \
+        src/utils/acme_challenge.c \
         src/utils/cert_renewal.c \
         src/utils/self_probe.c \
         src/utils/email.c \
@@ -419,7 +420,7 @@ check-tasfa-compression:
 	$(PKG_CONFIG) --exists $(TASFA_COMPRESSION_TEST_PACKAGES); \
 	bin=$$(mktemp "$${TMPDIR:-/tmp}/tasfa-compression.XXXXXX"); \
 	trap 'rm -f "$$bin"' EXIT HUP INT TERM; \
-	$(CC) $(TASFA_COMPRESSION_TEST_CFLAGS) \
+	$(CC) $(TASFA_COMPRESSION_TEST_CFLAGS) -DTASFA_CRYPTO_WASM_NO_CWIST \
 	  $$($(PKG_CONFIG) --cflags $(TASFA_COMPRESSION_TEST_PACKAGES)) \
 	  tests/test_tasfa_compression.c src/wasm_host/tasfa_crypto_wasm.c -o "$$bin" \
 	  $$($(PKG_CONFIG) --libs $(TASFA_COMPRESSION_TEST_PACKAGES)); \
@@ -489,7 +490,7 @@ COMMUNITY_TESTS := tests/test_utils_aho_moderation tests/test_community_roles te
                    tests/test_render_moderation tests/test_db_portability tests/test_db_sync_anti_entropy
 
 tests/test_utils_aho_moderation: tests/test_utils_aho_moderation.c src/utils/aho_moderation.c
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(UTIL_LIBS)
 
 tests/test_community_roles: tests/test_community_roles.c src/engine/community.c src/db/user.c
 	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -o $@ $^ $(LDFLAGS) $(LIBS)
@@ -542,14 +543,17 @@ check-sqlite-partition-poc:
 check-community: $(COMMUNITY_TESTS)
 	@for t in $(COMMUNITY_TESTS); do $$t || exit 1; done
 
-UTIL_TESTS := tests/test_utils_cache tests/test_utils_reqshare tests/test_utils_swr tests/test_image_size tests/test_image_contrast tests/test_mecab_concurrency
+UTIL_TESTS := tests/test_utils_cache tests/test_utils_reqshare tests/test_utils_swr tests/test_image_size tests/test_image_contrast tests/test_mecab_concurrency tests/test_acme_challenge
 UTIL_LIBS := $(CWIST_LIB) $(CWIST_DEPS) -pthread -ldl -lm -lstdc++ -lz
+
+tests/test_acme_challenge: tests/test_acme_challenge.c tests/stubs/acme_test_stubs.c src/utils/acme_challenge.c
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(UTIL_LIBS) $(CURL_LIBS) $(SSL_LIBS)
 
 tests/test_image_size: tests/test_image_size.c src/utils/image_size.c src/utils/stb_image_impl.c
 	$(CC) $(CFLAGS) -o $@ $^ -pthread -lm
 
 tests/test_image_contrast: tests/test_image_contrast.c src/utils/image_contrast.c src/utils/stb_image_impl.c
-	$(CC) $(CFLAGS) -o $@ $^ -pthread -lm
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(UTIL_LIBS)
 
 tests/test_mecab_concurrency: tests/test_mecab_concurrency.c src/db/fts5_mecab_tokenizer.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(UTIL_LIBS) $(MECAB_LIBS)
@@ -600,7 +604,12 @@ tests/test_utils_traffic_guard: tests/test_utils_traffic_guard.c src/utils/traff
 check-traffic-guard: tests/test_utils_traffic_guard
 	./tests/test_utils_traffic_guard
 
-test: check-utils check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-audit check-traffic-guard check-notifications check-sqlite-partition-poc check-privacy-rights check-realtime check-realtime-http check-realtime-nats $(TARGET)
+.PHONY: check-acme-cluster
+check-acme-cluster: $(TARGET)
+	./tools/acme_cluster_smoke_test.sh
+	./tools/cert_renewal_args_test.sh
+
+test: check-utils check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-audit check-traffic-guard check-notifications check-sqlite-partition-poc check-privacy-rights check-realtime check-realtime-http check-realtime-nats check-acme-cluster $(TARGET)
 	./tools/smoke_test.sh
 
 clean:

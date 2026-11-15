@@ -11,6 +11,8 @@
 #include "engine/bdr.h"
 #include "../db/subscriber.h"
 #include <openssl/mem.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 void handler_admin_dashboard(cwist_http_request *req, cwist_http_response *res) {
     if (!auth_require_admin(req, res)) return;

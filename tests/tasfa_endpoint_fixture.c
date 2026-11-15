@@ -49,7 +49,10 @@ static int measured_gzip(z_streamp s, int flush) {
 #define ZSTD_compress measured_zstd
 #define deflate measured_gzip
 #define cwist_alloc malloc
+#define cwist_malloc malloc
+#define cwist_realloc realloc
 #define cwist_free free
+#include <pthread.h>
 #define TASFA_INTERNAL_H
 /* Generated verbatim enum/constants, followed by entire production crypto.c. */
 #include "tasfa_fixture_crypto.inc"

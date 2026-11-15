@@ -83,7 +83,7 @@ def build(directory, revision):
     flags = shlex.split(subprocess.check_output([pc, "--cflags", "--libs", "libbrotlienc", "libbrotlidec", "libzstd", "openssl", "zlib"], text=True))
     compiler = shlex.split(os.environ.get("CC", "cc"))
     library = directory / "fixture.so"
-    command = compiler + ["-std=c11", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-shared", "-fPIC",
+    command = compiler + ["-std=c11", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-shared", "-fPIC", "-DTASFA_CRYPTO_WASM_NO_CWIST",
         "-I" + str(directory), "-I" + str(ROOT / "src/handlers/tasfa"),
         str(ROOT / "tests/tasfa_endpoint_fixture.c"),
         str(ROOT / "src/wasm_host/tasfa_crypto_wasm.c"), "-o", str(library)] + flags

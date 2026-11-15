@@ -20,6 +20,8 @@
 #include <strings.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#define CWIST_INTERCEPT_MALLOC
+#include <cwist/core/mem/intercept.h>
 
 #define SMTP_TIMEOUT_SEC 15
 #define SMTP_BUF 2048
