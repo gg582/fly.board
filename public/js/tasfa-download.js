@@ -24,9 +24,14 @@
     // seconds; never abort mid-stream unless truly stalled.
     var DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS = 180000;
     var MEDIA_HANDSHAKE_TIMEOUT_MS = 10000;
+    var MEDIA_INITIAL_CHUNK_TIMEOUT_MS = 15000;
     function mediaHandshakeTimeoutMs() {
         var configured = Number(window.TASFA_MEDIA_HANDSHAKE_TIMEOUT_MS);
         return Number.isFinite(configured) && configured > 0 ? configured : MEDIA_HANDSHAKE_TIMEOUT_MS;
+    }
+    function mediaInitialChunkTimeoutMs() {
+        var configured = Number(window.TASFA_MEDIA_INITIAL_CHUNK_TIMEOUT_MS);
+        return Number.isFinite(configured) && configured > 0 ? configured : MEDIA_INITIAL_CHUNK_TIMEOUT_MS;
     }
     /* data: URL cannot be received in TASFA environment - no placeholder used */
     var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v2';
@@ -450,13 +455,6 @@
         }
     }
 
-    function directMediaUrl(baseUrl, session) {
-        var path = normalizeUrlWithQuery(baseUrl);
-        if (!path || !session) return '';
-        return path + (path.indexOf('?') === -1 ? '?' : '&') + 'session_id=' + encodeURIComponent(session.sessionId) +
-               '&session_token=' + encodeURIComponent(session.sessionToken);
-    }
-
     function handshakeUrl(baseUrl) {
         var path = normalizeUrlWithQuery(baseUrl);
         var cleanPath = path.split('?')[0];
@@ -637,9 +635,8 @@
         });
     }
 
-    /* Media uses native range requests after TASFA session gating.  Warm only
-       that control-plane request on deliberate user intent; payload fetching,
-       chunk scheduling, and retry behaviour remain unchanged. */
+    /* Warm only the control-plane session on deliberate user intent. Media
+       payload always uses encrypted TASFA chunks and progressive streaming. */
     function warmMediaSession(baseUrl) {
         var key = normalizeUrlWithQuery(baseUrl);
         if (!key) return Promise.reject(new Error('unsupported media url'));
@@ -801,7 +798,7 @@
         }
     }
 
-    function fetchChunk(baseUrl, session, parts, chunkIndex, span, retries) {
+    function fetchChunk(baseUrl, session, parts, chunkIndex, span, retries, idleTimeoutMs) {
         retries = retries || 0;
         return new Promise(function(resolve, reject) {
             var startedAt = Date.now();
@@ -822,7 +819,7 @@
                     if (chunkIndex + e >= session.chunkCount) break;
                     expectedBytes += chunkByteSize(session, chunkIndex + e);
                 }
-                var timeoutMs = session && session.largeMedia ? DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS : DOWNLOAD_CONNECT_TIMEOUT_MS;
+                var timeoutMs = idleTimeoutMs || (session && session.largeMedia ? DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS : DOWNLOAD_CONNECT_TIMEOUT_MS);
                 var watchdog = armXhrIdleTimeout(xhr, timeoutMs);
                 xhr.onprogress = function() {
                     watchdog.arm();
@@ -1252,21 +1249,34 @@
         var streamId = generateStreamId();
         return new Promise(function(resolve, reject) {
             var channel = new MessageChannel();
+            var timer = setTimeout(function() {
+                channel.port1.close();
+                closeTasfaStream(streamId);
+                reject(new Error('Progressive stream open timeout'));
+            }, mediaHandshakeTimeoutMs());
             channel.port1.onmessage = function(event) {
+                clearTimeout(timer);
+                channel.port1.close();
                 if (event.data && event.data.type === 'TASFA_STREAM_READY') {
                     resolve({ streamUrl: '/__tasfa_stream__/' + streamId, streamId: streamId });
                 } else {
                     reject(new Error('Failed to open progressive stream'));
                 }
             };
-            navigator.serviceWorker.controller.postMessage({
-                type: 'TASFA_STREAM_OPEN',
-                streamId: streamId,
-                headers: {
-                    contentType: session.mimeType,
-                    contentLength: String(session.totalSize)
-                }
-            }, [channel.port2]);
+            try {
+                navigator.serviceWorker.controller.postMessage({
+                    type: 'TASFA_STREAM_OPEN',
+                    streamId: streamId,
+                    headers: {
+                        contentType: session.mimeType,
+                        contentLength: String(session.totalSize)
+                    }
+                }, [channel.port2]);
+            } catch (error) {
+                clearTimeout(timer);
+                channel.port1.close();
+                reject(error);
+            }
         });
     }
 
@@ -1299,15 +1309,15 @@
      *
      * The handshake and chunk URL formats are kept exactly as-is.
      * Chunks are fetched with a small forward buffer and fed to the
-     * Service Worker in strict order. Failed chunks are requeued until
-     * they arrive, so transient timeouts cannot leave permanent holes
-     * in the media stream.
+     * Service Worker in strict order. Transient failures are requeued;
+     * fatal or repeated failures close the stream and report an error
+     * without downgrading to a native media URL.
      */
     async function fetchVideoProgressive(baseUrl, options) {
         var onReady = options && options.onReady;
         var onProgress = options && options.onProgress;
 
-        var session = (options && options.session) || await fetchDownloadSession(baseUrl);
+        var session = (options && options.session) || await fetchDownloadSession(baseUrl, { timeoutMs: mediaHandshakeTimeoutMs() });
         var streamInfo = await openTasfaStream(session);
 
         var bitmap = new Array(session.chunkCount).fill(0);
@@ -1335,6 +1345,7 @@
         var retryAt = new Array(session.chunkCount).fill(0);
         var attempts = new Array(session.chunkCount).fill(0);
         var activeFetches = 0;
+        var streamError = null;
 
         function progressiveParallelLimit() {
             var limit = 4;
@@ -1369,7 +1380,8 @@
         function launchProgressiveFetch(index) {
             inflight[index] = 1;
             activeFetches += 1;
-            fetchChunk(baseUrl, session, parts, index, 1).then(function(result) {
+            var idleTimeoutMs = readyFired ? DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS : mediaInitialChunkTimeoutMs();
+            fetchChunk(baseUrl, session, parts, index, 1, 0, idleTimeoutMs).then(function(result) {
                 if (!bitmap[index]) {
                     bitmap[index] = 1;
                     fetchedChunks += 1;
@@ -1382,6 +1394,10 @@
                 var msg = e && e.message ? e.message : 'network';
                 if (!session.largeMedia || attempts[index] >= 2) {
                     tuneDownloadFailure(session, msg.indexOf('timeout') !== -1 ? 'timeout' : 'network');
+                }
+                if (msg === 'tasfa_fallback_needed' || attempts[index] >= TASFA_CHUNK_FAIL_FALLBACK_THRESHOLD) {
+                    streamError = new Error('TASFA media chunk failed: ' + msg);
+                    return;
                 }
                 // KR<->NG worst case: 4000 ms RTT, full TCP+TLS reconnect ~12 s.
                 // retryAt must clear at least one full reconnect cycle before
@@ -1398,10 +1414,10 @@
         }
 
         async function scheduleProgressiveFetches() {
-            while (fetchedChunks < session.chunkCount) {
+            while (!streamError && fetchedChunks < session.chunkCount) {
                 var launched = false;
                 var limit = progressiveParallelLimit();
-                while (activeFetches < limit) {
+                while (!streamError && activeFetches < limit) {
                     var candidate = nextFetchCandidate();
                     if (candidate < 0) break;
                     launchProgressiveFetch(candidate);
@@ -1415,7 +1431,7 @@
         }
 
         async function feedOrderedChunks() {
-            while (nextFeedIndex < session.chunkCount) {
+            while (!streamError && nextFeedIndex < session.chunkCount) {
                 if (!bitmap[nextFeedIndex] || !parts[nextFeedIndex]) {
                     await new Promise(function(r) { setTimeout(r, 30); });
                     continue;
@@ -1450,6 +1466,10 @@
         await scheduler;
         await feeder;
 
+        if (streamError) {
+            closeTasfaStream(streamInfo.streamId);
+            throw streamError;
+        }
         if (!readyFired && onReady) {
             readyFired = true;
             onReady(streamInfo.streamUrl);
@@ -1608,8 +1628,9 @@
                     if (!mod || typeof mod.openTasfaVideoModal !== 'function') throw new Error('modal unavailable');
                     mod.openTasfaVideoModal(videoLink, title);
                 })
-                .catch(function() {
-                    window.open(videoLink, '_blank', 'noopener,noreferrer');
+                .catch(function(error) {
+                    el.setAttribute('data-tasfa-error', '1');
+                    console.warn('TASFA video player unavailable:', error);
                 })
                 .finally(function() {
                     el.disabled = false;
@@ -1710,7 +1731,7 @@
         });
     }
 
-    function replaceWithEmbeddedPlayer(el, playUrl, isAudio) {
+    function replaceWithEmbeddedPlayer(el, playUrl, isAudio, sourceUrl) {
         if (el.parentNode && el.parentNode.tagName &&
             (el.parentNode.tagName.toLowerCase() === 'video' || el.parentNode.tagName.toLowerCase() === 'audio')) {
             el = el.parentNode;
@@ -1744,7 +1765,7 @@
             el.src = playUrl;
             el.style.opacity = '1';
             bindLoaderRemoval(el);
-            if (!isAudio) attachSubtitleTracks(el, playUrl);
+            if (!isAudio) attachSubtitleTracks(el, sourceUrl || playUrl);
             return el;
         }
 
@@ -1764,41 +1785,35 @@
         }
 
         bindLoaderRemoval(mediaEl);
-        if (!isAudio) attachSubtitleTracks(mediaEl, playUrl);
+        if (!isAudio) attachSubtitleTracks(mediaEl, sourceUrl || playUrl);
         return mediaEl;
     }
 
-    async function fetchMediaMimeType(baseUrl) {
-        var controller = window.AbortController ? new AbortController() : null;
-        var timer = setTimeout(function() {
-            if (controller) controller.abort();
-        }, mediaHandshakeTimeoutMs());
-        try {
-            var response = await fetch(baseUrl, {
-                method: 'HEAD',
-                credentials: 'same-origin',
-                signal: controller ? controller.signal : undefined
-            });
-            if (!response.ok) return '';
-            return response.headers.get('content-type') || '';
-        } finally {
-            clearTimeout(timer);
-        }
+    function markMediaError(el, error) {
+        el.dataset.tasfaMediaBound = '0';
+        el.setAttribute('data-tasfa-error', '1');
+        el.removeAttribute('data-tasfa-progress');
+        el.style.opacity = '1';
+        var wrap = el.closest('.tasfa-media-wrap') || el.closest('.tasfa-inline-media-wrap');
+        var loader = wrap && wrap.querySelector('.tasfa-media-loader');
+        if (loader) loader.textContent = 'TASFA media unavailable';
+        console.warn('TASFA media playback failed:', error);
     }
 
-    async function fallbackToNativeMedia(el, baseUrl, tagName) {
-        if (tagName === 'video' || tagName === 'audio') {
-            return replaceWithEmbeddedPlayer(el, baseUrl, tagName === 'audio');
-        }
-        var mimeType = await fetchMediaMimeType(baseUrl).catch(function() { return ''; });
-        if (/^video\//i.test(mimeType) || /^audio\//i.test(mimeType)) {
-            return replaceWithEmbeddedPlayer(el, baseUrl, /^audio\//i.test(mimeType));
-        }
-        el.src = baseUrl;
-        el.style.opacity = '1';
-        el.setAttribute('data-tasfa-ready', '1');
-        el.setAttribute('data-tasfa-error', '1');
-        return el;
+    function streamMediaViaTasfa(el, baseUrl, session, isAudio) {
+        var mediaEl = el;
+        return fetchVideoProgressive(baseUrl, {
+            session: session,
+            onReady: function(streamUrl) {
+                mediaEl = replaceWithEmbeddedPlayer(mediaEl, streamUrl, isAudio, baseUrl);
+            },
+            onProgress: function(percent) {
+                mediaEl.setAttribute('data-tasfa-progress', String(percent));
+            }
+        }).catch(function(error) {
+            markMediaError(mediaEl, error);
+            return null;
+        });
     }
 
     function upgradeMediaElement(el) {
@@ -1900,15 +1915,16 @@
                     var isVideo = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'flv', 'wmv', 'm4v'].indexOf(ext) !== -1 || /^video\//.test(mimeType);
                     var isAudio = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'wma'].indexOf(ext) !== -1 || /^audio\//.test(mimeType);
                     if (isVideo || isAudio) {
-                        return replaceWithEmbeddedPlayer(el, directMediaUrl(displayUrl, session) || displayUrl, isAudio);
+                        return streamMediaViaTasfa(el, displayUrl, session, isAudio);
                     }
                     return fetchBlobViaTasfa(displayUrl, { silent: true, session: session }).then(function(result) {
                         return createMediaPlaybackUrl(displayUrl, result.blob, 'img');
                     }).then(function(objectUrl) {
-                        setImageSrc(objectUrl || displayUrl);
+                        if (!objectUrl) throw new Error('media playback URL unavailable');
+                        setImageSrc(objectUrl);
                     });
-                }).catch(function() {
-                    return fallbackToNativeMedia(el, displayUrl, 'img');
+                }).catch(function(error) {
+                    markMediaError(el, error);
                 });
             }
 
@@ -1917,20 +1933,6 @@
             el.style.opacity = '1';
             el.style.transition = 'opacity 0.25s ease';
             tryTasfaImageDownload();
-            return;
-        }
-
-        if (tagName === 'video' || tagName === 'audio') {
-            el.style.opacity = '1';
-            el.setAttribute('data-tasfa-ready', '1');
-            el.setAttribute('crossorigin', 'use-credentials');
-            if (baseUrl) {
-                el.src = baseUrl;
-            }
-            if (posterUrl) {
-                el.poster = posterUrl;
-            }
-            if (tagName === 'video') attachSubtitleTracks(el, baseUrl);
             return;
         }
 
@@ -1948,12 +1950,16 @@
         wrap.appendChild(loader);
 
         if (baseUrl && isTasfaDownloadUrl(el.getAttribute('src') || '')) {
-            // Swap the original src with a 1x1 transparent pixel so the browser
-            // never renders a broken-image icon while TASFA downloads the file.
-            el.setAttribute('src', 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
+            if (tagName === 'video' || tagName === 'audio') {
+                el.removeAttribute('src');
+            } else {
+                // Swap the original src with a 1x1 transparent pixel so the browser
+                // never renders a broken-image icon while TASFA downloads the file.
+                el.setAttribute('src', 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
+            }
         }
 
-        // Keep the element invisible until the real blob: / SW-cache URL is ready.
+        // Keep the element invisible until the TASFA playback URL is ready.
         el.style.opacity = '0';
         el.style.transition = 'opacity 0.25s ease';
 
@@ -1973,9 +1979,7 @@
                 var isAudio = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'wma'].indexOf(ext) !== -1 || /^audio\//.test(mimeType);
 
                 if (isVideo || isAudio) {
-                    var streamUrl = directMediaUrl(baseUrl, session);
-                    replaceWithEmbeddedPlayer(el, streamUrl || baseUrl, isAudio);
-                    return;
+                    return streamMediaViaTasfa(el, baseUrl, session, isAudio);
                 }
 
                 return fetchBlobViaTasfa(baseUrl, {
@@ -1990,8 +1994,8 @@
                     el.setAttribute('data-tasfa-ready', '1');
                     el.removeAttribute('data-tasfa-progress');
                 });
-            }).catch(function() {
-                return fallbackToNativeMedia(el, baseUrl, tagName);
+            }).catch(function(error) {
+                markMediaError(el, error);
             });
         }
     }
@@ -2040,14 +2044,9 @@
             img.dataset.tasfaAnimationBound = '1';
             var animationUrl = img.getAttribute('data-tasfa-animation-url');
             if (!animationUrl) return;
-            fetch(animationUrl, {
-                credentials: 'same-origin',
-                headers: { 'Range': 'bytes=0-0' }
-            }).then(function(response) {
-                var contentType = response.headers.get('content-type') || '';
-                if (!response.ok || contentType.indexOf('video/') !== 0) return;
+            fetchDownloadSession(animationUrl, { timeoutMs: mediaHandshakeTimeoutMs() }).then(function(session) {
+                if ((session.mimeType || '').indexOf('video/') !== 0) return null;
                 var video = document.createElement('video');
-                video.src = animationUrl;
                 video.autoplay = true;
                 video.loop = true;
                 video.muted = true;
@@ -2056,10 +2055,18 @@
                 video.setAttribute('data-tasfa-skip', '1');
                 video.setAttribute('aria-label', img.alt || 'Animated image');
                 video.style.cssText = img.style.cssText;
-                var wrap = img.parentNode;
-                if (wrap) wrap.replaceChild(video, img);
-                video.play().catch(function() {});
-            }).catch(function() {});
+                return fetchVideoProgressive(animationUrl, {
+                    session: session,
+                    onReady: function(streamUrl) {
+                        video.src = streamUrl;
+                        var wrap = img.parentNode;
+                        if (wrap) wrap.replaceChild(video, img);
+                        video.play().catch(function() {});
+                    }
+                });
+            }).catch(function(error) {
+                markMediaError(img, error);
+            });
         });
     }
 
@@ -2069,7 +2076,6 @@
         window.fetchDownloadSession = fetchDownloadSession;
         window.tasfaWarmMediaSession = warmMediaSession;
         window.normalizeTasfaDownloadUrl = normalizeUrl;
-        window.tasfaDirectMediaUrl = directMediaUrl;
         window.openTasfaDownload = triggerDownload;
         window.upgradeTasfaMedia = upgradeMediaElement;
         window.initMarkdownAffordances = function(root) {

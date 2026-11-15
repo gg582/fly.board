@@ -238,7 +238,7 @@ Esto evita el agotamiento del pool de conexiones del navegador y mantiene confia
 - sesiones de descarga máximas del navegador: definido por el servidor, hasta `48` solicitudes de fragmento por sesión
 - coalescencia de descarga (tamaño de grupo span): éxito `*1.2`, fracaso `*0.8`; el perfil del servidor sugiere hasta `16` fragmentos, y el span del cliente puede crecer hasta `64` fragmentos con un límite de `128 MiB` por solicitud
 - vistas previas de imagen: solicitan un bucket de tamaño de 128px consciente del DPR (mínimo `256px`, máximo `1920px`) para que las transferencias de imagen no se inflen a una vista previa de tamaño escritorio cuando se renderizan pequeñas
-- reproducción de vídeo/audio: precalienta solo el handshake de la sesión TASFA ante la intención de puntero/foco, y luego conserva la reproducción nativa por solicitudes de rango; no se obtiene ningún contenido multimedia anticipadamente y el planificador progresivo permanece sin cambios
+- reproducción de vídeo/audio: precalienta solo el handshake de la sesión TASFA ante la intención de puntero/foco. La reproducción en línea, modal y animada usa fragmentos cifrados de TASFA mediante flujos progresivos del Service Worker y nunca degrada silenciosamente a URL multimedia nativas
 - tiempo de espera xhr de carga: watchdog de inactividad adaptativo escalado por el tamaño de la transferencia, `30-120 s`
 - tiempo de espera fetch de sesión de carga: `120 s`
 
@@ -252,7 +252,7 @@ Un tiempo de espera absoluto por fragmento previene bloqueos causados por conexi
 
 La descarga usa el mismo sesgo de alto rendimiento: el handshake lleva la pista de tamaño de fragmento preferida del cliente, y las descargas activas aumentan el `span` y el paralelismo por `*1.2` después de grupos de fragmentos exitosos. En caso de fallo ambos se reducen por `*0.8`. Las lecturas cortas, tiempos de espera y errores de red se reencolan por índice de fragmento; un grupo fallido no falla toda la descarga hasta que el mismo fragmento haya agotado un alto presupuesto de reintentos.
 
-Para la reproducción progresiva de vídeo/audio, TASFA es más estricto: el cliente ensambla y alimenta los fragmentos secuencialmente, mientras un planificador acotado mantiene el paralelismo adaptativo solo dentro de una ventana hacia adelante desde el siguiente fragmento que el reproductor necesita. Los fragmentos fallidos o con tiempo de espera agotado registran una hora de reintento y liberan el slot de red, de modo que el planificador puede seguir llenando otros fragmentos elegibles en la misma ventana. La reproducción puede detenerse en el borde del búfer, pero nunca omite un rango de bytes, deja un fragmento faltante sin resolver, ni cierra el flujo multimedia anticipadamente.
+Para la reproducción progresiva de vídeo/audio, TASFA es más estricto: el cliente ensambla y alimenta los fragmentos secuencialmente, mientras un planificador acotado mantiene el paralelismo adaptativo solo dentro de una ventana hacia adelante desde el siguiente fragmento que el reproductor necesita. Los fragmentos fallidos o con tiempo de espera agotado registran una hora de reintento y liberan el slot de red, de modo que el planificador puede seguir llenando otros fragmentos elegibles en la misma ventana. La reproducción puede detenerse en el borde del búfer, pero nunca omite un rango de bytes ni sustituye silenciosamente la reproducción nativa. Los fragmentos con errores fatales o fallos repetidos cierran el flujo con un error explícito.
 
 ### Predicción de RTT de Cola (Extrapolación de Lagrange)
 

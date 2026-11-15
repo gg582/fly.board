@@ -127,6 +127,15 @@ function _openModal(blobUrl, title, isAudio, isLoading) {
 }
 
 export function openTasfaVideoModal(url, title, isAudio) {
-    if (!url) return;
-    _openModal(url, title, isAudio, false);
+    if (!url || typeof window.fetchVideoProgressive !== 'function') return;
+    _openModal(null, title, isAudio, true);
+    window.fetchVideoProgressive(url, {
+        onReady: function(streamUrl) {
+            _openModal(streamUrl, title, isAudio, false);
+        }
+    }).catch(function(error) {
+        var loading = activeModal && activeModal.querySelector('.tasfa-video-modal-loading');
+        if (loading) loading.textContent = 'TASFA media unavailable';
+        console.warn('TASFA video playback failed:', error);
+    });
 }

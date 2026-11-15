@@ -343,10 +343,19 @@ decryption. The full policy and benchmark methodology are in
    `/__tasfa_media__/<sanitized url>-<timestamp>`; otherwise a `blob:` URL is
    used (video/audio prefer the SW path because blob URLs misbehave with the
    TASFA fetch path).
-10. Fallback ladder: per-chunk 400/403/404/410 or 10 combined failures ->
-    plain XHR GET of `/file/download/<id>?tasfa_fallback=1` (no fallback
-    exists for `/file/preview/`). Firefox XHR errors retry once per attempt
-    with a `_ffcb=<timestamp>` cache-bust parameter.
+10. Fallback ladder for blob downloads: per-chunk 400/403/404/410 or 10
+    combined failures -> plain XHR GET of
+    `/file/download/<id>?tasfa_fallback=1` (no fallback exists for
+    `/file/preview/`). Firefox XHR errors retry once per attempt with a
+    `_ffcb=<timestamp>` cache-bust parameter.
+11. Inline, modal, and animated video/audio playback does not use that native
+    fallback. It reuses the negotiated session in `fetchVideoProgressive`,
+    fetches encrypted TASFA chunks, and exposes only a Service Worker stream
+    URL to the media element. Handshake and stream-open waits are limited to
+    10 s, pre-playback chunk idle time to 15 s, and post-start media idle time
+    to 180 s. Fatal chunk responses or 10 failed attempts close the stream and
+    report an error without a HEAD probe, direct session URL, or native media
+    playback downgrade.
 
 ## Client upload flow
 
@@ -415,7 +424,7 @@ TASFA when `use_tasfa` is on, smaller files use `POST /api/upload`):
 | `data-tasfa-original` | img | original file URL for the overlay Download button |
 | `data-tasfa-animated-gif="1"` | img | skip TASFA transfer (GIF previews are served directly) |
 | `data-tasfa-fixed-preview="1"` | img | skip adaptive `w=`/`h=` resize parameters |
-| `data-tasfa-animation-url` | img | Range-probed; if it answers `video/*`, the img is swapped for a looping muted video |
+| `data-tasfa-animation-url` | img | handshake-probed; `video/*` responses are streamed through TASFA into a looping muted video |
 | `data-tasfa-skip="1"` | media | opt out of the upgrader |
 
 Client-written state attributes: `data-tasfa-ready`, `data-tasfa-progress`,

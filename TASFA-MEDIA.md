@@ -23,7 +23,9 @@ For large media files the client may bypass the full chunk-by-chunk download and
 
 The server validates the session token and returns `206 Partial Content` with `Content-Range`, `Content-Length`, and `Accept-Ranges` headers. The Service Worker caches the full response and can serve subsequent range requests from the cache without hitting the server.
 
-For video/audio playback the client may perform a **handshake-only registration** (`fetchBlobViaTasfa(url, {handshakeOnly: true})`) and then set the media element's `src` to the direct download URL. The browser issues native `Range` requests for seek operations; the Service Worker intercepts them, adds the TASFA session headers, and serves `206` responses from cache when available.
+An external client may perform a **handshake-only registration** (`fetchBlobViaTasfa(url, {handshakeOnly: true})`) and then set a media element's `src` to the direct download URL. The Service Worker can add the TASFA session headers to the browser's native `Range` requests and serve `206` responses from cache when available.
+
+This native mode is an optional protocol path, not the built-in browser upgrader's failure fallback. It does not carry encrypted TASFA media chunks or preserve their transfer behavior. Inline, modal, and animated playback in fly.board always use the progressive chunk stream below. Handshake, Service Worker, or chunk failures produce an explicit media error rather than a HEAD probe, direct session URL, or native playback downgrade.
 
 ## Progressive Chunk Streaming
 
@@ -34,8 +36,10 @@ For video and audio playback the TASFA protocol supports **progressive chunk str
 3. Uses a bounded scheduler to fetch chunks in parallel only inside a forward window from the next chunk that must be fed to the player (`span=1` per request), then stores them by `chunk_index`.
 4. Once the initial threshold is reached (by default the first 2 chunks or at least 2 MiB, whichever is larger), the client starts the media player pointing at the SW stream URL.
 5. Feeds only the next contiguous decrypted chunk into the SW stream via `TASFA_STREAM_CHUNK`, preserving byte order even when later chunks arrive first.
-6. Requeues short reads, timeouts, HTTP retry responses, and network errors for the same chunk until it is received. A failed chunk records a `retryAt` time and releases its network slot, allowing the scheduler to fetch another eligible chunk in the same forward window instead of idling.
+6. Requeues transient short reads, timeouts, HTTP retry responses, and network errors for the same chunk. A failed chunk records a `retryAt` time and releases its network slot, allowing the scheduler to fetch another eligible chunk in the same forward window instead of idling. Fatal responses or 10 failed attempts close the stream and report an error instead of downgrading.
 7. Remaining chunks continue to download in the background and are fed into the stream. When the final chunk is pushed, the client sends `TASFA_STREAM_CLOSE` so the browser sees an EOF.
+
+Handshake and Service Worker stream-open waits are limited to 10 seconds. Before playback starts, a chunk receives no more than 15 seconds without progress; after playback starts, the media idle limit is 180 seconds to tolerate long segment gaps.
 
 This makes progressive playback behave like a video service buffer: the browser-side assembler is strictly sequential, while actual network traffic keeps adaptive, bounded parallelism in the near-future chunk window. The player may wait at the current playback edge while the missing chunk is retried, but TASFA does not advance past that missing byte range or close the stream early. Successful retries keep the player attached to the same `/__tasfa_stream__/<streamId>` URL.
 

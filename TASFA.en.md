@@ -238,7 +238,7 @@ This prevents browser connection pool exhaustion and keeps stall detection relia
 - max browser download sessions: server-defined, currently up to `48` chunk requests per session
 - download coalesce (span group size): success `*1.2`, failure `*0.8`; the server profile hints up to `16` chunks, and the client span may grow to `64` chunks bounded by a `128 MiB` per-request cap
 - image previews: request a DPR-aware 128px size bucket (minimum `256px`, maximum `1920px`) so image transfers do not inflate to a desktop-sized preview when rendered small
-- video/audio playback: prewarm only the TASFA session handshake on pointer/focus intent, then retain native range-request playback; no media payload is fetched early and the progressive scheduler remains unchanged
+- video/audio playback: prewarm only the TASFA session handshake on pointer/focus intent; inline, modal, and animated playback use encrypted TASFA chunks through progressive Service Worker streams and never silently downgrade to native media URLs
 - upload xhr timeout: adaptive idle watchdog scaled by transfer size, `30-120 s`
 - upload session fetch timeout: `120 s`
 
@@ -252,7 +252,7 @@ A per-chunk absolute timeout prevents stalls caused by connections that receive 
 
 Download uses the same high-throughput bias: the handshake carries the client's preferred chunk-size hint, and active downloads grow `span` and parallelism by `*1.2` after successful chunk groups. On failure both are reduced by `*0.8`. Short reads, timeouts, and network errors are requeued by chunk index; a failed group does not fail the whole download until the same chunk has exhausted a high retry budget.
 
-For progressive video/audio playback, TASFA is stricter: the client assembles and feeds chunks sequentially, while a bounded scheduler keeps adaptive parallelism only inside a forward window from the next chunk the player needs. Failed or timed-out chunks record a retry time and release the network slot, so the scheduler can keep filling other eligible chunks in the same window. Playback can stall at the buffer edge, but it never skips a byte range, leaves a missing chunk unresolved, or closes the media stream early.
+For progressive video/audio playback, TASFA is stricter: the client assembles and feeds chunks sequentially, while a bounded scheduler keeps adaptive parallelism only inside a forward window from the next chunk the player needs. Failed or timed-out chunks record a retry time and release the network slot, so the scheduler can keep filling other eligible chunks in the same window. Playback can stall at the buffer edge, but it never skips a byte range or silently substitutes native playback. Fatal or repeatedly failing chunks close the stream with an explicit error.
 
 ### Tail RTT Prediction (Lagrange Extrapolation)
 
