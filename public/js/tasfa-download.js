@@ -23,6 +23,11 @@
     // Media idle timeout: a globally-routed HLS segment gap can be tens of
     // seconds; never abort mid-stream unless truly stalled.
     var DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS = 180000;
+    var MEDIA_HANDSHAKE_TIMEOUT_MS = 10000;
+    function mediaHandshakeTimeoutMs() {
+        var configured = Number(window.TASFA_MEDIA_HANDSHAKE_TIMEOUT_MS);
+        return Number.isFinite(configured) && configured > 0 ? configured : MEDIA_HANDSHAKE_TIMEOUT_MS;
+    }
     /* data: URL cannot be received in TASFA environment - no placeholder used */
     var TASFA_MEDIA_CACHE = 'tasfa-media-cache-v2';
     var objectUrls = new WeakMap();
@@ -484,9 +489,10 @@
         return url;
     }
 
-    async function fetchJson(url, retries) {
+    async function fetchJson(url, retries, options) {
         retries = retries || 0;
-        var controller = window.AbortController ? new AbortController() : null;
+        options = options || {};
+        var controller = window.AbortController && !options.signal ? new AbortController() : null;
         var timeoutId = null;
         var response;
         try {
@@ -499,9 +505,10 @@
                     'Accept': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest'
                 },
-                signal: controller ? controller.signal : undefined
+                signal: options.signal || (controller ? controller.signal : undefined)
             });
         } catch (e) {
+            if (options.signal && options.signal.aborted) throw e;
             if (retries < 10) {
                 // Globe-RTT baseline: TCP+TLS reconnect costs ~1.5 s.
                 // Use 1000 ms base so the first retry lands after the server
@@ -509,23 +516,27 @@
                 var netDelay = Math.min(1000 * Math.pow(2, retries), 16000)
                                + Math.floor(Math.random() * 600);
                 await new Promise(function(r) { setTimeout(r, netDelay); });
-                return fetchJson(url, retries + 1);
+                return fetchJson(url, retries + 1, options);
             }
             throw e;
         } finally {
             if (timeoutId) clearTimeout(timeoutId);
         }
+        if (options.signal && options.signal.aborted) throw new Error('handshake:aborted');
         if (response.status === 429 && retries < 12) {
             var data = await response.json().catch(function() { return {}; });
             var delay = (data.retry_after || 5) * 1000;
             await new Promise(function(r) { setTimeout(r, delay); });
-            return fetchJson(url, retries + 1);
+            return fetchJson(url, retries + 1, options);
+        }
+        if (response.status === 400 || response.status === 403 || response.status === 404 || response.status === 410) {
+            throw new Error('handshake:' + response.status);
         }
         if ((response.status >= 500 || !response.ok) && retries < 10) {
             var srvDelay = Math.min(1000 * Math.pow(2, retries), 16000)
                            + Math.floor(Math.random() * 600);
             await new Promise(function(r) { setTimeout(r, srvDelay); });
-            return fetchJson(url, retries + 1);
+            return fetchJson(url, retries + 1, options);
         }
         if (!response.ok) throw new Error('handshake:' + response.status);
         return response.json();
@@ -587,25 +598,43 @@
         };
     }
 
-    async function fetchDownloadSession(baseUrl) {
-        var hsUrl = handshakeUrl(baseUrl);
-        if (!hsUrl) throw new Error('unsupported base url');
-        hsUrl = appendQuery(hsUrl, downloadHandshakeParams());
-        var session = normalizeDownloadSession(await fetchJson(hsUrl));
-        if (!session || !session.sessionId || !session.sessionToken) {
-            throw new Error((session && session.error) || 'invalid handshake');
-        }
-        // Register session with Service Worker for range-request support
-        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-            navigator.serviceWorker.controller.postMessage({
-                type: 'TASFA_SESSION',
-                url: absoluteNormalizedUrl(baseUrl) || normalizeUrl(baseUrl) || baseUrl,
-                sessionId: session.sessionId,
-                sessionToken: session.sessionToken,
-                ultraFastConnection: session.ultraFastConnection
-            });
-        }
-        return session;
+    function fetchDownloadSession(baseUrl, options) {
+        options = options || {};
+        var controller = window.AbortController ? new AbortController() : null;
+        var timeoutMs = Number(options.timeoutMs) || 0;
+        var timer = null;
+        var work = (async function() {
+            var hsUrl = handshakeUrl(baseUrl);
+            if (!hsUrl) throw new Error('unsupported base url');
+            hsUrl = appendQuery(hsUrl, downloadHandshakeParams());
+            var session = normalizeDownloadSession(await fetchJson(hsUrl, 0, {
+                signal: controller ? controller.signal : undefined
+            }));
+            if (!session || !session.sessionId || !session.sessionToken) {
+                throw new Error((session && session.error) || 'invalid handshake');
+            }
+            // Register session with Service Worker for range-request support
+            if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({
+                    type: 'TASFA_SESSION',
+                    url: absoluteNormalizedUrl(baseUrl) || normalizeUrl(baseUrl) || baseUrl,
+                    sessionId: session.sessionId,
+                    sessionToken: session.sessionToken,
+                    ultraFastConnection: session.ultraFastConnection
+                });
+            }
+            return session;
+        })();
+        if (timeoutMs <= 0) return work;
+        var timeout = new Promise(function(resolve, reject) {
+            timer = setTimeout(function() {
+                if (controller) controller.abort();
+                reject(new Error('handshake_timeout'));
+            }, timeoutMs);
+        });
+        return Promise.race([work, timeout]).finally(function() {
+            if (timer) clearTimeout(timer);
+        });
     }
 
     /* Media uses native range requests after TASFA session gating.  Warm only
@@ -942,7 +971,7 @@
         var handshakeOnly = options && options.handshakeOnly;
 
         var promise = (async function() {
-            var session = await fetchDownloadSession(baseUrl);
+            var session = (options && options.session) || await fetchDownloadSession(baseUrl);
 
             if (range) {
                 var rangeHeaders = {
@@ -1739,6 +1768,39 @@
         return mediaEl;
     }
 
+    async function fetchMediaMimeType(baseUrl) {
+        var controller = window.AbortController ? new AbortController() : null;
+        var timer = setTimeout(function() {
+            if (controller) controller.abort();
+        }, mediaHandshakeTimeoutMs());
+        try {
+            var response = await fetch(baseUrl, {
+                method: 'HEAD',
+                credentials: 'same-origin',
+                signal: controller ? controller.signal : undefined
+            });
+            if (!response.ok) return '';
+            return response.headers.get('content-type') || '';
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    async function fallbackToNativeMedia(el, baseUrl, tagName) {
+        if (tagName === 'video' || tagName === 'audio') {
+            return replaceWithEmbeddedPlayer(el, baseUrl, tagName === 'audio');
+        }
+        var mimeType = await fetchMediaMimeType(baseUrl).catch(function() { return ''; });
+        if (/^video\//i.test(mimeType) || /^audio\//i.test(mimeType)) {
+            return replaceWithEmbeddedPlayer(el, baseUrl, /^audio\//i.test(mimeType));
+        }
+        el.src = baseUrl;
+        el.style.opacity = '1';
+        el.setAttribute('data-tasfa-ready', '1');
+        el.setAttribute('data-tasfa-error', '1');
+        return el;
+    }
+
     function upgradeMediaElement(el) {
         if (!el || el.dataset.tasfaMediaBound === '1') return;
         if (el.getAttribute('data-tasfa-skip') === '1') return;
@@ -1831,12 +1893,22 @@
                     displayUrl += (displayUrl.indexOf('?') === -1 ? '?' : '&') + 'w=' + displayWidth + '&h=' + displayHeight;
                 }
 
-                fetchBlobViaTasfa(displayUrl, { silent: true }).then(function(result) {
-                    return createMediaPlaybackUrl(displayUrl, result.blob, 'img');
-                }).then(function(objectUrl) {
-                    setImageSrc(objectUrl || displayUrl);
+                fetchDownloadSession(displayUrl, { timeoutMs: mediaHandshakeTimeoutMs() }).then(function(session) {
+                    var mimeType = session.mimeType || '';
+                    var filename = session.filename || '';
+                    var ext = filename.split('.').pop().toLowerCase();
+                    var isVideo = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'flv', 'wmv', 'm4v'].indexOf(ext) !== -1 || /^video\//.test(mimeType);
+                    var isAudio = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'wma'].indexOf(ext) !== -1 || /^audio\//.test(mimeType);
+                    if (isVideo || isAudio) {
+                        return replaceWithEmbeddedPlayer(el, directMediaUrl(displayUrl, session) || displayUrl, isAudio);
+                    }
+                    return fetchBlobViaTasfa(displayUrl, { silent: true, session: session }).then(function(result) {
+                        return createMediaPlaybackUrl(displayUrl, result.blob, 'img');
+                    }).then(function(objectUrl) {
+                        setImageSrc(objectUrl || displayUrl);
+                    });
                 }).catch(function() {
-                    setImageSrc(displayUrl);
+                    return fallbackToNativeMedia(el, displayUrl, 'img');
                 });
             }
 
@@ -1893,7 +1965,7 @@
         }
 
         if (baseUrl) {
-            fetchDownloadSession(baseUrl).then(function(session) {
+            fetchDownloadSession(baseUrl, { timeoutMs: mediaHandshakeTimeoutMs() }).then(function(session) {
                 var mimeType = session.mimeType || '';
                 var filename = session.filename || '';
                 var ext = filename.split('.').pop().toLowerCase();
@@ -1908,6 +1980,7 @@
 
                 return fetchBlobViaTasfa(baseUrl, {
                     silent: true,
+                    session: session,
                     onProgress: function(percent) {
                         el.setAttribute('data-tasfa-progress', String(percent));
                     }
@@ -1918,8 +1991,7 @@
                     el.removeAttribute('data-tasfa-progress');
                 });
             }).catch(function() {
-                el.dataset.tasfaMediaBound = '0';
-                el.setAttribute('data-tasfa-error', '1');
+                return fallbackToNativeMedia(el, baseUrl, tagName);
             });
         }
     }

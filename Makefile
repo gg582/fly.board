@@ -583,6 +583,7 @@ check-realtime: tests/test_realtime tests/test_config minjs
 	./tests/test_config
 	node tests/test_realtime_js.js
 	node tests/test_svg_invert_js.js
+	node tests/test_tasfa_media.js
 
 check-realtime-http: $(TARGET)
 	./tools/realtime_smoke_test.sh
