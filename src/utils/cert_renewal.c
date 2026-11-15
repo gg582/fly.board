@@ -117,6 +117,17 @@ static int lego_run(const char *host, const char *email, const char *days,
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
+        if (strcmp(command, "renew") == 0) {
+            execlp(lego, lego,
+                   "--accept-tos",
+                   "--email", email,
+                   "--domains", host,
+                   "--http",
+                   "--path", LEGO_STATE_DIR,
+                   command,
+                   "--days", days,
+                   (char *)NULL);
+        }
         execlp(lego, lego,
                "--accept-tos",
                "--email", email,
@@ -124,7 +135,6 @@ static int lego_run(const char *host, const char *email, const char *days,
                "--http",
                "--path", LEGO_STATE_DIR,
                command,
-               "--days", days,
                (char *)NULL);
         _exit(127);
     }
