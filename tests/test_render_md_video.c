@@ -35,7 +35,7 @@ int main(void) {
 
     check("audio tag survives",
           "<audio src=\"/file/download/7\" controls style=\"max-width:100%;display:block;\"></audio>\n",
-          "<audio src=\"/file/download/7\" controls", NULL);
+          "<audio data-tasfa-download=\"/file/download/7\" controls", "src=\"/file/download/7\"");
 
     check("event handlers stripped",
           "<video src=\"/file/download/1\" onerror=\"alert(1)\"></video>\n",

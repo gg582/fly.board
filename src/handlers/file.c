@@ -1129,7 +1129,7 @@ void handler_file_download(cwist_http_request *req, cwist_http_response *res) {
     /* A replica pulling the bytes it replicates: no browser, no TASFA session. */
     bool is_peer = flywire_request_authorized(req);
 
-    if (!is_fallback && !is_peer && g_config.use_tasfa && !is_image && !is_media) {
+    if (!is_fallback && !is_peer && g_config.use_tasfa && !is_image) {
         bool has_valid_session = false;
         const char *session_id = cwist_http_header_get(req->headers, "X-TASFA-Session-ID");
         const char *session_token = cwist_http_header_get(req->headers, "X-TASFA-Session-Token");

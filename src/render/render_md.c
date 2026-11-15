@@ -651,14 +651,25 @@ static void sanitize_media_tag(cwist_sstring *out, const char *snippet, size_t l
         }
         if (!media_attr_allowed(snippet + name_start, name_len)) continue;
         cwist_sstring_append(out, " ");
-        cwist_sstring_append_len(out, snippet + name_start, name_len);
         if (value) {
+            if (name_len == 3 && strncasecmp(snippet + name_start, "src", 3) == 0 &&
+                value_len >= 15 && strncmp(value, "/file/download/", 15) == 0) {
+                cwist_sstring_append(out, "data-tasfa-download");
+            } else if (name_len == 6 && strncasecmp(snippet + name_start, "poster", 6) == 0 &&
+                       value_len >= 14 && strncmp(value, "/file/preview/", 14) == 0) {
+                cwist_sstring_append(out, "data-tasfa-poster");
+            } else {
+                cwist_sstring_append_len(out, snippet + name_start, name_len);
+            }
+
             cwist_sstring_append(out, "=\"");
             for (size_t v = 0; v < value_len; v++) {
                 if (value[v] == '"') cwist_sstring_append(out, "&quot;");
                 else cwist_sstring_append_len(out, value + v, 1);
             }
             cwist_sstring_append(out, "\"");
+        } else {
+            cwist_sstring_append_len(out, snippet + name_start, name_len);
         }
     }
     cwist_sstring_append(out, "></");

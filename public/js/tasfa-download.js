@@ -1243,7 +1243,8 @@
      * can read from. The client later pushes decrypted chunks into this stream.
      */
     async function openTasfaStream(session) {
-        if (!navigator.serviceWorker || !navigator.serviceWorker.controller) {
+        if (!navigator.serviceWorker || !navigator.serviceWorker.controller ||
+            !await waitForServiceWorkerController(mediaHandshakeTimeoutMs())) {
             throw new Error('Service Worker not available for progressive streaming');
         }
         var streamId = generateStreamId();
