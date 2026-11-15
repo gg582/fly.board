@@ -24,7 +24,8 @@
     // seconds; never abort mid-stream unless truly stalled.
     var DOWNLOAD_MEDIA_IDLE_TIMEOUT_MS = 180000;
     var MEDIA_HANDSHAKE_TIMEOUT_MS = 10000;
-    var MEDIA_INITIAL_CHUNK_TIMEOUT_MS = 15000;
+    var MEDIA_PROGRESSIVE_CHUNK_SIZE = 2 * 1024 * 1024;
+    var MEDIA_INITIAL_CHUNK_TIMEOUT_MS = 60000;
     function mediaHandshakeTimeoutMs() {
         var configured = Number(window.TASFA_MEDIA_HANDSHAKE_TIMEOUT_MS);
         return Number.isFinite(configured) && configured > 0 ? configured : MEDIA_HANDSHAKE_TIMEOUT_MS;
@@ -169,10 +170,10 @@
         return url + (url.indexOf('?') === -1 ? '?' : '&') + parts.join('&');
     }
 
-    function downloadHandshakeParams() {
+    function downloadHandshakeParams(chunkSize) {
         var conn = getConnectionSnapshot();
         return {
-            chunk_size: String(fastLinkChunkSize() || preferredDownloadChunkSize()),
+            chunk_size: String(chunkSize || fastLinkChunkSize() || preferredDownloadChunkSize()),
             link_effective_type: conn.effectiveType,
             link_downlink_mbps: conn.downlink > 0 ? conn.downlink.toFixed(2) : '',
             link_rtt_ms: conn.rtt > 0 ? String(Math.round(conn.rtt)) : '',
@@ -604,7 +605,7 @@
         var work = (async function() {
             var hsUrl = handshakeUrl(baseUrl);
             if (!hsUrl) throw new Error('unsupported base url');
-            hsUrl = appendQuery(hsUrl, downloadHandshakeParams());
+            hsUrl = appendQuery(hsUrl, downloadHandshakeParams(options.chunkSize));
             var session = normalizeDownloadSession(await fetchJson(hsUrl, 0, {
                 signal: controller ? controller.signal : undefined
             }));
@@ -1198,7 +1199,7 @@
                plain browser GET instead of propagating a download error.
                This is the escape hatch for Firefox NS_ERROR_NET_PARTIAL_TRANSFER
                and any other browser-level XHR blockage. */
-            if (error && error.message === 'tasfa_fallback_needed') {
+            if (error && error.message === 'tasfa_fallback_needed' && (!options || options.allowDirectFallback !== false)) {
                 var fbUrl = buildFallbackUrl(baseUrl);
                 if (fbUrl) {
                     return new Promise(function(resolve, reject) {
@@ -1243,8 +1244,19 @@
      * can read from. The client later pushes decrypted chunks into this stream.
      */
     async function openTasfaStream(session) {
-        if (!navigator.serviceWorker || !navigator.serviceWorker.controller ||
-            !await waitForServiceWorkerController(mediaHandshakeTimeoutMs())) {
+        if (navigator.serviceWorker && !navigator.serviceWorker.controller) {
+            await waitForServiceWorkerController(mediaHandshakeTimeoutMs());
+        }
+        if (!navigator.serviceWorker || !navigator.serviceWorker.controller) {
+            if (navigator.serviceWorker) {
+                try {
+                    if (!sessionStorage.getItem('tasfa_sw_reload_v1')) {
+                        sessionStorage.setItem('tasfa_sw_reload_v1', '1');
+                        window.location.reload();
+                        await new Promise(function() {});
+                    }
+                } catch (e) {}
+            }
             throw new Error('Service Worker not available for progressive streaming');
         }
         var streamId = generateStreamId();
@@ -1318,8 +1330,31 @@
         var onReady = options && options.onReady;
         var onProgress = options && options.onProgress;
 
-        var session = (options && options.session) || await fetchDownloadSession(baseUrl, { timeoutMs: mediaHandshakeTimeoutMs() });
-        var streamInfo = await openTasfaStream(session);
+        var session = (options && options.session) || await fetchDownloadSession(baseUrl, {
+            timeoutMs: mediaHandshakeTimeoutMs(),
+            chunkSize: MEDIA_PROGRESSIVE_CHUNK_SIZE
+        });
+        if (session.chunkSize > MEDIA_PROGRESSIVE_CHUNK_SIZE) {
+            session = await fetchDownloadSession(baseUrl, {
+                timeoutMs: mediaHandshakeTimeoutMs(),
+                chunkSize: MEDIA_PROGRESSIVE_CHUNK_SIZE
+            });
+        }
+        var streamInfo;
+        try {
+            streamInfo = await openTasfaStream(session);
+        } catch (error) {
+            var protectedResult = await fetchBlobViaTasfa(baseUrl, {
+                silent: true,
+                session: session,
+                allowDirectFallback: false,
+                onProgress: onProgress
+            });
+            var protectedUrl = await createMediaPlaybackUrl(baseUrl, protectedResult.blob, 'video');
+            if (onReady) onReady(protectedUrl);
+            if (onProgress) onProgress(100);
+            return protectedResult.blob;
+        }
 
         var bitmap = new Array(session.chunkCount).fill(0);
         var fetchedChunks = 0;

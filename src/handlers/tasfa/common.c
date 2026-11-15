@@ -104,9 +104,6 @@ int choose_chunk_size_download(bool mobile, int requested, long long total_size,
     if (total_size > 1024 * 1024 * 1024LL) {
         fallback = max_value > TASFA_DOWNLOAD_CHUNK_SIZE_MAX ? max_value : (mobile ? (14 * 1024 * 1024) : (32 * 1024 * 1024));
     }
-    if (total_size > 100 * 1024 * 1024LL && requested > 0 && requested < fallback) {
-        requested = fallback;
-    }
     return normalize_chunk_size_hint(requested, fallback, TASFA_DOWNLOAD_CHUNK_SIZE_MIN, max_value);
 }
 

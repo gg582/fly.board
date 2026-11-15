@@ -115,8 +115,16 @@ function contextFor(fetchImpl, options) {
         caches: { open: async () => ({ match: async () => null, put: async () => {} }) },
         addEventListener: () => {},
         __fbClientCoreWasm: {
-            exports: { fb_cc_normalize_dl_session: () => {} },
-            outI32: () => new Array(12).fill(1)
+            loadSamples: samples => samples.length,
+            exports: {
+                fb_cc_normalize_dl_session: () => {},
+                fb_cc_predicted_quality: () => 0.5,
+                fb_cc_apply_predicted_dl_rule: () => {},
+                fb_cc_tune_dl_success: () => {},
+                fb_cc_tune_dl_failure: () => {}
+            },
+            outI32: () => new Array(12).fill(1),
+            outF64: () => new Array(2).fill(0.5)
         }
     };
     return { window, document };
@@ -293,10 +301,14 @@ function chunkXhrStub(chunkUrls, failureStatus = 0) {
         throw new Error('unexpected non-TASFA fetch: ' + url);
     }, { XMLHttpRequest: chunkXhrStub(noSwChunkUrls) });
     const noSwElement = mediaElement();
+    const noSwParent = noSwElement.parentNode;
     noSwWindow.upgradeTasfaMedia(noSwElement);
-    await waitFor(() => noSwElement.dataset.tasfaError === '1', 'missing Service Worker error');
-    assert.equal(noSwChunkUrls.length, 0, 'missing Service Worker must fail before media transfer');
-    assert.equal(findByTag(noSwElement.parentNode, 'VIDEO'), null, 'missing Service Worker must not enable native playback');
+    await waitFor(() => {
+        const player = findByTag(noSwParent, 'VIDEO');
+        return player && player.src.startsWith('blob:');
+    }, 'protected playback without a Service Worker');
+    assert.equal(noSwChunkUrls.length, 2, 'missing Service Worker must retain protected TASFA chunk transfer');
+    assert.equal(noSwElement.dataset.tasfaError, undefined, 'protected blob playback must not be marked as an error');
 
     const animationChunkUrls = [];
     const animationStreamChunks = [];
@@ -360,10 +372,15 @@ function chunkXhrStub(chunkUrls, failureStatus = 0) {
         serviceWorker: silentServiceWorker
     });
     const silentSwElement = mediaElement();
+    const silentSwParent = silentSwElement.parentNode;
     silentSwWindow.upgradeTasfaMedia(silentSwElement);
-    await waitFor(() => silentSwElement.dataset.tasfaError === '1', 'Service Worker open timeout');
-    assert.equal(silentSwChunkUrls.length, 0, 'an unacknowledged stream must fail before chunk transfer');
-    assert.equal(findByTag(silentSwElement.parentNode, 'VIDEO'), null, 'an unacknowledged stream must not enable native playback');
+    await waitFor(() => {
+        const player = findByTag(silentSwParent, 'VIDEO');
+        return player && (player.src.startsWith('blob:') || player.src.startsWith('/__tasfa_media__/'));
+    }, 'protected playback after a Service Worker timeout');
+    assert.equal(silentSwChunkUrls.length, 2, 'an unacknowledged stream must retain protected TASFA chunk transfer');
+    assert(!findByTag(silentSwParent, 'VIDEO').src.includes('/file/download/'));
+    assert.equal(silentSwElement.dataset.tasfaError, undefined);
 
     console.log('TASFA media tests passed without native playback fallback');
 })().catch(error => {
