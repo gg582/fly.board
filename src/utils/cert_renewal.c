@@ -244,7 +244,7 @@ static void cert_renewal_check(void) {
     X509_free(cert);
     int threshold = atoi(days);
     if (threshold <= 0) threshold = 30;
-    if (remaining < 0 || remaining > threshold) {
+    if (remaining >= 0 && remaining > threshold) {
         CWIST_LOG_INFO("Cert renewal: certificate valid for %d more day(s); no action", remaining);
         pthread_mutex_unlock(&g_renew_lock);
         return;
