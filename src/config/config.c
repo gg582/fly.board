@@ -12,7 +12,8 @@
 
 /* Process-lifetime settings stay outside thread-local GC. */
 #define malloc cwist_malloc
-#define calloc cwist_alloc_array
+#include "core/fly_alloc.h"
+#define calloc fly_calloc_untracked
 #define realloc cwist_realloc
 #define free cwist_free
 
