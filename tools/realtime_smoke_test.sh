@@ -58,21 +58,21 @@ SESSION=0123456789abcdef0123456789abcdef
 EVENTS="$TMP/events"
 curl -sf --max-time 5 \
     "http://127.0.0.1:$PORT/realtime/events?post_id=1&session=$SESSION&after=0" > "$EVENTS"
-grep -q '^event:state' "$EVENTS"
-grep -q '^retry:2000' "$EVENTS"
+grep -Eq '^event: ?state' "$EVENTS"
+grep -Eq '^retry: ?2000' "$EVENTS"
 grep -q '"transport":"local"' "$EVENTS"
-! grep -q '^event:comment' "$EVENTS"
+! grep -Eq '^event: ?comment' "$EVENTS"
 
 curl -sf -o /dev/null --max-time 5 \
     --data 'target_type=post&target_id=1&parent_id=0&content=hello+realtime&author_name=Guest' \
     "http://127.0.0.1:$PORT/comment/new"
 curl -sf --max-time 5 \
     "http://127.0.0.1:$PORT/realtime/events?post_id=1&session=$SESSION&after=0" > "$EVENTS"
-grep -q '^event:comment' "$EVENTS"
-grep -q '^id:1' "$EVENTS"
+grep -Eq '^event: ?comment' "$EVENTS"
+grep -Eq '^id: ?1' "$EVENTS"
 curl -sf --max-time 5 -H 'Last-Event-ID: 1' \
     "http://127.0.0.1:$PORT/realtime/events?post_id=1&session=$SESSION&after=0" > "$EVENTS"
-! grep -q '^event:comment' "$EVENTS"
+! grep -Eq '^event: ?comment' "$EVENTS"
 curl -sf --max-time 5 "http://127.0.0.1:$PORT/realtime/comments/1" | grep -q 'hello realtime'
 
 code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
