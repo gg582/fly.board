@@ -328,27 +328,15 @@ static void attach_media_meta_to_post(cwist_db *db, const char *media_meta_json,
         if (arr) cJSON_Delete(arr);
         return;
     }
+    bool admin = role && strcmp(role, "admin") == 0;
     cJSON *item = NULL;
     cJSON_ArrayForEach(item, arr) {
         if (!cJSON_IsObject(item)) continue;
         int fid = json_int(item, "fid", 0);
         const char *mode = cJSON_GetObjectItem(item, "mode") && cJSON_IsString(cJSON_GetObjectItem(item, "mode"))
             ? cJSON_GetObjectItem(item, "mode")->valuestring : "attachment";
-        const char *delete_pin = cJSON_GetObjectItem(item, "delete_pin") && cJSON_IsString(cJSON_GetObjectItem(item, "delete_pin"))
-            ? cJSON_GetObjectItem(item, "delete_pin")->valuestring : "";
-        if (fid <= 0) continue;
-        cJSON *file = db_file_get(db, fid);
-        if (!file) continue;
-        int file_uid = json_int(file, "user_id", 0);
-        int existing_post_id = json_int(file, "post_id", 0);
-        cJSON *pin_hash = cJSON_GetObjectItem(file, "delete_pin_hash");
-        bool pin_ok = delete_pin && delete_pin[0] && pin_hash && pin_hash->valuestring && pin_hash->valuestring[0] &&
-                      auth_verify_password(delete_pin, pin_hash->valuestring);
-        bool owner_ok = (uid > 0 && file_uid == uid) || (role && strcmp(role, "admin") == 0);
-        if ((existing_post_id == 0 || existing_post_id == post_id) && (owner_ok || pin_ok)) {
-            db_file_attach_to_post(db, fid, post_id, strcmp(mode, "inline") == 0);
-        }
-        cJSON_Delete(file);
+        if (fid > 0)
+            db_file_attach_to_post(db, fid, post_id, strcmp(mode, "inline") == 0, uid, admin);
     }
     cJSON_Delete(arr);
 }
@@ -370,17 +358,8 @@ static void attach_content_files_to_post(cwist_db *db, const char *content, int 
         else if (strncmp(kind, "preview/", 8) == 0) num = kind + 8;
         if (num && isdigit((unsigned char)*num)) {
             long fid_l = strtol(num, NULL, 10);
-            if (fid_l > 0 && fid_l <= 2147483647L) {
-                cJSON *file = db_file_get(db, (int)fid_l);
-                if (file) {
-                    int file_uid = json_int(file, "user_id", 0);
-                    int existing = json_int(file, "post_id", 0);
-                    bool owner_ok = (uid > 0 && file_uid == uid) || admin;
-                    if ((existing == 0 || existing == post_id) && owner_ok)
-                        db_file_attach_to_post(db, (int)fid_l, post_id, 1);
-                    cJSON_Delete(file);
-                }
-            }
+            if (fid_l > 0 && fid_l <= 2147483647L)
+                db_file_attach_to_post(db, (int)fid_l, post_id, 1, uid, admin);
             p = num;
         } else {
             p = kind;

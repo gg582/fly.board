@@ -461,6 +461,13 @@ check-flywire-profile: tests/test_flywire_profile
 tests/test_post_lock: tests/test_post_lock.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
 	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
 
+tests/test_file_attachment_security: tests/test_file_attachment_security.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
+	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
+
+.PHONY: check-file-attachment-security
+check-file-attachment-security: tests/test_file_attachment_security
+	./tests/test_file_attachment_security
+
 tests/test_social: tests/test_social.c $(SERVER_OBJS) $(MD4C_LIB) $(LIBMAGIC_A)
 	$(CC) $(CFLAGS) -o $@ $< $(SERVER_OBJS) $(LDFLAGS) $(LIBS)
 
@@ -610,11 +617,11 @@ check-acme-cluster: $(TARGET)
 	./tools/acme_cluster_smoke_test.sh
 	./tools/cert_renewal_args_test.sh
 
-test: check-utils check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-community check-audit check-traffic-guard check-notifications check-sqlite-partition-poc check-privacy-rights check-realtime check-realtime-http check-realtime-nats check-acme-cluster $(TARGET)
+test: check-utils check-tasfa-compression check-tasfa-endpoint check-render check-multipart check-tasfa-finalize check-flywire-profile check-file-attachment-security check-community check-audit check-traffic-guard check-notifications check-sqlite-partition-poc check-privacy-rights check-realtime check-realtime-http check-realtime-nats check-acme-cluster $(TARGET)
 	./tools/smoke_test.sh
 
 clean:
-	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tests/test_utils_traffic_guard tests/test_privacy_rights tests/test_realtime tests/test_realtime_nats tests/test_config $(UTIL_TESTS) $(NOTIFICATION_TESTS) tools/connhold
+	rm -f $(OBJS) $(OBJS:.o=.d) $(TARGET) $(MAIL_TOOLS) $(RENDER_TESTS) $(MP_TESTS) tests/render_file tests/test_leak_loop tests/test_tasfa_finalize_cache tests/test_flywire_profile tests/test_file_attachment_security tests/test_utils_traffic_guard tests/test_privacy_rights tests/test_realtime tests/test_realtime_nats tests/test_config $(UTIL_TESTS) $(NOTIFICATION_TESTS) tools/connhold
 	rm -rf build-wasm
 
 # --- WASM: sandboxed TASFA crypto (opt-in, experimental) -------------------

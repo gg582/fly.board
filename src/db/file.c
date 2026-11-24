@@ -334,19 +334,22 @@ bool db_file_set_preview_paths(cwist_db *db, int id, const char *thumb_path, con
     return rc == SQLITE_DONE;
 }
 
-bool db_file_attach_to_post(cwist_db *db, int id, int post_id, int is_inline) {
-    const char *sql = "UPDATE files SET post_id=?, is_inline=? WHERE id=?";
+bool db_file_attach_to_post(cwist_db *db, int id, int post_id, int is_inline, int user_id, bool is_admin) {
+    const char *sql =
+        "UPDATE files SET post_id=?1, is_inline=?2 "
+        "WHERE id=?3 AND (post_id IS NULL OR post_id=?1) AND (?4=1 OR user_id=?5)";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return false;
     sqlite3_bind_int(stmt, 1, post_id);
     sqlite3_bind_int(stmt, 2, is_inline ? 1 : 0);
     sqlite3_bind_int(stmt, 3, id);
+    sqlite3_bind_int(stmt, 4, is_admin ? 1 : 0);
+    sqlite3_bind_int(stmt, 5, user_id);
     int rc = sqlite3_step(stmt);
+    bool attached = rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0;
     sqlite3_finalize(stmt);
-    if (rc == SQLITE_DONE && sqlite3_changes(fly_db_conn(db)) > 0) {
-        db_sync_journal_row(db, "files", "file", id);
-    }
-    return rc == SQLITE_DONE;
+    if (attached) db_sync_journal_row(db, "files", "file", id);
+    return attached;
 }
 
 void db_file_replace_for_post(cwist_db *db, int post_id, const char *filename) {
