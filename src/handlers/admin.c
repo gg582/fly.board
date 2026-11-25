@@ -317,10 +317,56 @@ void handler_admin_users(cwist_http_request *req, cwist_http_response *res) {
     auth_is_logged_in(req, &uid, role, sizeof(role));
     cJSON *users = db_user_list(req->db);
     char *pp = get_profile_pic(req->db, uid, role);
-    cwist_sstring *page = render_user_admin(users, is_dark(req), pp, is_mobile_request(req));
+    const char *msg = cwist_query_map_get(req->query_params, "msg");
+    cwist_sstring *page = render_user_admin(users, is_dark(req), pp, is_mobile_request(req), msg);
     if (users) cJSON_Delete(users);
     send_html_res(res, page);
     free(pp);
+}
+
+void handler_admin_user_local_admin_post(cwist_http_request *req, cwist_http_response *res) {
+    if (!auth_require_admin(req, res)) return;
+    int actor_uid = 0;
+    char actor_role[32] = {0};
+    auth_is_logged_in(req, &actor_uid, actor_role, sizeof(actor_role));
+    cwist_query_map *kv = cwist_query_map_create();
+    if (!kv || !req->body || !req->body->data) {
+        if (kv) cwist_query_map_destroy(kv);
+        redirect(res, "/admin/users?msg=local_error#local-admin");
+        return;
+    }
+    cwist_query_map_parse(kv, req->body->data);
+    const char *action = cwist_query_map_get(kv, "action");
+    const char *id_str = cwist_query_map_get(kv, "id");
+    int target_uid = id_str ? atoi(id_str) : 0;
+    bool transfer = action && strcmp(action, "transfer") == 0;
+    bool valid_action = transfer || (action && strcmp(action, "disable") == 0);
+    int source_uid = auth_site_admin_uid();
+    cJSON *source = db_user_get_by_id(req->db, source_uid);
+    bool already_disabled = source && json_int(source, "active", 1) == 0;
+    if (source) cJSON_Delete(source);
+
+    const char *msg = "local_error";
+    if (already_disabled) {
+        msg = "local_already_disabled";
+    } else if (valid_action && db_user_disable_site_admin(req->db, source_uid, target_uid, transfer)) {
+        msg = transfer ? "local_transferred" : "local_disabled";
+        char target[64];
+        char detail[96];
+        snprintf(target, sizeof(target), "user:%d", source_uid);
+        snprintf(detail, sizeof(detail), "remaining_admin_id=%d transfer=%d", target_uid, transfer ? 1 : 0);
+        audit_record(actor_uid, "admin.user.local_admin", target, "disabled", detail);
+        page_cache_invalidate_all();
+        CWIST_LOG_INFO("Local Admin disabled: source_uid=%d target_uid=%d transfer=%d actor_uid=%d",
+                       source_uid, target_uid, transfer ? 1 : 0, actor_uid);
+    } else {
+        CWIST_LOG_WARN("Local Admin change refused/failed: source_uid=%d target_uid=%d action=%s",
+                       source_uid, target_uid, action ? action : "missing");
+    }
+    cwist_query_map_destroy(kv);
+    char url[128];
+    snprintf(url, sizeof(url), "/admin/users?msg=%s#local-admin", msg);
+    redirect(res, url);
 }
 
 void handler_admin_user_role(cwist_http_request *req, cwist_http_response *res) {

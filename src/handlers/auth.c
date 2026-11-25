@@ -132,6 +132,28 @@ void handler_login_get(cwist_http_request *req, cwist_http_response *res) {
     send_html_res(res, render_login(is_dark(req), NULL, is_mobile_request(req), redirect_target));
 }
 
+static bool login_2fa_step(cwist_http_request *req, cwist_http_response *res, cJSON *user,
+                           const char *username, const char *redirect_target, bool dark, bool mobile) {
+    (void)req;
+    if (json_int(user, "totp_enabled", 0) != 1 || !json_string_or_empty(user, "totp_secret")[0]) {
+        return false;
+    }
+    int user_id = json_int(user, "id", 0);
+    const char *secret = auth_jwt_secret();
+    char payload[96];
+    snprintf(payload, sizeof(payload), "{\"p\":\"2fa\",\"sub\":\"%d\"}", user_id);
+    char *pending = secret ? cwist_jwt_sign(payload, secret, 300) : NULL;
+    if (!pending) {
+        CWIST_LOG_ERROR("Login 2FA pending token failed username='%s'", username);
+        send_html_res(res, render_login(dark, "Server error", mobile, redirect_target));
+        return true;
+    }
+    CWIST_LOG_INFO("Login 2FA step issued: username='%s'", username);
+    send_html_res(res, render_login_2fa(dark, pending, redirect_target, mobile, NULL));
+    cwist_free(pending);
+    return true;
+}
+
 void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     bool dark = is_dark(req);
     bool mobile = is_mobile_request(req);
@@ -157,19 +179,37 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    /* Admin login via admin.settings */
+    /* The admin.settings credential uses its users row for account state and
+     * TOTP, just like a registered administrator. */
     if (auth_admin_check(username, password)) {
+        int admin_uid = auth_site_admin_uid();
+        cJSON *admin = db_user_get_by_id(req->db, admin_uid);
+        if (!admin || json_int(admin, "active", 1) == 0 || json_int(admin, "ghosted", 0) != 0) {
+            CWIST_LOG_WARN("Local admin login blocked: account is disabled");
+            ipban_note_failure(req);
+            send_html_res(res, render_login(dark, "Invalid credentials", mobile, redirect_target));
+            if (admin) cJSON_Delete(admin);
+            cwist_query_map_destroy(kv);
+            return;
+        }
+        if (login_2fa_step(req, res, admin, username, redirect_target, dark, mobile)) {
+            cJSON_Delete(admin);
+            cwist_query_map_destroy(kv);
+            return;
+        }
         CWIST_LOG_INFO("Admin login success: username='%s'", username);
         ipban_note_success(req);
-        char *token = auth_jwt_issue(auth_site_admin_uid(), username, "admin");
+        char *token = auth_jwt_issue(admin_uid, username, "admin");
         if (!token) {
             CWIST_LOG_ERROR("Admin login failed: token issue error username='%s'", username);
             send_html_res(res, render_login(dark, "Server error", mobile, redirect_target));
+            cJSON_Delete(admin);
             cwist_query_map_destroy(kv);
             return;
         }
         set_auth_cookies(res, token, req_is_tls(req));
         cwist_free(token);
+        cJSON_Delete(admin);
         page_cache_invalidate_all();
         redirect_referer_safe(res, redirect_target, "/admin");
         cwist_query_map_destroy(kv);
@@ -177,10 +217,11 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
     }
 
     cJSON *user = db_user_get_by_username(req->db, username);
-    if (!user) {
+    if (!user || json_int(user, "active", 1) == 0 || json_int(user, "ghosted", 0) != 0) {
         CWIST_LOG_WARN("Login failed: invalid credentials for username='%s'", username);
         ipban_note_failure(req);
         send_html_res(res, render_login(dark, "Invalid credentials", mobile, redirect_target));
+        if (user) cJSON_Delete(user);
         cwist_query_map_destroy(kv);
         return;
     }
@@ -216,26 +257,8 @@ void handler_login_post(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
 
-    /* Two-factor: password is proven, but the TOTP step still stands. Issue
-     * a 5-minute pending token (purpose claim "2fa") and render the code
-     * entry form; handler_login_2fa_post completes the login. */
-    if (json_int(user, "totp_enabled", 0) == 1 && json_string_or_empty(user, "totp_secret")[0]) {
-        const char *secret = auth_jwt_secret();
-        char payload[96];
-        /* cwist_jwt_claims_get only returns string claims, so the uid rides
-         * in "sub" (same convention as the session tokens). */
-        snprintf(payload, sizeof(payload), "{\"p\":\"2fa\",\"sub\":\"%d\"}", user_id);
-        char *pending = secret ? cwist_jwt_sign(payload, secret, 300) : NULL;
-        if (!pending) {
-            CWIST_LOG_ERROR("Login 2FA pending token failed username='%s'", username);
-            cJSON_Delete(user);
-            send_html_res(res, render_login(dark, "Server error", mobile, redirect_target));
-            cwist_query_map_destroy(kv);
-            return;
-        }
-        CWIST_LOG_INFO("Login 2FA step issued: username='%s'", username);
-        send_html_res(res, render_login_2fa(dark, pending, redirect_target, mobile, NULL));
-        cwist_free(pending);
+    /* Password is proven, but an enabled TOTP step still stands. */
+    if (login_2fa_step(req, res, user, username, redirect_target, dark, mobile)) {
         cJSON_Delete(user);
         cwist_query_map_destroy(kv);
         return;
@@ -363,7 +386,7 @@ static void complete_login(cwist_http_request *req, cwist_http_response *res,
     set_auth_cookies(res, token, req_is_tls(req));
     cwist_free(token);
     page_cache_invalidate_all();
-    redirect_referer_safe(res, redirect_target, "/");
+    redirect_referer_safe(res, redirect_target, auth_is_site_admin(uid) ? "/admin" : "/");
 }
 
 /* POST /login/2fa - completes a login that stopped at the TOTP step.
@@ -511,8 +534,9 @@ void handler_account_totp_post(cwist_http_request *req, cwist_http_response *res
         const char *code = cwist_query_map_get(kv, "code");
         const char *secret_stored = json_string_or_empty(user, "totp_secret");
         cJSON *hash = cJSON_GetObjectItem(user, "password_hash");
-        bool password_ok = hash && hash->valuestring && password &&
-                           auth_verify_password(password, hash->valuestring);
+        bool password_ok = password && (auth_is_site_admin(uid)
+            ? auth_admin_check(auth_admin_username(), password)
+            : hash && hash->valuestring && auth_verify_password(password, hash->valuestring));
         bool code_ok = (secret_stored[0] && totp_verify(secret_stored, code)) ||
                        totp_recovery_consume(req->db, uid, json_string_or_empty(user, "totp_recovery"), code);
         if (password_ok && code_ok) {

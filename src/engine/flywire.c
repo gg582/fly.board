@@ -1058,11 +1058,9 @@ static bool flywire_apply_row(sqlite3 *main_conn, long long seq, const char *ent
 
     bool ok;
     if (strcmp(e->entity, "user") == 0 && strcmp(op, "upsert") == 0) {
-        /* Never clobber the replica's own admin identity: skip any user
-         * upsert whose username matches the local admin.settings username,
-         * and never touch the admin.settings account row itself. The primary
-         * may journal the same-named row (or the same id after a reseed);
-         * locally that row is how the operator signs in. */
+        /* Never clobber the replica's own admin identity with a full user
+         * upsert. The security-only snapshot above is the exception: it keeps
+         * TOTP and disabled state consistent without replacing the local row. */
         cJSON *payload = cJSON_Parse(payload_json && payload_json[0] ? payload_json : "{}");
         cJSON *profile = payload ? cJSON_GetObjectItem(payload, "profile_pic") : NULL;
         if (cJSON_IsString(profile)) {
@@ -1073,6 +1071,18 @@ static bool flywire_apply_row(sqlite3 *main_conn, long long seq, const char *ent
         }
         const char *uname = payload && cJSON_IsString(cJSON_GetObjectItem(payload, "username"))
                                 ? cJSON_GetObjectItem(payload, "username")->valuestring : "";
+        if (entity_id > 0 && entity_id == auth_site_admin_uid() && uname[0] &&
+            strcmp(uname, auth_admin_username()) == 0) {
+            /* Keep the node-local identity, but never let its password-only
+             * login bypass a TOTP policy or disabled state set on the primary. */
+            bool applied = db_user_apply_replicated_security(conn, entity_id, payload);
+            if (!applied) {
+                CWIST_LOG_WARN("flywire: Local Admin security sync failed at seq %lld: %s",
+                               seq, sqlite3_errmsg(conn));
+            }
+            if (payload) cJSON_Delete(payload);
+            return true;
+        }
         if (uname[0] && strcmp(uname, auth_admin_username()) == 0) {
             CWIST_LOG_WARN("flywire: skipped user upsert for local admin username '%s' at seq %lld",
                            uname, seq);

@@ -36,8 +36,14 @@ cJSON *db_user_get_by_username(cwist_db *db, const char *username);
 cJSON *db_user_get_by_id(cwist_db *db, int id);
 bool db_user_create(cwist_db *db, const char *username, const char *email, const char *password_hash);
 /* users.id of the admin.settings account, creating its row on first run and
- * keeping its name in step with admin.settings. 0 on failure. */
+ * keeping an active row's name in step with admin.settings. 0 on failure. */
 int db_user_ensure_site_admin(cwist_db *db, const char *username);
+/* Disable the Local Admin only when another active admin has TOTP enabled.
+ * Optionally move authored content, mail and guestbook ownership first. */
+bool db_user_disable_site_admin(cwist_db *db, int source_id, int target_id, bool transfer_content);
+/* Replicas apply only account-security fields to their own Local Admin row;
+ * its username, email, password hash and profile stay node-local. */
+bool db_user_apply_replicated_security(sqlite3 *conn, int id, const cJSON *snapshot);
 bool db_user_delete(cwist_db *db, int id);
 /* Convert an account to a non-login author placeholder. Posts and comments
  * keep their ids and relationships; credentials and private owned rows go. */

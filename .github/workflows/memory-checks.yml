@@ -312,6 +312,11 @@ jobs:
         env:
           EXTRA_CFLAGS: -I${{ github.workspace }}/third_party/libttak/include
 
+      - name: Run Local Admin authentication and transfer test
+        run: make check-local-admin
+        env:
+          EXTRA_CFLAGS: -I${{ github.workspace }}/third_party/libttak/include
+
         # Plain optimized build (no ASan) so the RSS numbers reflect the
         # allocator behavior real traffic would see, not sanitizer overhead.
       - name: Run RSS-growth loop test

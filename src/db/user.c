@@ -234,7 +234,7 @@ int db_user_delete_unverified_expired(cwist_db *db) {
 }
 
 cJSON *db_user_list(cwist_db *db) {
-    const char *sql = "SELECT id, username, email, role, profile_pic, created_at, active, totp_enabled FROM users ORDER BY id";
+    const char *sql = "SELECT id, username, email, role, profile_pic, created_at, active, ghosted, totp_enabled FROM users ORDER BY id";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
     return db_sqlite3_rows_to_json(stmt);
@@ -391,6 +391,11 @@ static int row_int(cJSON *row, const char *key) {
     return 0;
 }
 
+static const char *row_string(cJSON *row, const char *key) {
+    const char *value = cJSON_GetStringValue(cJSON_GetObjectItem(row, key));
+    return value ? value : "";
+}
+
 static bool username_taken(cwist_db *db, const char *username, int except_id) {
     cJSON *u = db_user_get_by_username(db, username);
     if (!u) return false;
@@ -419,7 +424,13 @@ int db_user_ensure_site_admin(cwist_db *db, const char *username) {
     cJSON *existing = id > 0 ? db_user_get_by_id(db, id) : NULL;
     char name[128];
     if (existing) {
-        /* Follow a renamed admin.settings id and keep the row an admin. */
+        /* A transferred or explicitly disabled Local Admin stays disabled
+         * across restarts. The admin.settings password alone cannot revive it. */
+        if (row_int(existing, "active") == 0 || row_int(existing, "ghosted") != 0) {
+            cJSON_Delete(existing);
+            return id;
+        }
+        /* Follow a renamed admin.settings id and keep an active row an admin. */
         cJSON *current_item = cJSON_GetObjectItem(existing, "username");
         const char *current = cJSON_IsString(current_item) && current_item->valuestring ? current_item->valuestring : "";
         if (strcmp(current, username) != 0 && !username_taken(db, username, id)) {
@@ -428,7 +439,7 @@ int db_user_ensure_site_admin(cwist_db *db, const char *username) {
             snprintf(name, sizeof(name), "%s", current);
         }
         cJSON_Delete(existing);
-        const char *sql = "UPDATE users SET username=?, role='admin', active=1 WHERE id=?";
+        const char *sql = "UPDATE users SET username=?, role='admin' WHERE id=?";
         sqlite3_stmt *stmt = NULL;
         if (sqlite3_prepare_v2(fly_db_conn(db), sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
         sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
@@ -459,5 +470,200 @@ int db_user_ensure_site_admin(cwist_db *db, const char *username) {
     if (!db_site_setting_set(db, SITE_ADMIN_SETTING, value)) return 0;
     journal_user_row(db, id);
     return id;
+}
+
+typedef struct {
+    const char *table;
+    const char *entity;
+    cJSON *ids;
+    bool external;
+} transfer_rows_t;
+
+static cJSON *transfer_collect_ids(sqlite3 *conn, const char *sql, int source_id, bool bind_twice) {
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_int(stmt, 1, source_id);
+    if (bind_twice) sqlite3_bind_int(stmt, 2, source_id);
+    cJSON *ids = cJSON_CreateArray();
+    if (!ids) {
+        sqlite3_finalize(stmt);
+        return NULL;
+    }
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        cJSON_AddItemToArray(ids, cJSON_CreateNumber(sqlite3_column_int(stmt, 0)));
+    }
+    sqlite3_finalize(stmt);
+    return ids;
+}
+
+static void transfer_rows_free(transfer_rows_t *rows, size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        if (rows[i].ids) cJSON_Delete(rows[i].ids);
+        rows[i].ids = NULL;
+    }
+}
+
+static bool transfer_exec(sqlite3 *conn, const char *sql, int target_id, int source_id) {
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, target_id);
+    sqlite3_bind_int(stmt, 2, source_id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+static void transfer_journal_rows(cwist_db *db, sqlite3 *comments, transfer_rows_t *rows, size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        cJSON *id = NULL;
+        cJSON_ArrayForEach(id, rows[i].ids) {
+            if (!cJSON_IsNumber(id)) continue;
+            if (rows[i].external) {
+                db_sync_journal_external_row(comments, rows[i].table, "id", rows[i].entity, id->valueint);
+            } else {
+                db_sync_journal_row(db, rows[i].table, rows[i].entity, id->valueint);
+            }
+        }
+    }
+}
+
+bool db_user_disable_site_admin(cwist_db *db, int source_id, int target_id, bool transfer_content) {
+    if (!db || source_id <= 0 || target_id <= 0 || source_id == target_id) return false;
+    cJSON *source = db_user_get_by_id(db, source_id);
+    cJSON *target = db_user_get_by_id(db, target_id);
+    char target_name[128] = {0};
+    if (target) snprintf(target_name, sizeof(target_name), "%s", row_string(target, "username"));
+    const char *target_totp = row_string(target, "totp_secret");
+    bool valid = source && target && row_int(source, "active") == 1 &&
+                 row_int(source, "ghosted") == 0 && row_int(target, "active") == 1 &&
+                 row_int(target, "ghosted") == 0 && strcmp(row_string(target, "role"), "admin") == 0 &&
+                 row_int(target, "totp_enabled") == 1 && target_totp[0] && target_name[0];
+    cJSON_Delete(source);
+    cJSON_Delete(target);
+    if (!valid) return false;
+
+    sqlite3 *conn = fly_db_conn(db);
+    sqlite3 *comments = transfer_content ? db_comment_conn() : NULL;
+    if (!conn || (transfer_content && !comments)) return false;
+    if (!db_transaction_begin(db)) return false;
+    bool comments_tx = false;
+    bool ok = true;
+    transfer_rows_t moved[] = {
+        { "posts", "post", NULL, false },
+        { "files", "file", NULL, false },
+        { "emails", "email", NULL, false },
+        { "guestbook", "guestbook", NULL, false },
+        { "comments", "comment", NULL, true },
+    };
+    const size_t moved_count = sizeof(moved) / sizeof(moved[0]);
+
+    if (transfer_content && sqlite3_exec(comments, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) {
+        ok = false;
+    } else if (transfer_content) {
+        comments_tx = true;
+    }
+
+    if (ok && transfer_content) {
+        moved[0].ids = transfer_collect_ids(conn, "SELECT id FROM posts WHERE user_id=?", source_id, false);
+        moved[1].ids = transfer_collect_ids(conn, "SELECT id FROM files WHERE user_id=?", source_id, false);
+        moved[2].ids = transfer_collect_ids(conn, "SELECT id FROM emails WHERE owner_id=?", source_id, false);
+        moved[3].ids = transfer_collect_ids(conn, "SELECT id FROM guestbook WHERE owner_uid=? OR author_uid=?", source_id, true);
+        moved[4].ids = transfer_collect_ids(comments, "SELECT id FROM comments WHERE user_id=?", source_id, false);
+        for (size_t i = 0; i < moved_count; i++) {
+            if (!moved[i].ids) ok = false;
+        }
+    }
+
+    if (ok && transfer_content) {
+        ok = transfer_exec(conn, "UPDATE posts SET user_id=? WHERE user_id=?", target_id, source_id) &&
+             transfer_exec(conn, "UPDATE files SET user_id=? WHERE user_id=?", target_id, source_id) &&
+             transfer_exec(conn, "UPDATE emails SET owner_id=? WHERE owner_id=?", target_id, source_id) &&
+             transfer_exec(conn, "UPDATE guestbook SET owner_uid=? WHERE owner_uid=?", target_id, source_id) &&
+             transfer_exec(conn, "UPDATE guestbook SET author_uid=? WHERE author_uid=?", target_id, source_id) &&
+             transfer_exec(conn, "UPDATE post_revisions SET editor_id=? WHERE editor_id=?", target_id, source_id);
+    }
+    if (ok && transfer_content) {
+        sqlite3_stmt *stmt = NULL;
+        ok = sqlite3_prepare_v2(comments,
+                 "UPDATE comments SET user_id=?, author_name=? WHERE user_id=?", -1, &stmt, NULL) == SQLITE_OK;
+        if (ok) {
+            sqlite3_bind_int(stmt, 1, target_id);
+            sqlite3_bind_text(stmt, 2, target_name, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(stmt, 3, source_id);
+            ok = sqlite3_step(stmt) == SQLITE_DONE;
+        }
+        sqlite3_finalize(stmt);
+        if (ok) {
+            sqlite3_stmt *name_stmt = NULL;
+            ok = sqlite3_prepare_v2(conn, "UPDATE guestbook SET author_name=? WHERE author_uid=?", -1, &name_stmt, NULL) == SQLITE_OK;
+            if (ok) {
+                sqlite3_bind_text(name_stmt, 1, target_name, -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(name_stmt, 2, target_id);
+                ok = sqlite3_step(name_stmt) == SQLITE_DONE;
+            }
+            sqlite3_finalize(name_stmt);
+        }
+    }
+
+    if (ok) {
+        long revoke_after = (long)time(NULL) + 1;
+        sqlite3_stmt *stmt = NULL;
+        ok = sqlite3_prepare_v2(conn,
+                 "UPDATE users SET active=0, role='user', totp_secret='', totp_enabled=0, "
+                 "totp_recovery='', sessions_valid_after=? WHERE id=? AND active=1", -1, &stmt, NULL) == SQLITE_OK;
+        if (ok) {
+            sqlite3_bind_int64(stmt, 1, revoke_after);
+            sqlite3_bind_int(stmt, 2, source_id);
+            ok = sqlite3_step(stmt) == SQLITE_DONE && sqlite3_changes(conn) == 1;
+        }
+        sqlite3_finalize(stmt);
+        if (ok) {
+            ok = transfer_exec(conn, "DELETE FROM email_tokens WHERE user_id=?", source_id, source_id) &&
+                 transfer_exec(conn, "DELETE FROM password_resets WHERE user_id=?", source_id, source_id);
+        }
+    }
+
+    if (ok) {
+        if (transfer_content) transfer_journal_rows(db, comments, moved, moved_count);
+        journal_user_row(db, source_id);
+    }
+    transfer_rows_free(moved, moved_count);
+
+    if (ok && comments_tx && sqlite3_exec(comments, "COMMIT", NULL, NULL, NULL) != SQLITE_OK) ok = false;
+    if (ok && !db_transaction_commit(db)) ok = false;
+    if (!ok) {
+        if (comments_tx) sqlite3_exec(comments, "ROLLBACK", NULL, NULL, NULL);
+        db_transaction_rollback(db);
+    }
+    return ok;
+}
+
+bool db_user_apply_replicated_security(sqlite3 *conn, int id, const cJSON *snapshot) {
+    if (!conn || id <= 0 || !cJSON_IsObject(snapshot)) return false;
+    cJSON *active = cJSON_GetObjectItem(snapshot, "active");
+    cJSON *role = cJSON_GetObjectItem(snapshot, "role");
+    cJSON *secret = cJSON_GetObjectItem(snapshot, "totp_secret");
+    cJSON *enabled = cJSON_GetObjectItem(snapshot, "totp_enabled");
+    cJSON *recovery = cJSON_GetObjectItem(snapshot, "totp_recovery");
+    cJSON *valid_after = cJSON_GetObjectItem(snapshot, "sessions_valid_after");
+    if (!cJSON_IsNumber(active) || !cJSON_IsString(role) || !cJSON_IsString(secret) ||
+        !cJSON_IsNumber(enabled) || !cJSON_IsString(recovery) || !cJSON_IsNumber(valid_after) ||
+        (strcmp(role->valuestring, "admin") != 0 && strcmp(role->valuestring, "user") != 0)) {
+        return false;
+    }
+    const char *sql = "UPDATE users SET active=?, role=?, totp_secret=?, totp_enabled=?, "
+                      "totp_recovery=?, sessions_valid_after=? WHERE id=?";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(conn, sql, -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, active->valueint ? 1 : 0);
+    sqlite3_bind_text(stmt, 2, role->valuestring, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, secret->valuestring, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 4, enabled->valueint ? 1 : 0);
+    sqlite3_bind_text(stmt, 5, recovery->valuestring, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 6, (sqlite3_int64)valid_after->valuedouble);
+    sqlite3_bind_int(stmt, 7, id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE && sqlite3_changes(conn) == 1;
 }
 

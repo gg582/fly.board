@@ -182,6 +182,7 @@ void engine_routes_register(cwist_app *app) {
     engine_async_get(app, "/admin/users", handler_admin_users);
     engine_async_get(app, "/admin/user/role", handler_admin_users);
     engine_async_post(app, "/admin/user/role", handler_admin_user_role);
+    engine_async_post(app, "/admin/user/local-admin", handler_admin_user_local_admin_post);
     engine_async_post(app, "/admin/user/totp-reset", handler_admin_user_totp_reset_post);
     engine_async_post(app, "/admin/user/reset-link", handler_admin_user_reset_link_post);
     engine_async_get(app, "/admin/files/drop", handler_file_repo);

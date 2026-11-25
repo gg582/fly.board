@@ -11,30 +11,85 @@
 #include <stdio.h>
 #include <string.h>
 
-cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pic, bool is_mobile) {
+static void append_local_admin_panel(cwist_sstring *b, cJSON *users, const char *msg) {
+    if (msg && msg[0]) {
+        const char *text = strcmp(msg, "local_transferred") == 0 ? "Local Admin content was transferred and its password login is disabled."
+                         : strcmp(msg, "local_disabled") == 0 ? "Local Admin password login is disabled."
+                         : strcmp(msg, "local_already_disabled") == 0 ? "Local Admin is already disabled."
+                         : "Local Admin was not changed. Choose another active administrator with 2FA enabled.";
+        cwist_sstring_append(b, "<div class='alert'>");
+        cwist_sstring_append_escaped(b, text);
+        cwist_sstring_append(b, "</div>");
+    }
+    cJSON *local = NULL;
+    int eligible = 0;
+    cJSON *u = NULL;
+    cJSON_ArrayForEach(u, users) {
+        int id = json_int(u, "id", 0);
+        if (auth_is_site_admin(id)) local = u;
+        if (!auth_is_site_admin(id) && json_int(u, "active", 1) == 1 &&
+            json_int(u, "ghosted", 0) == 0 && strcmp(json_string_or_empty(u, "role"), "admin") == 0 &&
+            json_int(u, "totp_enabled", 0) == 1) {
+            eligible++;
+        }
+    }
+    if (!local) return;
+    bool active = json_int(local, "active", 1) == 1;
+    cwist_sstring_append(b, "<section class='card' id='local-admin'><h2 style='margin-top:0'>Local Admin</h2>");
+    cwist_sstring_append(b, "<p class='board-card-desc'>The account from admin.settings. Its account settings support TOTP setup and recovery codes.</p>");
+    if (!active) {
+        cwist_sstring_append(b, "<p><span class='tag'>disabled</span> The admin.settings password can no longer sign in. Restarting the server does not reactivate this account.</p></section>");
+        return;
+    }
+    cwist_sstring_append(b, "<p><span class='tag'>active</span> Choose another active administrator with 2FA enabled before disabling this account.</p>");
+    if (eligible == 0) {
+        cwist_sstring_append(b, "<p>No eligible target administrator exists. Promote another account and enable its 2FA first.</p></section>");
+        return;
+    }
+    cwist_sstring_append(b, "<form action='/admin/user/local-admin' method='post' data-confirm='Apply the selected Local Admin operation? The current Local Admin sessions will be revoked.'>");
+    cwist_sstring_append(b, "<label for='local-admin-target'>Remaining administrator</label><br><select id='local-admin-target' name='id' required>");
+    cJSON_ArrayForEach(u, users) {
+        int id = json_int(u, "id", 0);
+        if (auth_is_site_admin(id) || json_int(u, "active", 1) != 1 ||
+            json_int(u, "ghosted", 0) != 0 || strcmp(json_string_or_empty(u, "role"), "admin") != 0 ||
+            json_int(u, "totp_enabled", 0) != 1) continue;
+        char id_buf[32];
+        snprintf(id_buf, sizeof(id_buf), "<option value='%d'>", id);
+        cwist_sstring_append(b, id_buf);
+        cwist_sstring_append_escaped(b, json_string_or_empty(u, "username"));
+        cwist_sstring_append(b, "</option>");
+    }
+    cwist_sstring_append(b, "</select><div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:12px'>");
+    cwist_sstring_append(b, "<button type='submit' name='action' value='transfer' class='btn'>Transfer content and disable</button>");
+    cwist_sstring_append(b, "<button type='submit' name='action' value='disable' class='btn btn-outline'>Disable without transferring content</button>");
+    cwist_sstring_append(b, "</div></form></section>");
+}
+
+cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pic, bool is_mobile, const char *msg) {
     cwist_sstring *b = cwist_sstring_create();
     cwist_sstring_assign(b, "<div class='hero'><h1>User Admin</h1></div>");
+    append_local_admin_panel(b, users, msg);
     cwist_sstring_append(b, "<div class='card admin-user-card'><div class='table-scroll'><table class='admin-user-table' style='width:100%;border-collapse:collapse'>");
     cwist_sstring_append(b, "<thead><tr><th style='text-align:left;padding:8px'>User</th><th style='text-align:left;padding:8px'>Email</th><th class='admin-role-col' style='text-align:left;padding:8px'>Role</th><th class='admin-action-col' style='text-align:left;padding:8px'>Action</th></tr></thead><tbody>");
-    if (users) {
-        int n = cJSON_GetArraySize(users);
-        for (int i = 0; i < n; i++) {
-            cJSON *u = cJSON_GetArrayItem(users, i);
-            cJSON *uid = cJSON_GetObjectItem(u, "id");
-            cJSON *uname = cJSON_GetObjectItem(u, "username");
-            cJSON *email = cJSON_GetObjectItem(u, "email");
-            cJSON *role = cJSON_GetObjectItem(u, "role");
-            cwist_sstring_append(b, "<tr><td style='padding:8px'>");
-            cwist_sstring_append_escaped(b, uname->valuestring);
-            cwist_sstring_append(b, "</td><td style='padding:8px'>");
-            cwist_sstring_append_escaped(b, email->valuestring);
-            cwist_sstring_append(b, "</td><td class='admin-role-cell' style='padding:8px'>");
-            cwist_sstring_append_escaped(b, role->valuestring);
-            cwist_sstring_append(b, "</td><td class='admin-action-cell' style='padding:8px'>");
-            cwist_sstring_append(b, "<form class='admin-role-form' action='/admin/user/role' method='post'>");
-            cwist_sstring_append(b, "<input type='hidden' name='id' value='");
-            char uid_buf[32];
-            snprintf(uid_buf, sizeof(uid_buf), "%d", uid->valueint);
+    cJSON *u = NULL;
+    cJSON_ArrayForEach(u, users) {
+        int id = json_int(u, "id", 0);
+        bool local = auth_is_site_admin(id);
+        bool active = json_int(u, "active", 1) == 1;
+        const char *role = json_string_or_empty(u, "role");
+        char uid_buf[32];
+        snprintf(uid_buf, sizeof(uid_buf), "%d", id);
+        cwist_sstring_append(b, "<tr><td style='padding:8px'>");
+        cwist_sstring_append_escaped(b, json_string_or_empty(u, "username"));
+        if (local) cwist_sstring_append(b, " <span class='tag'>Local Admin</span>");
+        if (!active) cwist_sstring_append(b, " <span class='tag'>suspended</span>");
+        cwist_sstring_append(b, "</td><td style='padding:8px'>");
+        cwist_sstring_append_escaped(b, json_string_or_empty(u, "email"));
+        cwist_sstring_append(b, "</td><td class='admin-role-cell' style='padding:8px'>");
+        cwist_sstring_append_escaped(b, role);
+        cwist_sstring_append(b, "</td><td class='admin-action-cell' style='padding:8px'>");
+        if (!local) {
+            cwist_sstring_append(b, "<form class='admin-role-form' action='/admin/user/role' method='post'><input type='hidden' name='id' value='");
             cwist_sstring_append(b, uid_buf);
             cwist_sstring_append(b, "'>");
             if (!community_roles_enabled()) {
@@ -45,47 +100,43 @@ cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pi
                 for (size_t r = 0; r < sizeof(roles) / sizeof(roles[0]); r++) {
                     cwist_sstring_append(b, "<option value='");
                     cwist_sstring_append(b, roles[r]);
-                    cwist_sstring_append(b, strcmp(role->valuestring, roles[r]) == 0 ? "' selected>" : "'>");
+                    cwist_sstring_append(b, strcmp(role, roles[r]) == 0 ? "' selected>" : "'>");
                     cwist_sstring_append(b, roles[r]);
                     cwist_sstring_append(b, "</option>");
                 }
                 cwist_sstring_append(b, "</select>");
             }
             cwist_sstring_append(b, "<button type='submit' class='btn' style='font-size:12px;padding:4px 10px;margin-left:6px'>Set</button></form>");
-            if (community_roles_enabled() && !auth_is_site_admin(uid->valueint) && strcmp(role->valuestring, "admin") != 0) {
-                bool active = json_int(u, "active", 1) != 0;
-                cwist_sstring_append(b, " <form action='/admin/user/role' method='post' style='display:inline'><input type='hidden' name='id' value='");
-                cwist_sstring_append(b, uid_buf);
-                cwist_sstring_append(b, "'><input type='hidden' name='active' value='");
-                cwist_sstring_append(b, active ? "0" : "1");
-                cwist_sstring_append(b, "'><button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>");
-                cwist_sstring_append(b, active ? "Suspend" : "Restore");
-                cwist_sstring_append(b, "</button></form>");
-                if (!active) cwist_sstring_append(b, " <span class='tag'>suspended</span>");
-            }
-            cwist_sstring_append(b, " <a href='/account/settings?id=");
-            cwist_sstring_append(b, uid_buf);
-            cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px;text-decoration:none'>Edit</a>");
-            if (json_int(u, "totp_enabled", 0) == 1) {
-                cwist_sstring_append(b, " <span class='tag' style='font-size:11px;padding:3px 8px'>2FA</span>");
-                cwist_sstring_append(b, " <form class='admin-totp-reset-form' action='/admin/user/totp-reset' method='post' style='display:inline'>");
-                cwist_sstring_append(b, "<input type='hidden' name='id' value='");
-                cwist_sstring_append(b, uid_buf);
-                cwist_sstring_append(b, "'>");
-                cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Reset two-factor for this user? They can sign in with their password alone.'>Reset 2FA</button></form>");
-            }
-            if (!auth_is_site_admin(uid->valueint) && json_int(u, "ghosted", 0) == 0) {
-                cwist_sstring_append(b, " <form action='/admin/user/reset-link' method='post' style='display:inline'><input type='hidden' name='id' value='");
-                cwist_sstring_append(b, uid_buf);
-                cwist_sstring_append(b, "'><button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Create a one-time password reset link for this user? Their current password keeps working until the link is used.'>Reset password</button></form>");
-            }
-            cwist_sstring_append(b, " <form class='admin-delete-form' action='/unregister' method='post' style='display:inline'>");
-            cwist_sstring_append(b, "<input type='hidden' name='id' value='");
-            cwist_sstring_append(b, uid_buf);
-            cwist_sstring_append(b, "'>");
-            cwist_sstring_append(b, "<button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Delete?'>Delete</button></form>");
-            cwist_sstring_append(b, "</td></tr>");
         }
+        if (community_roles_enabled() && !local && strcmp(role, "admin") != 0) {
+            cwist_sstring_append(b, " <form action='/admin/user/role' method='post' style='display:inline'><input type='hidden' name='id' value='");
+            cwist_sstring_append(b, uid_buf);
+            cwist_sstring_append(b, "'><input type='hidden' name='active' value='");
+            cwist_sstring_append(b, active ? "0" : "1");
+            cwist_sstring_append(b, "'><button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px'>");
+            cwist_sstring_append(b, active ? "Suspend" : "Restore");
+            cwist_sstring_append(b, "</button></form>");
+        }
+        cwist_sstring_append(b, " <a href='/account/settings?id=");
+        cwist_sstring_append(b, uid_buf);
+        cwist_sstring_append(b, "' class='btn btn-outline' style='font-size:12px;padding:4px 10px;text-decoration:none'>Edit</a>");
+        if (json_int(u, "totp_enabled", 0) == 1) {
+            cwist_sstring_append(b, " <span class='tag' style='font-size:11px;padding:3px 8px'>2FA</span>");
+            if (!local) {
+                cwist_sstring_append(b, " <form class='admin-totp-reset-form' action='/admin/user/totp-reset' method='post' style='display:inline'><input type='hidden' name='id' value='");
+                cwist_sstring_append(b, uid_buf);
+                cwist_sstring_append(b, "'><button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Reset two-factor for this user? They can sign in with their password alone.'>Reset 2FA</button></form>");
+            }
+        }
+        if (!local && json_int(u, "ghosted", 0) == 0) {
+            cwist_sstring_append(b, " <form action='/admin/user/reset-link' method='post' style='display:inline'><input type='hidden' name='id' value='");
+            cwist_sstring_append(b, uid_buf);
+            cwist_sstring_append(b, "'><button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Create a one-time password reset link for this user? Their current password keeps working until the link is used.'>Reset password</button></form>");
+            cwist_sstring_append(b, " <form class='admin-delete-form' action='/unregister' method='post' style='display:inline'><input type='hidden' name='id' value='");
+            cwist_sstring_append(b, uid_buf);
+            cwist_sstring_append(b, "'><button type='submit' class='btn btn-outline' style='font-size:12px;padding:4px 10px' data-confirm='Delete?'>Delete</button></form>");
+        }
+        cwist_sstring_append(b, "</td></tr>");
     }
     cwist_sstring_append(b, "</tbody></table></div></div>");
     cwist_sstring_append(b, "<div class='card' style='margin-top:20px'><h3 style='margin-top:0'>File Admin</h3>");

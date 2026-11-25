@@ -80,7 +80,7 @@ cwist_sstring *render_admin_attachments(cJSON *files, const char *view, const ch
                                         const char *profile_pic, bool is_mobile);
 cwist_sstring *render_admin_reports(cJSON *groups, const char *status, const char *msg, bool dark,
                                     const char *profile_pic, bool is_mobile);
-cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pic, bool is_mobile);
+cwist_sstring *render_user_admin(cJSON *users, bool dark, const char *profile_pic, bool is_mobile, const char *msg);
 cwist_sstring *render_admin_boards(cJSON *boards, cJSON *tree, bool dark, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_file_repo(cJSON *files, bool dark, const char *user_role, int user_id, const char *profile_pic, bool is_mobile);
 cwist_sstring *render_notifications_page(cJSON *notifs, bool dark, const char *user_role, const char *profile_pic, bool is_mobile);
