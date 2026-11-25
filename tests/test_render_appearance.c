@@ -32,6 +32,14 @@ int main(void) {
               "SVG format checkbox is checked by default");
         CHECK(strstr(page->data, "name='transparent_format_png' value='png' data-transparent-format data-appearance-setting>") != NULL,
               "PNG format is opt-in");
+        CHECK(strstr(page->data, "<fieldset class='appearance-field appearance-format-field'><legend>Formats to invert</legend><div class='appearance-format-grid'>") != NULL,
+              "format choices use a labelled checkbox grid");
+        CHECK(strstr(page->data, "class='check-row appearance-format-option'><input type='checkbox' name='transparent_format_svg'") != NULL &&
+              strstr(page->data, "class='check-row appearance-format-option appearance-format-all'><input type='checkbox' name='transparent_format_all'") != NULL,
+              "format choices keep checkbox semantics and full-width all option");
+        CHECK(strstr(page->data, ".appearance-field input:not([type='checkbox']):not([type='radio'])") != NULL &&
+              strstr(page->data, ".appearance-format-option input[type='checkbox']{width:18px;height:18px;padding:0;margin:0}") != NULL,
+              "text input sizing no longer stretches format checkboxes");
         CHECK(strstr(page->data, "data-theme-base=\"dark\"") != NULL,
               "page exposes its initial theme family");
         CHECK(strstr(page->data, "html[data-theme-base=dark] body.transparent-image-invert-enabled") != NULL,
