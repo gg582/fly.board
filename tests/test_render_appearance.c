@@ -47,6 +47,10 @@ int main(void) {
         CHECK(strstr(page->data, "name='panel_side' value='left' data-appearance-setting checked") != NULL &&
               strstr(page->data, "name='panel_side' value='right' data-appearance-setting>") != NULL,
               "panel side offers left (default) and right");
+        CHECK(strstr(page->data, ".appearance-theme-choice input[type='radio']:checked{color:var(--accent)}") != NULL &&
+              strstr(page->data, "url('/assets/images/circle.svg')") != NULL &&
+              strstr(page->data, "url('/assets/images/circle-check.svg')") != NULL,
+              "radio choices use flat SVG state icons tinted with the accent color");
         CHECK(strstr(page->data, "name='panel_x'") == NULL && strstr(page->data, "name='panel_y'") == NULL,
               "free-form panel offsets are gone");
         CHECK(strstr(page->data, "type='hidden' name='panel_width' value='380'") != NULL,
